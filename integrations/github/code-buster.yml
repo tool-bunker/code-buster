@@ -1,0 +1,24 @@
+name: Code Buster
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Code Buster
+        run: dart pub global activate code_buster
+      - name: Analyse changed production code
+        run: cb pr --changed-base '${{ github.event.pull_request.base.sha || github.event.before }}' --format sarif --output code-buster.sarif --fail-on-issues
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: code-buster.sarif

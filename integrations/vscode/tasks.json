@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Code Buster: summary",
+      "type": "shell",
+      "command": "cb",
+      "args": ["summary", "--root", "${workspaceFolder}"],
+      "problemMatcher": {
+        "owner": "code-buster",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(.*):(\\d+)(?:-(\\d+))? \\[(error|warn|info)\\] ([^ ]+) (.*)$",
+          "file": 1,
+          "line": 2,
+          "endLine": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      },
+      "group": "test"
+    }
+  ]
+}

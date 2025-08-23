@@ -1,0 +1,28 @@
+<!-- Add inside <profiles>. Run with: mvn verify -Pcode-buster -->
+<profile>
+  <id>code-buster</id>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <id>code-buster</id>
+            <phase>verify</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>cb</executable>
+              <arguments>
+                <argument>summary</argument>
+                <argument>--root</argument><argument>${maven.multiModuleProjectDirectory}</argument>
+                <argument>--fail-on-issues</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</profile>

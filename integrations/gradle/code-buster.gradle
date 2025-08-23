@@ -1,0 +1,9 @@
+// Apply with: apply from: "code-buster.gradle"
+tasks.register("codeBuster", Exec) {
+    group = "verification"
+    description = "Run deterministic repository analysis"
+    workingDir rootProject.projectDir
+    commandLine "cb", "summary", "--root", rootProject.projectDir, "--fail-on-issues"
+}
+
+tasks.named("check").configure { dependsOn("codeBuster") }
