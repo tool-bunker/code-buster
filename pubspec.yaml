@@ -1,4 +1,21 @@
 name: code_buster
-description: 
-version: 0.0.1
-repository: code-buster.../code-buster
+description: Deterministic offline repository architecture and multi-language static-analysis CLI.
+version: 0.1.0
+repository: https://github.com/tool-bunker/flax
+
+environment:
+  sdk: '>=3.11.0 <4.0.0'
+
+executables:
+  cb: cb
+
+dependencies:
+  analyzer: ^14.1.0
+  args: ^2.7.0
+  crypto: ^3.0.7
+  path: ^1.9.1
+  toml: ^0.18.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
