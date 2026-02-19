@@ -1,0 +1,54 @@
+languages = ["auto"]
+
+[analysis]
+# The release gate is intentionally an orchestration workflow with many checks.
+complexity_threshold = 60
+cognitive_complexity_threshold = 40
+# Language adapters deliberately share parser scaffolding below this size.
+duplication_min_lines = 40
+# Dogfood structural and external-contract overlap analysis.
+duplication_mode = "semantic"
+
+# Standalone Python utilities are explicit reachability roots. Removing a tool
+# from active automation or documentation must also remove its root here so
+# `cb dead --all` can identify the orphaned file.
+[files]
+entry_points = [
+  "tool/code_climate_report.py",
+  "tool/precision_benchmark.py",
+  "tool/release_evidence.py",
+  "tool/update_inventories.py",
+]
+
+
+# Fixture corpora and tests that deliberately embed invalid source are inputs
+# to analyzer tests, not source that should itself be linted.
+exclude = [
+  "test/fixtures",
+  "test/engine/analysis_test.dart",
+  "test/integration/parity_corpus_test.dart",
+  "test/languages/cpp_adapter_test.dart",
+  "test/languages/dart_rules_test.dart",
+  "test/languages/sql_adapter_test.dart",
+  "test/rules/ai_prompt_injection_test.dart",
+  "test/rules/regex_rules_test.dart",
+]
+
+[rules.groups]
+correctness = "count"
+security = "report"
+reliability = "count"
+accessibility = "report"
+performance = "count"
+maintainability = "count"
+style = "count"
+suspicious = "count"
+architecture = "off"
+domain = "off"
+experimental = "off"
+
+[rules.severity]
+# Analyzer regexes are one-off scan sites rather than hot-loop compilation.
+regex-repeated-compile = "off"
+# Repeated parser guard shapes are local and intentionally explicit.
+repeated-condition = "off"

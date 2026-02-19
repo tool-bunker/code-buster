@@ -1,0 +1,7 @@
+- id: code-buster
+  name: Code Buster repository analysis
+  description: Deterministic offline architecture and static analysis
+  entry: cb summary --fail-on-issues
+  language: system
+  pass_filenames: false
+  stages: [pre-commit, pre-push]
