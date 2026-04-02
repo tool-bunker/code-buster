@@ -1,0 +1,12 @@
+languages = ["dart", "python", "typescript", "cpp", "sql", "wren"]
+[files]
+entry_points = ["lib/main.dart", "python/main.py", "web/main.ts", "native/main.cpp", "wren/main.wren"]
+[rules]
+enabled_groups = ["core", "nim-style", "sql"]
+[rules.severity]
+dart-print = "info"
+py-requests-timeout = "warn"
+ts-console = "info"
+cpp-malloc-free = "warn"
+sql-delete-without-where = "warn"
+wren-number-parse-unchecked = "info"

@@ -1,0 +1,21 @@
+.scroll {
+  -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: scrollbar;
+}
+.scaled {
+  -webkit-transform: scale(1);
+}
+.text {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.touch {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+.webkit-text {
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 1px black;
+  -webkit-box-orient: vertical;
+}
+.decorated { -webkit-box-decoration-break: clone; box-decoration-break: clone; }

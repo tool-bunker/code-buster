@@ -1,0 +1,12 @@
+@utility scroll-fade-* {
+  --scroll-fade-size: calc(var(--spacing) * --value(integer));
+  --scroll-fade-size: --value([length], [percentage]);
+}
+@utility repeated-* {
+  --repeated: --value(integer);
+  --repeated: --value(integer);
+}
+.ordinary {
+  --theme-color: red;
+  --theme-color: blue;
+}

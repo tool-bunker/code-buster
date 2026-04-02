@@ -1,0 +1,24 @@
+.logical-start {
+  text-align: left;
+  text-align: start;
+}
+.logical-end {
+  text-align: right;
+  text-align: end;
+}
+.identical {
+  text-align: start;
+  text-align: start;
+}
+.reversed {
+  text-align: start;
+  text-align: left;
+}
+.unrelated {
+  text-align: center;
+  text-align: start;
+}
+.other-property {
+  float: left;
+  float: start;
+}

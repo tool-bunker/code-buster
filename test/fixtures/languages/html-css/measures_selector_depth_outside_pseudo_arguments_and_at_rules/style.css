@@ -1,0 +1,12 @@
+@media only screen and (prefers-color-scheme: dark) {
+  color: red;
+}
+@supports selector(:has(*)) {
+  color: blue;
+}
+:where(article, address, blockquote, dl, figure, form, ol, p, pre, table, ul) ~ :is(h1, h2, h3, h4, h5, h6) {
+  color: green;
+}
+.scope .a .b .c .d .e {
+  color: purple;
+}

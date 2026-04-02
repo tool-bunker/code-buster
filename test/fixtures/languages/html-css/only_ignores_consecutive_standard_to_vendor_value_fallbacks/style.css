@@ -1,0 +1,17 @@
+.supported-fallback {
+  outline: thin dotted;
+  outline: 5px auto -webkit-focus-ring-color;
+}
+.identical {
+  outline: thin dotted;
+  outline: thin dotted;
+}
+.conflicting {
+  outline: thin dotted;
+  outline: none;
+}
+.interrupted {
+  outline: thin dotted;
+  color: red;
+  outline: 5px auto -webkit-focus-ring-color;
+}

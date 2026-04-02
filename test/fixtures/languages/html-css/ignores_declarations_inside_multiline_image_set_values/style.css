@@ -1,0 +1,10 @@
+.image-set {
+  background-image: -webkit-image-set(
+    url(data:image/png;base64,AAAA) 1x,
+    url(data:image/png;base64,BBBB) 2x
+  );
+}
+.duplicate {
+  color: red;
+  color: blue;
+}

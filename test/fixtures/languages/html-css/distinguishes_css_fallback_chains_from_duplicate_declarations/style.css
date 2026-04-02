@@ -1,0 +1,30 @@
+.fallback {
+  background-image: -webkit-gradient(linear, left top, right top, from(red), to(blue));
+  background-image: -webkit-linear-gradient(left, red, blue);
+  background-image: linear-gradient(to right, red, blue);
+}
+.alpha-fallback {
+  background-color: #000;
+  background-color: rgba(0, 0, 0, .5);
+}
+.generated-content-fallback:before {
+  content: '';
+  content: none;
+}
+.different-colors {
+  background-color: #fff;
+  background-color: rgba(0, 0, 0, .5);
+}
+.identical {
+  display: -webkit-flex;
+  display: -webkit-flex;
+}
+.interrupted {
+  display: -webkit-flex;
+  color: red;
+  display: flex;
+}
+.overwrite {
+  position: fixed;
+  position: absolute;
+}

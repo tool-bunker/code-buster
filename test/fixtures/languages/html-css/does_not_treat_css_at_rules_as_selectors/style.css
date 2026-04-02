@@ -1,0 +1,8 @@
+@media screen and (min-width: 901px) and (max-width: 1400px) {
+  .shallow {
+    color: red;
+  }
+}
+.actual .deep .selector .still .reports .now {
+  color: blue;
+}

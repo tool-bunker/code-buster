@@ -1,0 +1,13 @@
+languages = ["csharp", "java", "lua", "nim", "html", "css", "javascript"]
+[files]
+entry_points = ["cs/Program.cs", "java/Main.java", "lua/main.lua", "nim/main.nim", "web/index.html", "web/main.js"]
+[rules]
+enabled_groups = ["core", "nim-style"]
+[rules.severity]
+cs-async-void = "warn"
+java-system-out = "info"
+lua-os-execute = "warn"
+nim-std-import = "info"
+html-img-alt = "info"
+css-important = "info"
+ts-console = "info"

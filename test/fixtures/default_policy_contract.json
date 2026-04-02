@@ -1,0 +1,6879 @@
+{
+  "schemaVersion": 1,
+  "analysisDefaults": {
+    "languages": [
+      "auto"
+    ],
+    "ruleGroups": [
+      "accessibility",
+      "core",
+      "correctness",
+      "design",
+      "idiomatic",
+      "maintainability",
+      "nim-advanced",
+      "nim-style",
+      "performance",
+      "regex",
+      "reliability",
+      "security",
+      "sql",
+      "strings",
+      "style",
+      "suspicious",
+      "yagni",
+      "zerocost"
+    ],
+    "minDuplicationLines": 15,
+    "complexityThreshold": 10,
+    "cognitiveThreshold": 15,
+    "maxFileLines": 0,
+    "maxFunctionLines": 0
+  },
+  "productionIgnores": [
+    "**/test/**",
+    "**/tests/**",
+    "**/integration_tests/**",
+    "**/test_integration/**",
+    "**/*_integration_test_support/**",
+    "**/test_fixes/**",
+    "**/test_profile/**",
+    "**/test_release/**",
+    "**/automated_tests/**",
+    "**/testing/**",
+    "**/manual_tests/**",
+    "**/*Tests/**",
+    "**/*.Tests*/**",
+    "**/*.UnitTests/**",
+    "**/*.IntegrationTests/**",
+    "**/testcase/**",
+    "**/testcases/**",
+    "**/__testfixtures__/**",
+    "**/__tests__/**",
+    "**/fixture/**",
+    "**/fixtures/**",
+    "**/testassets/**",
+    "**/TestAssets/**",
+    "**/test_assets/**",
+    "**/src/*Test/**",
+    "**/src/*test/**",
+    "**/testdata/**",
+    "**/src/it/**",
+    "**/src/testFixtures/**",
+    "**/__snapshots__/**",
+    "**/*.snap",
+    "**/*_test.go",
+    "**/*_test.py",
+    "**/*_test.rs",
+    "**/*_test.cc",
+    "**/*_test.cpp",
+    "**/*_unittest.cc",
+    "**/*_unittests.cc",
+    "**/*_unittest.cpp",
+    "**/*_unittests.cpp",
+    "**/*_spec.rb",
+    "**/*Test.java",
+    "**/*Tests.java",
+    "**/*.test.js",
+    "**/*.test.jsx",
+    "**/*.test.mjs",
+    "**/*.test.cjs",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test.mts",
+    "**/*.test.cts",
+    "**/*.spec.js",
+    "**/*.spec.jsx",
+    "**/*.spec.mjs",
+    "**/*.spec.cjs",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.spec.mts",
+    "**/*.spec.cts",
+    "**/example/**",
+    "**/examples/**",
+    "**/docs_src/**",
+    "**/evals/**",
+    "**/example_*/**",
+    "**/sample/**",
+    "**/samples/**",
+    "**/Samples/**",
+    "**/demo/**",
+    "**/demos/**",
+    "**/Demo/**",
+    "**/Demos/**",
+    "**/bench/**",
+    "**/Bench/**",
+    "**/benchmark/**",
+    "**/Benchmark/**",
+    "**/benchmarks/**",
+    "**/Benchmarks/**",
+    "**/*.Benchmark/**",
+    "**/*.Benchmarks/**",
+    "**/storybook/**",
+    "**/vendor/**",
+    "**/third_party/**",
+    "**/compiled/**",
+    "**/.dart_tool/**",
+    "**/*.generated.*",
+    "**/*.gen.go",
+    "**/*.pb.go",
+    "**/*.pb.cc",
+    "**/*.pb.h",
+    "**/migrations/**/definition.sql"
+  ],
+  "rules": [
+    {
+      "id": "ai-model-output-to-execution",
+      "severity": "error",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Tracks a named model-output variable to a nearby command-execution sink."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ai-prompt-injection-instruction",
+      "severity": "warn",
+      "group": "core",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires AI-framework context and an explicit override-style instruction."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ai-untrusted-prompt-construction",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Uses conservative prompt-target and untrusted-input naming evidence."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "architecture-forbidden-dependency",
+      "severity": "error",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "graph"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "architecture-layer-cycle",
+      "severity": "error",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "graph"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "complex-function",
+      "severity": "warn",
+      "group": "core",
+      "version": 6,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "functions",
+        "tokens"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "JavaScript and TypeScript extraction covers named declarations, methods, and block-bodied variable arrow functions.",
+        "Anonymous callbacks and expression-bodied arrow functions are not measured."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "constant-argument-parameter",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-cast",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-const-cast",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-goto",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-macro-constant",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-malloc-free",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-manual-delete",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-memset-zero",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-non-const-ref-param",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-null",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-rand",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-raw-owning-new",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-reinterpret-cast",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-unsafe-c-string",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-using-namespace-std",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cpp-virtual-no-destructor",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "cpp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-aptca-attribute",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-async-void",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-binaryformatter",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-cas-api",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-catch-system-exception",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-datetime-now",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-dcom-api",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-empty-catch",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-explicit-delegate-new",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-file-scoped-namespace",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-hardcoded-secret",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-new-httpclient",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-non-short-circuit-bool",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-process-start-input",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-public-pinvoke",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-random-security",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-remoting-api",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-runtime-type-alias",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-sql-string-build",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-string-concat-loop",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-sync-over-async",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-thread-sleep",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-using-inside-namespace",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-weak-crypto",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-animation-no-reduced-motion",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-duplicate-property",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-fixed-font-px",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-high-z-index",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-important",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-selector-depth",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-universal-selector",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-vendor-prefix-only",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cycle",
+      "severity": "error",
+      "group": "core",
+      "version": 2,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "graph"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-analyzer-ignore",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-bad-certificate-callback",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-blocking-in-async",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-broad-catch",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-catch-return-null",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-catch-without-stack-trace",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-controller-not-disposed",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-copy-with-missing-field",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-dynamic",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-enum-name-persistence",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-hardcoded-secret",
+      "severity": "warn",
+      "group": "security",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-http-client-not-closed",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-insecure-random",
+      "severity": "warn",
+      "group": "security",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-iosink-not-closed",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-isolate-not-terminated",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-json-cast-without-validation",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-json-serialization-asymmetry",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-late-final-persistence",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-late-mutable",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-map-string-dynamic-boundary",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-null-assertion",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-overlapping-data-model",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-package-cycle",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "graph",
+        "imports"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Package ownership is inferred from packages/* and the nearest lib directory."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-path-traversal",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-print",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-process-shell",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-process-untrusted-argument",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-quadratic-list-membership",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-random-access-file-not-closed",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-receive-port-not-closed",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-recommended-lints-missing",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-regexp-created-in-loop",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-repeated-iterable-traversal",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-sensitive-data-logging",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-sql-interpolation",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-string-concat-in-loop",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-synchronous-file-io-in-async",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-throw-string",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-timer-not-cancelled",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dart-unreachable-statement",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dead-export",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "dead-file",
+      "severity": "error",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "duplicate-block",
+      "severity": "warn",
+      "group": "core",
+      "version": 7,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "At most 32 deterministic locations are retained per fingerprint.",
+        "Predominantly literal data tables are excluded.",
+        "Block-comment license headers are excluded.",
+        "Python hash-comment license headers are excluded.",
+        "SQL migration history is excluded from duplication comparison."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "excessive-comment-density",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires at least five source files with twenty or more substantive lines.",
+        "Documentation, generated files, tests, and files with fewer than fifteen comment lines are excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "feature-flag",
+      "severity": "warn",
+      "group": "core",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Generic Flags, flags, and Config members require feature lifecycle terminology."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fixme-comment",
+      "severity": "warn",
+      "group": "suspicious",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-expanded-outside-flex",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-future-created-in-build",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-gesture-semantic-gap",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-global-key-created-in-build",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-image-network-no-error-builder",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-listener-without-remove",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-provider-watch-in-callback",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-set-state-after-await",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-stream-created-in-build",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-unbounded-scrollable",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "go-defer-in-loop",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "go"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "go-http-client-no-timeout",
+      "severity": "warn",
+      "group": "reliability",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "go"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "go-insecure-tls",
+      "severity": "error",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "vulnerability",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "go"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "go-response-body-not-closed",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "go"
+      ],
+      "languageVersions": {
+        "go": ">=1.13"
+      },
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "go-shell-command",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "go"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "go-world-writable",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "vulnerability",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "go"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "goto-statement",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-blank-no-rel",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-duplicate-id",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-form-method",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-http-resource",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-img-alt",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-inline-event",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-inline-script",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-input-label",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-missing-lang",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-missing-title",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "html-missing-viewport",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-catch-exception",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-hardcoded-secret",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-objectinputstream",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-package-cycle",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "graph",
+        "imports"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-print-stacktrace",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-random-security",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-resource-not-closed",
+      "severity": "warn",
+      "group": "core",
+      "version": 2,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {
+        "java": ">=7"
+      },
+      "limitations": [
+        "Only direct local allocations of common closeable types are checked."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-sql-string-build",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-string-equals",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-system-out",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-thread-sleep",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-weak-crypto",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "js-node-fs-constant-import",
+      "severity": "error",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "typeAware",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "imports",
+        "types"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {
+        "node": ">=12"
+      },
+      "limitations": [
+        "Validation currently covers Node file-access constants from node:fs."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "large-file",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "large-inline-list",
+      "severity": "info",
+      "group": "suspicious",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "large-number-ungrouped",
+      "severity": "info",
+      "group": "suspicious",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "long-function",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "long-line",
+      "severity": "info",
+      "group": "core",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Dart is excluded because dart format may intentionally exceed its page width."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "lua-global-assignment",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "lua-loadstring",
+      "severity": "error",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "lua-mutate-pairs",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "lua-os-execute",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "lua-pcall-swallow",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "lua-print-in-loop",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "lua-table-alloc-in-loop",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "lua"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mvvm-forbidden-dependency",
+      "severity": "error",
+      "group": "architecture",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "graph"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "mvvm-model-imports-ui",
+      "severity": "error",
+      "group": "architecture",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "mvvm-viewmodel-performs-navigation",
+      "severity": "warn",
+      "group": "architecture",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "mvvm-viewmodel-returns-widget",
+      "severity": "warn",
+      "group": "architecture",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "mvvm-viewmodel-ui-context",
+      "severity": "warn",
+      "group": "architecture",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "narrating-implementation-comment",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit first-person sequencing phrases are reported.",
+        "Documentation comments and test sources are excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "near-duplicate-function",
+      "severity": "info",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "needless-bool-branch",
+      "severity": "info",
+      "group": "suspicious",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-asset-loaded-not-freed",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-average-openarray-risk",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-broad-except",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-broad-import",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-camera-transform-leak",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-case-on-string",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-cast-usage",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-constructor-name",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-could-be-const",
+      "severity": "warn",
+      "group": "zerocost",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-cstring-public-api",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-debug-draw-not-gated",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-default-overwrites-context",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-distinct-serialization-asymmetry",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-divide-by-len-without-empty-check",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-double-negation",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-draw-call-in-update",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-draw-loads-asset",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-dt-not-used",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-dynlib-lifetime",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-dynlib-unchecked-symbol",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-empty-except-body",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-entity-access-after-destroy",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-exec-dynamic-command",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-exported-object-without-doc",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-exported-template-missing-doc",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-float-equality-physics",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-float-test-exact-equality",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-float-tests-missing-edge-cases",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-forced-decimal-comma-output",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-functional-alloc-chain",
+      "severity": "warn",
+      "group": "zerocost",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-game-loop-allocation",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-generic-exception-raise",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-generic-hook-cross-module-call",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-generic-hook-missing-doc",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-generic-hook-same-signature",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-global-tab-replace",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-god-module",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-hardcoded-screen-size",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-home-dir-strip",
+      "severity": "warn",
+      "group": "strings",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-hook-overwrites-accumulator",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-hook-too-generic",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-hot-loop-allocation",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-http-case-sensitive-header-compare",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-http-header-contains",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-imported-hook-ambiguity-risk",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-input-in-draw",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-json-heavy-api",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-large-number-ungrouped",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-large-template",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-layout-assumption-undocumented",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-many-exports",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-method-dispatch",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-missing-doc",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-missing-epsilon-distance",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-missing-raises",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-missing-test-for-module",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-mutate-while-iterating",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-negated-isnil",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-nested-stdout-capture",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-nil-component-access",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-no-test-suite",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-nonref-inheritance",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-o-n-squared-collision",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-openarray-missing-empty-test",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-parameter-cluster-spread",
+      "severity": "warn",
+      "group": "design",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-per-frame-string-format",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-physics-variable-timestep",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-plugin-hook-without-kind",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-pointer-public-api",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-pointer-with-separate-size",
+      "severity": "warn",
+      "group": "zerocost",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-prefer-let",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-proc-only-plugin-api",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-protocol-split-without-strip",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-public-mutable-container-field",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-public-var-scalar-accessor",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-raises-catchableerror",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-random-in-render",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-random-in-simulation",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-readfile-concat-temp",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-readline-without-strip",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-redundant-type-init",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-ref-object-inheritance",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-render-state-not-restored",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-return-instead-of-result",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-save-in-update",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-save-missing-version",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-skip-test-without-comment",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-sleep-in-game-loop",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-sound-every-frame",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-split-recursive-types",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-state-restore-without-finally",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-std-import",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-string-serializer-missing-quote",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-strip-chars-string-set",
+      "severity": "warn",
+      "group": "strings",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-strip-one-sided-wrapper",
+      "severity": "warn",
+      "group": "strings",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-tainted-exec",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-template-body-state-mutation",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-test-naming",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-too-many-parameters",
+      "severity": "warn",
+      "group": "design",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-tuple-used-as-domain-type",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-type-prefix-proc-naming",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-unbounded-entity-growth",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-unordered-table-output",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-update-blocking-io",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-wall-clock-in-update",
+      "severity": "warn",
+      "group": "game-engine",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": false
+    },
+    {
+      "id": "nim-websocket-tests-missing-header-variants",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-websocket-upgrade-fragile",
+      "severity": "warn",
+      "group": "nim-advanced",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-while-index-loop",
+      "severity": "warn",
+      "group": "idiomatic",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "nim-xml-output-unescaped",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "operation-on-same-value",
+      "severity": "warn",
+      "group": "suspicious",
+      "version": 10,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "parallel-contract-implementation",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Semantic mode currently compares HTTP endpoints, JSON key sets, SQL table operations, and configuration key sets.",
+        "A shared external contract can be intentional; findings require review."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "parallel-schema-definition",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "architecture",
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Only map or object literals with at least five identical identifier-like string keys are compared.",
+        "Test, fixture, generated, localization, and manifest files are excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-assert-runtime",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-async-blocking-call",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-backslash-continuation",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-bare-except",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-broad-except",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-compound-statement",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-debug-enabled",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-eval-exec",
+      "severity": "error",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-extraneous-whitespace",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-function-naming",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-hardcoded-secret",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-import-not-top",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-logging-exception",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-multiple-imports",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-mutable-default",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-open-no-encoding",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-pickle",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-requests-timeout",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-sql-string-build",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-subprocess-shell",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-tempfile-mktemp",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-weak-hash",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-wildcard-import",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-yaml-load",
+      "severity": "error",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "re-export",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-a-z-range",
+      "severity": "warn",
+      "group": "regex",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-catastrophic-backtracking-risk",
+      "severity": "warn",
+      "group": "regex",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Bounded optional outer groups are excluded from risk findings.",
+        "Escaped literal parentheses are not treated as group boundaries."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-empty-alternative",
+      "severity": "info",
+      "group": "regex",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-invalid",
+      "severity": "warn",
+      "group": "regex",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Dart syntax validation is limited to raw non-interpolated literals."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-leading-dot-star",
+      "severity": "info",
+      "group": "regex",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-repeated-compile",
+      "severity": "info",
+      "group": "regex",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-single-literal",
+      "severity": "info",
+      "group": "regex",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "regex-unanchored-validation",
+      "severity": "warn",
+      "group": "regex",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "repeated-condition",
+      "severity": "info",
+      "group": "design",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "single-method-delegating-class",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only compact Dart classes whose complete body is a field, constructor, and expression-bodied method are reported.",
+        "Framework annotations and abstract or implementing classes are excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "single-use-trivial-wrapper",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-add-not-null-default",
+      "severity": "warn",
+      "group": "sql",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-case-sensitive-like",
+      "severity": "info",
+      "group": "sql",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-create-index-nonconcurrent",
+      "severity": "info",
+      "group": "sql",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Opt-in because transactional migration runners cannot use CONCURRENTLY."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-delete-without-where",
+      "severity": "warn",
+      "group": "sql",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-drop-table-without-if-exists",
+      "severity": "info",
+      "group": "sql",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-inline-string-concat",
+      "severity": "warn",
+      "group": "sql",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Commented-out source is excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-leading-wildcard-like",
+      "severity": "info",
+      "group": "sql",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-not-in-subquery-null-risk",
+      "severity": "info",
+      "group": "sql",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-select-star",
+      "severity": "info",
+      "group": "sql",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "sql-update-without-where",
+      "severity": "warn",
+      "group": "sql",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "sql"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only statements beginning with UPDATE are checked."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "structure-missing-required-dir",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "structure-missing-source-root",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "structure-top-level-file",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "suspicious-command-arg-space",
+      "severity": "warn",
+      "group": "suspicious",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "tab-indent",
+      "severity": "warn",
+      "group": "core",
+      "version": 5,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "At most 50 deterministic file findings are retained per run.",
+        "Dart tabs inside string values are not indentation findings.",
+        "EditorConfig section ordering and extension overrides are honored.",
+        "Other languages require formatter or editor evidence that spaces are enforced."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "todo-comment",
+      "severity": "info",
+      "group": "suspicious",
+      "version": 2,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "trailing-whitespace",
+      "severity": "info",
+      "group": "core",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "At most 50 deterministic file findings are retained per run.",
+        "Non-Dart source requires applicable EditorConfig or Prettier evidence."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "trivial-comment-restatement",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Only narrow return, assignment, increment, and invocation restatements are reported.",
+        "Documentation comments and test sources are excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-any",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-await-in-loop",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-console",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-debugger",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-eval",
+      "severity": "error",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-floating-promise",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-hardcoded-secret",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-inner-html",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-json-parse-unsafe",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-localstorage-json",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ts-non-null-assertion",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "unused-customization-hook",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "unused-generic-parameter",
+      "severity": "warn",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-broad-import",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-fiber-abort",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-fiber-call",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-foreign-boundary",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-inheritance",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-number-parse-unchecked",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-print-in-loop",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "wren-system-print",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "wren"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+* .a .b .c .d > span {
+  color: red;
+  color: blue !important;
+  font-size: 12px;
+  z-index: 9999;
+  animation: pulse 1s;
+  -webkit-transform: scale(1);
+}
