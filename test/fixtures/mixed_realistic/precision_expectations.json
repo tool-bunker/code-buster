@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "accepted": [
+    {"code":"sql-delete-without-where","path":"db/migrate.sql","line":1},
+    {"code":"dart-print","path":"lib/main.dart","line":2},
+    {"code":"cpp-malloc-free","path":"native/main.cpp","line":3},
+    {"code":"cpp-malloc-free","path":"native/main.cpp","line":4},
+    {"code":"py-requests-timeout","path":"python/main.py","line":4},
+    {"code":"ts-console","path":"web/main.ts","line":2},
+    {"code":"wren-number-parse-unchecked","path":"wren/main.wren","line":3}
+  ],
+  "rejected": [
+    {"code":"duplicate-block","path":"lib/main.dart"},
+    {"code":"sql-inline-string-concat","path":"web/main.ts"}
+  ]
+}

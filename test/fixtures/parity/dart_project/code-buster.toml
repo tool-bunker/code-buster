@@ -1,0 +1,14 @@
+lang = "dart"
+entry_points = ["lib/main.dart"]
+min_duplication_lines = 3
+complexity_threshold = 2
+cognitive_threshold = 2
+max_function_lines = 3
+rule_groups = ["core", "dart-style", "security", "yagni", "design"]
+
+[structure]
+source_roots = ["lib"]
+max_top_level_files = 1
+required_dirs = ["required"]
+
+[severity]

@@ -1,0 +1,751 @@
+import 'dart:io';
+
+import 'package:code_buster/src/internal.dart';
+import 'package:path/path.dart' as path;
+import 'package:test/test.dart';
+
+void main() {
+  late Directory root;
+  late LanguageRegistry languages;
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('code-buster-discovery-');
+    languages = LanguageRegistry.dartFirst();
+  });
+
+  tearDown(() async {
+    await root.delete(recursive: true);
+  });
+
+  test(
+    'discovers selected source files in deterministic relative-path order',
+    () {
+      _write(root, 'lib/z.dart', 'void z() {}');
+      _write(root, 'lib/a.dart', 'void a() {}');
+      _write(root, 'vendor/ignored.dart', 'void ignored() {}');
+      _write(root, 'generated/skip.dart', 'void skip() {}');
+      _write(root, 'bin/tool.dart', 'void tool() {}');
+
+      final List<SourceFile> files = SourceDiscovery(
+        config: AnalysisConfig(
+          root: root.path,
+          language: 'dart',
+          ignorePatterns: const <String>['vendor'],
+          excludes: const <String>['generated'],
+        ),
+        languages: languages,
+      ).discover();
+
+      expect(files.map((SourceFile file) => file.relativePath), <String>[
+        'bin/tool.dart',
+        'lib/a.dart',
+        'lib/z.dart',
+      ]);
+      expect(files.every((SourceFile file) => file.language == 'dart'), isTrue);
+    },
+  );
+
+  test('discovers only recognized extensionless Lua shebang sources', () {
+    _write(root, 'bin/lua-tool', '#!/usr/bin/env lua\nreturn {}\n');
+    _write(root, 'bin/luajit-tool', '#!/usr/bin/luajit\nreturn {}\n');
+    _write(root, 'bin/resty-tool', '#!/usr/bin/env -S resty\nreturn {}\n');
+    _write(root, 'bin/shell-tool', '#!/bin/sh\necho ignored\n');
+    _write(root, 'bin/plain-tool', 'require("ignored")\n');
+    final File binary = File(path.join(root.path, 'bin', 'binary-tool'));
+    binary.writeAsBytesSync(<int>[0, 1, 2, 3]);
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'lua'),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'bin/lua-tool',
+      'bin/luajit-tool',
+      'bin/resty-tool',
+    ]);
+    expect(files.every((SourceFile file) => file.language == 'lua'), isTrue);
+  });
+
+  test('uses a recognized extensionless Lua script as a graph root', () {
+    _write(root, 'bin/kong', '#!/usr/bin/env resty\nrequire("kong.start")\n');
+    _write(root, 'kong/start.lua', 'return {}\n');
+    _write(root, 'kong/orphan.lua', 'return {}\n');
+
+    final AnalysisRun run = AnalysisRunner().run(
+      CodeBusterCliContract.parse(<String>[
+        'dead',
+        '--root',
+        root.path,
+        '--lang',
+        'lua',
+      ]),
+    );
+
+    expect(
+      run.files
+          .where((SourceFile file) => file.relativePath == 'bin/kong')
+          .single
+          .language,
+      'lua',
+    );
+    expect(
+      run.findings
+          .where((Finding finding) => finding.code == 'dead-file')
+          .map((Finding finding) => finding.path),
+      <String>['kong/orphan.lua'],
+    );
+  });
+
+  test('honors gitignore patterns and negated rules', () {
+    _write(root, '.gitignore', '*.g.dart\n!lib/keep.g.dart\n');
+    _write(root, 'lib/drop.g.dart', 'void drop() {}');
+    _write(root, 'lib/keep.g.dart', 'void keep() {}');
+    _write(root, 'lib/main.dart', 'void main() {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'dart'),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'lib/keep.g.dart',
+      'lib/main.dart',
+    ]);
+  });
+
+  test('handles a nested gitignore base directory without a range error', () {
+    _write(root, 'packages/example/.gitignore', '*.g.dart\n');
+    _write(root, 'packages/example/lib/main.dart', 'void main() {}');
+    _write(root, 'packages/example/lib/drop.g.dart', 'void drop() {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'dart'),
+      languages: languages,
+    ).discover();
+
+    expect(
+      files.map((SourceFile file) => file.relativePath),
+      contains('packages/example/lib/main.dart'),
+    );
+    expect(
+      files.map((SourceFile file) => file.relativePath),
+      isNot(contains('packages/example/lib/drop.g.dart')),
+    );
+  });
+
+  test('skips conventional generated Dart outputs', () {
+    _write(root, 'lib/main.dart', 'void main() {}');
+    _write(root, 'lib/model.g.dart', 'void generated() {}');
+    _write(root, 'lib/model.freezed.dart', 'void generated() {}');
+    _write(root, 'lib/service.mocks.dart', 'void generated() {}');
+    _write(root, 'lib/l10n/app_localizations.dart', 'void generated() {}');
+    _write(root, 'lib/l10n/app_localizations_en.dart', 'void generated() {}');
+    _write(
+      root,
+      'lib/protocol.wire_generated.dart',
+      '// automatically generated by the FlatBuffers compiler, do not modify\n',
+    );
+    _write(
+      root,
+      'lib/licensed_generated.dart',
+      '// ${List<String>.filled(600, 'x').join()}\n'
+          '// This file is generated. Edit the generator instead.\n',
+    );
+    _write(
+      root,
+      'lib/generated_bundle.dart',
+      '// GENERATED CODE - DO NOT MODIFY BY HAND\nvoid generated() {}',
+    );
+    _write(
+      root,
+      'lib/generated_locale.dart',
+      '// DO NOT EDIT. This file is autogenerated by script.\n'
+          '// File generated from reference data.\n',
+    );
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'dart'),
+      languages: languages,
+    );
+    final List<SourceFile> files = discovery.discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'lib/main.dart',
+    ]);
+    expect(discovery.generatedProvenance, hasLength(9));
+    expect(
+      discovery.generatedProvenance
+          .where(
+            (GeneratedSourceProvenance item) =>
+                item.path == 'lib/generated_bundle.dart',
+          )
+          .single
+          .reason,
+      'matched generated source header',
+    );
+  });
+
+  test('skips generated Dart headers without repository-specific profiles', () {
+    _write(
+      root,
+      'lib/protocol.dart',
+      '/* AUTOMATICALLY GENERATED CODE DO NOT MODIFY */\nclass Protocol {}',
+    );
+    _write(root, 'lib/main.dart', 'void main() {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'dart'),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'lib/main.dart',
+    ]);
+  });
+
+  test('recognizes generated header variants without matching prose', () {
+    _write(
+      root,
+      'src/gotypes.gen.ts',
+      '/* Do not change, this code is generated from Golang structs */\n'
+          'export class Response {}\n',
+    );
+    _write(
+      root,
+      'src/bindings.c',
+      '// This code is auto-generated; DO NOT EDIT.\n'
+          'void generated(void) {}\n',
+    );
+    _write(
+      root,
+      'src/runtime.ts',
+      '// Do not change behavior merely because this code is generated at runtime.\n'
+          'export const response = {};\n',
+    );
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path),
+      languages: languages,
+    );
+
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>['src/runtime.ts'],
+    );
+    expect(
+      discovery.generatedProvenance.map(
+        (GeneratedSourceProvenance item) => item.path,
+      ),
+      <String>['src/bindings.c', 'src/gotypes.gen.ts'],
+    );
+  });
+
+  test('skips generated-by headers only when paired with do-not-edit', () {
+    _write(
+      root,
+      'src/Message.java',
+      '// Generated by the protocol buffer compiler.  DO NOT EDIT!\n'
+          '// source: message.proto\n'
+          'final class Message {}',
+    );
+    _write(
+      root,
+      'include/obj_mac.h',
+      '/* WARNING: do not edit!\n'
+          ' * Generated by crypto/objects/objects.pl\n'
+          ' */\n'
+          '#define NID_example 1\n',
+    );
+    _write(root, 'src/Main.java', 'final class Main {}');
+    _write(
+      root,
+      'src/RuntimeValues.java',
+      '// Values are generated by callers at runtime.\n'
+          'final class RuntimeValues {}',
+    );
+    _write(
+      root,
+      'src/SharedBuffer.java',
+      '// Do not edit shared buffers in place.\n'
+          'final class SharedBuffer {}',
+    );
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path),
+      languages: languages,
+    );
+
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>[
+        'src/Main.java',
+        'src/RuntimeValues.java',
+        'src/SharedBuffer.java',
+      ],
+    );
+    expect(discovery.generatedProvenance, hasLength(2));
+    expect(
+      discovery.generatedProvenance.map(
+        (GeneratedSourceProvenance item) => item.path,
+      ),
+      <String>['include/obj_mac.h', 'src/Message.java'],
+    );
+    expect(
+      discovery.generatedProvenance.every(
+        (GeneratedSourceProvenance item) =>
+            item.reason == 'matched generated source header',
+      ),
+      isTrue,
+    );
+  });
+
+  test('skips Flutter generated-file headers', () {
+    _write(
+      root,
+      'src/GeneratedPluginRegistrant.java',
+      '/**\n'
+          ' * Generated file. Do not edit.\n'
+          ' * This file is generated by the Flutter tool.\n'
+          ' */\n'
+          'final class GeneratedPluginRegistrant {}\n',
+    );
+    _write(root, 'src/Main.java', 'final class Main {}');
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path),
+      languages: languages,
+    );
+
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>['src/Main.java'],
+    );
+    expect(
+      discovery.generatedProvenance.single.path,
+      'src/GeneratedPluginRegistrant.java',
+    );
+  });
+
+  test('skips sources with a generated-code provenance header', () {
+    _write(
+      root,
+      'src/functions.cpp',
+      '// Generated code with lookup tables (see generate_lut.py)\n'
+          'const double table[] = {0.1, 0.2};\n',
+    );
+    _write(root, 'src/main.cpp', 'int main() { return 0; }\n');
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'cpp'),
+      languages: languages,
+    );
+
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>['src/main.cpp'],
+    );
+    expect(discovery.generatedProvenance.single.path, 'src/functions.cpp');
+  });
+
+  test('skips generated tree-sitter parser artifacts', () {
+    _write(
+      root,
+      'grammar/parser.c',
+      '#include "tree_sitter/parser.h"\n'
+          '#define LANGUAGE_VERSION 14\n'
+          '#define STATE_COUNT 42\n',
+    );
+    _write(
+      root,
+      'grammar/tree_sitter/parser.h',
+      '#define TREE_SITTER_PARSER_H_\n',
+    );
+    _write(
+      root,
+      'grammar/tree_sitter/alloc.h',
+      '#define TREE_SITTER_ALLOC_H_\n',
+    );
+    _write(
+      root,
+      'grammar/tree_sitter/array.h',
+      '#define TREE_SITTER_ARRAY_H_\n',
+    );
+    _write(
+      root,
+      'src/scanner.c',
+      '#include "tree_sitter/parser.h"\n'
+          'bool tree_sitter_example_external_scanner_scan(void) { return false; }\n',
+    );
+    _write(root, 'src/parser.c', 'int parse(void) { return 0; }\n');
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path),
+      languages: languages,
+    );
+
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>['src/parser.c', 'src/scanner.c'],
+    );
+    expect(
+      discovery.generatedProvenance.map(
+        (GeneratedSourceProvenance item) => item.path,
+      ),
+      <String>[
+        'grammar/parser.c',
+        'grammar/tree_sitter/alloc.h',
+        'grammar/tree_sitter/array.h',
+        'grammar/tree_sitter/parser.h',
+      ],
+    );
+  });
+
+  test('skips Visual C++ generated resource headers', () {
+    _write(
+      root,
+      'include/resource.h',
+      '//{{NO_DEPENDENCIES}}\n'
+          '// Microsoft Visual C++ generated include file.\n'
+          '// Used by application.rc\n'
+          '#define IDD_MAIN_DIALOG 101\n',
+    );
+    _write(root, 'src/main.cpp', 'int main() { return 0; }');
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'cpp'),
+      languages: languages,
+    );
+
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>['src/main.cpp'],
+    );
+    expect(discovery.generatedProvenance, hasLength(1));
+    expect(discovery.generatedProvenance.single.path, 'include/resource.h');
+    expect(
+      discovery.generatedProvenance.single.reason,
+      'matched generated source header',
+    );
+  });
+
+  test('classifies large minified JavaScript bundles as generated', () {
+    _write(root, 'assets/index-hash.js', 'const value=1;' * 5000);
+    _write(root, 'src/main.js', 'export const main = true;');
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'auto'),
+      languages: languages,
+    );
+
+    final List<SourceFile> files = discovery.discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'src/main.js',
+    ]);
+    expect(
+      discovery.generatedProvenance.single.reason,
+      'matched minified bundle content',
+    );
+  });
+
+  test('classifies compact minified JavaScript bundles as generated', () {
+    _write(root, 'assets/theme.js', '!function(){var value=1;}();' * 180);
+    _write(root, 'src/main.js', 'export const main = true;');
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'auto'),
+      languages: languages,
+    );
+
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>['src/main.js'],
+    );
+    expect(
+      discovery.generatedProvenance.single.reason,
+      'matched minified bundle content',
+    );
+  });
+  test('classifies large formatted esbuild bundles as generated', () {
+    _write(
+      root,
+      'assets/typescript.js',
+      'var __defProp = Object.defineProperty;\n'
+          'var __copyProps = (to, from) => to;\n'
+          '${List<String>.filled(100000, 'const value = 1;').join('\n')}\n',
+    );
+    _write(root, 'src/main.js', 'export const main = true;');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'auto'),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'src/main.js',
+    ]);
+  });
+
+  test('skips generated Flex scanner headers', () {
+    _write(
+      root,
+      'src/comments.cc',
+      '// No linting because it is generated code.\n'
+          '/* A lexical scanner generated by flex */\nint scan() {}',
+    );
+    _write(root, 'src/main.cc', 'int main() {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'cpp'),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'src/main.cc',
+    ]);
+  });
+
+  test('skips generated parser headers', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'cb-generated-parser-',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    _write(
+      root,
+      'src/Parser.java',
+      '// Generated from grammar/Parser.g4 by ANTLR 4.13.2\nclass Parser {}',
+    );
+    _write(
+      root,
+      'src/Lexer.java',
+      '// ANTLR GENERATED CODE: DO NOT EDIT\nclass Lexer {}',
+    );
+    _write(
+      root,
+      'src/Bindings.java',
+      '// AUTO GENERATED FILE, DO NOT EDIT.\nclass Bindings {}',
+    );
+    _write(root, 'src/App.java', 'class App {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'java'),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'src/App.java',
+    ]);
+  });
+
+  test('skips conventional generated C# outputs', () {
+    _write(root, 'src/Program.cs', 'class Program {}');
+    _write(root, 'src/View.Designer.cs', 'class Generated {}');
+    _write(root, 'src/Routes.g.cs', 'class Generated {}');
+    _write(root, 'src/Model.generated.cs', 'class Generated {}');
+    _write(root, 'src/vendor.min.js', 'window.Generated=true;');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        languages: const <String>['csharp', 'javascript'],
+      ),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'src/Program.cs',
+    ]);
+  });
+
+  test('skips cache-fingerprinted JavaScript and CSS assets', () {
+    _write(root, 'public/app-A1B2C3D4.js', 'window.app = true;');
+    _write(root, 'public/theme-deadbeef01.css', 'body { color: black; }');
+    _write(root, 'public/common-framework.js', 'window.common = {};');
+    _write(root, 'public/theme-blue.css', 'body { color: blue; }');
+    _write(root, 'public/theme-deadbee.css', 'body { color: green; }');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        languages: const <String>['javascript', 'css'],
+      ),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'public/common-framework.js',
+      'public/theme-blue.css',
+      'public/theme-deadbee.css',
+    ]);
+  });
+
+  test('skips source copies inside compiled framework bundles', () {
+    _write(root, 'src/main.cpp', 'int main() { return 0; }');
+    _write(
+      root,
+      'Other/Products/Debug/Plugin.framework/Headers/Plugin.h',
+      'void bundledCopy();',
+    );
+
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'cpp'),
+      languages: languages,
+    );
+    final List<SourceFile> files = discovery.discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'src/main.cpp',
+    ]);
+    expect(discovery.generatedProvenance, hasLength(1));
+    expect(
+      discovery.generatedProvenance.single.path,
+      'Other/Products/Debug/Plugin.framework/Headers/Plugin.h',
+    );
+    expect(
+      discovery.generatedProvenance.single.reason,
+      'inside generated output directory',
+    );
+  });
+
+  test('production classification overrides inferred ignore patterns', () {
+    _write(root, 'tools/release/publish.dart', 'void publish() {}');
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        language: 'dart',
+        ignorePatterns: const <String>['tools/**'],
+        classificationProduction: const <String>['tools/release/**'],
+      ),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'tools/release/publish.dart',
+    ]);
+  });
+
+  test('supports glob patterns in configured ignores', () {
+    _write(root, 'lib/main.dart', 'void main() {}');
+    _write(root, 'examples/demo/lib/main.dart', 'void main() {}');
+    _write(root, 'packages/a/test/a_test.dart', 'void main() {}');
+    _write(root, 'test/root_test.dart', 'void main() {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        language: 'dart',
+        ignorePatterns: const <String>['examples/**', '**/test/**'],
+      ),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'lib/main.dart',
+    ]);
+  });
+
+  test('respects explicit include prefixes', () {
+    _write(root, 'lib/main.dart', 'void main() {}');
+    _write(root, 'tool/generate.dart', 'void generate() {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        language: 'dart',
+        includes: const <String>['tool'],
+      ),
+      languages: languages,
+    ).discover();
+
+    expect(files.single.relativePath, 'tool/generate.dart');
+  });
+
+  test('limits changed discovery and changed lines to Git modifications', () {
+    _git(root, <String>['init']);
+    _git(root, <String>['config', 'user.email', 'code-buster@example.test']);
+    _git(root, <String>['config', 'user.name', 'Code Buster Test']);
+    _write(root, 'lib/sample.dart', 'void sample() {}\n');
+    _git(root, <String>['add', '.']);
+    _git(root, <String>['commit', '-m', 'initial']);
+
+    _write(root, 'lib/sample.dart', 'void sample() {}\nvoid changed() {}\n');
+    _write(root, 'lib/new.dart', 'void added() {}\nvoid second() {}\n');
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        language: 'dart',
+        changedBase: 'HEAD',
+        changedLines: true,
+      ),
+      languages: languages,
+    );
+
+    expect(discovery.changedFiles(), <String>{
+      'lib/new.dart',
+      'lib/sample.dart',
+    });
+    expect(
+      discovery.discover().map((SourceFile file) => file.relativePath),
+      <String>['lib/new.dart', 'lib/sample.dart'],
+    );
+    final Map<String, List<ChangedLineRange>> ranges = discovery
+        .changedLineRanges();
+    expect(ranges['lib/sample.dart']!.single.contains(2), isTrue);
+    expect(ranges['lib/new.dart']!.single.contains(2), isTrue);
+  });
+
+  test('rejects option-like changed-base values without invoking Git', () {
+    _write(root, 'lib/main.dart', 'void main() {}');
+    final SourceDiscovery discovery = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        language: 'dart',
+        changedBase: '--upload-pack=unexpected',
+      ),
+      languages: languages,
+    );
+
+    expect(discovery.changedFiles(), isEmpty);
+    expect(discovery.changedLineRanges(), isEmpty);
+  });
+
+  test('returns no files when a changed scope has no changes', () {
+    _git(root, <String>['init']);
+    _git(root, <String>['config', 'user.email', 'code-buster@example.test']);
+    _git(root, <String>['config', 'user.name', 'Code Buster Test']);
+    _write(root, 'lib/main.dart', 'void main() {}\n');
+    _git(root, <String>['add', '.']);
+    _git(root, <String>['commit', '-m', 'initial']);
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(
+        root: root.path,
+        language: 'dart',
+        changedBase: 'HEAD',
+      ),
+      languages: languages,
+    ).discover();
+
+    expect(files, isEmpty);
+  });
+}
+
+void _write(Directory root, String fixturePath, String content) {
+  final String target = path.normalize(path.join(root.path, fixturePath));
+  if (target != root.path && !path.isWithin(root.path, target)) {
+    throw ArgumentError.value(fixturePath, 'fixturePath');
+  }
+  final File file = File(target);
+  file.parent.createSync(recursive: true);
+  file.writeAsStringSync(content);
+}
+
+void _git(Directory root, List<String> arguments) {
+  final ProcessResult result = Process.runSync('git', <String>[
+    '-C',
+    root.path,
+    ...arguments,
+  ]);
+  if (result.exitCode != 0) {
+    throw StateError('git ${arguments.join(' ')} failed: ${result.stderr}');
+  }
+}

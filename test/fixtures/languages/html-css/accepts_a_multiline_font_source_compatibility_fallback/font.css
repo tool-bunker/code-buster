@@ -1,0 +1,11 @@
+@font-face {
+  font-family: "fontello";
+  src: url("/fonts/fontello.eot");
+  src:
+    url("/fonts/fontello.eot#iefix") format("embedded-opentype"),
+    url("/fonts/fontello.woff2") format("woff2");
+}
+.overwritten {
+  color: red;
+  color: blue;
+}

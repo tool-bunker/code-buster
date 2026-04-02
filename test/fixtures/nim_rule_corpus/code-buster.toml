@@ -1,0 +1,18 @@
+languages = ["nim"]
+
+[files]
+entry_points = ["src/main.nim"]
+
+[rules]
+enabled_groups = [
+  "core",
+  "nim-style",
+  "nim-advanced",
+  "game-engine",
+  "design",
+  "zerocost",
+  "idiomatic",
+  "strings",
+  "suspicious",
+  "security",
+]

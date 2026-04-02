@@ -1,0 +1,5 @@
+const prompt = `Search for dangerouslySetInnerHTML with parsed markdown.`;
+const quoted = "dangerouslySetInnerHTML={{ __html: value }}";
+const example = `<div dangerouslySetInnerHTML={{ __html: value }} />`;
+const interpolated = `result: ${<div dangerouslySetInnerHTML={{ __html: value }} />}`;
+const actual = <div dangerouslySetInnerHTML={{ __html: value }} />;

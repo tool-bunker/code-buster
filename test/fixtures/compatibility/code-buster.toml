@@ -1,0 +1,21 @@
+lang = "dart"
+languages = ["dart"]
+entry_points = ["lib/main.dart"]
+ignore_patterns = ["generated", "build"]
+min_duplication_lines = 7
+complexity_threshold = 11
+cognitive_threshold = 16
+max_file_lines = 600
+max_function_lines = 120
+rule_groups = ["core", "dart-style", "security"]
+pattern_rules = ["no-debug|warn|debugCall\\(\\)|debug call|remove debug call"]
+
+[structure]
+source_roots = ["lib"]
+max_top_level_files = 2
+allowed_top_level = ["main.dart"]
+required_dirs = ["src"]
+
+[severity]
+dart-print = "off"
+dart-insecure-http = "error"

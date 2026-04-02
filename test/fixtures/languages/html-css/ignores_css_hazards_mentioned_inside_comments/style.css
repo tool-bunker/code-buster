@@ -1,0 +1,7 @@
+/**
+ * Address a user-agent rule that uses `!important`.
+ * .fake { z-index: 9999; font-size: 12px; }
+ */
+.button {
+  color: red !important;
+}

@@ -1,0 +1,13 @@
+h1, h2, h3, h4, h5, h6 {
+  display: -webkit-flex;
+  display: flex;
+  transition: none;
+  text-decoration: none;
+  text-decoration: underline;
+}
+.still {
+  transition: background-color;
+}
+.a .b .c .d .e .f {
+  transition: opacity 1s;
+}

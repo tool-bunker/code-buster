@@ -1,0 +1,12 @@
+[class*='docSection'] {
+  color: red;
+}
+[data-symbol='*'] {
+  color: blue;
+}
+.* {
+  color: green;
+}
+.scope * {
+  box-sizing: border-box;
+}
