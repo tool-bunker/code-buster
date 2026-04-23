@@ -9,7 +9,9 @@
     <br />
     <a href="#about">About</a>
     ·
-    <a href="install">Installation</a>
+    <a href="#install">Installation</a>
+    ·
+    <a href="#currentstatus">Current Status</a>
     ·
     <a href="documentation">Documentation</a>
     ·

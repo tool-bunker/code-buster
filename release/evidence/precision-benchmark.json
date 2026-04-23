@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "fixture": "test/fixtures/mixed_realistic",
+  "truePositives": 7,
+  "falsePositives": 0,
+  "falseNegatives": 0,
+  "rejectedHits": [],
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "findingsPerKloc": 318.18,
+  "sourceLines": 22,
+  "seconds": 0.044,
+  "passed": true
+}
