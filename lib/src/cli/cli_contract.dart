@@ -5,7 +5,7 @@ import 'package:args/command_runner.dart';
 
 import '../reporting/reporting.dart';
 
-/// Code Buster command names retained for CLI compatibility during the Dart migration.
+/// Stable Code Buster command names used by parsing, handlers, and contracts.
 enum CodeBusterCommand {
   summary,
   graph,

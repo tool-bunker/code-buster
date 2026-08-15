@@ -5,6 +5,4 @@ coverage/
 doc/
 test/
 tool/
-CONVERSION_AUDIT.md
-conversion-parity.json
 code-buster.toml
