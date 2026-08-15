@@ -4,9 +4,9 @@ import 'package:code_buster/src/internal.dart';
 import 'package:test/test.dart';
 
 void main() {
-  const String root = 'test/fixtures/parity/dart_project';
+  const String root = 'test/fixtures/contract_corpus/dart_project';
 
-  test('Dart parity fixture exercises wired summary rule families', () {
+  test('Dart contract corpus exercises wired summary rule families', () {
     final AnalysisRun run = AnalysisRunner().run(
       CodeBusterCliContract.parse(<String>['summary', '--root', root]),
     );
@@ -61,7 +61,7 @@ void main() {
     expect(run.languageSummary.keys, containsAll(<String>['dart', 'python']));
   });
 
-  test('implemented analysis commands accept the parity fixture', () {
+  test('implemented analysis commands accept the contract corpus', () {
     final List<CodeBusterCommand> commands = <CodeBusterCommand>[
       CodeBusterCommand.summary,
       CodeBusterCommand.dead,
@@ -82,7 +82,7 @@ void main() {
     }
   });
 
-  test('CLI emits stable JSON envelopes for the parity fixture', () async {
+  test('CLI emits stable JSON envelopes for the contract corpus', () async {
     Future<ProcessResult> runCli(String command) =>
         Process.run(Platform.resolvedExecutable, <String>[
           'run',

@@ -1,2 +1,2 @@
 # This precision fixture intentionally exercises whitespace findings.
-test/fixtures/parity/dart_project/lib/main.dart whitespace=-blank-at-eol,-space-before-tab
+test/fixtures/contract_corpus/dart_project/lib/main.dart whitespace=-blank-at-eol,-space-before-tab
