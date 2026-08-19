@@ -64,7 +64,7 @@ jobs:
         run: |
           mkdir -p build
           dart compile exe bin/cb.dart -o "build/cb${{ matrix.suffix }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: cb-${{ matrix.os }}
           path: build/cb${{ matrix.suffix }}

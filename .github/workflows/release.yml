@@ -78,7 +78,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path '${{ matrix.executable }}',LICENSE,README.md -DestinationPath '${{ matrix.archive }}'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.platform }}
           path: ${{ matrix.archive }}
@@ -90,7 +90,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
