@@ -1,0 +1,71 @@
+name: Code Buster CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - name: Check production formatting
+        run: dart format --output=none --set-exit-if-changed bin example lib tool/*.dart
+      - run: dart analyze
+      - name: Check default compatibility contract
+        run: dart run tool/default_contract.dart
+      - run: dart test
+      - run: dart doc --dry-run
+      - name: Compile and smoke-test Code Buster
+        run: |
+          mkdir -p build
+          dart compile exe bin/cb.dart -o build/cb
+          build/cb version
+          python3 tool/precision_benchmark.py
+
+  minimum-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.11.0
+      - run: dart pub get
+      - run: dart analyze
+      - run: dart test
+
+  compile:
+    needs: [verify, minimum-sdk]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            suffix: ''
+          - os: macos-latest
+            suffix: ''
+          - os: windows-latest
+            suffix: '.exe'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - name: Compile Code Buster
+        shell: bash
+        run: |
+          mkdir -p build
+          dart compile exe bin/cb.dart -o "build/cb${{ matrix.suffix }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cb-${{ matrix.os }}
+          path: build/cb${{ matrix.suffix }}
+          if-no-files-found: error

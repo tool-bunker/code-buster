@@ -34,12 +34,9 @@ builds it from local source.
 **Overall status: 0.1.0 release candidate.** The Dart implementation is the
 canonical runtime and passes strict analysis, the complete test suite, native
 compilation, documentation validation, self-analysis, and multi-repository
-precision checks. Publishing and the `v0.1.0` tag remain pending; see
-[Release readiness](RELEASE_READINESS.md).
+precision checks. 
 
-Language status describes the current analysis depth. Testing status is tracked
-separately and remains conservative until a language has received extensive
-real-repository validation:
+Language status describes the current analysis depth. 
 
 | Language | Status | Testing status | Current analysis evidence |
 | --- | --- | --- | --- |
