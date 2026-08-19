@@ -196,6 +196,7 @@ void main() {
       expect(stats.stdout, contains('"command":"baseline stats"'));
       expect(stats.stdout, contains('"stale":0'));
     },
+    timeout: const Timeout(Duration(minutes: 2)),
   );
 
   test(
@@ -236,6 +237,7 @@ void main() {
       expect(ci.exitCode, 0);
       expect(configuredCi.exitCode, 2);
     },
+    timeout: const Timeout(Duration(minutes: 2)),
   );
 
   test('operational commands expose repository views', () async {

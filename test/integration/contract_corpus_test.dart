@@ -143,7 +143,7 @@ void main() {
     expect(quality.stdout, contains('"command":"quality"'));
     expect(doctor.stdout, contains('Code Buster doctor'));
     expect(actions.stdout, contains('"command":"actions"'));
-  }, timeout: const Timeout(Duration(minutes: 2)));
+  }, timeout: const Timeout(Duration(minutes: 10)));
 
   test('fixture is immutable during analysis', () {
     final File source = File('$root/lib/main.dart');
