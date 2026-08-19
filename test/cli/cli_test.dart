@@ -7,7 +7,7 @@ void main() {
   test('version reports the Code Buster runtime', () async {
     final ProcessResult result = await Process.run(
       Platform.resolvedExecutable,
-      <String>['run', 'bin/cb.dart', '--version'],
+      <String>['bin/cb.dart', '--version'],
       workingDirectory: Directory.current.path,
     );
 
@@ -19,7 +19,7 @@ void main() {
   test('completions command emits the requested shell contract', () async {
     final ProcessResult result = await Process.run(
       Platform.resolvedExecutable,
-      <String>['run', 'bin/cb.dart', 'completions', 'bash'],
+      <String>['bin/cb.dart', 'completions', 'bash'],
       workingDirectory: Directory.current.path,
     );
 
@@ -31,7 +31,7 @@ void main() {
   test('rules lists effective semantic modes and inactive reasons', () async {
     final ProcessResult result = await Process.run(
       Platform.resolvedExecutable,
-      <String>['run', 'bin/cb.dart', 'rules', '--root', '.', '--format=json'],
+      <String>['bin/cb.dart', 'rules', '--root', '.', '--format=json'],
       workingDirectory: Directory.current.path,
     );
     final Map<String, dynamic> report =
@@ -63,7 +63,6 @@ void main() {
     final ProcessResult result = await Process.run(
       Platform.resolvedExecutable,
       <String>[
-        'run',
         'bin/cb.dart',
         'summary',
         '--root',
@@ -75,7 +74,6 @@ void main() {
     );
     final ProcessResult advisory =
         await Process.run(Platform.resolvedExecutable, <String>[
-          'run',
           'bin/cb.dart',
           'review',
           '--root',
@@ -110,7 +108,6 @@ void main() {
       );
       addTearDown(() => root.delete(recursive: true));
       final List<String> command = <String>[
-        'run',
         'bin/cb.dart',
         'init',
         '--root',
@@ -160,7 +157,6 @@ void main() {
       final ProcessResult config = await Process.run(
         Platform.resolvedExecutable,
         <String>[
-          'run',
           'bin/cb.dart',
           'config',
           '--root',
@@ -172,7 +168,6 @@ void main() {
       );
       final ProcessResult baselineResult =
           await Process.run(Platform.resolvedExecutable, <String>[
-            'run',
             'bin/cb.dart',
             'baseline',
             '--root',
@@ -189,7 +184,6 @@ void main() {
 
       final ProcessResult stats =
           await Process.run(Platform.resolvedExecutable, <String>[
-            'run',
             'bin/cb.dart',
             'baseline',
             'stats',
@@ -220,12 +214,12 @@ void main() {
 
       final ProcessResult invalid = await Process.run(
         Platform.resolvedExecutable,
-        <String>['run', 'bin/cb.dart', 'unknown'],
+        <String>['bin/cb.dart', 'unknown'],
         workingDirectory: Directory.current.path,
       );
       final ProcessResult ci = await Process.run(
         Platform.resolvedExecutable,
-        <String>['run', 'bin/cb.dart', 'summary', '--root', root.path, '--ci'],
+        <String>['bin/cb.dart', 'summary', '--root', root.path, '--ci'],
         workingDirectory: Directory.current.path,
       );
       File(
@@ -233,7 +227,7 @@ void main() {
       ).writeAsStringSync('[rules.mode]\ntab-indent = "report"\n');
       final ProcessResult configuredCi = await Process.run(
         Platform.resolvedExecutable,
-        <String>['run', 'bin/cb.dart', 'summary', '--root', root.path, '--ci'],
+        <String>['bin/cb.dart', 'summary', '--root', root.path, '--ci'],
         workingDirectory: Directory.current.path,
       );
 
@@ -260,7 +254,7 @@ void main() {
 
     Future<ProcessResult> runCli(List<String> arguments) => Process.run(
       Platform.resolvedExecutable,
-      <String>['run', 'bin/cb.dart', ...arguments, '--root', root.path],
+      <String>['bin/cb.dart', ...arguments, '--root', root.path],
       workingDirectory: Directory.current.path,
     );
 
@@ -339,7 +333,6 @@ void main() {
     final File source = File('${lib.path}${Platform.pathSeparator}main.dart')
       ..writeAsStringSync('\tvoid main() { print("left\\tmiddle"); }  \n');
     final List<String> base = <String>[
-      'run',
       'bin/cb.dart',
       'fix',
       '--root',

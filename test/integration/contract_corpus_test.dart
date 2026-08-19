@@ -83,16 +83,11 @@ void main() {
   });
 
   test('CLI emits stable JSON envelopes for the contract corpus', () async {
-    Future<ProcessResult> runCli(String command) =>
-        Process.run(Platform.resolvedExecutable, <String>[
-          'run',
-          'bin/cb.dart',
-          command,
-          '--root',
-          root,
-          '--format',
-          'json',
-        ], workingDirectory: Directory.current.path);
+    Future<ProcessResult> runCli(String command) => Process.run(
+      Platform.resolvedExecutable,
+      <String>['bin/cb.dart', command, '--root', root, '--format', 'json'],
+      workingDirectory: Directory.current.path,
+    );
 
     final ProcessResult summary = await runCli('summary');
     final ProcessResult graph = await runCli('graph');

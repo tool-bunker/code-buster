@@ -2098,7 +2098,7 @@
       "languageVersions": {},
       "limitations": [
         "Requires at least five source files with twenty or more substantive lines.",
-        "Documentation, generated files, tests, and files with fewer than fifteen comment lines are excluded."
+        "Generated files, tests, and files with fewer than eight comment lines are excluded."
       ],
       "enabledByDefault": true
     },
