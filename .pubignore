@@ -3,6 +3,7 @@
 build/
 coverage/
 doc/
+docs/
 test/
 tool/
 code-buster.toml
