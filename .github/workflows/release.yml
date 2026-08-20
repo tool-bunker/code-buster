@@ -46,10 +46,10 @@ jobs:
             platform: linux-x64
             executable: cb
             archive: code-buster-linux-x64.tar.gz
-          - os: macos-13
-            platform: macos-x64
+          - os: macos-15
+            platform: macos-arm64
             executable: cb
-            archive: code-buster-macos-x64.tar.gz
+            archive: code-buster-macos-arm64.tar.gz
           - os: windows-latest
             platform: windows-x64
             executable: cb.exe
