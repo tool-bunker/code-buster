@@ -9,22 +9,41 @@ void main(List<String> arguments) {
     exitCode = 64;
     return;
   }
-  final String tag = arguments.single;
-  final String pubspec = File('pubspec.yaml').readAsStringSync();
+  final String? error = validateReleaseVersion(
+    tag: arguments.single,
+    pubspec: File('pubspec.yaml').readAsStringSync(),
+    changelog: File('CHANGELOG.md').readAsStringSync(),
+  );
+  if (error != null) {
+    stderr.writeln(error);
+    exitCode = 1;
+    return;
+  }
+  stdout.writeln(arguments.single.substring(1));
+}
+
+String? validateReleaseVersion({
+  required String tag,
+  required String pubspec,
+  required String changelog,
+}) {
   final RegExpMatch? versionMatch = RegExp(
     r'^version:\s*([^\s]+)\s*$',
     multiLine: true,
   ).firstMatch(pubspec);
-  if (versionMatch == null) {
-    stderr.writeln('pubspec.yaml has no version');
-    exitCode = 1;
-    return;
-  }
+  if (versionMatch == null) return 'pubspec.yaml has no version';
+
   final String version = versionMatch.group(1)!;
   if (tag != 'v$version') {
-    stderr.writeln('tag $tag does not match pubspec version $version');
-    exitCode = 1;
-    return;
+    return 'tag $tag does not match pubspec version $version';
   }
-  stdout.writeln(version);
+
+  final RegExp heading = RegExp(
+    '^## ${RegExp.escape(version)}\\s*\$',
+    multiLine: true,
+  );
+  if (!heading.hasMatch(changelog)) {
+    return 'CHANGELOG.md has no release heading for $version';
+  }
+  return null;
 }
