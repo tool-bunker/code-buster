@@ -33,7 +33,7 @@ brew upgrade code-buster
 On Apple Silicon macOS or x86-64 Linux:
 
 ```sh
-curl -fsSL https://tool-bunker.github.io/code-buster/install | sh
+curl -fsSL https://codebuster.toolbunker.dev/install | sh
 ```
 
 The script downloads the latest native release, verifies its SHA-256 checksum,
@@ -42,7 +42,7 @@ and installs `cb` under `${PREFIX:-$HOME/.local}/bin`.
 To inspect the script before running it:
 
 ```sh
-curl -fsSL https://tool-bunker.github.io/code-buster/install -o install-code-buster.sh
+curl -fsSL https://codebuster.toolbunker.dev/install -o install-code-buster.sh
 less install-code-buster.sh
 sh install-code-buster.sh
 ```
@@ -52,7 +52,7 @@ sh install-code-buster.sh
 From PowerShell on x86-64 Windows:
 
 ```powershell
-irm https://tool-bunker.github.io/code-buster/install.ps1 | iex
+irm https://codebuster.toolbunker.dev/install.ps1 | iex
 ```
 
 The script verifies the release checksum and installs `cb.exe` under
@@ -61,7 +61,7 @@ The script verifies the release checksum and installs `cb.exe` under
 To inspect it before execution:
 
 ```powershell
-Invoke-WebRequest https://tool-bunker.github.io/code-buster/install.ps1 -OutFile install-code-buster.ps1
+Invoke-WebRequest https://codebuster.toolbunker.dev/install.ps1 -OutFile install-code-buster.ps1
 Get-Content .\\install-code-buster.ps1
 & .\\install-code-buster.ps1
 ```
