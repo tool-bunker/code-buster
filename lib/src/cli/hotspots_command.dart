@@ -55,15 +55,47 @@ int _hotspots(CodeBusterCliOptions options) {
       }),
     );
   } else {
-    stdout.writeln('Code Buster hotspots: ${limited.length}');
-    if (limited.isEmpty) {
-      stdout.writeln('No Git history available for discovered files.');
-    }
-    for (final Hotspot item in limited) {
-      stdout.writeln(
-        '${item.path} — risk ${item.risk.toStringAsFixed(1)}, churn ${item.churn}, commits ${item.commits} (+${item.added}/-${item.deleted})',
-      );
-    }
+    stdout.write(
+      renderHotspotsText(limited, color: stdout.supportsAnsiEscapes),
+    );
   }
   return 0;
+}
+
+/// Renders hotspots for an interactive terminal or stable plain-text consumer.
+String renderHotspotsText(List<Hotspot> hotspots, {required bool color}) {
+  final _HotspotPalette palette = _HotspotPalette(color);
+  final StringBuffer output = StringBuffer()
+    ..writeln('${palette.accent('Code Buster hotspots')}: ${hotspots.length}');
+  if (hotspots.isEmpty) {
+    output.writeln(
+      palette.muted('No Git history available for discovered files.'),
+    );
+  }
+  for (final Hotspot item in hotspots) {
+    output.writeln(
+      '${palette.path(item.path)} — '
+      '${palette.muted('risk')} ${palette.warning(item.risk.toStringAsFixed(1))}, '
+      '${palette.muted('churn')} ${item.churn}, '
+      '${palette.muted('commits')} ${item.commits} '
+      '(${palette.added('+${item.added}')}/${palette.deleted('-${item.deleted}')})',
+    );
+  }
+  return output.toString();
+}
+
+final class _HotspotPalette {
+  const _HotspotPalette(this.enabled);
+
+  final bool enabled;
+
+  String accent(String value) => _wrap(value, '1;36');
+  String path(String value) => _wrap(value, '36');
+  String warning(String value) => _wrap(value, '33');
+  String added(String value) => _wrap(value, '32');
+  String deleted(String value) => _wrap(value, '31');
+  String muted(String value) => _wrap(value, '2');
+
+  String _wrap(String value, String code) =>
+      enabled ? '\u001b[${code}m$value\u001b[0m' : value;
 }
