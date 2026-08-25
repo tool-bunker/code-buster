@@ -1,0 +1,117 @@
+config:
+  command: bash -l
+  cwd: .
+  env:
+    recording: true
+  cols: 68
+  rows: 28
+  repeat: 0
+  quality: 85
+  frameDelay: auto
+  maxIdleTime: 4000
+  frameBox:
+    type: null
+    title: null
+    style:
+      backgroundColor: '#171717'
+      margin: 0px
+  watermark:
+    imagePath: null
+    style:
+      position: absolute
+      right: 15px
+      bottom: 15px
+      width: 100px
+      opacity: 0.9
+  cursorStyle: block
+  fontFamily: Monaco, Lucida Console, Ubuntu Mono, Monospace
+  fontSize: 16
+  lineHeight: 1
+  letterSpacing: 0
+  theme:
+    background: '#171717'
+    foreground: '#afafaf'
+    cursor: '#c7c7c7'
+    black: '#232628'
+    red: '#fc4384'
+    green: '#b3e33b'
+    yellow: '#ffa727'
+    blue: '#75dff2'
+    magenta: '#ae89fe'
+    cyan: '#708387'
+    white: '#d5d5d0'
+    brightBlack: '#626566'
+    brightRed: '#ff7fac'
+    brightGreen: '#c8ed71'
+    brightYellow: '#ebdf86'
+    brightBlue: '#75dff2'
+    brightMagenta: '#ae89fe'
+    brightCyan: '#b1c6ca'
+    brightWhite: '#f9f9f4'
+records:
+- delay: 0
+  content: "\e[3J\e[H\e[2J"
+- delay: 700
+  content: '$ '
+- delay: 62
+  content: c
+- delay: 62
+  content: b
+- delay: 62
+  content: ' '
+- delay: 62
+  content: c
+- delay: 62
+  content: l
+- delay: 62
+  content: u
+- delay: 62
+  content: s
+- delay: 62
+  content: t
+- delay: 62
+  content: e
+- delay: 62
+  content: r
+- delay: 62
+  content: s
+- delay: 62
+  content: ' '
+- delay: 62
+  content: '-'
+- delay: 62
+  content: '-'
+- delay: 62
+  content: t
+- delay: 62
+  content: o
+- delay: 62
+  content: p
+- delay: 62
+  content: ' '
+- delay: 62
+  content: '6'
+- delay: 120
+  content: "\r\n"
+- delay: 636
+  content: "\e[1;36mCode Buster summary\e[0m: 276 files, \e[32m0 actionable findings\e\
+    [0m\r\n  \e[2mdart        \e[0m257 files, 7 findings\r\n  \e[2mcpp         \e\
+    [0m15 files, 0 findings\r\n  \e[2mcoverage    \e[0mbinary=79 generated=114 selected=276\
+    \ test=20 unsupported=109\r\n  \e[33madvisory    \e[0m\e[33m7 findings\e[0m\r\n\
+    \    \e[35mmaintainability \e[0m7\r\n  \e[2mRun `cb review --advisory` for advisory\
+    \ details.\e[0m\r\n\e[33mwarn\e[0m \e[1;36mduplicate-block\e[0m \e[2mapp/lib/config/theme.dart:56-80\e\
+    [0m duplicate block of 25 lines fingerprint=483C3FECE1BB\r\n\e[33mwarn\e[0m \e\
+    [1;36mduplicate-block\e[0m \e[2mapp/lib/pages/about/about_page.dart:82-101\e[0m\
+    \ duplicate block of 20 lines fingerprint=108C663D3095\r\n\e[33mwarn\e[0m \e[1;36mduplicate-block\e\
+    [0m \e[2mapp/lib/pages/debug/discovery_debug_page.dart:34-54\e[0m duplicate block\
+    \ of 21 lines fingerprint=F65952FA0312\r\n\e[33mwarn\e[0m \e[1;36mduplicate-block\e\
+    [0m \e[2mapp/lib/pages/tabs/send_tab_vm.dart:99-120\e[0m duplicate block of 16\
+    \ lines fingerprint=80BF4917B5E0\r\n\e[33mwarn\e[0m \e[1;36mduplicate-block\e\
+    [0m \e[2mapp/lib/widget/dialogs/address_input_dialog.dart:145-177\e[0m duplicate\
+    \ block of 33 lines fingerprint=01032788C7F9\r\n\e[33mwarn\e[0m \e[1;36mduplicate-block\e\
+    [0m \e[2mapp/lib/widget/dialogs/qr_dialog.dart:56-73\e[0m duplicate block of 17\
+    \ lines fingerprint=450A2DFEE317\r\n\e[33mwarn\e[0m \e[1;36mduplicate-block\e\
+    [0m \e[2mapp/lib/widget/dialogs/text_field_tv.dart:51-67\e[0m duplicate block\
+    \ of 17 lines fingerprint=B425FAB42C50\r\n$ "
+- delay: 4000
+  content: "\e[0m"
