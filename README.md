@@ -76,7 +76,7 @@ gate.
 
 ## Current Status
 
-**Overall status: 0.1.0 release candidate.** The Dart implementation is the
+**Overall status: 0.2.0 release candidate.** The Dart implementation is the
 canonical runtime and passes strict analysis, the complete test suite, native
 compilation, documentation validation, self-analysis, and multi-repository
 precision checks. 
