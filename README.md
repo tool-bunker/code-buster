@@ -123,7 +123,7 @@ cb version
 Install the native Apple Silicon macOS or x86-64 Linux build:
 
 ```sh
-curl -fsSL https://tool-bunker.github.io/code-buster/install | sh
+curl -fsSL https://codebuster.toolbunker.dev/install | sh
 ```
 
 ### Windows
@@ -131,7 +131,7 @@ curl -fsSL https://tool-bunker.github.io/code-buster/install | sh
 Install the native x86-64 build from PowerShell:
 
 ```powershell
-irm https://tool-bunker.github.io/code-buster/install.ps1 | iex
+irm https://codebuster.toolbunker.dev/install.ps1 | iex
 ```
 
 Both scripts verify the release archive against the published SHA-256 checksum
