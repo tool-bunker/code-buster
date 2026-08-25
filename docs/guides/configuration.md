@@ -1,7 +1,6 @@
----
-title: Configuration
-description: Control language selection, source classification, rules, quality gates, and architecture policy.
----
+# Configuration
+
+Control language selection, source classification, rules, quality gates, and architecture policy.
 
 Code Buster reads an optional `code-buster.toml` from the analyzed repository. With no file, repository defaults infer languages, frameworks, source categories, and formatter policy.
 

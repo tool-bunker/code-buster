@@ -1,9 +1,15 @@
----
-title: Installation
-description: Build and install the canonical Dart Code Buster CLI.
----
+# Installation
+
+Build and install the canonical Dart Code Buster CLI.
 
 Code Buster requires Dart 3.11 or newer. The executable is named `cb`.
+
+> [!CAUTION]
+> **Pre-1.0 software:** Code Buster is under heavy development. It can already
+> support local repository exploration and provide additional context to AI
+> coding agents, but behavior and findings may change before version 1.0.0. Do
+> not yet use it as a blocking quality gate in a production pipeline. Treat CI
+> and report integrations as evaluation or non-blocking visibility.
 
 ## Build from source
 

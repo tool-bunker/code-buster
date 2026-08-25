@@ -1,7 +1,6 @@
----
-title: Quickstart
-description: Analyze a repository, understand coverage, and investigate a finding.
----
+# Quickstart
+
+Analyze a repository, understand coverage, and investigate a finding.
 
 Run Code Buster from the repository you want to analyze. Configuration is optional.
 
