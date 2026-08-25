@@ -48,3 +48,17 @@
   }
   return (code: result.toString(), inBlockComment: inBlockComment);
 }
+
+/// Removes comments from a complete Java source while preserving line numbers.
+String javaSourceWithoutComments(String source) {
+  var inBlockComment = false;
+  return source
+      .split('\n')
+      .map((String line) {
+        final ({String code, bool inBlockComment}) masked =
+            javaCodeWithoutComments(line, inBlockComment: inBlockComment);
+        inBlockComment = masked.inBlockComment;
+        return masked.code;
+      })
+      .join('\n');
+}

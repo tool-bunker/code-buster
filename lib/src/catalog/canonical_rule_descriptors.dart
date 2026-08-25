@@ -397,6 +397,11 @@ canonicalRuleDescriptors =
         group: 'nim-style',
         title: 'Java catch exception',
       ),
+      'java-empty-catch': (
+        language: 'java',
+        group: 'core',
+        title: 'Handle or document Java exceptions',
+      ),
       'java-hardcoded-secret': (
         language: 'java',
         group: 'security',
@@ -427,6 +432,11 @@ canonicalRuleDescriptors =
         group: 'nim-style',
         title: 'Java string equals',
       ),
+      'java-string-concat-in-loop': (
+        language: 'java',
+        group: 'core',
+        title: 'Avoid Java String concatenation in loops',
+      ),
       'java-system-out': (
         language: 'java',
         group: 'nim-style',
@@ -436,6 +446,11 @@ canonicalRuleDescriptors =
         language: 'java',
         group: 'nim-style',
         title: 'Java thread sleep',
+      ),
+      'java-too-many-parameters': (
+        language: 'java',
+        group: 'core',
+        title: 'Reduce Java method parameters',
       ),
       'java-weak-crypto': (
         language: 'java',
