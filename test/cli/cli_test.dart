@@ -12,7 +12,7 @@ void main() {
     );
 
     expect(result.exitCode, 0);
-    expect(result.stdout, 'cb 0.1.0\nruntime: Dart\n');
+    expect(result.stdout, 'cb 0.2.0\nruntime: Dart\n');
     expect(result.stderr, isEmpty);
   });
 
