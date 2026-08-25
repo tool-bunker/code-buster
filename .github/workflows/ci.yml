@@ -25,6 +25,8 @@ jobs:
         run: dart run tool/default_contract.dart
       - run: dart test
       - run: dart doc --dry-run
+      - name: Check Unix installer syntax
+        run: sh -n website/install
       - name: Compile and smoke-test Code Buster
         run: |
           mkdir -p build
@@ -66,6 +68,21 @@ jobs:
         run: |
           mkdir -p build
           dart compile exe bin/cb.dart -o "build/cb${{ matrix.suffix }}"
+      - name: Check PowerShell installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'website/install.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: cb-${{ matrix.os }}

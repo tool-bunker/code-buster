@@ -1,0 +1,73 @@
+#!/bin/sh
+# Install the latest verified Code Buster binary without requiring Dart or Homebrew.
+set -eu
+
+repository="https://github.com/tool-bunker/code-buster"
+version="${CODE_BUSTER_VERSION:-latest}"
+prefix="${PREFIX:-$HOME/.local}"
+bin_dir="$prefix/bin"
+
+if ! command -v curl >/dev/null 2>&1; then
+  printf '%s\n' 'error: curl is required' >&2
+  exit 1
+fi
+
+os=$(uname -s)
+arch=$(uname -m)
+case "$os:$arch" in
+  Darwin:arm64|Darwin:aarch64)
+    archive="code-buster-macos-arm64.tar.gz"
+    ;;
+  Linux:x86_64|Linux:amd64)
+    archive="code-buster-linux-x64.tar.gz"
+    ;;
+  *)
+    printf 'error: unsupported platform %s/%s\n' "$os" "$arch" >&2
+    printf '%s\n' 'supported platforms: Apple Silicon macOS and x86-64 Linux' >&2
+    exit 1
+    ;;
+esac
+
+if [ "$version" = "latest" ]; then
+  release="$repository/releases/latest/download"
+else
+  release="$repository/releases/download/v$version"
+fi
+
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/code-buster.XXXXXX")
+trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+
+printf 'Downloading Code Buster %s for %s/%s...\n' "$version" "$os" "$arch"
+curl -fsSL "$release/$archive" -o "$temporary/$archive"
+curl -fsSL "$release/SHA256SUMS" -o "$temporary/SHA256SUMS"
+
+expected=$(awk -v archive="$archive" '$2 == archive { print $1 }' "$temporary/SHA256SUMS")
+if [ -z "$expected" ]; then
+  printf 'error: checksum for %s is missing\n' "$archive" >&2
+  exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  actual=$(sha256sum "$temporary/$archive" | awk '{ print $1 }')
+elif command -v shasum >/dev/null 2>&1; then
+  actual=$(shasum -a 256 "$temporary/$archive" | awk '{ print $1 }')
+else
+  printf '%s\n' 'error: sha256sum or shasum is required' >&2
+  exit 1
+fi
+
+if [ "$actual" != "$expected" ]; then
+  printf 'error: checksum mismatch for %s\n' "$archive" >&2
+  exit 1
+fi
+
+tar -xzf "$temporary/$archive" -C "$temporary" cb
+mkdir -p "$bin_dir"
+install -m 0755 "$temporary/cb" "$bin_dir/cb"
+
+printf 'Installed Code Buster to %s\n' "$bin_dir/cb"
+case ":$PATH:" in
+  *":$bin_dir:"*) ;;
+  *) printf 'Add %s to PATH to run cb from any directory.\n' "$bin_dir" ;;
+esac
+"$bin_dir/cb" version

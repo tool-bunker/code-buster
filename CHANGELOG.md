@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add checksum-verified install scripts for macOS, Linux, and Windows.
+- Make Homebrew, curl, PowerShell, and Dart installation commands available on the homepage.
+
 ## 0.2.0
 
 - Add project-level Flutter, HTML, and CSS UI consistency analysis.
