@@ -49,10 +49,10 @@
           <div class="install-switcher">
             <div class="install-bar">
               <div class="install-tabs" role="tablist" aria-label="Installation method">
-                <button type="button" role="tab" aria-selected="true" tabindex="0" data-command="brew install tool-bunker/tap/code-buster" data-note="Installs the native Apple Silicon build. Dart is not required.">Brew</button>
-                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="dart pub global activate --source git https://github.com/tool-bunker/code-buster.git" data-note="Requires Dart 3.11 or newer.">Dart</button>
-                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="../install-code-buster.sh" data-note="Builds and installs the current workspace checkout.">Workspace</button>
-                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="dart pub get &amp;&amp; dart compile exe bin/cb.dart -o build/cb" data-note="Builds a native executable from source.">Source</button>
+                <button type="button" role="tab" aria-selected="true" tabindex="0" data-command="brew install tool-bunker/tap/code-buster" data-note="Native Apple Silicon install. Dart is not required.">Brew</button>
+                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="curl -fsSL https://tool-bunker.github.io/code-buster/install | sh" data-note="Native install for Apple Silicon macOS and x86-64 Linux.">Curl</button>
+                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="irm https://tool-bunker.github.io/code-buster/install.ps1 | iex" data-note="Native install for x86-64 Windows PowerShell.">PowerShell</button>
+                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="dart pub global activate --source git https://github.com/tool-bunker/code-buster.git" data-note="Cross-platform install requiring Dart 3.11 or newer.">Dart</button>
               </div>
               <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/getting-started/installation.md">All options</a>
             </div>
@@ -60,7 +60,7 @@
               <code>brew install tool-bunker/tap/code-buster</code>
               <button type="button" class="copy-install" aria-label="Copy install command">Copy</button>
             </div>
-            <p class="install-note">Installs the native Apple Silicon build. Dart is not required.</p>
+            <p class="install-note">Native Apple Silicon install. Dart is not required.</p>
           </div>
         </div>
       </div>

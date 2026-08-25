@@ -28,6 +28,44 @@ brew update
 brew upgrade code-buster
 ```
 
+## Install script
+
+On Apple Silicon macOS or x86-64 Linux:
+
+```sh
+curl -fsSL https://tool-bunker.github.io/code-buster/install | sh
+```
+
+The script downloads the latest native release, verifies its SHA-256 checksum,
+and installs `cb` under `${PREFIX:-$HOME/.local}/bin`.
+
+To inspect the script before running it:
+
+```sh
+curl -fsSL https://tool-bunker.github.io/code-buster/install -o install-code-buster.sh
+less install-code-buster.sh
+sh install-code-buster.sh
+```
+
+## Windows
+
+From PowerShell on x86-64 Windows:
+
+```powershell
+irm https://tool-bunker.github.io/code-buster/install.ps1 | iex
+```
+
+The script verifies the release checksum and installs `cb.exe` under
+`$HOME\\.local\\bin`. Add that directory to `PATH` when the installer asks.
+
+To inspect it before execution:
+
+```powershell
+Invoke-WebRequest https://tool-bunker.github.io/code-buster/install.ps1 -OutFile install-code-buster.ps1
+Get-Content .\\install-code-buster.ps1
+& .\\install-code-buster.ps1
+```
+
 ## Build from source
 
 Run these commands from the `code-buster/` directory:

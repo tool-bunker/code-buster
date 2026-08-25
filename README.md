@@ -118,6 +118,25 @@ brew install tool-bunker/tap/code-buster
 cb version
 ```
 
+### Install script (macOS and Linux)
+
+Install the native Apple Silicon macOS or x86-64 Linux build:
+
+```sh
+curl -fsSL https://tool-bunker.github.io/code-buster/install | sh
+```
+
+### Windows
+
+Install the native x86-64 build from PowerShell:
+
+```powershell
+irm https://tool-bunker.github.io/code-buster/install.ps1 | iex
+```
+
+Both scripts verify the release archive against the published SHA-256 checksum
+and install under the current user's `~/.local/bin` directory.
+
 ### Dart and Flutter
 
 Install from Git when Dart 3.11 or newer is already available:
