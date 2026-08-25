@@ -1,8 +1,9 @@
 # Installation
 
-Build and install the canonical Dart Code Buster CLI.
+Install a native Code Buster release or build the canonical Dart CLI from source.
 
-Code Buster requires Dart 3.11 or newer. The executable is named `cb`.
+Building from source requires Dart 3.11 or newer. Native packages do not require
+the Dart SDK. The executable is named `cb`.
 
 > [!CAUTION]
 > **Pre-1.0 software:** Code Buster is under heavy development. It can already
@@ -10,6 +11,22 @@ Code Buster requires Dart 3.11 or newer. The executable is named `cb`.
 > coding agents, but behavior and findings may change before version 1.0.0. Do
 > not yet use it as a blocking quality gate in a production pipeline. Treat CI
 > and report integrations as evaluation or non-blocking visibility.
+
+## Homebrew
+
+On Apple Silicon macOS:
+
+```sh
+brew install tool-bunker/tap/code-buster
+cb version
+```
+
+Upgrade later with:
+
+```sh
+brew update
+brew upgrade code-buster
+```
 
 ## Build from source
 

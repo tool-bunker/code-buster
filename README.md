@@ -107,26 +107,27 @@ still required.
 
 ## Installation
 
-Code Buster requires Dart 3.11 or newer.
+Building Code Buster from source requires Dart 3.11 or newer. Native packages do not require Dart.
 
 ### Homebrew (macOS)
 
-Code Buster does not currently publish a Homebrew formula. Homebrew can install
-the required Dart SDK, after which Dart can install Code Buster directly from
-its Git repository:
+Install the native Apple Silicon build from the Tool Bunker tap:
 
 ```sh
-brew tap dart-lang/dart
-brew install dart
+brew install tool-bunker/tap/code-buster
+cb version
+```
+
+### Dart and Flutter
+
+Install from Git when Dart 3.11 or newer is already available:
+
+```sh
 dart pub global activate --source git https://github.com/tool-bunker/code-buster.git
 cb version
 ```
 
-Ensure Dart's global executable directory is on `PATH`:
-
-```sh
-export PATH="$PATH:$HOME/.pub-cache/bin"
-```
+Ensure `$HOME/.pub-cache/bin` is on `PATH` when using Dart global activation.
 
 ### Local source build
 
