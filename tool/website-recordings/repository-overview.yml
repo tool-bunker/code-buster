@@ -1,0 +1,183 @@
+config:
+  command: bash -l
+  cwd: .
+  env:
+    recording: true
+  cols: 68
+  rows: 28
+  repeat: 0
+  quality: 85
+  frameDelay: auto
+  maxIdleTime: 4000
+  frameBox:
+    type: null
+    title: null
+    style:
+      backgroundColor: '#171717'
+      margin: 0px
+  watermark:
+    imagePath: null
+    style:
+      position: absolute
+      right: 15px
+      bottom: 15px
+      width: 100px
+      opacity: 0.9
+  cursorStyle: block
+  fontFamily: Monaco, Lucida Console, Ubuntu Mono, Monospace
+  fontSize: 16
+  lineHeight: 1
+  letterSpacing: 0
+  theme:
+    background: '#171717'
+    foreground: '#afafaf'
+    cursor: '#c7c7c7'
+    black: '#232628'
+    red: '#fc4384'
+    green: '#b3e33b'
+    yellow: '#ffa727'
+    blue: '#75dff2'
+    magenta: '#ae89fe'
+    cyan: '#708387'
+    white: '#d5d5d0'
+    brightBlack: '#626566'
+    brightRed: '#ff7fac'
+    brightGreen: '#c8ed71'
+    brightYellow: '#ebdf86'
+    brightBlue: '#75dff2'
+    brightMagenta: '#ae89fe'
+    brightCyan: '#b1c6ca'
+    brightWhite: '#f9f9f4'
+records:
+- delay: 0
+  content: "\e[3J\e[H\e[2J"
+- delay: 700
+  content: '$ '
+- delay: 62
+  content: c
+- delay: 62
+  content: b
+- delay: 62
+  content: ' '
+- delay: 62
+  content: s
+- delay: 62
+  content: u
+- delay: 62
+  content: m
+- delay: 62
+  content: m
+- delay: 62
+  content: a
+- delay: 62
+  content: r
+- delay: 62
+  content: y
+- delay: 62
+  content: ' '
+- delay: 62
+  content: '|'
+- delay: 62
+  content: ' '
+- delay: 62
+  content: s
+- delay: 62
+  content: e
+- delay: 62
+  content: d
+- delay: 62
+  content: ' '
+- delay: 62
+  content: '-'
+- delay: 62
+  content: n
+- delay: 62
+  content: ' '
+- delay: 62
+  content: ''''
+- delay: 62
+  content: '1'
+- delay: 62
+  content: ','
+- delay: 62
+  content: '1'
+- delay: 62
+  content: '1'
+- delay: 62
+  content: p
+- delay: 62
+  content: ''''
+- delay: 120
+  content: "\r\n"
+- delay: 696
+  content: "\e[1;36mCode Buster summary\e[0m: 276 files, \e[31m263 actionable findings\e\
+    [0m\r\n  \e[2mdart        \e[0m257 files, 259 findings\r\n  \e[2mcpp         \e\
+    [0m15 files, 0 findings\r\n  \e[2mcoverage    \e[0mbinary=79 generated=114 selected=276\
+    \ test=20 unsupported=109\r\n  \e[33madvisory    487 findings\e[0m\r\n    correctness\
+    \     18\r\n    maintainability 133\r\n    reliability     139\r\n    style  \
+    \         193\r\n    suspicious      4\r\n  \e[2mRun `cb review --advisory` for\
+    \ advisory details.\e[0m\r\n"
+- delay: 5
+  content: '$ '
+- delay: 62
+  content: c
+- delay: 62
+  content: b
+- delay: 62
+  content: ' '
+- delay: 62
+  content: h
+- delay: 62
+  content: o
+- delay: 62
+  content: t
+- delay: 62
+  content: s
+- delay: 62
+  content: p
+- delay: 62
+  content: o
+- delay: 62
+  content: t
+- delay: 62
+  content: s
+- delay: 62
+  content: ' '
+- delay: 62
+  content: '-'
+- delay: 62
+  content: '-'
+- delay: 62
+  content: t
+- delay: 62
+  content: o
+- delay: 62
+  content: p
+- delay: 62
+  content: ' '
+- delay: 62
+  content: '8'
+- delay: 120
+  content: "\r\n"
+- delay: 1852
+  content: "\e[1;36mCode Buster hotspots\e[0m: 8\r\n\e[36mapp/lib/pages/tabs/settings_tab.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m16979.5\e[0m, \e[2mchurn\e[0m 3471, \e[2mcommits\e\
+    [0m 48 (\e[32m+1786\e[0m/\e[31m-1685\e[0m)\r\n\e[36mapp/lib/pages/tabs/send_tab.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m9836.1\e[0m, \e[2mchurn\e[0m 2028, \e[2mcommits\e[0m\
+    \ 46 (\e[32m+992\e[0m/\e[31m-1036\e[0m)\r\n\e[36mapp/lib/provider/network/server/controller/receive_controller.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m9521.2\e[0m, \e[2mchurn\e[0m 1923, \e[2mcommits\e[0m\
+    \ 51 (\e[32m+976\e[0m/\e[31m-947\e[0m)\r\n\e[36mapp/lib/provider/network/send_provider.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m8609.6\e[0m, \e[2mchurn\e[0m 1890, \e[2mcommits\e[0m\
+    \ 34 (\e[32m+1138\e[0m/\e[31m-752\e[0m)\r\n\e[36mapp/lib/pages/receive_page.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m6073.7\e[0m, \e[2mchurn\e[0m 1380, \e[2mcommits\e[0m\
+    \ 29 (\e[32m+720\e[0m/\e[31m-660\e[0m)\r\n\e[36mapp/lib/provider/network/server/controller/send_controller.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m3903.3\e[0m, \e[2mchurn\e[0m 901, \e[2mcommits\e[0m\
+    \ 27 (\e[32m+426\e[0m/\e[31m-475\e[0m)\r\n\e[36mapp/lib/pages/tabs/receive_tab.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m3726.1\e[0m, \e[2mchurn\e[0m 901, \e[2mcommits\e[0m\
+    \ 22 (\e[32m+467\e[0m/\e[31m-434\e[0m)\r\n\e[36mapp/lib/provider/network/server/server_provider.dart\e\
+    [0m — \e[2mrisk\e[0m \e[33m3325.0\e[0m, \e[2mchurn\e[0m 774, \e[2mcommits\e[0m\
+    \ 26 (\e[32m+498\e[0m/\e[31m-276\e[0m)\r\n"
+- delay: 5
+  content: '$ '
+- delay: 4000
+  content: "\e[0m"
