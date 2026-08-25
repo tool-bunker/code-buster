@@ -1060,6 +1060,50 @@
       "enabledByDefault": true
     },
     {
+      "id": "css-design-token-drift",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only exact normalized values with an existing CSS custom property are compared."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "css-duplicate-declaration-set",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "css"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Nested CSS blocks and semantically equivalent shorthand declarations are not compared."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "css-duplicate-property",
       "severity": "info",
       "group": "nim-style",
@@ -2261,6 +2305,28 @@
       "enabledByDefault": true
     },
     {
+      "id": "flutter-parallel-control-component",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Button-like pointer trees are inferred from GestureDetector or InkWell containing both Container and Text."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "flutter-provider-watch-in-callback",
       "severity": "warn",
       "group": "nim-style",
@@ -2278,6 +2344,28 @@
       ],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-repeated-inline-style",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only exact normalized style constructors with at least three named arguments are compared."
+      ],
       "enabledByDefault": true
     },
     {
@@ -2301,6 +2389,29 @@
       "enabledByDefault": true
     },
     {
+      "id": "flutter-shared-component-bypass",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "A convention requires at least three external uses across two production files.",
+        "Shared widgets are inferred from StatelessWidget or StatefulWidget classes that contain a known Flutter control."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "flutter-stream-created-in-build",
       "severity": "warn",
       "group": "nim-style",
@@ -2318,6 +2429,28 @@
       ],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-theme-bypass",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only exact Color or Colors expressions matching a declared project constant are compared."
+      ],
       "enabledByDefault": true
     },
     {
@@ -2701,6 +2834,28 @@
       "enabledByDefault": true
     },
     {
+      "id": "html-parallel-control-pattern",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Button-like alternatives are inferred from role=button or click handlers on non-button elements."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "java-catch-exception",
       "severity": "warn",
       "group": "nim-style",
@@ -2718,6 +2873,28 @@
       ],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-empty-catch",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only catch declarations whose parameter list has no nested parentheses are checked."
+      ],
       "enabledByDefault": true
     },
     {
@@ -2866,6 +3043,28 @@
       "enabledByDefault": true
     },
     {
+      "id": "java-string-concat-in-loop",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "performance"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicitly declared String variables and braced loops are checked."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "java-string-equals",
       "severity": "info",
       "group": "nim-style",
@@ -2923,6 +3122,28 @@
       ],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "java-too-many-parameters",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "java"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only method declarations recognized by the Java callable extractor are checked."
+      ],
       "enabledByDefault": true
     },
     {
