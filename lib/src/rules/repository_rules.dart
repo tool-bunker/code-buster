@@ -6,6 +6,7 @@ import 'generic/generic_rules.dart';
 import 'generic/layout_rules.dart';
 import 'security/ai_prompt_injection.dart';
 import 'sql/inline_string_concat.dart';
+import 'ui/ui_consistency.dart';
 
 /// Self-contained repository rules in deterministic execution order.
 final RuleRegistry repositoryRuleRegistry = RuleRegistry(<CodeBusterRule>[
@@ -24,6 +25,13 @@ final RuleRegistry repositoryRuleRegistry = RuleRegistry(<CodeBusterRule>[
   LargeNumberUngroupedRule(),
   LargeInlineListRule(),
   NeedlessBoolBranchRule(),
+  const CssDuplicateDeclarationSetRule(),
+  const CssDesignTokenDriftRule(),
+  const FlutterRepeatedInlineStyleRule(),
+  const FlutterThemeBypassRule(),
+  const FlutterParallelControlComponentRule(),
+  const FlutterSharedComponentBypassRule(),
+  const HtmlParallelControlPatternRule(),
   SqlInlineStringConcatRule(),
   AiPromptInjectionInstructionRule(),
   AiUntrustedPromptConstructionRule(),
