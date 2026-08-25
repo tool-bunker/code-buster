@@ -29,81 +29,22 @@ This directory contains the canonical Dart implementation. Its executable is
 `cb`, its configuration file is `code-buster.toml`, and the workspace installer
 builds it from local source. 
 
-## Is Code Buster a linter?
+## One command. A clearer codebase.
 
-Not primarily. Code Buster includes lint-like correctness, security, and style
-findings, but its main scope is the repository rather than one source file. It
-builds views of dependencies, module boundaries, cycles, dead code, duplication,
-complexity, hotspots, and related files across supported languages.
+Run Code Buster from the root of any repository:
 
-A language-native linter usually has deeper knowledge of one language and
-reports local syntax, type, correctness, and style problems. Code Buster uses
-cross-file and cross-language evidence to answer broader questions such as:
+```sh
+cb
+```
 
-- How is this repository connected?
-- What might a change affect?
-- Where are responsibilities duplicated or drifting?
-- Which files or modules deserve investigation first?
-- Is code bypassing an established architecture, component, or design token?
+That is enough to get a repository-wide summary. Code Buster points out
+dependencies, duplication, complexity, hotspots, and possible drift so you and
+your coding agents can reuse what already exists and keep the codebase easier to
+understand as it grows.
 
-The tools are complementary. Continue using analyzers and linters such as
-`dart analyze`, ESLint, Clang-Tidy, or language-specific compiler diagnostics.
-Code Buster does not replace them.
-
-| | Language linter | Code Buster |
-| --- | --- | --- |
-| Primary scope | A file, declaration, or expression | A repository and its relationships |
-| Strongest evidence | Language syntax, types, and semantics | Dependency graphs, repeated structures, and cross-file patterns |
-| Typical output | Direct diagnostics for a language | Repository views, advisory findings, and investigation paths |
-| Language depth | Deep knowledge of one language | Mixed-language analysis with depth varying by language |
-| Main use | Enforce established language rules | Understand unfamiliar code and guide human or AI-assisted changes |
-
-### What is the aim?
-
-The aim is to support the full change loop for developers and AI coding agents:
-understand the repository before editing, stay within its existing structures
-while editing, and inspect the result afterwards. An AI agent can run Code
-Buster against its own changes to find possible duplication, architecture
-violations, component drift, dead code, and other issues before handing work
-back for review.
-
-Code Buster also helps keep repositories organized by making dependencies,
-boundaries, repeated implementations, and concentrated complexity visible over
-time. It should surface evidence and possible drift, not claim certainty that
-static analysis cannot provide. Before version 1.0.0, use it primarily for local
-investigation and non-blocking evaluation rather than as a production release
-gate.
-
-## Current Status
-
-**Overall status: 0.2.0 release candidate.** The Dart implementation is the
-canonical runtime and passes strict analysis, the complete test suite, native
-compilation, documentation validation, self-analysis, and multi-repository
-precision checks. 
-
-Language status describes the current analysis depth. 
-
-| Language | Status | Testing status | Current analysis evidence |
-| --- | --- | --- | --- |
-| Dart | **High** | **Done** | Analyzer AST, package-aware dependency graphs, function extraction, broad rule coverage, and self-hosting validation |
-| C# | **High** | **Needs more testing** | Dedicated adapter suite with project-aware graph handling and broad correctness, reliability, security, and style rules |
-| Java | **High** | **Needs more testing** | Dedicated adapter suite and focused regression suites for resources, exceptions, concurrency, SQL, cryptography, and package cycles |
-| Nim | **High** | **Needs more testing** | Dedicated parser and rule packs with complete catalog wiring and focused regression coverage |
-| Python | **High** | **Needs more testing** | Import and function extraction, graph analysis, dedicated adapter tests, and broad rule coverage |
-| C/C++ and Objective-C | **Moderate** | **Needs more testing** | Dialect-aware source gating, includes, callable extraction, and targeted safety and modernization rules |
-| Go | **Moderate** | **Needs more testing** | `go.mod`-aware imports, methods and functions, test classification, and focused reliability and security suites |
-| JavaScript and TypeScript | **Moderate** | **Needs more testing** | Module graph and function extraction with frontend, Node.js, security, and TypeScript-specific checks |
-| Lua and Luau | **Moderate** | **Needs more testing** | Module and callable extraction with targeted correctness, runtime, and style checks |
-| SQL, PostgreSQL, and MySQL | **Moderate** | **Needs more testing** | Dialect-aware statement analysis with correctness, safety, and maintainability checks |
-| Wren | **Moderate** | **Needs more testing** | Import and callable extraction with a dedicated rule pack and adapter regressions |
-| CSS | **Foundational** | **Needs more testing** | Tested source discovery and targeted structural and style checks |
-| HTML | **Foundational** | **Needs more testing** | Tested source discovery, embedded-script handling, and targeted correctness and style checks |
-
-**High**, **Moderate**, and **Foundational** describe implementation depth, not
-test completion. **Done** means the language has extensive unit, integration,
-self-hosting, and external-repository validation. **Needs more testing** means
-the existing automated coverage passes, but broader real-world validation is
-still required.
+<p align="center">
+  <img src="website/assets/repository-overview.gif" width="612" alt="Code Buster summarizes a repository and identifies hotspots with one command">
+</p>
 
 ## Installation
 
@@ -157,6 +98,64 @@ dart compile exe bin/cb.dart -o build/cb
 ```
 
 Install the local checkout with `../install-code-buster.sh`.
+
+## Is Code Buster a linter?
+
+Not quite. A linter usually focuses on one language and local code issues. Code
+Buster steps back and looks at the repository as a whole.
+
+It can report lint-like issues, but it is mainly built to show:
+
+- how files and modules are connected;
+- what a change might affect;
+- where code is duplicated or starting to drift;
+- which parts of the repository need attention;
+- when code bypasses an existing boundary, component, or design token.
+
+Code Buster works alongside tools such as `dart analyze`, ESLint, Clang-Tidy,
+and compiler diagnostics. It does not replace them.
+
+<p align="center">
+  <img src="website/assets/quality-workflow.gif" width="612" alt="Code Buster finds duplicated implementation blocks for review">
+</p>
+
+## Current Status
+
+**Overall status: 0.2.0 release candidate.** The Dart implementation is the
+canonical runtime and passes strict analysis, the complete test suite, native
+compilation, documentation validation, self-analysis, and multi-repository
+precision checks. 
+
+The circles show current implementation depth and real-world validation. They
+are a guide, not a guarantee.
+
+| Language | Depth | Real-world validation |
+| --- | :---: | :---: |
+| Dart | ●●●●● | ●●●●● |
+| C# | ●●●●○ | ●○○○○ |
+| Java | ●●●●○ | ●○○○○ |
+| Nim | ●●●●○ | ●○○○○ |
+| Python | ●●●●○ | ●○○○○ |
+| C/C++ and Objective-C | ●●●○○ | ●○○○○ |
+| Go | ●●●○○ | ●○○○○ |
+| JavaScript and TypeScript | ●●●○○ | ●○○○○ |
+| Lua and Luau | ●●●○○ | ●○○○○ |
+| SQL, PostgreSQL, and MySQL | ●●●○○ | ●○○○○ |
+| Wren | ●●●○○ | ●○○○○ |
+| CSS | ●●○○○ | ●○○○○ |
+| HTML | ●●○○○ | ●○○○○ |
+| Rust *(planned)* | — | — |
+| Mojo *(planned)* | — | — |
+
+**Depth** measures how much useful analysis is implemented. **Real-world
+validation** measures testing against external repositories, including review
+of false positives, missed findings, and the rule improvements that follow.
+A dash means support is planned but not implemented.
+
+Help develop Code Buster by running it on real repositories and
+[reporting what you find](https://github.com/tool-bunker/code-buster/issues/new/choose).
+Even languages with high depth still need much more real-world testing. Reports
+of false positives, missed problems, and confusing results are especially useful.
 
 ## Contributing
 

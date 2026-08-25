@@ -51,63 +51,13 @@ config:
 records:
 - delay: 0
   content: "\e[3J\e[H\e[2J"
-- delay: 700
+- delay: 300
   content: '$ '
-- delay: 62
+- delay: 90
   content: c
-- delay: 62
+- delay: 90
   content: b
-- delay: 62
-  content: ' '
-- delay: 62
-  content: s
-- delay: 62
-  content: u
-- delay: 62
-  content: m
-- delay: 62
-  content: m
-- delay: 62
-  content: a
-- delay: 62
-  content: r
-- delay: 62
-  content: y
-- delay: 62
-  content: ' '
-- delay: 62
-  content: '|'
-- delay: 62
-  content: ' '
-- delay: 62
-  content: s
-- delay: 62
-  content: e
-- delay: 62
-  content: d
-- delay: 62
-  content: ' '
-- delay: 62
-  content: '-'
-- delay: 62
-  content: n
-- delay: 62
-  content: ' '
-- delay: 62
-  content: ''''
-- delay: 62
-  content: '1'
-- delay: 62
-  content: ','
-- delay: 62
-  content: '1'
-- delay: 62
-  content: '1'
-- delay: 62
-  content: p
-- delay: 62
-  content: ''''
-- delay: 120
+- delay: 150
   content: "\r\n"
 - delay: 696
   content: "\e[1;36mCode Buster summary\e[0m: 276 files, \e[31m263 actionable findings\e\
@@ -117,49 +67,7 @@ records:
     \     18\r\n    maintainability 133\r\n    reliability     139\r\n    style  \
     \         193\r\n    suspicious      4\r\n  \e[2mRun `cb review --advisory` for\
     \ advisory details.\e[0m\r\n"
-- delay: 5
-  content: '$ '
-- delay: 62
-  content: c
-- delay: 62
-  content: b
-- delay: 62
-  content: ' '
-- delay: 62
-  content: h
-- delay: 62
-  content: o
-- delay: 62
-  content: t
-- delay: 62
-  content: s
-- delay: 62
-  content: p
-- delay: 62
-  content: o
-- delay: 62
-  content: t
-- delay: 62
-  content: s
-- delay: 62
-  content: ' '
-- delay: 62
-  content: '-'
-- delay: 62
-  content: '-'
-- delay: 62
-  content: t
-- delay: 62
-  content: o
-- delay: 62
-  content: p
-- delay: 62
-  content: ' '
-- delay: 62
-  content: '8'
-- delay: 120
-  content: "\r\n"
-- delay: 1852
+- delay: 1800
   content: "\e[1;36mCode Buster hotspots\e[0m: 8\r\n\e[36mapp/lib/pages/tabs/settings_tab.dart\e\
     [0m — \e[2mrisk\e[0m \e[33m16979.5\e[0m, \e[2mchurn\e[0m 3471, \e[2mcommits\e\
     [0m 48 (\e[32m+1786\e[0m/\e[31m-1685\e[0m)\r\n\e[36mapp/lib/pages/tabs/send_tab.dart\e\
