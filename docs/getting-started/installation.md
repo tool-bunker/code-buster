@@ -66,6 +66,17 @@ Get-Content .\\install-code-buster.ps1
 & .\\install-code-buster.ps1
 ```
 
+## pub.dev
+
+When Dart 3.11 or newer is already installed:
+
+```sh
+dart pub global activate code_buster
+cb version
+```
+
+Ensure `$HOME/.pub-cache/bin` is on `PATH`.
+
 ## Build from source
 
 Run these commands from the `code-buster/` directory:

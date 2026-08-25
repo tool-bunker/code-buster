@@ -139,10 +139,10 @@ and install under the current user's `~/.local/bin` directory.
 
 ### Dart and Flutter
 
-Install from Git when Dart 3.11 or newer is already available:
+Install the published package when Dart 3.11 or newer is already available:
 
 ```sh
-dart pub global activate --source git https://github.com/tool-bunker/code-buster.git
+dart pub global activate code_buster
 cb version
 ```
 
@@ -157,3 +157,9 @@ dart compile exe bin/cb.dart -o build/cb
 ```
 
 Install the local checkout with `../install-code-buster.sh`.
+
+## Contributing
+
+Open pull requests against `develop`. The `main` branch is reserved for
+reviewed release changes and coordinated hotfixes. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution contract.

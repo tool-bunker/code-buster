@@ -4,6 +4,11 @@ Develop Code Buster, add rules, and build maintainable source fixtures.
 
 Run development commands from the `code-buster/` directory. Read the repository's `CONTRIBUTING.md` for the complete contribution contract.
 
+## Branches
+
+Open pull requests against `develop`. The `main` branch is reserved for
+reviewed, release-ready changes and coordinated hotfixes.
+
 ## Development checks
 
 ```sh

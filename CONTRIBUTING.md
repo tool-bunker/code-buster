@@ -179,6 +179,11 @@ explicit project decision.
 
 ## Pull requests
 
+Open pull requests against the `develop` branch. `develop` is the integration
+branch for ongoing work; `main` tracks reviewed release-ready changes. Direct
+pull requests to `main` are reserved for an explicitly coordinated release fix
+or hotfix.
+
 A pull request should:
 
 - state the user-visible problem and the chosen solution;
