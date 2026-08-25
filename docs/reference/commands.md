@@ -1,7 +1,6 @@
----
-title: Commands
-description: Reference for Code Buster command families and common global options.
----
+# Commands
+
+Reference for Code Buster command families and common global options.
 
 Run `cb <command> --help` for the options supported by the installed version.
 

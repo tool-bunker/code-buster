@@ -1,23 +1,27 @@
 # Code Buster documentation
 
-Documentation for Code Buster.
+This directory is the canonical documentation for Code Buster. GitHub renders
+these Markdown files directly; the public homepage only contains product and
+quick-start information.
 
-## Development
+## Start here
 
-Run commands from `code-buster/docs/`:
+- [Installation](getting-started/installation.md)
+- [Quickstart](getting-started/quickstart.md)
 
-```sh
-npm install
-npm run dev
-```
+## Guides
 
-The local site is available at `http://localhost:4321` by default.
+- [Configuration](guides/configuration.md)
+- [Analysis workflows](guides/workflows.md)
+- [CI and integrations](guides/integrations.md)
 
-## Verification
+## Reference
 
-```sh
-npm run astro -- check
-npm run build
-```
+- [Commands](reference/commands.md)
+- [Reports](reference/reports.md)
+- [Language support](reference/languages.md)
 
-Documentation pages live under `src/content/docs/`. Navigation is configured in `astro.config.mjs`.
+## Project
+
+- [Contributing](project/contributing.md)
+- [Security and releases](project/security-releases.md)

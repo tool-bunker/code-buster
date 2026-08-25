@@ -1,7 +1,6 @@
----
-title: Analysis workflows
-description: Apply Code Buster views to exploration, review, remediation, and baselines.
----
+# Analysis workflows
+
+Apply Code Buster views to exploration, review, remediation, and baselines.
 
 Code Buster commands are repository views over shared discovery, parsing, graph, rule, and reporting stages. Choose the narrowest view that answers the current question.
 

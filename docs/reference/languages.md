@@ -1,7 +1,6 @@
----
-title: Language support
-description: Current analysis depth and testing status by language family.
----
+# Language support
+
+Current analysis depth and testing status by language family.
 
 Implementation depth and real-world validation are tracked separately. **High**, **Moderate**, and **Foundational** describe analysis depth; they do not mean every construct is understood.
 

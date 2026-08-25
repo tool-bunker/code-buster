@@ -13,7 +13,7 @@
     ·
     <a href="#currentstatus">Current Status</a>
     ·
-    <a href="documentation">Documentation</a>
+    <a href="docs/README.md">Documentation</a>
     ·
     <a href="CONTRIBUTING.md">Contributing</a>
   </p>
@@ -28,6 +28,51 @@ heuristics, quality scores, and remediation plans.
 This directory contains the canonical Dart implementation. Its executable is
 `cb`, its configuration file is `code-buster.toml`, and the workspace installer
 builds it from local source. 
+
+## Is Code Buster a linter?
+
+Not primarily. Code Buster includes lint-like correctness, security, and style
+findings, but its main scope is the repository rather than one source file. It
+builds views of dependencies, module boundaries, cycles, dead code, duplication,
+complexity, hotspots, and related files across supported languages.
+
+A language-native linter usually has deeper knowledge of one language and
+reports local syntax, type, correctness, and style problems. Code Buster uses
+cross-file and cross-language evidence to answer broader questions such as:
+
+- How is this repository connected?
+- What might a change affect?
+- Where are responsibilities duplicated or drifting?
+- Which files or modules deserve investigation first?
+- Is code bypassing an established architecture, component, or design token?
+
+The tools are complementary. Continue using analyzers and linters such as
+`dart analyze`, ESLint, Clang-Tidy, or language-specific compiler diagnostics.
+Code Buster does not replace them.
+
+| | Language linter | Code Buster |
+| --- | --- | --- |
+| Primary scope | A file, declaration, or expression | A repository and its relationships |
+| Strongest evidence | Language syntax, types, and semantics | Dependency graphs, repeated structures, and cross-file patterns |
+| Typical output | Direct diagnostics for a language | Repository views, advisory findings, and investigation paths |
+| Language depth | Deep knowledge of one language | Mixed-language analysis with depth varying by language |
+| Main use | Enforce established language rules | Understand unfamiliar code and guide human or AI-assisted changes |
+
+### What is the aim?
+
+The aim is to support the full change loop for developers and AI coding agents:
+understand the repository before editing, stay within its existing structures
+while editing, and inspect the result afterwards. An AI agent can run Code
+Buster against its own changes to find possible duplication, architecture
+violations, component drift, dead code, and other issues before handing work
+back for review.
+
+Code Buster also helps keep repositories organized by making dependencies,
+boundaries, repeated implementations, and concentrated complexity visible over
+time. It should surface evidence and possible drift, not claim certainty that
+static analysis cannot provide. Before version 1.0.0, use it primarily for local
+investigation and non-blocking evaluation rather than as a production release
+gate.
 
 ## Current Status
 
@@ -63,6 +108,27 @@ still required.
 ## Installation
 
 Code Buster requires Dart 3.11 or newer.
+
+### Homebrew (macOS)
+
+Code Buster does not currently publish a Homebrew formula. Homebrew can install
+the required Dart SDK, after which Dart can install Code Buster directly from
+its Git repository:
+
+```sh
+brew tap dart-lang/dart
+brew install dart
+dart pub global activate --source git https://github.com/tool-bunker/code-buster.git
+cb version
+```
+
+Ensure Dart's global executable directory is on `PATH`:
+
+```sh
+export PATH="$PATH:$HOME/.pub-cache/bin"
+```
+
+### Local source build
 
 ```sh
 dart pub get

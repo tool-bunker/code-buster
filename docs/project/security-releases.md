@@ -1,7 +1,6 @@
----
-title: Security and releases
-description: Interpret security findings and understand release assurance controls.
----
+# Security and releases
+
+Interpret security findings and understand release assurance controls.
 
 ## Trust boundaries
 

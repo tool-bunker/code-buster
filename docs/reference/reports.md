@@ -1,7 +1,6 @@
----
-title: Reports
-description: Understand human output, machine formats, findings, coverage, and run status.
----
+# Reports
+
+Understand human output, machine formats, findings, coverage, and run status.
 
 ## Human output
 

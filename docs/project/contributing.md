@@ -1,7 +1,6 @@
----
-title: Contributing
-description: Develop Code Buster, add rules, and build maintainable source fixtures.
----
+# Contributing
+
+Develop Code Buster, add rules, and build maintainable source fixtures.
 
 Run development commands from the `code-buster/` directory. Read the repository's `CONTRIBUTING.md` for the complete contribution contract.
 

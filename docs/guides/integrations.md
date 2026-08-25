@@ -1,7 +1,6 @@
----
-title: CI and integrations
-description: Publish Code Buster results through common CI and build-system formats.
----
+# CI and integrations
+
+Publish Code Buster results through common CI and build-system formats.
 
 Pin the Code Buster version in CI and run from the repository root so paths remain stable.
 
