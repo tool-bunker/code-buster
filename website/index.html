@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code Buster — Understand the codebase. Drift less.</title>
+  <meta name="description" content="Repository analysis for developers and AI coding agents: understand existing structure, follow established patterns, and review changes for drift.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="#top" aria-label="Code Buster home">
+        <span>CODE BUSTER</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/getting-started/quickstart.md">Quickstart</a>
+        <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/reference/commands.md">CLI reference</a>
+        <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/reference/languages.md">Languages</a>
+        <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/guides/integrations.md">Integrations</a>
+      </nav>
+      <a class="nav-cta" href="https://github.com/tool-bunker/code-buster/blob/main/docs/getting-started/installation.md">Install →</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="wrap">
+        <div class="hero-layout">
+          <div class="hero-copy">
+            <span class="status-stamp"><span></span>Pre-1.0 · under active development</span>
+            <h1>Keep every change consistent with the codebase.<br><em>Drift less</em>.</h1>
+            <p class="lede">Understand the existing structure, follow established patterns, and review each change for duplication, architectural issues, and UI drift.</p>
+            <div class="cta-row">
+              <a class="button button-primary" href="https://github.com/tool-bunker/code-buster/blob/main/docs/getting-started/quickstart.md">Analyze your codebase</a>
+              <a class="button button-secondary" href="https://github.com/tool-bunker/code-buster/blob/main/docs/reference/commands.md">Explore the CLI →</a>
+            </div>
+          </div>
+          <div class="hero-art">
+            <img src="assets/code-buster.png" alt="Code Buster analysis machine" width="720" height="402">
+          </div>
+        </div>
+
+        <div class="evidence-tag reveal">
+          <div class="install-switcher">
+            <div class="install-bar">
+              <div class="install-tabs" role="tablist" aria-label="Installation method">
+                <button type="button" role="tab" aria-selected="true" tabindex="0" data-command="dart pub global activate --source git https://github.com/tool-bunker/code-buster.git" data-note="Requires Dart 3.11 or newer.">Dart</button>
+                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="brew tap dart-lang/dart &amp;&amp; brew install dart &amp;&amp; dart pub global activate --source git https://github.com/tool-bunker/code-buster.git" data-note="Installs Dart with Homebrew, then Code Buster from Git.">Brew</button>
+                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="../install-code-buster.sh" data-note="Builds and installs the current workspace checkout.">Workspace</button>
+                <button type="button" role="tab" aria-selected="false" tabindex="-1" data-command="dart pub get &amp;&amp; dart compile exe bin/cb.dart -o build/cb" data-note="Builds a native executable from source.">Source</button>
+              </div>
+              <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/getting-started/installation.md">All options</a>
+            </div>
+            <div class="install-command" role="tabpanel" aria-live="polite">
+              <code>dart pub global activate --source git https://github.com/tool-bunker/code-buster.git</code>
+              <button type="button" class="copy-install" aria-label="Copy install command">Copy</button>
+            </div>
+            <p class="install-note">Requires Dart 3.11 or newer.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats">
+      <div class="wrap">
+        <div class="stats-grid reveal">
+          <div class="stat"><strong>15<sup>*</sup></strong><span>Languages</span></div>
+          <div class="stat"><strong>354</strong><span>Registered rules</span></div>
+          <div class="stat"><strong>7</strong><span>Report formats</span></div>
+          <div class="stat"><strong>0</strong><span>Required cloud services</span></div>
+        </div>
+        <p class="stats-footnote">* Code Buster recognizes 15 languages. Analysis depth varies by language and rule family. <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/reference/languages.md">Review current support →</a></p>
+      </div>
+    </section>
+
+    <section class="notice">
+      <div class="wrap">
+        <div class="notice-box reveal">
+          <span class="notice-stamp">Case status: open</span>
+          <h2>Powerful today. Still evolving.</h2>
+          <p>Use Code Buster for local exploration, AI context, and reviewing changes before handoff. Until version 1.0.0, do not rely on it as a blocking quality gate in production pipelines. CI and report integrations are available for evaluation and non-blocking visibility.</p>
+          <nav class="file-tabs" aria-label="Popular documentation">
+            <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/getting-started/quickstart.md"><span>Quickstart</span><strong>Analyze a repository in minutes.</strong></a>
+            <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/guides/configuration.md"><span>Configuration</span><strong>Shape analysis around your repository.</strong></a>
+            <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/reference/languages.md"><span>Languages</span><strong>Review current support and depth.</strong></a>
+            <a href="https://github.com/tool-bunker/code-buster/blob/main/docs/guides/integrations.md"><span>Integrations</span><strong>Evaluate reports and non-blocking CI.</strong></a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
+    <section class="feature">
+      <div class="wrap feature-grid">
+        <div class="feature-copy reveal">
+          <span class="eyebrow">Before and during the change</span>
+          <h2>Understand the system before you reshape it</h2>
+          <p>See how files, modules, and responsibilities fit together before changing them. Code Buster surfaces relationships and concentrated risk that are difficult to recover one file at a time.</p>
+          <ul>
+            <li>Trace dependencies and paths between files.</li>
+            <li>Find cycles, dead code, duplication, and complexity.</li>
+            <li>Help human and AI contributors follow existing boundaries.</li>
+          </ul>
+        </div>
+        <div class="panel reveal">
+          <figure class="evidence-panel">
+            <div class="panel-art">
+              <img src="assets/repository-overview.gif" alt="Code Buster summarizes findings and shows hotspots in the LocalSend repository" width="612" height="588" loading="lazy">
+            </div>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="feature feature-reverse">
+      <div class="wrap feature-grid">
+        <div class="feature-copy reveal">
+          <span class="eyebrow">After the change</span>
+          <h2>Review every change for drift</h2>
+          <p>Run Code Buster again after editing. It gives developers and AI coding agents another chance to catch inconsistent implementations, hidden coupling, and organizational decay before handoff.</p>
+          <ul>
+            <li>Spot repeated UI styles, component bypasses, and design-token drift.</li>
+            <li>Surface architectural issues, duplication, and newly dead code.</li>
+            <li>Let AI coding agents inspect their own work before review.</li>
+          </ul>
+        </div>
+        <div class="panel reveal">
+          <figure class="evidence-panel">
+            <div class="panel-art">
+              <img src="assets/quality-workflow.gif" alt="Code Buster reviews duplicated blocks in the LocalSend repository" width="612" height="588" loading="lazy">
+            </div>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="wrap">
+        <span class="eyebrow">One repeatable loop</span>
+        <h2>Understand before. Review after. Drift less.</h2>
+        <a class="button button-primary" href="https://github.com/tool-bunker/code-buster/blob/main/docs/getting-started/installation.md">Try Code Buster locally</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-row">
+      <span>Code Buster · pre-1.0 · built for local runs</span>
+      <div><a href="https://github.com/tool-bunker/code-buster/tree/main/docs">Docs</a><a href="https://github.com/tool-bunker/code-buster/blob/main/docs/reference/commands.md">CLI</a><a href="https://github.com/tool-bunker/code-buster">GitHub</a></div>
+    </div>
+  </footer>
+  <script src="app.js" defer></script>
+</body>
+</html>
