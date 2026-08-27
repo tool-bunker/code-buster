@@ -243,8 +243,10 @@ final class RuleExecutionStage {
       ...indexed.require('java').functions,
       ...indexed.require('javascript').functions,
       ...indexed.require('nim').functions,
+      ...indexed.require('mojo').functions,
       ...indexed.require('wren').functions,
       ...indexed.require('python').functions,
+      ...indexed.require('rust').functions,
     ];
     final Map<String, List<String>> sourceLines =
         Map<String, List<String>>.unmodifiable(
@@ -260,9 +262,11 @@ final class RuleExecutionStage {
           ...indexed.require('wren').findings,
           ...indexed.require('nim').findings,
           ...indexed.require('lua').findings,
+          ...indexed.require('mojo').findings,
           ...indexed.require('javascript').findings,
           ...indexed.require('python').findings,
           ...indexed.require('sql').findings,
+          ...indexed.require('rust').findings,
           ...indexed.require('cpp').findings,
           ...indexed.require('csharp').findings,
           ...indexed.require('java').findings,
