@@ -23,15 +23,19 @@ jobs:
       - run: dart analyze
       - name: Check default compatibility contract
         run: dart run tool/default_contract.dart
+      - name: Compile test CLI
+        run: |
+          mkdir -p build
+          dart compile exe bin/cb.dart -o build/cb-test
       - run: dart test
+        env:
+          CODE_BUSTER_TEST_EXECUTABLE: ${{ github.workspace }}/build/cb-test
       - run: dart doc --dry-run
       - name: Check Unix installer syntax
         run: sh -n website/install
-      - name: Compile and smoke-test Code Buster
+      - name: Smoke-test Code Buster
         run: |
-          mkdir -p build
-          dart compile exe bin/cb.dart -o build/cb
-          build/cb version
+          build/cb-test version
           python3 tool/precision_benchmark.py
 
   minimum-sdk:
@@ -43,7 +47,13 @@ jobs:
           sdk: 3.11.0
       - run: dart pub get
       - run: dart analyze
+      - name: Compile test CLI
+        run: |
+          mkdir -p build
+          dart compile exe bin/cb.dart -o build/cb-test
       - run: dart test
+        env:
+          CODE_BUSTER_TEST_EXECUTABLE: ${{ github.workspace }}/build/cb-test
 
   compile:
     needs: [verify, minimum-sdk]
