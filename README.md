@@ -144,13 +144,12 @@ are a guide, not a guarantee.
 | Wren | ●●●○○ | ●○○○○ |
 | CSS | ●●○○○ | ●○○○○ |
 | HTML | ●●○○○ | ●○○○○ |
-| Rust *(planned)* | — | — |
-| Mojo *(planned)* | — | — |
+| Rust | ●●●○○ | ○○○○○ |
+| Mojo | ●●●○○ | ○○○○○ |
 
 **Depth** measures how much useful analysis is implemented. **Real-world
 validation** measures testing against external repositories, including review
 of false positives, missed findings, and the rule improvements that follow.
-A dash means support is planned but not implemented.
 
 Help develop Code Buster by running it on real repositories and
 [reporting what you find](https://github.com/tool-bunker/code-buster/issues/new/choose).
