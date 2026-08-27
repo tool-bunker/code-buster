@@ -4,6 +4,8 @@
 
 - Add checksum-verified install scripts for macOS, Linux, and Windows.
 - Make Homebrew, curl, PowerShell, and Dart installation commands available on the homepage.
+- Add Rust module graphs, function extraction, and focused correctness, safety, and security rules.
+- Add Mojo import graphs, function extraction, current-syntax migration checks, and raises-contract analysis.
 
 ## 0.2.0
 
