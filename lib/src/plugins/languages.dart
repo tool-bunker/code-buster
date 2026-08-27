@@ -88,6 +88,16 @@ final class LanguageRegistry {
         extensions: <String>{'.dart'},
       ),
       LanguageDefinition(
+        id: 'rust',
+        aliases: <String>{'rs'},
+        extensions: <String>{'.rs'},
+      ),
+      LanguageDefinition(
+        id: 'mojo',
+        aliases: <String>{},
+        extensions: <String>{'.mojo'},
+      ),
+      LanguageDefinition(
         id: 'nim',
         aliases: <String>{},
         extensions: <String>{'.nim', '.nims'},

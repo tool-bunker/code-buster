@@ -3425,6 +3425,182 @@
       "enabledByDefault": true
     },
     {
+      "id": "mojo-deprecated-alias",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-deprecated-fn",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-deprecated-let",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-legacy-argument-convention",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-legacy-stdlib-import",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-missing-raises",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule checks explicit raise statements and does not resolve transitive throwing calls."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-parameter-decorator",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-string-index",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "mvvm-forbidden-dependency",
       "severity": "error",
       "group": "architecture",
@@ -6267,6 +6443,182 @@
       "languages": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-command-shell",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-dbg-macro",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-expect",
+      "severity": "info",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-mem-forget",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-panic-macro",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-todo-macro",
+      "severity": "info",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-unsafe-block",
+      "severity": "info",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-unwrap",
+      "severity": "info",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
       "enabledByDefault": true
     },
     {

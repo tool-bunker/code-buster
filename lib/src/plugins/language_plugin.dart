@@ -18,8 +18,10 @@ import '../languages/go/go_adapter.dart';
 import '../languages/java/java_adapter.dart';
 import '../languages/javascript/javascript_adapter.dart';
 import '../languages/lua/lua_adapter.dart';
+import '../languages/mojo/mojo_adapter.dart';
 import '../languages/nim/nim_adapter.dart';
 import '../languages/python/python_adapter.dart';
+import '../languages/rust/rust_adapter.dart';
 import '../languages/wren/wren_adapter.dart';
 import '../rules/language_rules.dart';
 import '../rules/nim/nim_finding_order.dart';
@@ -141,8 +143,10 @@ final class LanguagePluginRegistry {
         JavaLanguagePlugin(),
         JavaScriptLanguagePlugin(),
         LuaLanguagePlugin(),
+        MojoLanguagePlugin(),
         NimLanguagePlugin(),
         PythonLanguagePlugin(),
+        RustLanguagePlugin(),
         SqlLanguagePlugin(),
         WrenLanguagePlugin(),
       ]);
@@ -495,6 +499,25 @@ final class LuaLanguagePlugin extends BuiltInLanguagePlugin {
       const <FunctionSource>[];
 }
 
+final class MojoLanguagePlugin extends BuiltInLanguagePlugin {
+  const MojoLanguagePlugin();
+
+  static final MojoAdapter _adapter = MojoAdapter();
+
+  @override
+  String get id => 'mojo';
+
+  @override
+  DependencyGraph buildGraph(
+    Map<String, String> sources,
+    AnalysisConfig config,
+  ) => _adapter.buildGraph(sources);
+
+  @override
+  List<FunctionSource> functions(Map<String, String> sources) =>
+      _adapter.functions(sources);
+}
+
 final class NimLanguagePlugin extends BuiltInLanguagePlugin
     implements FindingOrderLanguagePlugin {
   const NimLanguagePlugin();
@@ -537,6 +560,25 @@ final class PythonLanguagePlugin extends BuiltInLanguagePlugin {
   @override
   List<FunctionSource> functions(Map<String, String> sources) =>
       _functions.parse(sources);
+}
+
+final class RustLanguagePlugin extends BuiltInLanguagePlugin {
+  const RustLanguagePlugin();
+
+  static final RustAdapter _adapter = RustAdapter();
+
+  @override
+  String get id => 'rust';
+
+  @override
+  DependencyGraph buildGraph(
+    Map<String, String> sources,
+    AnalysisConfig config,
+  ) => _adapter.buildGraph(sources);
+
+  @override
+  List<FunctionSource> functions(Map<String, String> sources) =>
+      _adapter.functions(sources);
 }
 
 final class SqlLanguagePlugin extends BuiltInLanguagePlugin {
