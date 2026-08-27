@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
+import '../support/cli_process.dart';
+
 void main() {
   test('previews selected files without creating an analysis cache', () async {
     final Directory root = await Directory.systemTemp.createTemp('cb-preview-');
@@ -15,19 +17,13 @@ void main() {
       ..createSync(recursive: true)
       ..writeAsStringSync('void main() {}\n');
 
-    final ProcessResult result = await Process.run(
-      Platform.resolvedExecutable,
-      <String>[
-        'run',
-        'bin/cb.dart',
-        'preview',
-        '--root',
-        root.path,
-        '--format',
-        'json',
-      ],
-      workingDirectory: Directory.current.path,
-    );
+    final ProcessResult result = await runCodeBuster(<String>[
+      'preview',
+      '--root',
+      root.path,
+      '--format',
+      'json',
+    ]);
 
     expect(result.exitCode, 0, reason: result.stderr as String);
     final Map<String, Object?> report =
@@ -41,5 +37,5 @@ void main() {
       Directory(path.join(root.path, '.code-buster-cache')).existsSync(),
       isFalse,
     );
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

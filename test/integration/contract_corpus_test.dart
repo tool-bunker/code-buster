@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:code_buster/src/internal.dart';
 import 'package:test/test.dart';
 
+import '../support/cli_process.dart';
+
 void main() {
   const String root = 'test/fixtures/contract_corpus/dart_project';
 
@@ -83,11 +85,13 @@ void main() {
   });
 
   test('CLI emits stable JSON envelopes for the contract corpus', () async {
-    Future<ProcessResult> runCli(String command) => Process.run(
-      Platform.resolvedExecutable,
-      <String>['bin/cb.dart', command, '--root', root, '--format', 'json'],
-      workingDirectory: Directory.current.path,
-    );
+    Future<ProcessResult> runCli(String command) => runCodeBuster(<String>[
+      command,
+      '--root',
+      root,
+      '--format',
+      'json',
+    ], workingDirectory: Directory.current.path);
 
     final ProcessResult summary = await runCli('summary');
     final ProcessResult graph = await runCli('graph');
