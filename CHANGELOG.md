@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add repository-local development skills for validation, rule authoring, false-positive investigation, classification, and releases.
+- Detect uniform repeated Flutter `SizedBox` gaps that can use `Row.spacing` or `Column.spacing`.
+
 ## 0.3.0
 
 - Add checksum-verified native installers and a channel-aware `cb update` command.
