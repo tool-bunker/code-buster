@@ -25,6 +25,7 @@ final class TypeScriptSourceRule extends SelfContainedRule {
            suggestion:
                suggestion ??
                'Use the safer explicit pattern described by the rule.',
+           version: 2,
            languages: const <String>['javascript', 'typescript'],
          ),
        );

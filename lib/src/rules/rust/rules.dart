@@ -2,6 +2,7 @@
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../../languages/rust/rust_adapter.dart';
 
 /// A narrow Rust source rule with stable metadata and comment/string masking.
 final class RustSourceRule extends SelfContainedRule {
@@ -16,6 +17,7 @@ final class RustSourceRule extends SelfContainedRule {
     required this.message,
     FindingTaxonomy taxonomy = FindingTaxonomy.correctness,
     this.includeStrings = false,
+    this.allowedLints = const <String>[],
     String group = 'core',
   }) : super(
          RuleMetadata(
@@ -24,6 +26,7 @@ final class RustSourceRule extends SelfContainedRule {
            group: group,
            title: title,
            why: why,
+           version: 4,
            suggestion: suggestion,
            semanticMaturity: RuleSemanticMaturity.token,
            taxonomy: <FindingTaxonomy>{taxonomy},
@@ -34,6 +37,7 @@ final class RustSourceRule extends SelfContainedRule {
          ),
        );
   final bool includeStrings;
+  final List<String> allowedLints;
 
   final RegExp pattern;
   final String message;
@@ -41,13 +45,17 @@ final class RustSourceRule extends SelfContainedRule {
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
     for (final MapEntry<String, String> entry in context.sources.entries) {
-      if (!entry.key.endsWith('.rs')) continue;
+      if (!entry.key.endsWith('.rs') || _allowsRule(entry.value)) continue;
       final List<String> lines = _rustCodeLines(
         entry.value,
         preserveStrings: includeStrings,
       );
+      final Set<int> excludedLines = <int>{
+        ...rustCfgTestLines(lines),
+        ..._rustAllowedLines(lines, allowedLints),
+      };
       for (var index = 0; index < lines.length; index++) {
-        if (pattern.hasMatch(lines[index])) {
+        if (!excludedLines.contains(index) && pattern.hasMatch(lines[index])) {
           yield report(
             context,
             path: entry.key,
@@ -59,6 +67,69 @@ final class RustSourceRule extends SelfContainedRule {
       }
     }
   }
+
+  bool _allowsRule(String source) {
+    if (allowedLints.isEmpty) return false;
+    final Iterable<RegExpMatch> attributes = RegExp(
+      r'#!\s*\[\s*allow\s*\(([^)]*)\)\s*\]',
+      multiLine: true,
+    ).allMatches(source);
+    return attributes.any(
+      (RegExpMatch attribute) => allowedLints.any(
+        (String lint) => RegExp(
+          '(^|[,\\s])${RegExp.escape(lint)}([,\\s]|\$)',
+        ).hasMatch(attribute.group(1)!),
+      ),
+    );
+  }
+}
+
+Set<int> _rustAllowedLines(List<String> lines, List<String> allowedLints) {
+  if (allowedLints.isEmpty) return const <int>{};
+  return _rustAttributedLines(lines, (String line) {
+    final RegExpMatch? attribute = RegExp(
+      r'(?<!!)#\s*\[\s*allow\s*\(([^)]*)\)\s*\]',
+    ).firstMatch(line);
+    return attribute != null &&
+        allowedLints.any(
+          (String lint) => RegExp(
+            '(^|[,\\s])${RegExp.escape(lint)}([,\\s]|\$)',
+          ).hasMatch(attribute.group(1)!),
+        );
+  });
+}
+
+Set<int> _rustAttributedLines(
+  List<String> lines,
+  bool Function(String line) matchesAttribute,
+) {
+  final Set<int> result = <int>{};
+  var pending = false;
+  var excludedDepth = 0;
+  for (var index = 0; index < lines.length; index++) {
+    final String line = lines[index];
+    if (excludedDepth > 0) {
+      result.add(index);
+      excludedDepth +=
+          '{'.allMatches(line).length - '}'.allMatches(line).length;
+      continue;
+    }
+    if (matchesAttribute(line)) {
+      pending = true;
+      result.add(index);
+      continue;
+    }
+    if (pending && line.trimLeft().startsWith('#[')) {
+      result.add(index);
+      continue;
+    }
+    if (pending && line.trim().isNotEmpty) {
+      result.add(index);
+      excludedDepth = '{'.allMatches(line).length - '}'.allMatches(line).length;
+      pending = false;
+    }
+  }
+  return result;
 }
 
 /// Self-contained Rust rules in deterministic execution order.
@@ -74,6 +145,7 @@ final RuleRegistry rustRuleRegistry = RuleRegistry(<CodeBusterRule>[
     pattern: RegExp(r'\.unwrap\s*\('),
     message: 'unwrap can panic on a recoverable value',
     taxonomy: FindingTaxonomy.reliability,
+    allowedLints: const <String>['clippy::unwrap_used', 'unwrap_used'],
   ),
   RustSourceRule(
     id: 'rust-expect',
@@ -86,6 +158,7 @@ final RuleRegistry rustRuleRegistry = RuleRegistry(<CodeBusterRule>[
     pattern: RegExp(r'\.expect\s*\('),
     message: 'expect can panic when its assumed invariant fails',
     taxonomy: FindingTaxonomy.reliability,
+    allowedLints: const <String>['clippy::expect_used', 'expect_used'],
   ),
   RustSourceRule(
     id: 'rust-panic-macro',
@@ -98,6 +171,7 @@ final RuleRegistry rustRuleRegistry = RuleRegistry(<CodeBusterRule>[
     pattern: RegExp(r'\bpanic!\s*\('),
     message: 'explicit panic in production source',
     taxonomy: FindingTaxonomy.reliability,
+    allowedLints: const <String>['clippy::panic', 'panic'],
   ),
   RustSourceRule(
     id: 'rust-unsafe-block',

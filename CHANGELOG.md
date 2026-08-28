@@ -2,10 +2,18 @@
 
 ## Unreleased
 
-- Add checksum-verified install scripts for macOS, Linux, and Windows.
-- Make Homebrew, curl, PowerShell, and Dart installation commands available on the homepage.
-- Add Rust module graphs, function extraction, and focused correctness, safety, and security rules.
+## 0.3.0
+
+- Add checksum-verified native installers and a channel-aware `cb update` command.
+- Add Rust module graphs and focused correctness, safety, security, and test-boundary analysis.
 - Add Mojo import graphs, function extraction, current-syntax migration checks, and raises-contract analysis.
+- Resolve Dart multi-package workspace imports and remove large false dead-file floods.
+- Add repeated runtime-bootstrap detection for Dart, Cargo, Go, .NET, Maven, and Gradle tests.
+- Reuse one compiled Code Buster executable across process-based tests and CI verification.
+- Complete real-world C#, Java, and TypeScript validation across 45 external repositories.
+- Improve C#, Java, Rust, and TypeScript precision for test code, secrets, cryptography, SQL, interop, generated sources, and conditional compilation.
+- Make advisory analysis honor C# namespace policy and exclude API documentation from implementation-comment density.
+- Mark C#, Java, and JavaScript/TypeScript real-world validation as five out of five.
 
 ## 0.2.0
 

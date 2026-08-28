@@ -13,9 +13,11 @@ final SourcePatternRule javaObjectInputStreamRule = SourcePatternRule(
     why:
         'This Java construct can weaken correctness, observability, or security.',
     suggestion: 'Use the safer Java API or pattern described by the rule.',
+    version: 2,
     languages: <String>['java'],
   ),
   pattern: RegExp(r'\bObjectInputStream\b'),
   message: 'Java native deserialization referenced',
   confidence: 'medium',
+  oncePerFile: true,
 );

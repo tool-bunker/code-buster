@@ -46,11 +46,13 @@ final class RustAdapter {
     final List<FunctionSource> result = <FunctionSource>[];
     for (final MapEntry<String, String> entry in sources.entries) {
       final String code = _rustStructure(entry.value);
+      final Set<int> testLines = rustCfgTestLines(code.split('\n'));
       for (final RegExpMatch match in _function.allMatches(code)) {
         final int declarationStart =
             match.start + RegExp(r'\bfn\s+').firstMatch(match.group(0)!)!.start;
         final int open = code.indexOf('{', match.start);
         final int close = _matchingBrace(code, open);
+        if (testLines.contains(_lineAt(code, declarationStart) - 1)) continue;
         if (open == -1 || close == -1) continue;
         result.add(
           FunctionSource(
@@ -84,6 +86,46 @@ final class RustAdapter {
     r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]+"\s+)?fn\s+([A-Za-z_]\w*)\s*(?:<[^>{}]*>)?\s*\([^;{}]*\)[^{;]*\{',
     multiLine: true,
   );
+}
+
+/// Returns zero-based lines controlled by a `cfg` predicate containing `test`.
+Set<int> rustCfgTestLines(List<String> lines) => _rustAttributedLines(
+  lines,
+  (String line) =>
+      RegExp(r'#\s*\[\s*cfg\s*\([^\n]*test[^\n]*\)\s*\]').hasMatch(line),
+);
+
+Set<int> _rustAttributedLines(
+  List<String> lines,
+  bool Function(String line) matchesAttribute,
+) {
+  final Set<int> result = <int>{};
+  var pending = false;
+  var excludedDepth = 0;
+  for (var index = 0; index < lines.length; index++) {
+    final String line = lines[index];
+    if (excludedDepth > 0) {
+      result.add(index);
+      excludedDepth +=
+          '{'.allMatches(line).length - '}'.allMatches(line).length;
+      continue;
+    }
+    if (matchesAttribute(line)) {
+      pending = true;
+      result.add(index);
+      continue;
+    }
+    if (pending && line.trimLeft().startsWith('#[')) {
+      result.add(index);
+      continue;
+    }
+    if (pending && line.trim().isNotEmpty) {
+      result.add(index);
+      excludedDepth = '{'.allMatches(line).length - '}'.allMatches(line).length;
+      pending = false;
+    }
+  }
+  return result;
 }
 
 int _matchingBrace(String source, int open) {

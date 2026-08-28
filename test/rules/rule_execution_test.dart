@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:code_buster/src/internal.dart';
 import 'package:test/test.dart';
 
@@ -251,6 +253,55 @@ void main() {
     ]);
   });
 
+  test('keeps workspace package internals reachable from public roots', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code_buster_dead_workspace_',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    Directory('${root.path}/app').createSync();
+    File(
+      '${root.path}/app/pubspec.yaml',
+    ).writeAsStringSync('name: localsend_app\n');
+    Directory('${root.path}/packages/isolates').createSync(recursive: true);
+    File(
+      '${root.path}/packages/isolates/pubspec.yaml',
+    ).writeAsStringSync('name: localsend_isolates\n');
+    const Map<String, String> sources = <String, String>{
+      'app/lib/main.dart':
+          "import 'package:localsend_app/src/home.dart';\n"
+          "import 'package:localsend_isolates/localsend_isolates.dart';\n"
+          'void main() {}',
+      'app/lib/src/home.dart': '',
+      'packages/isolates/lib/localsend_isolates.dart':
+          "export 'src/worker.dart';",
+      'packages/isolates/lib/src/worker.dart': '',
+      'packages/isolates/lib/src/orphan.dart': '',
+    };
+    final AnalysisConfig config = AnalysisConfig(root: root.path);
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: root.path,
+      config: config,
+      files: const <SourceFile>[],
+      sources: sources,
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+    final LanguageAnalysis dart = LanguagePluginRegistry.standard()
+        .require('dart')
+        .analyze(sources, config);
+
+    final Iterable<Finding> deadFiles = RuleExecutionStage()
+        .execute(
+          CodeBusterCommand.dead,
+          LanguageIndexStage(LanguagePluginRegistry.standard()).build(prepared),
+          GraphAnalysis(dart.graph),
+        )
+        .where((Finding finding) => finding.code == 'dead-file');
+
+    expect(deadFiles.map((Finding finding) => finding.path), <String>[
+      'packages/isolates/lib/src/orphan.dart',
+    ]);
+  });
+
   test('reports unreachable Python modules from configured script roots', () {
     const Map<String, String> sources = <String, String>{
       'tool/release.py': 'from package import reachable\n',
@@ -288,6 +339,38 @@ void main() {
     expect(deadFiles.map((Finding finding) => finding.path), <String>[
       'package/orphan.py',
     ]);
+  });
+
+  test('does not report ordinary Rust module reference cycles', () {
+    const Map<String, String> sources = <String, String>{
+      'src/main.rs': 'mod model;',
+      'src/model.rs': 'use crate::view::View;',
+      'src/view.rs': 'use crate::model::Model;',
+    };
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: '/project',
+      config: const AnalysisConfig(root: '/project'),
+      files: const <SourceFile>[],
+      sources: sources,
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+    final DependencyGraph dependencyGraph = DependencyGraph(
+      <String, Iterable<String>>{
+        'src/main.rs': <String>['src/model.rs'],
+        'src/model.rs': <String>['src/view.rs'],
+        'src/view.rs': <String>['src/model.rs'],
+      },
+    );
+
+    final Iterable<Finding> cycles = RuleExecutionStage()
+        .execute(
+          CodeBusterCommand.summary,
+          LanguageIndexStage(LanguagePluginRegistry.standard()).build(prepared),
+          GraphAnalysis(dependencyGraph),
+        )
+        .where((Finding finding) => finding.code == 'cycle');
+
+    expect(cycles, isEmpty);
   });
 
   test('returns no findings for graph output command', () {

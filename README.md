@@ -89,6 +89,21 @@ cb version
 
 Ensure `$HOME/.pub-cache/bin` is on `PATH` when using Dart global activation.
 
+### Updating
+
+Update an existing installation through its original package channel:
+
+```sh
+cb update
+```
+
+Homebrew installations use `brew upgrade`; pub.dev installations use
+`dart pub global activate`; native macOS and Linux installations download the
+published installer and retain checksum verification. Use `cb update --dry-run`
+to inspect the selected update path. Source builds are never overwritten.
+Native Windows installations print the safe PowerShell installer command
+because a running Windows executable cannot replace itself.
+
 ### Local source build
 
 ```sh
@@ -121,7 +136,7 @@ and compiler diagnostics. It does not replace them.
 
 ## Current Status
 
-**Overall status: 0.2.0 release candidate.** The Dart implementation is the
+**Overall status: 0.3.0.** The Dart implementation is the
 canonical runtime and passes strict analysis, the complete test suite, native
 compilation, documentation validation, self-analysis, and multi-repository
 precision checks. 
@@ -132,13 +147,13 @@ are a guide, not a guarantee.
 | Language | Depth | Real-world validation |
 | --- | :---: | :---: |
 | Dart | ●●●●● | ●●●●● |
-| C# | ●●●●○ | ●○○○○ |
-| Java | ●●●●○ | ●○○○○ |
+| C# | ●●●●○ | ●●●●● |
+| Java | ●●●●○ | ●●●●● |
 | Nim | ●●●●○ | ●○○○○ |
 | Python | ●●●●○ | ●○○○○ |
 | C/C++ and Objective-C | ●●●○○ | ●○○○○ |
 | Go | ●●●○○ | ●○○○○ |
-| JavaScript and TypeScript | ●●●○○ | ●○○○○ |
+| JavaScript and TypeScript | ●●●○○ | ●●●●● |
 | Lua and Luau | ●●●○○ | ●○○○○ |
 | SQL, PostgreSQL, and MySQL | ●●●○○ | ●○○○○ |
 | Wren | ●●●○○ | ●○○○○ |

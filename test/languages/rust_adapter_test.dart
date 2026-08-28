@@ -45,4 +45,25 @@ impl Client {
       6,
     );
   });
+  test('excludes cfg-test functions from production complexity input', () {
+    final functions = RustAdapter().functions(<String, String>{
+      'src/lib.rs': '''
+fn production() {}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    #[test]
+    fn expensive_fixture() {
+        if true {
+            for value in values {
+                consume(value);
+            }
+        }
+    }
+}
+''',
+    });
+
+    expect(functions.map((function) => function.name), <String>['production']);
+  });
 }

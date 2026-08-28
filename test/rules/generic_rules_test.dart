@@ -809,6 +809,29 @@ const values = [0, 8, 16, 24, 2, 10, 18, 26, 4, 12, 20, 28, 6, 14];
     expect(findings.single.line, 3);
   });
 
+  test('ignores large inline collections in cfg-test Rust modules', () {
+    final List<Finding> findings = const LargeInlineListRule()
+        .analyze(
+          const RuleContext(
+            config: AnalysisConfig(root: '.'),
+            sources: <String, String>{
+              'src/lib.rs': '''
+#[cfg(test)]
+mod tests {
+    fn parses_address() {
+        let address = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    }
+}
+''',
+            },
+            language: 'repository',
+          ),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+
   test('ignores inline data tables in generated source', () {
     final List<Finding> findings = const LargeInlineListRule()
         .analyze(

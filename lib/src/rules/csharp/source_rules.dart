@@ -1,4 +1,5 @@
 // C# source heuristics share comment, string, and declaration handling, so their focused checks live in one scanner.
+import 'dart:io';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
@@ -12,6 +13,9 @@ final class CSharpRuleAnalysis {
     Set<String> enabledIds = const <String>{},
   }) {
     final List<Finding> result = <Finding>[];
+    final bool prefersFileScopedNamespaces = _prefersFileScopedNamespaces(
+      config.root,
+    );
     for (final MapEntry<String, String> entry in sources.entries) {
       final _CSharpFindingContext context = _CSharpFindingContext(
         path: entry.key,
@@ -19,6 +23,7 @@ final class CSharpRuleAnalysis {
         config: config,
         result: result,
         enabledIds: enabledIds,
+        prefersFileScopedNamespaces: prefersFileScopedNamespaces,
       );
       for (var index = 0; index < context.lines.length; index++) {
         context.index = index;
@@ -36,11 +41,13 @@ final class CSharpRuleAnalysis {
     final String line = context.line;
     if (line.startsWith('namespace ') && !line.endsWith(';')) {
       context.namespaceDepth = 1;
-      context.add(
-        'cs-file-scoped-namespace',
-        RuleSeverity.info,
-        'block-scoped namespace used in C# file',
-      );
+      if (context.prefersFileScopedNamespaces) {
+        context.add(
+          'cs-file-scoped-namespace',
+          RuleSeverity.info,
+          'block-scoped namespace used in C# file',
+        );
+      }
     } else if (context.namespaceDepth > 0) {
       context.namespaceDepth +=
           '{'.allMatches(context.raw).length -
@@ -178,6 +185,7 @@ final class CSharpRuleAnalysis {
         'cs-dcom-api',
         RuleSeverity.info,
         'COM/DCOM interop surface referenced',
+        oncePerFile: true,
       );
     }
     if (line.contains('AllowPartiallyTrustedCallers')) {
@@ -192,6 +200,7 @@ final class CSharpRuleAnalysis {
         'cs-cas-api',
         RuleSeverity.info,
         'Code Access Security API referenced',
+        oncePerFile: true,
       );
     }
     if (_publicPInvoke(context)) {
@@ -199,6 +208,7 @@ final class CSharpRuleAnalysis {
         'cs-public-pinvoke',
         RuleSeverity.info,
         'public native interop entry point exposed',
+        oncePerFile: true,
       );
     }
   }
@@ -218,7 +228,7 @@ final class CSharpRuleAnalysis {
         'possible hardcoded secret',
       );
     }
-    if (!context.line.startsWith('//') && _weakCrypto.hasMatch(context.line)) {
+    if (_usesWeakCryptoForSecurity(context)) {
       context.add(
         'cs-weak-crypto',
         RuleSeverity.warn,
@@ -385,6 +395,25 @@ final class CSharpRuleAnalysis {
       (line.contains('Request.') ||
           line.contains('Console.ReadLine') ||
           line.contains('args['));
+  static bool _usesWeakCryptoForSecurity(_CSharpFindingContext context) {
+    if (_obsoleteCipher.hasMatch(context.line)) return true;
+    if (!_legacyDigest.hasMatch(context.line)) return false;
+    final StringBuffer surrounding = StringBuffer(context.raw.toLowerCase());
+    final int first = context.index > 12 ? context.index - 12 : 0;
+    for (var index = context.index - 1; index >= first; index--) {
+      final String candidate = context.lines[index];
+      if (RegExp(
+        r'\b[A-Za-z_]\w*\s*\([^;]*\)\s*(?:\{|$)',
+      ).hasMatch(candidate)) {
+        surrounding.write(' ${candidate.toLowerCase()}');
+        break;
+      }
+    }
+    return RegExp(
+      r'\b(?:auth|credential|password|passwd|secret|token|signature|signing|certificate|encryption|encrypt|decrypt|keyderivation|key derivation)',
+    ).hasMatch(surrounding.toString());
+  }
+
   static bool _containsHardcodedSecret(_CSharpFindingContext context) {
     final RegExpMatch? assignment = _literalAssignment.firstMatch(context.raw);
     if (assignment == null) return false;
@@ -397,6 +426,8 @@ final class CSharpRuleAnalysis {
         .replaceAll(RegExp('[^A-Za-z0-9]'), '')
         .toLowerCase();
     return literal.trim().isNotEmpty &&
+        (normalizedLiteral.length >= 8 ||
+            !RegExp(r'^\d+$').hasMatch(normalizedLiteral)) &&
         _secretIdentifier.hasMatch(identifier) &&
         normalizedLiteral != normalizedIdentifier &&
         !_isPlaceholderSecretLiteral(normalizedLiteral) &&
@@ -419,6 +450,7 @@ final class CSharpRuleAnalysis {
       _secretIdentifier.hasMatch(context.raw);
   static bool _buildsSqlString(_CSharpFindingContext context) {
     final String raw = context.raw;
+    if (_isManagementQuery(context)) return false;
     if (!RegExp(
       r'\b\w*(?:sql|query|command)\w*\s*=\s*(?:\$@?|@\$?)?"[^"]*\b(?:select|insert|update|delete)\s',
       caseSensitive: false,
@@ -434,6 +466,25 @@ final class CSharpRuleAnalysis {
     return RegExp(
       r'(?:\+\s*[A-Za-z_]\w*|[A-Za-z_]\w*\s*\+)',
     ).hasMatch(expression);
+  }
+
+  static bool _isManagementQuery(_CSharpFindingContext context) {
+    final RegExpMatch? assignment = RegExp(
+      r'\b([A-Za-z_]\w*)\s*=',
+    ).firstMatch(context.raw);
+    if (assignment == null) return false;
+    final String variable = assignment.group(1)!;
+    final String lowerVariable = variable.toLowerCase();
+    if (lowerVariable.contains('wmi') || lowerVariable.contains('cim')) {
+      return true;
+    }
+    final RegExp use = RegExp(
+      '\\b(?:ManagementObjectSearcher|QueryInstances)\\s*\\([^;]*\\b${RegExp.escape(variable)}\\b',
+    );
+    final int end = context.index + 25 < context.lines.length
+        ? context.index + 25
+        : context.lines.length;
+    return context.lines.sublist(context.index + 1, end).any(use.hasMatch);
   }
 
   static bool _onlySafeNumericSqlInterpolation(_CSharpFindingContext context) {
@@ -547,8 +598,11 @@ final class CSharpRuleAnalysis {
   static final RegExp _casApi = RegExp(
     r'\b(?:CodeAccessPermission|SecurityPermission|PermissionSet)\b',
   );
-  static final RegExp _weakCrypto = RegExp(
-    r'\bHashAlgorithmName\.(?:MD5|SHA1)\b|\b(?:MD5|SHA1|DES|TripleDES|RC2|RijndaelManaged)\b\s*(?:\(|\.Create\b)',
+  static final RegExp _legacyDigest = RegExp(
+    r'\bHashAlgorithmName\.(?:MD5|SHA1)\b|\b(?:MD5|SHA1)\b\s*(?:\(|\.Create\b)',
+  );
+  static final RegExp _obsoleteCipher = RegExp(
+    r'\b(?:DES|TripleDES|RC2|RijndaelManaged)\b\s*(?:\(|\.Create\b)',
   );
   static final RegExp _literalAssignment = RegExp(
     r'\b([A-Za-z_]\w*)\s*=\s*(?:@|\$@|@\$)?"([^"]*)"',
@@ -563,6 +617,10 @@ final class CSharpRuleAnalysis {
     String normalizedIdentifier,
     String normalizedLiteral,
   ) {
+    if (literal.contains('-') &&
+        normalizedLiteral.endsWith(normalizedIdentifier)) {
+      return true;
+    }
     if (!identifier.toLowerCase().endsWith('token')) return false;
 
     final String prefix = normalizedIdentifier.substring(
@@ -585,9 +643,10 @@ final class CSharpRuleAnalysis {
     'placeholder',
     'example',
     'test',
+    'asdf',
   };
   static final RegExp _placeholderSecretPattern = RegExp(
-    r'^(?:fake|mock|dummy|test)[a-z0-9]*(?:key|token|secret|password|passwd)$',
+    r'^(?:(?:fake|mock|dummy|test)[a-z0-9]*(?:key|token|secret|password|passwd)|(?:asdf){2,})$',
   );
   static bool _isPlaceholderSecretLiteral(String normalizedLiteral) =>
       _placeholderSecretLiterals.contains(normalizedLiteral) ||
@@ -600,6 +659,17 @@ final class CSharpRuleAnalysis {
     r'(?:Map|Preference|Package|Action|Type|Path|Error|Width|Height|Quality|Configuration|Setting|Name|Id|Url|Uri|File|Directory|Certificate)(?:Key|Token|Secret|Password)?$|^HeaderName\w*$',
     caseSensitive: false,
   );
+  static bool _prefersFileScopedNamespaces(String root) {
+    final File editorConfig = File(
+      '$root${Platform.pathSeparator}.editorconfig',
+    );
+    if (!editorConfig.existsSync()) return false;
+    return RegExp(
+      r'^\s*csharp_style_namespace_declarations\s*=\s*file_scoped\b',
+      caseSensitive: false,
+      multiLine: true,
+    ).hasMatch(editorConfig.readAsStringSync());
+  }
 }
 
 final class _CSharpFindingContext {
@@ -609,12 +679,14 @@ final class _CSharpFindingContext {
     required this.config,
     required this.result,
     required this.enabledIds,
+    required this.prefersFileScopedNamespaces,
   });
 
   final String path;
   final List<String> lines;
   final AnalysisConfig config;
   final List<Finding> result;
+  final bool prefersFileScopedNamespaces;
   int index = 0;
   final Set<String> enabledIds;
   final Set<String> readonlyHttpClientFields = <String>{};
@@ -623,6 +695,7 @@ final class _CSharpFindingContext {
   bool _insideBlockComment = false;
   int? _stringQuote;
   bool _verbatimString = false;
+  final Set<String> reportedOnce = <String>{};
   String _commentFreeRaw = '';
 
   String get raw => lines[index];
@@ -687,7 +760,13 @@ final class _CSharpFindingContext {
     _commentFreeRaw = output.toString();
   }
 
-  void add(String id, RuleSeverity severity, String message) {
+  void add(
+    String id,
+    RuleSeverity severity,
+    String message, {
+    bool oncePerFile = false,
+  }) {
+    if (oncePerFile && !reportedOnce.add(id)) return;
     if (!enabledIds.contains(id) && !config.severityOverrides.containsKey(id)) {
       return;
     }
@@ -730,6 +809,15 @@ final class CSharpSourceRule extends SelfContainedRule {
            suggestion: id == 'cs-async-void'
                ? 'Return Task/ValueTask unless this is a UI/event handler with documented intent.'
                : 'Use the safer modern .NET alternative described by the rule.',
+           version: 5,
+           securityKind:
+               const <String>{
+                 'cs-cas-api',
+                 'cs-dcom-api',
+                 'cs-public-pinvoke',
+               }.contains(id)
+               ? SecurityFindingKind.hotspot
+               : SecurityFindingKind.none,
            languages: const <String>['csharp'],
          ),
        );

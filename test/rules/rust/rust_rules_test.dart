@@ -42,4 +42,62 @@ fn run() {
       'rust-command-shell',
     });
   });
+  test('ignores cfg-test bodies and explicitly allowed Clippy lints', () {
+    const String allowedSource = '''
+#![allow(clippy::unwrap_used)]
+
+fn parse() {
+    literal.parse().unwrap();
+}
+''';
+    const String mixedSource = '''
+fn production() {
+    value.expect("required");
+}
+
+#[cfg(test)]
+if diagnostic_failed {
+    response.unwrap();
+}
+
+#[cfg(debug_assertions)]
+#[allow(clippy::panic)]
+{
+    panic!("debug invariant");
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    #[test]
+    fn parses_fixture() {
+        value.unwrap();
+        value.expect("fixture");
+        panic!("fixture failure");
+    }
+}
+''';
+    final RuleContext context = RuleContext(
+      config: AnalysisConfig(root: '.'),
+      sources: const <String, String>{
+        'src/allowed.rs': allowedSource,
+        'src/mixed.rs': mixedSource,
+      },
+      language: 'rust',
+    );
+
+    final List<Finding> findings = rustRuleRegistry.rules
+        .expand((rule) => rule.analyze(context))
+        .where(
+          (Finding finding) =>
+              finding.code == 'rust-unwrap' ||
+              finding.code == 'rust-expect' ||
+              finding.code == 'rust-panic-macro',
+        )
+        .toList();
+
+    expect(
+      findings.map((Finding finding) => '${finding.code}:${finding.line}'),
+      <String>['rust-expect:2'],
+    );
+  });
 }

@@ -12,7 +12,7 @@ void main() {
     ], workingDirectory: Directory.current.path);
 
     expect(result.exitCode, 0);
-    expect(result.stdout, 'cb 0.2.0\nruntime: Dart\n');
+    expect(result.stdout, 'cb 0.3.0\nruntime: Dart\n');
     expect(result.stderr, isEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
