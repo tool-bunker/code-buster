@@ -19,7 +19,7 @@ void main() {
           ),
         )
         .toList();
-    expect(findings, hasLength(1));
-    expect(findings.single.line, 1);
+    expect(findings, hasLength(2));
+    expect(findings.map((Finding finding) => finding.line), <int>[1, 14]);
   });
 }

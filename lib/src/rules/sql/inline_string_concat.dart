@@ -13,7 +13,7 @@ const RuleMetadata sqlInlineStringConcatMetadata = RuleMetadata(
   why:
       'This SQL construct can create correctness, safety, or performance risk.',
   suggestion: 'Use the safer SQL pattern described by the rule.',
-  version: 3,
+  version: 5,
   securityKind: SecurityFindingKind.hotspot,
   taxonomy: <FindingTaxonomy>{FindingTaxonomy.security},
   limitations: <String>['Commented-out source is excluded.'],

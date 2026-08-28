@@ -30,6 +30,10 @@ void main() {
       'test',
     );
     expect(
+      RepositoryDefaults.classify('ScreenToGif.Test/Facts/Upload.cs'),
+      'test',
+    );
+    expect(
       RepositoryDefaults.classify('src/Product.Benchmarks/Program.cs'),
       'example',
     );
@@ -56,7 +60,12 @@ void main() {
     expect(RepositoryDefaults.classify('demo/lib/main.dart'), 'example');
     expect(
       RepositoryDefaults.infer('.').ignores,
-      containsAll(<String>['**/*_unittests.cc', '**/*_test.cpp']),
+      containsAll(<String>[
+        '**/*_unittests.cc',
+        '**/*_test.cpp',
+        '**/*.Test/**',
+        '**/test.ts',
+      ]),
     );
   });
 

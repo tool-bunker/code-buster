@@ -3,7 +3,7 @@ import 'package:code_buster/src/rules/java/empty_catch.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('reports empty and comment-only catches but not handled catches', () {
+  test('reports undocumented empty catches but accepts documented intent', () {
     const String source = '''
 class Loader {
   void load() {
@@ -15,6 +15,10 @@ class Loader {
       second();
     } catch (IOException error) {
       // Intentionally ignored.
+    }
+    try {
+      optional();
+    } catch (IOException ignored) {
     }
     try {
       third();
@@ -35,6 +39,6 @@ class Loader {
         )
         .toList();
 
-    expect(findings.map((Finding finding) => finding.line), <int>[5, 9]);
+    expect(findings.map((Finding finding) => finding.line), <int>[5]);
   });
 }

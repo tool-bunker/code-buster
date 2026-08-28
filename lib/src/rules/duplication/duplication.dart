@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 
 import '../../core/models.dart';
 import '../../engine/analysis.dart';
+import '../../languages/rust/rust_adapter.dart';
 
 const Set<String> _structuralKeywords = <String>{
   'if',
@@ -700,6 +701,9 @@ final class DuplicationAnalysis {
   ) {
     final List<_NormalizedLine> result = <_NormalizedLine>[];
     final List<String> lines = source.split('\n');
+    final Set<int> rustTestLines = sourcePath.endsWith('.rs')
+        ? rustCfgTestLines(lines)
+        : const <int>{};
     final bool hasHashLineComments = RegExp(
       r'\.pyw?$',
       caseSensitive: false,
@@ -713,6 +717,7 @@ final class DuplicationAnalysis {
         : null;
     var inBlockComment = false;
     for (var index = 0; index < lines.length; index++) {
+      if (rustTestLines.contains(index)) continue;
       if (hasHashLineComments && lines[index].trimLeft().startsWith('#')) {
         continue;
       }

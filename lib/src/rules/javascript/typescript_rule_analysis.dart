@@ -115,6 +115,10 @@ final class TypeScriptRuleAnalysis {
               secretAssignment.group(1)!,
               secretAssignment.group(2)!,
             ) &&
+            !_isPlaceholderSecret(
+              secretAssignment.group(1)!,
+              secretAssignment.group(2)!,
+            ) &&
             !_isEnumMember(codeLines, index, secretAssignment.start + 1) &&
             !lower.contains('process.env') &&
             !lower.contains('import.meta.env')) {
@@ -824,6 +828,22 @@ final RegExp _emptySentinelLiteral = RegExp(
   r'^_?empty_?$',
   caseSensitive: false,
 );
+
+bool _isPlaceholderSecret(String identifier, String literal) {
+  final String normalized = literal
+      .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
+      .toLowerCase();
+  return const <String>{
+        'test',
+        'example',
+        'placeholder',
+        'changeme',
+      }.contains(normalized) ||
+      RegExp(
+        r'^(?:(?:fake|mock|dummy|test)[a-z0-9]*(?:key|token|secret|password|passwd)|(?:asdf){2,})$',
+      ).hasMatch(normalized) ||
+      (identifier.toLowerCase().startsWith('test') && normalized == 'test');
+}
 
 bool _isExplicitEmptySentinel(String identifier, String literal) =>
     identifier.toLowerCase().startsWith('empty') &&

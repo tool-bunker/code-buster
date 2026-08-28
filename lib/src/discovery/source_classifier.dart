@@ -149,6 +149,9 @@ final class SourceClassifier {
               header.contains('do not edit')) ||
           (header.contains('generated from ') &&
               header.contains(' by antlr ')) ||
+          (header.contains('emscripten bindings') &&
+              header.contains('eslint-disable') &&
+              header.contains('@ts-nocheck')) ||
           header.contains('@generated');
     } finally {
       handle.closeSync();

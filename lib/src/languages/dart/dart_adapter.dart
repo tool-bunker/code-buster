@@ -1,4 +1,5 @@
 // Dart can be parsed semantically with package:analyzer, giving rules reliable declarations, imports, exports, and function boundaries.
+import 'dart:io';
 
 import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/results.dart';
@@ -258,16 +259,91 @@ final class _DartFunctionVisitor extends RecursiveAstVisitor<void> {
   }
 }
 
+/// Package locations needed to resolve Dart workspace imports and roots.
+final class DartWorkspaceLayout {
+  const DartWorkspaceLayout._(this.packageLibDirectories, this.packageRoots);
+
+  /// Discovers packages represented by [sourcePaths] from their `pubspec.yaml`.
+  factory DartWorkspaceLayout.discover(
+    String root,
+    Iterable<String> sourcePaths,
+  ) {
+    final Set<String> candidateRoots = <String>{};
+    for (final String sourcePath in sourcePaths) {
+      final List<String> segments = sourcePath.replaceAll(r'\', '/').split('/');
+      final int libIndex = segments.indexOf('lib');
+      final int binIndex = segments.indexOf('bin');
+      final int sourceDirectoryIndex = libIndex >= 0 ? libIndex : binIndex;
+      if (sourceDirectoryIndex >= 0) {
+        candidateRoots.add(segments.take(sourceDirectoryIndex).join('/'));
+      }
+    }
+
+    final Map<String, String> packageLibDirectories = <String, String>{};
+    final Set<String> packageRoots = <String>{};
+    for (final String packageRoot in candidateRoots) {
+      final File pubspec = File(
+        path.joinAll(<String>[root, ...packageRoot.split('/'), 'pubspec.yaml']),
+      );
+      if (!pubspec.existsSync()) continue;
+      final RegExpMatch? name = RegExp(
+        r'^name:\s*([^\s#]+)',
+        multiLine: true,
+      ).firstMatch(pubspec.readAsStringSync());
+      if (name == null) continue;
+      packageRoots.add(packageRoot);
+      packageLibDirectories[name.group(1)!] = path.posix.join(
+        packageRoot,
+        'lib',
+      );
+    }
+    return DartWorkspaceLayout._(
+      Map<String, String>.unmodifiable(packageLibDirectories),
+      Set<String>.unmodifiable(packageRoots),
+    );
+  }
+
+  /// Package name to project-relative `lib` directory.
+  final Map<String, String> packageLibDirectories;
+
+  /// Project-relative directories containing discovered packages.
+  final Set<String> packageRoots;
+
+  /// Whether [sourcePath] is a public library or executable package root.
+  bool isPublicRoot(String sourcePath) {
+    final String normalized = sourcePath.replaceAll(r'\', '/');
+    for (final String packageRoot in packageRoots) {
+      final String prefix = packageRoot.isEmpty ? '' : '$packageRoot/';
+      final String relative = normalized.startsWith(prefix)
+          ? normalized.substring(prefix.length)
+          : '';
+      final List<String> segments = relative.split('/');
+      if (segments.length == 2 &&
+          (segments.first == 'lib' || segments.first == 'bin')) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
 /// Resolves local Dart directives and produces core dependency graph edges.
 final class DartGraphAdapter {
   /// Creates an adapter rooted at [root] for the local [packageName].
-  DartGraphAdapter({required this.root, required this.packageName});
+  DartGraphAdapter({
+    required this.root,
+    required this.packageName,
+    this.packageLibDirectories = const <String, String>{},
+  });
 
   /// Absolute project root.
   final String root;
 
   /// Local Dart package name used for `package:` URI resolution.
   final String packageName;
+
+  /// Workspace package names mapped to project-relative `lib` directories.
+  final Map<String, String> packageLibDirectories;
 
   /// Builds a local-file dependency graph from project-relative Dart sources.
   DependencyGraph build(Map<String, String> sources) {
@@ -318,11 +394,14 @@ final class DartGraphAdapter {
       final String package = separator < 0
           ? packageUri
           : packageUri.substring(0, separator);
-      if (package != packageName || separator < 0) {
+      final String? libraryDirectory =
+          packageLibDirectories[package] ??
+          (package == packageName ? 'lib' : null);
+      if (libraryDirectory == null || separator < 0) {
         return null;
       }
       candidate = path.posix.normalize(
-        'lib/${packageUri.substring(separator + 1)}',
+        path.posix.join(libraryDirectory, packageUri.substring(separator + 1)),
       );
     } else {
       candidate = path.posix.normalize(
