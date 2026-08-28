@@ -29,7 +29,7 @@ void main() {
     expect(findings.single.message, contains('repository median 0%'));
   });
 
-  test('includes documentation comments in source density', () {
+  test('excludes documentation comments from implementation density', () {
     final Map<String, String> sources = <String, String>{
       for (var file = 0; file < 4; file++)
         'lib/ordinary_$file.dart': List<String>.generate(
@@ -48,8 +48,7 @@ void main() {
         )
         .toList();
 
-    expect(findings, hasLength(1));
-    expect(findings.single.path, 'lib/documented.dart');
+    expect(findings, isEmpty);
   });
 
   test('reports first-person implementation narration but not rationale', () {

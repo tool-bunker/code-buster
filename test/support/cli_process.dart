@@ -12,11 +12,23 @@ Future<String> codeBusterTestExecutable() =>
 Future<ProcessResult> runCodeBuster(
   List<String> arguments, {
   String? workingDirectory,
-}) async => Process.run(
-  await codeBusterTestExecutable(),
-  arguments,
-  workingDirectory: workingDirectory ?? Directory.current.path,
-);
+}) async {
+  final String executable = await codeBusterTestExecutable();
+  final File lockFile = File('build/test/cb-process.lock').absolute;
+  lockFile.parent.createSync(recursive: true);
+  final RandomAccessFile lock = lockFile.openSync(mode: FileMode.append);
+  await lock.lock(FileLock.exclusive);
+  try {
+    return await Process.run(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory ?? Directory.current.path,
+    );
+  } finally {
+    await lock.unlock();
+    await lock.close();
+  }
+}
 
 Future<String> _resolveExecutable() async {
   final String? configured =

@@ -17,11 +17,12 @@ generatedCodeRiskMetadata = <String, RuleMetadata>{
         'A source file has substantially more commentary than comparable files in the same repository, which can obscure the implementation and become stale.',
     suggestion:
         'Keep comments that explain constraints or intent and remove narration or restatements of the code.',
+    version: 3,
     semanticMaturity: RuleSemanticMaturity.project,
     taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
     limitations: <String>[
       'Requires at least five source files with twenty or more substantive lines.',
-      'Generated files, tests, and files with fewer than eight comment lines are excluded.',
+      'Generated files, tests, documentation comments, and files with fewer than eight implementation-comment lines are excluded.',
     ],
   ),
   'narrating-implementation-comment': const RuleMetadata(
@@ -124,6 +125,7 @@ final class _LineFacts {
 List<_LineFacts> _scanLines(String path, List<String> lines) {
   final List<_LineFacts> result = <_LineFacts>[];
   var inBlock = false;
+  var inDocumentationBlock = false;
   String? multilineQuote;
   for (final String line in lines) {
     final StringBuffer code = StringBuffer();
@@ -142,6 +144,7 @@ List<_LineFacts> _scanLines(String path, List<String> lines) {
         continue;
       }
       if (inBlock) {
+        documentation = inDocumentationBlock;
         final int end = line.indexOf('*/', index);
         if (end < 0) {
           comment.write(line.substring(index));
@@ -150,6 +153,7 @@ List<_LineFacts> _scanLines(String path, List<String> lines) {
         }
         comment.write(line.substring(index, end));
         index = end + 2;
+        inDocumentationBlock = false;
         inBlock = false;
         continue;
       }
@@ -161,6 +165,7 @@ List<_LineFacts> _scanLines(String path, List<String> lines) {
       if (line.startsWith('/**', index) || line.startsWith('/*!', index)) {
         documentation = true;
         inBlock = true;
+        inDocumentationBlock = true;
         index += 3;
         continue;
       }
@@ -245,7 +250,10 @@ final class ExcessiveCommentDensityRule extends SelfContainedRule {
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
-    final List<({String path, int code, int comments, int first})> files = [];
+    final List<
+      ({String path, int code, int comments, int baselineComments, int first})
+    >
+    files = [];
     for (final MapEntry<String, String> source in context.sources.entries) {
       if (_excludedCommentPath(source.key)) continue;
       final List<_LineFacts> facts = _scanLines(
@@ -254,20 +262,23 @@ final class ExcessiveCommentDensityRule extends SelfContainedRule {
       );
       var code = 0;
       var comments = 0;
+      var baselineComments = 0;
       var first = 0;
       for (var index = 0; index < facts.length; index++) {
         final _LineFacts fact = facts[index];
         if (fact.code.trim().isNotEmpty) code++;
-        if (fact.comment.trim().isNotEmpty) {
+        if (fact.comment.trim().isNotEmpty) baselineComments++;
+        if (!fact.documentation && fact.comment.trim().isNotEmpty) {
           comments++;
           first = first == 0 ? index + 1 : first;
         }
       }
-      if (code + comments >= 20) {
+      if (code + baselineComments >= 20) {
         files.add((
           path: source.key,
           code: code,
           comments: comments,
+          baselineComments: baselineComments,
           first: first,
         ));
       }
@@ -275,7 +286,10 @@ final class ExcessiveCommentDensityRule extends SelfContainedRule {
     if (files.length < 5) return;
     final List<double> ratios =
         files
-            .map((file) => file.comments / (file.code + file.comments))
+            .map(
+              (file) =>
+                  file.baselineComments / (file.code + file.baselineComments),
+            )
             .toList()
           ..sort();
     final double median = ratios[ratios.length ~/ 2];

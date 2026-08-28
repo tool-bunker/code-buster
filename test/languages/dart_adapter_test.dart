@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:code_buster/src/internal.dart';
 import 'package:test/test.dart';
@@ -108,6 +110,59 @@ void main() {
       expect(graph.dependenciesOf('lib/service.dart'), isEmpty);
     },
   );
+
+  test('resolves package imports across Dart workspace packages', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code_buster_dart_workspace_',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    Directory('${root.path}/app').createSync();
+    File(
+      '${root.path}/app/pubspec.yaml',
+    ).writeAsStringSync('name: localsend_app\n');
+    Directory('${root.path}/packages/isolates').createSync(recursive: true);
+    File(
+      '${root.path}/packages/isolates/pubspec.yaml',
+    ).writeAsStringSync('name: localsend_isolates\n');
+    final Map<String, String> sources = <String, String>{
+      'app/lib/main.dart':
+          "import 'package:localsend_app/src/home.dart';\n"
+          "import 'package:localsend_isolates/localsend_isolates.dart';",
+      'app/lib/src/home.dart': '',
+      'packages/isolates/lib/localsend_isolates.dart':
+          "export 'src/worker.dart';",
+      'packages/isolates/lib/src/worker.dart': '',
+      'packages/isolates/lib/src/orphan.dart': '',
+    };
+    final DartWorkspaceLayout workspace = DartWorkspaceLayout.discover(
+      root.path,
+      sources.keys,
+    );
+
+    final DependencyGraph graph = DartGraphAdapter(
+      root: root.path,
+      packageName: '',
+      packageLibDirectories: workspace.packageLibDirectories,
+    ).build(sources);
+
+    expect(graph.dependenciesOf('app/lib/main.dart'), <String>[
+      'app/lib/src/home.dart',
+      'packages/isolates/lib/localsend_isolates.dart',
+    ]);
+    expect(
+      graph.dependenciesOf('packages/isolates/lib/localsend_isolates.dart'),
+      <String>['packages/isolates/lib/src/worker.dart'],
+    );
+    expect(workspace.isPublicRoot('app/lib/main.dart'), isTrue);
+    expect(
+      workspace.isPublicRoot('packages/isolates/lib/localsend_isolates.dart'),
+      isTrue,
+    );
+    expect(
+      workspace.isPublicRoot('packages/isolates/lib/src/orphan.dart'),
+      isFalse,
+    );
+  });
 
   test('does not resolve files outside the discovered project graph', () {
     final DependencyGraph graph = DartGraphAdapter(

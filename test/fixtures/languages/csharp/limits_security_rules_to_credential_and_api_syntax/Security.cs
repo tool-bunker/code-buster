@@ -27,11 +27,17 @@ class Security {
     const string FunctionValueToken = "ScriptBlock";
     const string Token = " {0}='{1}'";
     const string QuotasToken = "<Quotas {0} />";
+    const string TokenLabel = "Jellyfin-Token";
+    const string ApiKey = "195003";
+    const string IsApiKey = "Jellyfin-IsApiKey";
+    const string DefaultPassword = "asdfasdfasdf";
     var password = "literal-secret";
     var sqlQuery = $"SELECT * FROM Users WHERE Id = {id}";
+    string queryString = "Select * From Win32_Service Where ProcessId=" + process.Id;
+    cimSession.QueryInstances("root/cimv2", "WQL", queryString);
     public string MD5 { get; set; } = "";
     if (entity.MD5 == md5) return;
-    var digest = MD5.Create();
+    var passwordDigest = MD5.Create();
     PermissionSet permissions = LoadPermissions();
   }
 }

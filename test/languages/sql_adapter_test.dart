@@ -143,6 +143,17 @@ fmt.Errorf("failed to insert into dataset: "+err.Error())
     expect(findings.map((Finding finding) => finding.line), <int>[1]);
   });
 
+  test('accepts parameterized SQL tagged templates', () {
+    final List<Finding> findings = SqlRuleAnalysis().inlineFindings(
+      <String, String>{
+        'rpc.ts':
+            r'const rows = sql`select * from users where id = ${userId}`;',
+      },
+    );
+
+    expect(findings, isEmpty);
+  });
+
   test('accepts generated parameter placeholder lists', () {
     final List<Finding> findings = SqlRuleAnalysis()
         .inlineFindings(<String, String>{

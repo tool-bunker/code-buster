@@ -172,8 +172,11 @@ final class RepositoryDefaults {
         }) ||
         segments.any(
           (String segment) =>
+              segment.endsWith('.test') ||
               segment.endsWith('.tests') ||
+              segment.endsWith('.unittest') ||
               segment.endsWith('.unittests') ||
+              segment.endsWith('.integrationtest') ||
               segment.endsWith('.integrationtests') ||
               segment.contains('.tests.'),
         )) {
@@ -227,6 +230,10 @@ final class RepositoryDefaults {
   static const List<String> _testIgnores = <String>[
     '**/test/**',
     '**/tests/**',
+    '**/test.ts',
+    '**/test.tsx',
+    '**/test.js',
+    '**/test.jsx',
     '**/integration_tests/**',
     '**/test_integration/**',
     '**/*_integration_test_support/**',
@@ -238,6 +245,7 @@ final class RepositoryDefaults {
     '**/manual_tests/**',
     '**/*Tests/**',
     '**/*.Tests*/**',
+    '**/*.Test/**',
     '**/*.UnitTests/**',
     '**/*.IntegrationTests/**',
     '**/testcase/**',

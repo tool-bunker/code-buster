@@ -1,7 +1,5 @@
 // Language support plugs into the pipeline through this contract, including shared parse results, functions, graphs, and diagnostics.
 
-import 'dart:io';
-
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:path/path.dart' as p;
 
@@ -356,6 +354,10 @@ final class DartLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
+    final DartWorkspaceLayout workspace = DartWorkspaceLayout.discover(
+      config.root,
+      sources.keys,
+    );
     final DartSourceParser parser = DartSourceParser();
     final Map<String, DartParseResult> parsed = <String, DartParseResult>{
       for (final MapEntry<String, String> source in sources.entries)
@@ -369,7 +371,8 @@ final class DartLanguagePlugin extends BuiltInLanguagePlugin {
     return LanguageAnalysis(
       graph: DartGraphAdapter(
         root: config.root,
-        packageName: _dartPackageName(config.root),
+        packageName: '',
+        packageLibDirectories: workspace.packageLibDirectories,
       ).buildParsed(sources, units),
       functions: parser.functionsParsed(units),
       // dart format is authoritative and may intentionally emit lines wider
@@ -386,10 +389,17 @@ final class DartLanguagePlugin extends BuiltInLanguagePlugin {
   DependencyGraph buildGraph(
     Map<String, String> sources,
     AnalysisConfig config,
-  ) => DartGraphAdapter(
-    root: config.root,
-    packageName: _dartPackageName(config.root),
-  ).build(sources);
+  ) {
+    final DartWorkspaceLayout workspace = DartWorkspaceLayout.discover(
+      config.root,
+      sources.keys,
+    );
+    return DartGraphAdapter(
+      root: config.root,
+      packageName: '',
+      packageLibDirectories: workspace.packageLibDirectories,
+    ).build(sources);
+  }
 
   @override
   List<FunctionSource> functions(Map<String, String> sources) =>
@@ -596,16 +606,6 @@ final class SqlLanguagePlugin extends BuiltInLanguagePlugin {
   @override
   List<FunctionSource> functions(Map<String, String> sources) =>
       const <FunctionSource>[];
-}
-
-String _dartPackageName(String root) {
-  final File pubspec = File('$root${Platform.pathSeparator}pubspec.yaml');
-  if (!pubspec.existsSync()) return '';
-  final RegExpMatch? match = RegExp(
-    r'^name:\s*([^\s#]+)',
-    multiLine: true,
-  ).firstMatch(pubspec.readAsStringSync());
-  return match?.group(1) ?? '';
 }
 
 final class WrenLanguagePlugin extends BuiltInLanguagePlugin {
