@@ -2374,6 +2374,31 @@
       "enabledByDefault": true
     },
     {
+      "id": "flutter-repeated-sizedbox-spacing",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability",
+        "style"
+      ],
+      "requirements": [
+        "ast"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit Row and Column list literals with a spacer in every gap are analyzed.",
+        "Conditional, spread, loop-produced, leading, trailing, and mixed-size gaps are skipped.",
+        "The spacing property requires a Flutter SDK version that provides Row.spacing and Column.spacing."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "flutter-set-state-after-await",
       "severity": "warn",
       "group": "nim-style",
