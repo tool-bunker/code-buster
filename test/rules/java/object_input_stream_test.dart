@@ -11,6 +11,7 @@ void main() {
             sources: <String, String>{
               'Main.java': '''ObjectInputStream input = open();
 String example = "ObjectInputStream input";
+ObjectInputStream second = reopen();
 ''',
             },
             language: 'java',

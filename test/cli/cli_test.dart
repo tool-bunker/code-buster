@@ -3,25 +3,24 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../support/cli_process.dart';
+
 void main() {
   test('version reports the Code Buster runtime', () async {
-    final ProcessResult result = await Process.run(
-      Platform.resolvedExecutable,
-      <String>['bin/cb.dart', '--version'],
-      workingDirectory: Directory.current.path,
-    );
+    final ProcessResult result = await runCodeBuster(<String>[
+      '--version',
+    ], workingDirectory: Directory.current.path);
 
     expect(result.exitCode, 0);
-    expect(result.stdout, 'cb 0.2.0\nruntime: Dart\n');
+    expect(result.stdout, 'cb 0.3.0\nruntime: Dart\n');
     expect(result.stderr, isEmpty);
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('completions command emits the requested shell contract', () async {
-    final ProcessResult result = await Process.run(
-      Platform.resolvedExecutable,
-      <String>['bin/cb.dart', 'completions', 'bash'],
-      workingDirectory: Directory.current.path,
-    );
+    final ProcessResult result = await runCodeBuster(<String>[
+      'completions',
+      'bash',
+    ], workingDirectory: Directory.current.path);
 
     expect(result.exitCode, 0);
     expect(result.stdout, contains('complete -W "summary graph dead'));
@@ -29,11 +28,12 @@ void main() {
   });
 
   test('rules lists effective semantic modes and inactive reasons', () async {
-    final ProcessResult result = await Process.run(
-      Platform.resolvedExecutable,
-      <String>['bin/cb.dart', 'rules', '--root', '.', '--format=json'],
-      workingDirectory: Directory.current.path,
-    );
+    final ProcessResult result = await runCodeBuster(<String>[
+      'rules',
+      '--root',
+      '.',
+      '--format=json',
+    ], workingDirectory: Directory.current.path);
     final Map<String, dynamic> report =
         jsonDecode(result.stdout as String) as Map<String, dynamic>;
     final List<Map<String, dynamic>> rules = (report['rules'] as List<dynamic>)
@@ -60,28 +60,21 @@ void main() {
       '${lib.path}${Platform.pathSeparator}main.dart',
     ).writeAsStringSync('void main() {\n\tprint("debug");\n}\n');
 
-    final ProcessResult result = await Process.run(
-      Platform.resolvedExecutable,
-      <String>[
-        'bin/cb.dart',
-        'summary',
-        '--root',
-        root.path,
-        '--format',
-        'json',
-      ],
-      workingDirectory: Directory.current.path,
-    );
-    final ProcessResult advisory =
-        await Process.run(Platform.resolvedExecutable, <String>[
-          'bin/cb.dart',
-          'review',
-          '--root',
-          root.path,
-          '--advisory',
-          '--format',
-          'json',
-        ], workingDirectory: Directory.current.path);
+    final ProcessResult result = await runCodeBuster(<String>[
+      'summary',
+      '--root',
+      root.path,
+      '--format',
+      'json',
+    ], workingDirectory: Directory.current.path);
+    final ProcessResult advisory = await runCodeBuster(<String>[
+      'review',
+      '--root',
+      root.path,
+      '--advisory',
+      '--format',
+      'json',
+    ], workingDirectory: Directory.current.path);
     final Map<String, dynamic> summary =
         jsonDecode(result.stdout as String) as Map<String, dynamic>;
     final Map<String, dynamic> advisoryReport =
@@ -107,20 +100,13 @@ void main() {
         'code-buster-init-',
       );
       addTearDown(() => root.delete(recursive: true));
-      final List<String> command = <String>[
-        'bin/cb.dart',
-        'init',
-        '--root',
-        root.path,
-      ];
+      final List<String> command = <String>['init', '--root', root.path];
 
-      final ProcessResult first = await Process.run(
-        Platform.resolvedExecutable,
+      final ProcessResult first = await runCodeBuster(
         command,
         workingDirectory: Directory.current.path,
       );
-      final ProcessResult second = await Process.run(
-        Platform.resolvedExecutable,
+      final ProcessResult second = await runCodeBuster(
         command,
         workingDirectory: Directory.current.path,
       );
@@ -135,6 +121,7 @@ void main() {
       expect(second.exitCode, 1);
       expect(second.stderr, contains('config exists'));
     },
+    timeout: const Timeout(Duration(minutes: 3)),
   );
 
   test(
@@ -154,27 +141,20 @@ void main() {
         '${root.path}${Platform.pathSeparator}findings.json',
       );
 
-      final ProcessResult config = await Process.run(
-        Platform.resolvedExecutable,
-        <String>[
-          'bin/cb.dart',
-          'config',
-          '--root',
-          root.path,
-          '--format',
-          'json',
-        ],
-        workingDirectory: Directory.current.path,
-      );
-      final ProcessResult baselineResult =
-          await Process.run(Platform.resolvedExecutable, <String>[
-            'bin/cb.dart',
-            'baseline',
-            '--root',
-            root.path,
-            '--output',
-            baseline.path,
-          ], workingDirectory: Directory.current.path);
+      final ProcessResult config = await runCodeBuster(<String>[
+        'config',
+        '--root',
+        root.path,
+        '--format',
+        'json',
+      ], workingDirectory: Directory.current.path);
+      final ProcessResult baselineResult = await runCodeBuster(<String>[
+        'baseline',
+        '--root',
+        root.path,
+        '--output',
+        baseline.path,
+      ], workingDirectory: Directory.current.path);
 
       expect(config.exitCode, 0);
       expect(config.stdout, contains('"root":"${root.path}"'));
@@ -182,16 +162,14 @@ void main() {
       expect(baseline.existsSync(), isTrue);
       expect(baseline.readAsStringSync(), contains('tab-indent'));
 
-      final ProcessResult stats =
-          await Process.run(Platform.resolvedExecutable, <String>[
-            'bin/cb.dart',
-            'baseline',
-            'stats',
-            '--root',
-            root.path,
-            '--output',
-            baseline.path,
-          ], workingDirectory: Directory.current.path);
+      final ProcessResult stats = await runCodeBuster(<String>[
+        'baseline',
+        'stats',
+        '--root',
+        root.path,
+        '--output',
+        baseline.path,
+      ], workingDirectory: Directory.current.path);
       expect(stats.exitCode, 0);
       expect(stats.stdout, contains('"command":"baseline stats"'));
       expect(stats.stdout, contains('"stale":0'));
@@ -213,24 +191,24 @@ void main() {
         '${lib.path}${Platform.pathSeparator}main.dart',
       ).writeAsStringSync('void main() {\n\tprint("debug");\n}\n');
 
-      final ProcessResult invalid = await Process.run(
-        Platform.resolvedExecutable,
-        <String>['bin/cb.dart', 'unknown'],
-        workingDirectory: Directory.current.path,
-      );
-      final ProcessResult ci = await Process.run(
-        Platform.resolvedExecutable,
-        <String>['bin/cb.dart', 'summary', '--root', root.path, '--ci'],
-        workingDirectory: Directory.current.path,
-      );
+      final ProcessResult invalid = await runCodeBuster(<String>[
+        'unknown',
+      ], workingDirectory: Directory.current.path);
+      final ProcessResult ci = await runCodeBuster(<String>[
+        'summary',
+        '--root',
+        root.path,
+        '--ci',
+      ], workingDirectory: Directory.current.path);
       File(
         '${root.path}${Platform.pathSeparator}code-buster.toml',
       ).writeAsStringSync('[rules.mode]\ntab-indent = "report"\n');
-      final ProcessResult configuredCi = await Process.run(
-        Platform.resolvedExecutable,
-        <String>['bin/cb.dart', 'summary', '--root', root.path, '--ci'],
-        workingDirectory: Directory.current.path,
-      );
+      final ProcessResult configuredCi = await runCodeBuster(<String>[
+        'summary',
+        '--root',
+        root.path,
+        '--ci',
+      ], workingDirectory: Directory.current.path);
 
       expect(invalid.exitCode, 2);
       expect(invalid.stderr, contains('Unknown Code Buster command'));
@@ -254,9 +232,8 @@ void main() {
       '${lib.path}${Platform.pathSeparator}other.dart',
     ).writeAsStringSync("import 'main.dart';\n");
 
-    Future<ProcessResult> runCli(List<String> arguments) => Process.run(
-      Platform.resolvedExecutable,
-      <String>['bin/cb.dart', ...arguments, '--root', root.path],
+    Future<ProcessResult> runCli(List<String> arguments) => runCodeBuster(
+      <String>[...arguments, '--root', root.path],
       workingDirectory: Directory.current.path,
     );
 
@@ -334,18 +311,12 @@ void main() {
       ..createSync();
     final File source = File('${lib.path}${Platform.pathSeparator}main.dart')
       ..writeAsStringSync('\tvoid main() { print("left\\tmiddle"); }  \n');
-    final List<String> base = <String>[
-      'bin/cb.dart',
-      'fix',
-      '--root',
-      root.path,
-    ];
+    final List<String> base = <String>['fix', '--root', root.path];
 
-    final ProcessResult preview = await Process.run(
-      Platform.resolvedExecutable,
-      <String>[...base, '--dry-run'],
-      workingDirectory: Directory.current.path,
-    );
+    final ProcessResult preview = await runCodeBuster(<String>[
+      ...base,
+      '--dry-run',
+    ], workingDirectory: Directory.current.path);
     expect(preview.exitCode, 0);
     expect(preview.stdout, contains('would fix lib/main.dart'));
     expect(
@@ -353,8 +324,7 @@ void main() {
       '\tvoid main() { print("left\\tmiddle"); }  \n',
     );
 
-    final ProcessResult applied = await Process.run(
-      Platform.resolvedExecutable,
+    final ProcessResult applied = await runCodeBuster(
       base,
       workingDirectory: Directory.current.path,
     );

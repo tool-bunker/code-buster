@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:code_buster/src/internal.dart';
 import 'package:test/test.dart';
 
@@ -158,7 +160,7 @@ void main() {
       findings
           .where((Finding finding) => finding.code == 'cs-dcom-api')
           .map((Finding finding) => finding.line),
-      <int>[7, 14],
+      <int>[7],
     );
   });
 
@@ -329,7 +331,7 @@ void main() {
     expect(findings.map((Finding finding) => finding.line), <int>[7]);
   });
 
-  test('reports public P/Invoke only through externally visible types', () {
+  test('coalesces public P/Invoke within externally visible files', () {
     final List<Finding> findings = LanguagePluginRegistry.standard()
         .require('csharp')
         .analyze(
@@ -349,7 +351,7 @@ void main() {
         .where((Finding finding) => finding.code == 'cs-public-pinvoke')
         .toList();
 
-    expect(findings.map((Finding finding) => finding.line), <int>[2, 23, 28]);
+    expect(findings.map((Finding finding) => finding.line), <int>[2]);
   });
 
   test('distinguishes boolean operators from bitmask expressions', () {
@@ -426,5 +428,37 @@ void main() {
       RuleCatalog.all.where((RuleMetadata rule) => rule.id.startsWith('cs-')),
       hasLength(24),
     );
+  });
+  test('recommends file-scoped namespaces only when configured', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code_buster_csharp_namespace_',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    const Map<String, String> source = <String, String>{
+      'Service.cs': 'namespace Example { public class Service {} }',
+    };
+    List<Finding> analyze(String projectRoot) =>
+        LanguagePluginRegistry.standard()
+            .require('csharp')
+            .analyze(
+              source,
+              AnalysisConfig(
+                root: projectRoot,
+                severityOverrides: const <String, RuleSeverity>{
+                  'cs-file-scoped-namespace': RuleSeverity.info,
+                },
+              ),
+            )
+            .findings
+            .where(
+              (Finding finding) => finding.code == 'cs-file-scoped-namespace',
+            )
+            .toList();
+
+    expect(analyze(root.path), isEmpty);
+    File('${root.path}/.editorconfig').writeAsStringSync(
+      'csharp_style_namespace_declarations = file_scoped:warning\n',
+    );
+    expect(analyze(root.path), hasLength(1));
   });
 }

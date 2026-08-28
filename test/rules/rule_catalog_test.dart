@@ -87,6 +87,7 @@ void main() {
           'flutter-parallel-control-component',
           'flutter-shared-component-bypass',
           'html-parallel-control-pattern',
+          'test-repeated-runtime-bootstrap',
           'sql-inline-string-concat',
           'ai-prompt-injection-instruction',
           'ai-untrusted-prompt-construction',

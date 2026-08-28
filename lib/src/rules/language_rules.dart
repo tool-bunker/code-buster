@@ -9,8 +9,10 @@ import 'go/rules.dart';
 import 'java/rules.dart';
 import 'javascript/rules.dart';
 import 'lua/rules.dart';
+import 'mojo/rules.dart';
 import 'nim/rules.dart';
 import 'python/rules.dart';
+import 'rust/rules.dart';
 import 'sql/rules.dart';
 import 'wren/rules.dart';
 
@@ -25,8 +27,10 @@ final Map<String, RuleRegistry> languageRuleRegistries = <String, RuleRegistry>{
   'java': javaRuleRegistry,
   'javascript': javascriptRuleRegistry,
   'lua': luaRuleRegistry,
+  'mojo': mojoRuleRegistry,
   'nim': nimRuleRegistry,
   'python': pythonRuleRegistry,
+  'rust': rustRuleRegistry,
   'sql': sqlRuleRegistry,
   'wren': wrenRuleRegistry,
 };

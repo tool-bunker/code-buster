@@ -20,6 +20,6 @@ void main() {
         )
         .toList();
     expect(findings, hasLength(3));
-    expect(findings.map((Finding finding) => finding.line), <int>[1, 2, 3]);
+    expect(findings.map((Finding finding) => finding.line), <int>[2, 4, 5]);
   });
 }

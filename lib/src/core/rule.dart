@@ -171,6 +171,7 @@ final class SourcePatternRule extends SelfContainedRule {
     this.includeCommentsAndStrings = false,
     this.codeFlowMessage,
     this.pathExclusion,
+    this.oncePerFile = false,
   }) : super(metadata);
 
   final RegExp pattern;
@@ -186,6 +187,7 @@ final class SourcePatternRule extends SelfContainedRule {
   final bool includeCommentsAndStrings;
 
   final bool Function(String path)? pathExclusion;
+  final bool oncePerFile;
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -223,6 +225,7 @@ final class SourcePatternRule extends SelfContainedRule {
                     ),
                   ],
           );
+          if (oncePerFile) break;
         }
       }
     }

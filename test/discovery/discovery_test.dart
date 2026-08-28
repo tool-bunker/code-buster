@@ -219,6 +219,14 @@ void main() {
     );
     _write(
       root,
+      'src/woff-bindings.ts',
+      '/* eslint-disable */\n'
+          '// @ts-nocheck\n'
+          '// Modified Emscripten bindings from upstream.\n'
+          'export const Module = {};\n',
+    );
+    _write(
+      root,
       'src/runtime.ts',
       '// Do not change behavior merely because this code is generated at runtime.\n'
           'export const response = {};\n',
@@ -237,7 +245,7 @@ void main() {
       discovery.generatedProvenance.map(
         (GeneratedSourceProvenance item) => item.path,
       ),
-      <String>['src/bindings.c', 'src/gotypes.gen.ts'],
+      <String>['src/bindings.c', 'src/gotypes.gen.ts', 'src/woff-bindings.ts'],
     );
   });
 

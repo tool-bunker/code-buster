@@ -320,9 +320,11 @@ final class SqlRuleAnalysis {
         }
         final bool interpolated =
             line.contains(r'${') || RegExp(r'''\$"[^"\n]*\{''').hasMatch(line);
+        final bool taggedSqlTemplate = RegExp(r'\bsql\s*`').hasMatch(line);
         final bool safeSqlInterpolation =
             interpolated &&
-            (_onlySafeSqlInterpolation(line, entry.value) ||
+            (taggedSqlTemplate ||
+                _onlySafeSqlInterpolation(line, entry.value) ||
                 _onlySafeCSharpNumericInterpolation(line, lines, index));
         final bool efCoreParameterizedInterpolation =
             interpolated && _isEfCoreParameterizedInterpolation(lines, index);
@@ -407,7 +409,9 @@ final class SqlRuleAnalysis {
 
   static bool _isManagementObjectQuery(List<String> lines, int index) {
     final String line = lines[index];
-    final RegExp searcherCall = RegExp(r'\bManagementObjectSearcher\s*\(');
+    final RegExp searcherCall = RegExp(
+      r'\b(?:ManagementObjectSearcher|QueryInstances)\s*\(',
+    );
     if (searcherCall.hasMatch(line) ||
         (index > 0 && searcherCall.hasMatch(lines[index - 1]))) {
       return true;
@@ -417,8 +421,12 @@ final class SqlRuleAnalysis {
       r'\b([A-Za-z_]\w*)\s*=',
     ).firstMatch(line);
     if (assignment == null) return false;
-
     final String variable = assignment.group(1)!;
+    final String lowerVariable = variable.toLowerCase();
+    if ((lowerVariable.contains('wmi') || lowerVariable.contains('cim')) &&
+        lowerVariable.contains('query')) {
+      return true;
+    }
     final RegExp variableReference = RegExp(
       r'\b' + RegExp.escape(variable) + r'\b',
     );

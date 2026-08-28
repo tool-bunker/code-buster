@@ -6,6 +6,7 @@ import '../core/models.dart';
 import '../core/rule.dart';
 import '../discovery/discovery.dart';
 import '../graph/graph.dart';
+import '../languages/dart/dart_adapter.dart';
 import '../plugins/language_plugin.dart';
 import '../rules/architecture/architecture.dart';
 import '../rules/architecture/mvvm_architecture.dart';
@@ -45,10 +46,15 @@ final class RuleExecutionStage {
         !_auxiliaryDirectory.hasMatch(normalized);
   }
 
-  static bool _isDartRoot(String path, String source) {
+  static bool _isDartRoot(
+    String path,
+    String source,
+    DartWorkspaceLayout workspace,
+  ) {
     final List<String> segments = path.replaceAll(r'\', '/').split('/');
-    return (segments.length == 2 && segments.first == 'bin') ||
-        (segments.length == 2 && segments.first == 'lib') ||
+    return workspace.isPublicRoot(path) ||
+        (segments.length == 2 &&
+            (segments.first == 'lib' || segments.first == 'bin')) ||
         RegExp(
           r'\b(?:FutureOr<\s*void\s*>|Future<\s*void\s*>|void)\s+main\s*\(',
         ).hasMatch(source);
@@ -158,10 +164,14 @@ final class RuleExecutionStage {
           (String path) => path.endsWith('.dart') && _isDeadFileCandidate(path),
         )
         .toList(growable: false);
+    final DartWorkspaceLayout dartWorkspace = DartWorkspaceLayout.discover(
+      config.root,
+      dartDeadFileCandidates,
+    );
     final Set<String> dartGraphRoots = <String>{
       ...configuredGraphRoots.where((String path) => path.endsWith('.dart')),
       ...dartDeadFileCandidates.where(
-        (String path) => _isDartRoot(path, sources[path]!),
+        (String path) => _isDartRoot(path, sources[path]!, dartWorkspace),
       ),
     };
     final List<String> pythonDeadFileCandidates = sources.keys
@@ -193,17 +203,18 @@ final class RuleExecutionStage {
           finding.path,
           ...finding.relatedFiles,
         ];
-        // Nominal Java/C# files and Dart files routinely reference one another
-        // within their owning package. Package plugins report the stable
-        // architecture boundary instead.
+        // Nominal Java/C# files and Dart/Rust modules routinely reference one
+        // another within their owning package. Package plugins report the
+        // stable architecture boundary instead.
         final bool nominalCycle = component.every(
           (String sourcePath) =>
               sourcePath.endsWith('.java') || sourcePath.endsWith('.cs'),
         );
-        final bool dartFileCycle = component.every(
-          (String sourcePath) => sourcePath.endsWith('.dart'),
+        final bool moduleFileCycle = component.every(
+          (String sourcePath) =>
+              sourcePath.endsWith('.dart') || sourcePath.endsWith('.rs'),
         );
-        return !nominalCycle && !dartFileCycle;
+        return !nominalCycle && !moduleFileCycle;
       }),
       ...ArchitectureAnalysis(graph.graph, config).findings(),
       ...MvvmArchitectureAnalysis(graph.graph, config).findings(),
@@ -243,8 +254,10 @@ final class RuleExecutionStage {
       ...indexed.require('java').functions,
       ...indexed.require('javascript').functions,
       ...indexed.require('nim').functions,
+      ...indexed.require('mojo').functions,
       ...indexed.require('wren').functions,
       ...indexed.require('python').functions,
+      ...indexed.require('rust').functions,
     ];
     final Map<String, List<String>> sourceLines =
         Map<String, List<String>>.unmodifiable(
@@ -260,9 +273,11 @@ final class RuleExecutionStage {
           ...indexed.require('wren').findings,
           ...indexed.require('nim').findings,
           ...indexed.require('lua').findings,
+          ...indexed.require('mojo').findings,
           ...indexed.require('javascript').findings,
           ...indexed.require('python').findings,
           ...indexed.require('sql').findings,
+          ...indexed.require('rust').findings,
           ...indexed.require('cpp').findings,
           ...indexed.require('csharp').findings,
           ...indexed.require('java').findings,

@@ -33,6 +33,10 @@
   "productionIgnores": [
     "**/test/**",
     "**/tests/**",
+    "**/test.ts",
+    "**/test.tsx",
+    "**/test.js",
+    "**/test.jsx",
     "**/integration_tests/**",
     "**/test_integration/**",
     "**/*_integration_test_support/**",
@@ -44,6 +48,7 @@
     "**/manual_tests/**",
     "**/*Tests/**",
     "**/*.Tests*/**",
+    "**/*.Test/**",
     "**/*.UnitTests/**",
     "**/*.IntegrationTests/**",
     "**/testcase/**",
@@ -563,7 +568,7 @@
       "id": "cs-aptca-attribute",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -583,7 +588,7 @@
       "id": "cs-async-void",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -603,7 +608,7 @@
       "id": "cs-binaryformatter",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -623,7 +628,7 @@
       "id": "cs-cas-api",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -643,7 +648,7 @@
       "id": "cs-catch-system-exception",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -663,7 +668,7 @@
       "id": "cs-datetime-now",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -683,7 +688,7 @@
       "id": "cs-dcom-api",
       "severity": "info",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -703,7 +708,7 @@
       "id": "cs-empty-catch",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -723,7 +728,7 @@
       "id": "cs-explicit-delegate-new",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -743,7 +748,7 @@
       "id": "cs-file-scoped-namespace",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -763,7 +768,7 @@
       "id": "cs-hardcoded-secret",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -783,7 +788,7 @@
       "id": "cs-new-httpclient",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -803,7 +808,7 @@
       "id": "cs-non-short-circuit-bool",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -823,7 +828,7 @@
       "id": "cs-process-start-input",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -843,7 +848,7 @@
       "id": "cs-public-pinvoke",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -863,7 +868,7 @@
       "id": "cs-random-security",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -883,7 +888,7 @@
       "id": "cs-remoting-api",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -903,7 +908,7 @@
       "id": "cs-runtime-type-alias",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -923,7 +928,7 @@
       "id": "cs-sql-string-build",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -943,7 +948,7 @@
       "id": "cs-string-concat-loop",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -963,7 +968,7 @@
       "id": "cs-sync-over-async",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -983,7 +988,7 @@
       "id": "cs-thread-sleep",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1003,7 +1008,7 @@
       "id": "cs-using-inside-namespace",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1023,7 +1028,7 @@
       "id": "cs-weak-crypto",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -2129,7 +2134,7 @@
       "id": "excessive-comment-density",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2142,7 +2147,7 @@
       "languageVersions": {},
       "limitations": [
         "Requires at least five source files with twenty or more substantive lines.",
-        "Generated files, tests, and files with fewer than eight comment lines are excluded."
+        "Generated files, tests, documentation comments, and files with fewer than eight implementation-comment lines are excluded."
       ],
       "enabledByDefault": true
     },
@@ -2879,7 +2884,7 @@
       "id": "java-empty-catch",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -2901,7 +2906,7 @@
       "id": "java-hardcoded-secret",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -2921,7 +2926,7 @@
       "id": "java-objectinputstream",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -3150,7 +3155,7 @@
       "id": "java-weak-crypto",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -3422,6 +3427,182 @@
       ],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-deprecated-alias",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-deprecated-fn",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-deprecated-let",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-legacy-argument-convention",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-legacy-stdlib-import",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-missing-raises",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule checks explicit raise statements and does not resolve transitive throwing calls."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-parameter-decorator",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mojo-string-index",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "mojo"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule follows current Mojo syntax but does not perform compiler type resolution."
+      ],
       "enabledByDefault": true
     },
     {
@@ -6270,6 +6451,182 @@
       "enabledByDefault": true
     },
     {
+      "id": "rust-command-shell",
+      "severity": "warn",
+      "group": "security",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-dbg-macro",
+      "severity": "info",
+      "group": "nim-style",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-expect",
+      "severity": "info",
+      "group": "core",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-mem-forget",
+      "severity": "warn",
+      "group": "core",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-panic-macro",
+      "severity": "warn",
+      "group": "core",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-todo-macro",
+      "severity": "info",
+      "group": "core",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-unsafe-block",
+      "severity": "info",
+      "group": "core",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-unwrap",
+      "severity": "info",
+      "group": "core",
+      "version": 4,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "single-method-delegating-class",
       "severity": "info",
       "group": "yagni",
@@ -6416,7 +6773,7 @@
       "id": "sql-inline-string-concat",
       "severity": "warn",
       "group": "sql",
-      "version": 3,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -6610,6 +6967,28 @@
       "enabledByDefault": true
     },
     {
+      "id": "test-repeated-runtime-bootstrap",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "performance"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "languageVersions": {},
+      "limitations": [
+        "Only literal process commands in selected test sources are checked.",
+        "Tests must be included in analysis with --include-tests or --all.",
+        "A repeated launch is evidence of bootstrap cost, not proof that every tool recompiles on every invocation."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "todo-comment",
       "severity": "info",
       "group": "suspicious",
@@ -6673,7 +7052,7 @@
       "id": "ts-any",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6694,7 +7073,7 @@
       "id": "ts-await-in-loop",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6715,7 +7094,7 @@
       "id": "ts-console",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6736,7 +7115,7 @@
       "id": "ts-debugger",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6757,7 +7136,7 @@
       "id": "ts-eval",
       "severity": "error",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -6778,7 +7157,7 @@
       "id": "ts-floating-promise",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6799,7 +7178,7 @@
       "id": "ts-hardcoded-secret",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -6820,7 +7199,7 @@
       "id": "ts-inner-html",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -6841,7 +7220,7 @@
       "id": "ts-json-parse-unsafe",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6862,7 +7241,7 @@
       "id": "ts-localstorage-json",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6883,7 +7262,7 @@
       "id": "ts-non-null-assertion",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [

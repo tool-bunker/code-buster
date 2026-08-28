@@ -35,6 +35,9 @@ void main() {
     expect(registry.lookup('golang')?.id, 'go');
     expect(registry.lookup('java')?.id, 'java');
     expect(registry.lookup('nim')?.id, 'nim');
+    expect(registry.lookup('rust')?.id, 'rust');
+    expect(registry.lookup('rs')?.id, 'rust');
+    expect(registry.lookup('mojo')?.id, 'mojo');
     expect(registry.lookup('postgresql')?.id, 'sql');
     expect(registry.lookup('wren')?.id, 'wren');
     expect(registry.lookup('luau')?.id, 'lua');
@@ -50,6 +53,8 @@ void main() {
       '.mm',
       '.cs',
       '.dart',
+      '.rs',
+      '.mojo',
       '.go',
       '.mod',
       '.py',

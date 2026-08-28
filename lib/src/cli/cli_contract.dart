@@ -36,6 +36,7 @@ enum CodeBusterCommand {
   init,
   test,
   version,
+  update,
   completions;
 
   static CodeBusterCommand parse(String value) {

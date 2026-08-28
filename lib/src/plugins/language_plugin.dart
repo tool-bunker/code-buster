@@ -1,7 +1,5 @@
 // Language support plugs into the pipeline through this contract, including shared parse results, functions, graphs, and diagnostics.
 
-import 'dart:io';
-
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:path/path.dart' as p;
 
@@ -18,8 +16,10 @@ import '../languages/go/go_adapter.dart';
 import '../languages/java/java_adapter.dart';
 import '../languages/javascript/javascript_adapter.dart';
 import '../languages/lua/lua_adapter.dart';
+import '../languages/mojo/mojo_adapter.dart';
 import '../languages/nim/nim_adapter.dart';
 import '../languages/python/python_adapter.dart';
+import '../languages/rust/rust_adapter.dart';
 import '../languages/wren/wren_adapter.dart';
 import '../rules/language_rules.dart';
 import '../rules/nim/nim_finding_order.dart';
@@ -141,8 +141,10 @@ final class LanguagePluginRegistry {
         JavaLanguagePlugin(),
         JavaScriptLanguagePlugin(),
         LuaLanguagePlugin(),
+        MojoLanguagePlugin(),
         NimLanguagePlugin(),
         PythonLanguagePlugin(),
+        RustLanguagePlugin(),
         SqlLanguagePlugin(),
         WrenLanguagePlugin(),
       ]);
@@ -352,6 +354,10 @@ final class DartLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
+    final DartWorkspaceLayout workspace = DartWorkspaceLayout.discover(
+      config.root,
+      sources.keys,
+    );
     final DartSourceParser parser = DartSourceParser();
     final Map<String, DartParseResult> parsed = <String, DartParseResult>{
       for (final MapEntry<String, String> source in sources.entries)
@@ -365,7 +371,8 @@ final class DartLanguagePlugin extends BuiltInLanguagePlugin {
     return LanguageAnalysis(
       graph: DartGraphAdapter(
         root: config.root,
-        packageName: _dartPackageName(config.root),
+        packageName: '',
+        packageLibDirectories: workspace.packageLibDirectories,
       ).buildParsed(sources, units),
       functions: parser.functionsParsed(units),
       // dart format is authoritative and may intentionally emit lines wider
@@ -382,10 +389,17 @@ final class DartLanguagePlugin extends BuiltInLanguagePlugin {
   DependencyGraph buildGraph(
     Map<String, String> sources,
     AnalysisConfig config,
-  ) => DartGraphAdapter(
-    root: config.root,
-    packageName: _dartPackageName(config.root),
-  ).build(sources);
+  ) {
+    final DartWorkspaceLayout workspace = DartWorkspaceLayout.discover(
+      config.root,
+      sources.keys,
+    );
+    return DartGraphAdapter(
+      root: config.root,
+      packageName: '',
+      packageLibDirectories: workspace.packageLibDirectories,
+    ).build(sources);
+  }
 
   @override
   List<FunctionSource> functions(Map<String, String> sources) =>
@@ -495,6 +509,25 @@ final class LuaLanguagePlugin extends BuiltInLanguagePlugin {
       const <FunctionSource>[];
 }
 
+final class MojoLanguagePlugin extends BuiltInLanguagePlugin {
+  const MojoLanguagePlugin();
+
+  static final MojoAdapter _adapter = MojoAdapter();
+
+  @override
+  String get id => 'mojo';
+
+  @override
+  DependencyGraph buildGraph(
+    Map<String, String> sources,
+    AnalysisConfig config,
+  ) => _adapter.buildGraph(sources);
+
+  @override
+  List<FunctionSource> functions(Map<String, String> sources) =>
+      _adapter.functions(sources);
+}
+
 final class NimLanguagePlugin extends BuiltInLanguagePlugin
     implements FindingOrderLanguagePlugin {
   const NimLanguagePlugin();
@@ -539,6 +572,25 @@ final class PythonLanguagePlugin extends BuiltInLanguagePlugin {
       _functions.parse(sources);
 }
 
+final class RustLanguagePlugin extends BuiltInLanguagePlugin {
+  const RustLanguagePlugin();
+
+  static final RustAdapter _adapter = RustAdapter();
+
+  @override
+  String get id => 'rust';
+
+  @override
+  DependencyGraph buildGraph(
+    Map<String, String> sources,
+    AnalysisConfig config,
+  ) => _adapter.buildGraph(sources);
+
+  @override
+  List<FunctionSource> functions(Map<String, String> sources) =>
+      _adapter.functions(sources);
+}
+
 final class SqlLanguagePlugin extends BuiltInLanguagePlugin {
   const SqlLanguagePlugin();
 
@@ -554,16 +606,6 @@ final class SqlLanguagePlugin extends BuiltInLanguagePlugin {
   @override
   List<FunctionSource> functions(Map<String, String> sources) =>
       const <FunctionSource>[];
-}
-
-String _dartPackageName(String root) {
-  final File pubspec = File('$root${Platform.pathSeparator}pubspec.yaml');
-  if (!pubspec.existsSync()) return '';
-  final RegExpMatch? match = RegExp(
-    r'^name:\s*([^\s#]+)',
-    multiLine: true,
-  ).firstMatch(pubspec.readAsStringSync());
-  return match?.group(1) ?? '';
 }
 
 final class WrenLanguagePlugin extends BuiltInLanguagePlugin {

@@ -468,6 +468,21 @@ const password = "literal-secret";
     expect(findings.map((Finding finding) => finding.line), <int>[3]);
   });
 
+  test('does not treat explicit test credentials as hardcoded secrets', () {
+    final Iterable<Finding> findings = LanguagePluginRegistry.standard()
+        .require('javascript')
+        .analyze(<String, String>{
+          'keychain.ts': '''
+const testPassword = "test";
+const apiSecret = "literal-secret";
+''',
+        }, configFor('ts-'))
+        .findings
+        .where((Finding finding) => finding.code == 'ts-hardcoded-secret');
+
+    expect(findings.map((Finding finding) => finding.line), <int>[2]);
+  });
+
   test('does not treat explicit empty sentinels as hardcoded secrets', () {
     final Iterable<Finding> findings = LanguagePluginRegistry.standard()
         .require('javascript')

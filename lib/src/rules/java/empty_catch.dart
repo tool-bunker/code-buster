@@ -18,6 +18,7 @@ final class JavaEmptyCatchRule extends SelfContainedRule {
               'An empty catch block silently loses failures and the context needed to diagnose them.',
           suggestion:
               'Recover, rethrow, or record the exception instead of discarding it.',
+          version: 3,
           semanticMaturity: RuleSemanticMaturity.token,
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.reliability},
           languages: <String>['java'],
@@ -37,6 +38,14 @@ final class JavaEmptyCatchRule extends SelfContainedRule {
     for (final MapEntry<String, String> entry in context.sources.entries) {
       final String source = javaSourceWithoutComments(entry.value);
       for (final RegExpMatch match in _emptyCatch.allMatches(source)) {
+        final String original = entry.value.substring(match.start, match.end);
+        if (original.contains('//') || original.contains('/*')) continue;
+        if (RegExp(
+          r'\bcatch\s*\([^()]*\b(?:ignored?|unused)\s*\)',
+          caseSensitive: false,
+        ).hasMatch(original)) {
+          continue;
+        }
         yield report(
           context,
           path: entry.key,

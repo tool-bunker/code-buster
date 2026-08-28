@@ -471,4 +471,26 @@ if (quote == doubleQuote || quote == singleQuote) {}
 
     expect(findings, isEmpty);
   });
+  test('ignores duplicate blocks inside cfg-test Rust modules', () {
+    final List<Finding> findings = analysis.exactBlocks(<String, String>{
+      'src/a.rs': '''
+#[cfg(test)]
+mod tests {
+    fn first() {
+        let value = fixture();
+        assert_ready(value);
+        consume(value);
+    }
+
+    fn second() {
+        let value = fixture();
+        assert_ready(value);
+        consume(value);
+    }
+}
+''',
+    }, minLines: 3);
+
+    expect(findings, isEmpty);
+  });
 }
