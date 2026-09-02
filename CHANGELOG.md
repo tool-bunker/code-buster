@@ -4,6 +4,13 @@
 
 - Add repository-local development skills for validation, rule authoring, false-positive investigation, classification, and releases.
 - Detect uniform repeated Flutter `SizedBox` gaps that can use `Row.spacing` or `Column.spacing`.
+- Detect direct Dart implementation access that bypasses a dominant factory, facade, repository, or proxy boundary.
+- Identify repeated Dart parameter groups and repeated callable variant dispatch as value-object and strategy candidates.
+- Detect Dart interface-segregation pressure and repeated mutable lifecycle-state behavior.
+- Detect repeated Dart object translations and near-identical sibling override workflows as adapter and template-method candidates.
+- Detect Dart feature envy and distributed service-locator dependencies as responsibility and dependency-ownership advisories.
+- Detect repeated Dart observer broadcasts and deep collaboration message chains.
+- Detect rejected Dart superclass operations and predominantly forwarding middle-man classes.
 
 ## 0.3.0
 
