@@ -5750,6 +5750,400 @@
       "enabledByDefault": true
     },
     {
+      "id": "oop-data-clump",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires the same complete signature of at least three explicitly typed parameters in three declarations across at least two files.",
+        "Parameter names and normalized types must match; inferred field formals and partial parameter subsets are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-facade-bypass",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a conventional Facade class name and at least three external files using that abstraction.",
+        "Reports only when abstraction use dominates direct access to structurally owned implementation types.",
+        "A facade bypass requires one external file to coordinate at least two facade collaborator types."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-factory-bypass",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a conventional Factory class name and at least three external files using that abstraction.",
+        "Reports only when abstraction use dominates direct access to structurally owned implementation types."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-feature-envy",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a non-static method to access one explicitly typed parameter at least five times across three distinct members.",
+        "Those accesses must account for at least sixty percent of explicitly received member accesses in the method.",
+        "Resolved ownership, extension methods, inherited members, local aliases, operators, and collection indexing are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-interface-segregation-pressure",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires an abstract contract with at least four methods and at least two direct implementors.",
+        "At least two implementors must explicitly throw UnsupportedError or UnimplementedError for contract methods, with three rejected implementations in total.",
+        "Inherited implementations, mixins, noSuchMethod forwarding, and indirect interface inheritance are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-message-chain",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires at least three maximal receiver chains of four or more hops across at least two methods in one class.",
+        "Nested callbacks are excluded from the enclosing method.",
+        "Resolved types, extension methods, fluent APIs, null-aware semantics, cascades, and aliases are not distinguished."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-middle-man-delegation",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires at least five public instance methods, with at least four and eighty percent directly forwarding to the same private typed field.",
+        "Forwarded methods must call the same method name using an expression body or a single return or expression statement.",
+        "Classes with extends, implements, or mixin clauses are excluded because proxy, adapter, and framework boundaries may require forwarding."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-proxy-bypass",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a conventional Proxy class name and at least three external files using that abstraction.",
+        "Reports only when abstraction use dominates direct access to structurally owned implementation types."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-refused-bequest",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a directly declared superclass with at least four instance methods and at least two direct subclasses.",
+        "Each qualifying subclass must override and explicitly reject at least two inherited methods using UnsupportedError or UnimplementedError.",
+        "At least three distinct inherited operations must be rejected; indirect inheritance, mixins, and resolved overrides are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-repeated-adapter-mapping",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires three functions across at least two files with one explicitly typed source parameter and an explicitly typed target return.",
+        "The functions must construct that target with the same three or more named arguments read directly from source fields.",
+        "Computed values, positional arguments, nested paths, collection transforms, and assignment-based mappings are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-repeated-observer-notification",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a List or Set field conventionally named listeners or observers with direct add and remove calls in its class.",
+        "At least three methods must each iterate that field and make exactly one call to the loop variable using the same callback name.",
+        "Iterable aliases, helper-based registration, asynchronous delivery, callback fields, and resolved listener types are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-repeated-strategy-dispatch",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires three switch statements across at least two files with the same three or more explicit case labels.",
+        "Every case must invoke behavior and each case in a switch must dispatch to a distinct call name.",
+        "Switch expressions, default-only dispatch, and differing case sets are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-repository-bypass",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a conventional Repository class name and at least three external files using that abstraction.",
+        "Reports only when abstraction use dominates direct access to structurally owned implementation types."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-service-locator-dependency",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires one conventionally named getIt, locator, or serviceLocator access from at least three classes across two files.",
+        "At least three distinct explicitly requested generic service types must be present.",
+        "Aliased locators, wrapper functions, generated registration code, dynamic keys, and resolved dependency flow are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-state-behavior-candidate",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a mutable field whose type ends in State, Status, or Phase and is assigned inside its class.",
+        "Requires three methods to switch on that field with the same three or more explicit case labels.",
+        "Equality chains, switch expressions, inherited methods, and externally managed state are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-template-workflow-candidate",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "ast",
+        "declarations"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Requires override methods with the same name in sibling classes sharing one direct superclass across different files.",
+        "Invocation sequences must contain four to ten calls, have equal length, and differ at exactly one position.",
+        "Control-flow equivalence, arguments, nested callbacks, inherited intermediate workflows, and resolved call targets are not analyzed."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "operation-on-same-value",
       "severity": "warn",
       "group": "suspicious",
