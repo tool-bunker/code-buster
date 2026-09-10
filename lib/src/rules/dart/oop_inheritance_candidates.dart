@@ -5,6 +5,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 
 /// Dart advisories for inheritance and delegation boundaries.
 const List<String> dartOopInheritanceCandidateRuleIds = <String>[
@@ -39,53 +40,7 @@ final class DartOopInheritanceCandidateRule extends SelfContainedRule {
   }
 }
 
-RuleMetadata _metadata(String id) => switch (id) {
-  'oop-refused-bequest' => const RuleMetadata(
-    id: 'oop-refused-bequest',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Narrow an inheritance contract subclasses reject',
-    why:
-        'Several subclasses rejecting inherited operations indicates that the base class promises behavior those subtypes cannot honor.',
-    suggestion:
-        'Consider composition or smaller capability-specific base contracts so subclasses inherit only supported behavior.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires a directly declared superclass with at least four instance methods and at least two direct subclasses.',
-      'Each qualifying subclass must override and explicitly reject at least two inherited methods using UnsupportedError or UnimplementedError.',
-      'At least three distinct inherited operations must be rejected; indirect inheritance, mixins, and resolved overrides are not analyzed.',
-    ],
-  ),
-  'oop-middle-man-delegation' => const RuleMetadata(
-    id: 'oop-middle-man-delegation',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Review a predominantly forwarding class',
-    why:
-        'A class whose public API mostly forwards unchanged operations adds navigation and maintenance without clearly owning policy.',
-    suggestion:
-        'Consider exposing the collaborator directly or moving real policy into the boundary; retain the wrapper when it intentionally isolates an external contract.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires at least five public instance methods, with at least four and eighty percent directly forwarding to the same private typed field.',
-      'Forwarded methods must call the same method name using an expression body or a single return or expression statement.',
-      'Classes with extends, implements, or mixin clauses are excluded because proxy, adapter, and framework boundaries may require forwarding.',
-    ],
-  ),
-  _ => throw ArgumentError.value(id, 'id', 'unknown Dart OOP inheritance rule'),
-};
+RuleMetadata _metadata(String id) => oopRuleMetadata(id);
 
 Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
   final Map<String, List<_BaseClass>> basesByName =

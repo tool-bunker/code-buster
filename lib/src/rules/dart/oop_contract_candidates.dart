@@ -5,6 +5,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 
 /// Dart advisories for object contracts under structural pressure.
 const List<String> dartOopContractCandidateRuleIds = <String>[
@@ -40,47 +41,8 @@ final class DartOopContractCandidateRule extends SelfContainedRule {
 }
 
 RuleMetadata _metadata(String id) => switch (id) {
-  'oop-interface-segregation-pressure' => const RuleMetadata(
-    id: 'oop-interface-segregation-pressure',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Split a contract implementations cannot fully support',
-    why:
-        'Several implementations rejecting different interface operations indicates that clients depend on a contract broader than those implementations can honor.',
-    suggestion:
-        'Consider capability-specific interfaces or composition so each implementation exposes only supported operations.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires an abstract contract with at least four methods and at least two direct implementors.',
-      'At least two implementors must explicitly throw UnsupportedError or UnimplementedError for contract methods, with three rejected implementations in total.',
-      'Inherited implementations, mixins, noSuchMethod forwarding, and indirect interface inheritance are not resolved.',
-    ],
-  ),
-  'oop-state-behavior-candidate' => const RuleMetadata(
-    id: 'oop-state-behavior-candidate',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Centralize repeated state-dependent behavior',
-    why:
-        'Several methods switching on the same mutable lifecycle field distribute valid behavior and transitions throughout one class.',
-    suggestion:
-        'Consider state-owned behavior or one transition boundary if each lifecycle state has distinct operations.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{RuleAnalysisRequirement.ast},
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires a mutable field whose type ends in State, Status, or Phase and is assigned inside its class.',
-      'Requires three methods to switch on that field with the same three or more explicit case labels.',
-      'Equality chains, switch expressions, inherited methods, and externally managed state are not analyzed.',
-    ],
-  ),
+  'oop-interface-segregation-pressure' => oopRuleMetadata(id),
+  'oop-state-behavior-candidate' => oopRuleMetadata(id),
   _ => throw ArgumentError.value(id, 'id', 'unknown Dart OOP contract rule'),
 };
 

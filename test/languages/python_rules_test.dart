@@ -44,7 +44,7 @@ void main() {
         'py-tempfile-mktemp',
       ]),
     );
-    expect(config.severityOverrides, hasLength(24));
+    expect(config.severityOverrides, hasLength(25));
   });
 
   test('ignores multiline imports, string spacing, and secret lookups', () {
@@ -157,6 +157,40 @@ api_key = "sk-live-1234567890"
     expect(
       findings.map((Finding finding) => (finding.path, finding.line)),
       <(String, int)>[('config.py', 1), ('config.py', 2)],
+    );
+  });
+
+  test('Python security rules distinguish explicit safe intent', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('python')
+        .analyze(<String, String>{
+          'protocol.py': '''
+apiKey = "apiKey"
+settings = {"client_secret": "clientSecret"}
+digest = hashlib.md5(payload, usedforsecurity=False)
+legacy = hashlib.sha1(payload)
+api_key = "sk-live-1234567890"
+unsafe_response = requests.get(url, verify=False)
+safe_response = requests.get(url, verify=True)
+''',
+        }, config)
+        .findings
+        .where(
+          (Finding finding) => <String>{
+            'py-hardcoded-secret',
+            'py-weak-hash',
+            'py-insecure-tls',
+          }.contains(finding.code),
+        )
+        .toList();
+
+    expect(
+      findings.map((Finding finding) => (finding.code, finding.line)),
+      <(String, int)>[
+        ('py-hardcoded-secret', 5),
+        ('py-insecure-tls', 6),
+        ('py-weak-hash', 4),
+      ],
     );
   });
 

@@ -5,6 +5,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 
 /// Dart advisories for collaboration boundaries.
 const List<String> dartOopCollaborationCandidateRuleIds = <String>[
@@ -38,57 +39,7 @@ final class DartOopCollaborationCandidateRule extends SelfContainedRule {
   }
 }
 
-RuleMetadata _metadata(String id) => switch (id) {
-  'oop-repeated-observer-notification' => const RuleMetadata(
-    id: 'oop-repeated-observer-notification',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Centralize repeated observer notification',
-    why:
-        'Repeating the same observer traversal in state-changing methods distributes notification ordering and failure policy.',
-    suggestion:
-        'Consider one notification boundary or event dispatcher shared by the state-changing methods.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires a List or Set field conventionally named listeners or observers with direct add and remove calls in its class.',
-      'At least three methods must each iterate that field and make exactly one call to the loop variable using the same callback name.',
-      'Iterable aliases, helper-based registration, asynchronous delivery, callback fields, and resolved listener types are not analyzed.',
-    ],
-  ),
-  'oop-message-chain' => const RuleMetadata(
-    id: 'oop-message-chain',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Hide repeated deep collaboration chains',
-    why:
-        'Repeated navigation through several objects couples a class to the shape of an entire collaborator graph.',
-    suggestion:
-        'Consider a higher-level query on the owning collaborator or a narrow facade for the traversed relationship.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires at least three maximal receiver chains of four or more hops across at least two methods in one class.',
-      'Nested callbacks are excluded from the enclosing method.',
-      'Resolved types, extension methods, fluent APIs, null-aware semantics, cascades, and aliases are not distinguished.',
-    ],
-  ),
-  _ => throw ArgumentError.value(
-    id,
-    'id',
-    'unknown Dart OOP collaboration rule',
-  ),
-};
+RuleMetadata _metadata(String id) => oopRuleMetadata(id);
 
 Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
   final List<Finding> notifications = <Finding>[];

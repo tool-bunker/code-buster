@@ -45,6 +45,33 @@ void main() {
     },
   );
 
+  test('excludes conventional Go testenv packages from analysis scope', () {
+    _write(root, 'internal/runtime/run.go', 'package runtime');
+    _write(
+      root,
+      'internal/testenv/command.go',
+      'package testenv\nimport "os"\n'
+          'func write() { _ = os.WriteFile("fixture", nil, 0o777) }',
+    );
+
+    final AnalysisRun run = AnalysisRunner().run(
+      CodeBusterCliContract.parse(<String>[
+        'summary',
+        '--root',
+        root.path,
+        '--lang',
+        'go',
+      ]),
+    );
+
+    expect(
+      run.findings.where(
+        (Finding finding) => finding.code == 'go-world-writable',
+      ),
+      isEmpty,
+    );
+  });
+
   test('discovers only recognized extensionless Lua shebang sources', () {
     _write(root, 'bin/lua-tool', '#!/usr/bin/env lua\nreturn {}\n');
     _write(root, 'bin/luajit-tool', '#!/usr/bin/luajit\nreturn {}\n');
@@ -138,6 +165,10 @@ void main() {
     _write(root, 'lib/main.dart', 'void main() {}');
     _write(root, 'lib/model.g.dart', 'void generated() {}');
     _write(root, 'lib/model.freezed.dart', 'void generated() {}');
+    _write(root, 'lib/message.pb.dart', 'void generated() {}');
+    _write(root, 'lib/message.pbenum.dart', 'void generated() {}');
+    _write(root, 'lib/message.pbjson.dart', 'void generated() {}');
+    _write(root, 'lib/message.pbserver.dart', 'void generated() {}');
     _write(root, 'lib/service.mocks.dart', 'void generated() {}');
     _write(root, 'lib/l10n/app_localizations.dart', 'void generated() {}');
     _write(root, 'lib/l10n/app_localizations_en.dart', 'void generated() {}');
@@ -173,7 +204,7 @@ void main() {
     expect(files.map((SourceFile file) => file.relativePath), <String>[
       'lib/main.dart',
     ]);
-    expect(discovery.generatedProvenance, hasLength(9));
+    expect(discovery.generatedProvenance, hasLength(13));
     expect(
       discovery.generatedProvenance
           .where(

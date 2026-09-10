@@ -134,6 +134,35 @@ class AppButton extends StatelessWidget {
       expect(findings.single.relatedFiles.first, 'lib/app_button.dart:1');
     });
 
+    test('requires a shared widget to dominate direct controls', () {
+      final List<Finding> findings = const FlutterSharedComponentBypassRule()
+          .analyze(
+            _context(<String, String>{
+              'lib/search.dart': '''
+class SearchField extends StatelessWidget {
+  Widget build(BuildContext context) {
+    return TextFormField(
+      decoration: InputDecoration(
+        suffixIcon: IconButton(onPressed: clear, icon: Icon(Icons.clear)),
+      ),
+    );
+  }
+}
+''',
+              'lib/a.dart': 'final a = SearchField(); final b = SearchField();',
+              'lib/b.dart': 'final c = SearchField();',
+              'lib/actions.dart': '''
+final one = IconButton(onPressed: save, icon: Icon(Icons.save));
+final two = IconButton(onPressed: close, icon: Icon(Icons.close));
+final three = IconButton(onPressed: add, icon: Icon(Icons.add));
+''',
+            }),
+          )
+          .toList();
+
+      expect(findings, isEmpty);
+    });
+
     test('reports button-like HTML elements beside native buttons', () {
       final List<Finding> findings = const HtmlParallelControlPatternRule()
           .analyze(

@@ -18,6 +18,7 @@ final class GoDeferInLoopRule extends SelfContainedRule {
           suggestion:
               'Extract one iteration into a function or release resources explicitly.',
           languages: <String>['go'],
+          version: 2,
         ),
       );
 

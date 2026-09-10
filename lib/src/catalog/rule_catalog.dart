@@ -130,7 +130,7 @@ final class RuleCatalog {
       why: 'A circular dependency exists in the module graph.',
       suggestion:
           'Extract shared code into a third module or invert one dependency.',
-      version: 2,
+      version: 6,
       semanticMaturity: RuleSemanticMaturity.project,
       requirements: <RuleAnalysisRequirement>{RuleAnalysisRequirement.graph},
     ),
@@ -161,6 +161,7 @@ final class RuleCatalog {
       why: 'A source file is not reachable from configured entry points.',
       suggestion:
           'Remove the file, add an entry point, or add the missing dependency edge.',
+      version: 4,
     ),
     'duplicate-block': RuleMetadata(
       id: 'duplicate-block',

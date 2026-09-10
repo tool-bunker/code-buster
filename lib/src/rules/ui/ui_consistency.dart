@@ -346,6 +346,7 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
               'Direct framework controls can drift from a shared component already used as the project convention.',
           suggestion:
               'Confirm the direct control is an intentional variant; otherwise use the established shared component.',
+          version: 2,
           semanticMaturity: RuleSemanticMaturity.project,
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.design},
           languages: <String>['dart'],
@@ -360,7 +361,7 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
     r'\bclass\s+([A-Za-z_]\w*)\s+extends\s+(?:StatelessWidget|StatefulWidget)\b[^{]*\{',
   );
   static final RegExp _frameworkControl = RegExp(
-    r'\b(ElevatedButton|FilledButton|TextButton|OutlinedButton|IconButton|TextField|AlertDialog|Card|Scaffold|Checkbox)\s*\(',
+    r'\b(ElevatedButton|FilledButton|TextButton|OutlinedButton|IconButton|TextField|TextFormField|AlertDialog|Card|Scaffold|Checkbox)\s*\(',
   );
 
   @override
@@ -440,6 +441,7 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
       }
       final _EstablishedWidget convention = conventions.first;
       final RegExp direct = RegExp('\\b${RegExp.escape(group.key)}\\s*\\(');
+      final List<_Location> directUsages = <_Location>[];
       for (final MapEntry<String, String> entry in context.sources.entries) {
         if (!entry.key.endsWith('.dart') || _isUiAuxiliaryPath(entry.key)) {
           continue;
@@ -453,21 +455,27 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
           )) {
             continue;
           }
-          yield report(
-            context,
-            path: entry.key,
-            line: _lineAt(entry.value, match.start),
-            message:
-                'direct `${group.key}` bypasses established `${convention.wrapper.name}` used ${convention.usages.length} times',
-            confidence: 'medium',
-            relatedFiles: <String>[
-              '${convention.wrapper.path}:${convention.wrapper.line}',
-              ...convention.usages
-                  .take(3)
-                  .map((_Location usage) => '${usage.path}:${usage.line}'),
-            ],
+          directUsages.add(
+            _Location(entry.key, _lineAt(entry.value, match.start)),
           );
         }
+      }
+      if (directUsages.length >= convention.usages.length) continue;
+      for (final _Location directUsage in directUsages) {
+        yield report(
+          context,
+          path: directUsage.path,
+          line: directUsage.line,
+          message:
+              'direct `${group.key}` bypasses established `${convention.wrapper.name}` used ${convention.usages.length} times',
+          confidence: 'medium',
+          relatedFiles: <String>[
+            '${convention.wrapper.path}:${convention.wrapper.line}',
+            ...convention.usages
+                .take(3)
+                .map((_Location usage) => '${usage.path}:${usage.line}'),
+          ],
+        );
       }
     }
   }

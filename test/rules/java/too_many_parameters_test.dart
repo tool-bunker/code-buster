@@ -12,6 +12,26 @@ class Orders {
   void excessive(int a, int b, int c, int d, int e, int f, int g, int h) {
   }
 }
+
+@Mixin(Target.class)
+class TargetMixin {
+  @Inject(
+    method = "render",
+    at = @At("HEAD")
+  )
+  void injected(int a, int b, int c, int d, int e, int f, int g, int h) {
+  }
+
+  @Override
+  void callback(int a, int b, int c, int d, int e, int f, int g, int h) {
+  }
+}
+
+class Derived extends Base {
+  Derived(int a, int b, int c, int d, int e, int f, int g, int h) {
+    super(a, b, c, d, e, f, g, h);
+  }
+}
 ''';
 
     final List<Finding> findings = const JavaTooManyParametersRule()

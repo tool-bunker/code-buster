@@ -84,6 +84,7 @@ void main() {
         'javascript',
         'lua',
         'mojo',
+        'odin',
         'nim',
         'python',
         'rust',

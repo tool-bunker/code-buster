@@ -5,6 +5,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 
 /// Independently configurable Dart OOP design advisories.
 const List<String> dartOopDesignCandidateRuleIds = <String>[
@@ -40,46 +41,8 @@ final class DartOopDesignCandidateRule extends SelfContainedRule {
 }
 
 RuleMetadata _metadata(String id) => switch (id) {
-  'oop-data-clump' => const RuleMetadata(
-    id: 'oop-data-clump',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Group a repeated parameter concept',
-    why:
-        'The same typed parameter group crossing several APIs usually represents one domain concept whose validation and evolution are otherwise distributed.',
-    suggestion:
-        'Consider a value object or parameter object if these values share invariants and lifecycle.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires the same complete signature of at least three explicitly typed parameters in three declarations across at least two files.',
-      'Parameter names and normalized types must match; inferred field formals and partial parameter subsets are not analyzed.',
-    ],
-  ),
-  'oop-repeated-strategy-dispatch' => const RuleMetadata(
-    id: 'oop-repeated-strategy-dispatch',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Consolidate repeated variant dispatch',
-    why:
-        'Repeating the same variant switch across operations makes every new variant require coordinated edits in several places.',
-    suggestion:
-        'Consider variant-owned behavior, a strategy registry, or another single dispatch boundary if the operations share one contract.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{RuleAnalysisRequirement.ast},
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires three switch statements across at least two files with the same three or more explicit case labels.',
-      'Every case must invoke behavior and each case in a switch must dispatch to a distinct call name.',
-      'Switch expressions, default-only dispatch, and differing case sets are not analyzed.',
-    ],
-  ),
+  'oop-data-clump' => oopRuleMetadata(id),
+  'oop-repeated-strategy-dispatch' => oopRuleMetadata(id),
   _ => throw ArgumentError.value(id, 'id', 'unknown Dart OOP design rule'),
 };
 

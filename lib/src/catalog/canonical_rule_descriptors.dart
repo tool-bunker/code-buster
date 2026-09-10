@@ -1121,6 +1121,11 @@ canonicalRuleDescriptors =
         group: 'security',
         title: 'Py hardcoded secret',
       ),
+      'py-insecure-tls': (
+        language: 'python',
+        group: 'security',
+        title: 'Py insecure tls',
+      ),
       'py-import-not-top': (
         language: 'python',
         group: 'nim-style',

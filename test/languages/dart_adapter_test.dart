@@ -84,6 +84,20 @@ void main() {
     expect(unit.publicDeclarations, <String>['Widget', 'answer', 'run']);
   });
 
+  test('includes every conditional import and export dependency', () {
+    const String source = '''
+import 'native.dart'
+    if (dart.library.js_interop) 'web.dart';
+export 'io.dart'
+    if (dart.library.html) 'browser.dart';
+''';
+
+    final DartUnit unit = DartSourceParser().parse(source);
+
+    expect(unit.imports, <String>['native.dart', 'web.dart']);
+    expect(unit.exports, <String>['io.dart', 'browser.dart']);
+  });
+
   test(
     'resolves local relative package and export directives into graph edges',
     () {

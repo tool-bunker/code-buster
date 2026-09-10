@@ -38,6 +38,7 @@ void main() {
     expect(registry.lookup('rust')?.id, 'rust');
     expect(registry.lookup('rs')?.id, 'rust');
     expect(registry.lookup('mojo')?.id, 'mojo');
+    expect(registry.lookup('odinlang')?.id, 'odin');
     expect(registry.lookup('postgresql')?.id, 'sql');
     expect(registry.lookup('wren')?.id, 'wren');
     expect(registry.lookup('luau')?.id, 'lua');
@@ -55,6 +56,7 @@ void main() {
       '.dart',
       '.rs',
       '.mojo',
+      '.odin',
       '.go',
       '.mod',
       '.py',

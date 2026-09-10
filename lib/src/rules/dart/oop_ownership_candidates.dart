@@ -5,6 +5,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 
 /// Dart advisories for responsibility and dependency ownership.
 const List<String> dartOopOwnershipCandidateRuleIds = <String>[
@@ -39,53 +40,7 @@ final class DartOopOwnershipCandidateRule extends SelfContainedRule {
   }
 }
 
-RuleMetadata _metadata(String id) => switch (id) {
-  'oop-feature-envy' => const RuleMetadata(
-    id: 'oop-feature-envy',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Keep behavior with the data it uses',
-    why:
-        'A method dominated by one parameter’s members often owns behavior that belongs with that parameter or behind its API.',
-    suggestion:
-        'Consider moving the behavior to the foreign type or asking that type for a higher-level result.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires a non-static method to access one explicitly typed parameter at least five times across three distinct members.',
-      'Those accesses must account for at least sixty percent of explicitly received member accesses in the method.',
-      'Resolved ownership, extension methods, inherited members, local aliases, operators, and collection indexing are not analyzed.',
-    ],
-  ),
-  'oop-service-locator-dependency' => const RuleMetadata(
-    id: 'oop-service-locator-dependency',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Make distributed service dependencies explicit',
-    why:
-        'Classes resolving services from a shared locator hide their required collaborators and couple behavior to global runtime state.',
-    suggestion:
-        'Consider constructor injection or a narrow composed dependency at the application boundary.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires one conventionally named getIt, locator, or serviceLocator access from at least three classes across two files.',
-      'At least three distinct explicitly requested generic service types must be present.',
-      'Aliased locators, wrapper functions, generated registration code, dynamic keys, and resolved dependency flow are not analyzed.',
-    ],
-  ),
-  _ => throw ArgumentError.value(id, 'id', 'unknown Dart OOP ownership rule'),
-};
+RuleMetadata _metadata(String id) => oopRuleMetadata(id);
 
 Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
   final List<Finding> featureEnvy = <Finding>[];

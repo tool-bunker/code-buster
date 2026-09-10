@@ -2,6 +2,7 @@
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 import 'typescript_rule_analysis.dart';
 
 /// One independently registered JavaScript/TypeScript source rule.
@@ -41,6 +42,26 @@ final class TypeScriptSourceRule extends SelfContainedRule {
           endLine: finding.endLine,
           message: finding.message,
           confidence: finding.confidence,
+        ),
+      );
+}
+
+/// Adapts shared project-wide OOP metadata to TypeScript-only analysis.
+final class TypeScriptOopRule extends SelfContainedRule {
+  TypeScriptOopRule(String id) : super(oopRuleMetadata(id));
+
+  @override
+  Iterable<Finding> analyze(RuleContext context) => TypeScriptRuleAnalysis()
+      .findings(context.sources, metadata.id)
+      .map(
+        (Finding finding) => context.report(
+          metadata: metadata,
+          path: finding.path,
+          line: finding.line,
+          endLine: finding.endLine,
+          message: finding.message,
+          confidence: finding.confidence,
+          relatedFiles: finding.relatedFiles,
         ),
       );
 }

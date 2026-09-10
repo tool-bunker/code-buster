@@ -1,6 +1,7 @@
 // The Java registry is the single execution list for its correctness, resource, concurrency, and security checks.
 
 import '../../core/rule.dart';
+import '../csharp/oop_rules.dart';
 import 'catch_exception.dart';
 import 'empty_catch.dart';
 import 'hardcoded_secret.dart';
@@ -19,6 +20,22 @@ import 'weak_crypto.dart';
 
 /// Self-contained Java rules in deterministic execution order.
 final RuleRegistry javaRuleRegistry = RuleRegistry(<CodeBusterRule>[
+  CSharpOopRule('oop-data-clump'),
+  CSharpOopRule('oop-middle-man-delegation'),
+  CSharpOopRule('oop-interface-segregation-pressure'),
+  CSharpOopRule('oop-refused-bequest'),
+  CSharpOopRule('oop-repeated-strategy-dispatch'),
+  CSharpOopRule('oop-state-behavior-candidate'),
+  CSharpOopRule('oop-feature-envy'),
+  CSharpOopRule('oop-message-chain'),
+  CSharpOopRule('oop-service-locator-dependency'),
+  CSharpOopRule('oop-repeated-observer-notification'),
+  CSharpOopRule('oop-factory-bypass'),
+  CSharpOopRule('oop-facade-bypass'),
+  CSharpOopRule('oop-repository-bypass'),
+  CSharpOopRule('oop-proxy-bypass'),
+  CSharpOopRule('oop-repeated-adapter-mapping'),
+  CSharpOopRule('oop-template-workflow-candidate'),
   javaCatchExceptionRule,
   const JavaEmptyCatchRule(),
   const JavaHardcodedSecretRule(),

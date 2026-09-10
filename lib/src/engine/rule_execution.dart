@@ -60,10 +60,28 @@ final class RuleExecutionStage {
         ).hasMatch(source);
   }
 
-  static bool _isPythonRoot(String path) {
+  static String? _pythonPublicPackagePrefix(String path) {
+    final List<String> segments = path.replaceAll(r'\', '/').split('/');
+    if (segments.last != '__init__.py') {
+      return null;
+    }
+    if (segments.length == 2) {
+      return '${segments.first}/';
+    }
+    if (segments.length == 3 && segments.first == 'src') {
+      return '${segments.first}/${segments[1]}/';
+    }
+    return null;
+  }
+
+  static bool _isPythonExecutableRoot(String path, String source) {
     final List<String> segments = path.replaceAll(r'\', '/').split('/');
     return segments.last == '__main__.py' ||
-        (segments.length == 1 && segments.single == 'main.py');
+        segments.last == 'main.py' ||
+        RegExp(
+          r'''^\s*if\s+__name__\s*==\s*["']__main__["']\s*:''',
+          multiLine: true,
+        ).hasMatch(source);
   }
 
   static bool _isMainSource(String path) {
@@ -179,10 +197,43 @@ final class RuleExecutionStage {
           (String path) => path.endsWith('.py') && _isDeadFileCandidate(path),
         )
         .toList(growable: false);
+    final Set<String> configuredPythonRoots = configuredGraphRoots
+        .where((String path) => path.endsWith('.py'))
+        .toSet();
+    final Set<String> pythonPublicPackagePrefixes = pythonDeadFileCandidates
+        .map(_pythonPublicPackagePrefix)
+        .nonNulls
+        .toSet();
+    final Set<String> pythonExecutableRoots = pythonDeadFileCandidates
+        .where((String path) => _isPythonExecutableRoot(path, sources[path]!))
+        .toSet();
+    final Set<String> pythonAppPrefixes = pythonExecutableRoots
+        .where(
+          (String path) =>
+              path == 'main.py' ||
+              path.endsWith('/main.py') ||
+              path.endsWith('/__main__.py'),
+        )
+        .map((String path) {
+          final int separator = path.lastIndexOf('/');
+          return separator < 0 ? '' : path.substring(0, separator + 1);
+        })
+        .toSet();
     final Set<String> pythonGraphRoots = <String>{
-      ...configuredGraphRoots.where((String path) => path.endsWith('.py')),
-      ...pythonDeadFileCandidates.where(_isPythonRoot),
+      ...configuredPythonRoots,
+      ...pythonExecutableRoots,
+      ...pythonDeadFileCandidates.where(
+        (String path) => pythonPublicPackagePrefixes.any(path.startsWith),
+      ),
     };
+    final Iterable<String> pythonDeadFileEligible =
+        configuredPythonRoots.isNotEmpty
+        ? pythonDeadFileCandidates
+        : pythonDeadFileCandidates.where(
+            (String path) =>
+                pythonPublicPackagePrefixes.any(path.startsWith) ||
+                pythonAppPrefixes.any(path.startsWith),
+          );
     final Set<String> graphRoots = <String>{
       if (hasConfiguredGraphRoot ||
           hasInferredLuaMain ||
@@ -230,9 +281,7 @@ final class RuleExecutionStage {
       ),
       ...graph.deadFileFindings(
         roots: pythonGraphRoots,
-        eligibleNodes: pythonGraphRoots.isEmpty
-            ? const <String>[]
-            : pythonDeadFileCandidates,
+        eligibleNodes: pythonDeadFileEligible,
       ),
       ...graph.deadFileFindings(
         roots: graphRoots,
@@ -275,6 +324,7 @@ final class RuleExecutionStage {
           ...indexed.require('lua').findings,
           ...indexed.require('mojo').findings,
           ...indexed.require('javascript').findings,
+          ...indexed.require('go').findings,
           ...indexed.require('python').findings,
           ...indexed.require('sql').findings,
           ...indexed.require('rust').findings,

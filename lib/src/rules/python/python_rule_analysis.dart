@@ -179,6 +179,18 @@ final class PythonRuleAnalysis {
             'requests call has no timeout',
           );
         }
+        if (RegExp(
+              r'requests\.(?:get|post|put|patch|delete|request)\(',
+            ).hasMatch(line) &&
+            RegExp(
+              r'\bverify\s*=\s*False\b',
+            ).hasMatch(_continuedCall(lines, index))) {
+          add(
+            'py-insecure-tls',
+            RuleSeverity.warn,
+            'requests call disables TLS certificate verification',
+          );
+        }
         if (line.contains('yaml.load(') &&
             !line.contains('SafeLoader') &&
             !line.contains('safe_load') &&
@@ -213,6 +225,7 @@ final class PythonRuleAnalysis {
             (secretAssignment == null ||
                 !_repeatedFillerSecretAssignment.hasMatch(code)) &&
             !_emptyHardcodedSecret.hasMatch(code) &&
+            !_isSymbolicSecretValue(hardcodedSecret.group(0)!) &&
             !_isPlaceholderSecret(hardcodedSecret.group(0)!, entry.key)) {
           add(
             'py-hardcoded-secret',
@@ -221,9 +234,12 @@ final class PythonRuleAnalysis {
           );
         }
         if (RegExp(
-          r'''hashlib\.(?:md5|sha1)\(|\.new\(["'](?:md5|sha1)["']''',
-          caseSensitive: false,
-        ).hasMatch(raw)) {
+              r'''hashlib\.(?:md5|sha1)\(|\.new\(["'](?:md5|sha1)["']''',
+              caseSensitive: false,
+            ).hasMatch(code) &&
+            !RegExp(
+              r'\busedforsecurity\s*=\s*False\b',
+            ).hasMatch(_continuedCall(lines, index))) {
           add('py-weak-hash', RuleSeverity.warn, 'weak hash algorithm used');
         }
         if (line.contains('tempfile.mktemp(')) {
@@ -616,6 +632,23 @@ final class PythonRuleAnalysis {
     r'''(?:(?:\b(?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)\s*=)|(?:["'](?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)["']\s*:))\s*[rRuUbBfF]{0,2}(?:"\s*"|'\s*')''',
     caseSensitive: false,
   );
+
+  static bool _isSymbolicSecretValue(String match) {
+    final RegExpMatch? name = RegExp(
+      r'''(?:^|\b|["'])(password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)(?:\b|["'])''',
+      caseSensitive: false,
+    ).firstMatch(match);
+    final List<RegExpMatch> literals = _secretStringLiteral
+        .allMatches(match)
+        .toList(growable: false);
+    if (name == null || literals.isEmpty) return false;
+    final RegExpMatch literal = literals.last;
+    final String value = literal.group(1) ?? literal.group(2) ?? '';
+    String normalize(String source) =>
+        source.replaceAll(RegExp('[^A-Za-z0-9]'), '').toLowerCase();
+    return normalize(name.group(1)!) == normalize(value);
+  }
+
   static bool _isPlaceholderSecret(String match, String path) {
     final List<RegExpMatch> literals = _secretStringLiteral
         .allMatches(match)

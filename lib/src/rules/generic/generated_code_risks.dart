@@ -17,7 +17,7 @@ generatedCodeRiskMetadata = <String, RuleMetadata>{
         'A source file has substantially more commentary than comparable files in the same repository, which can obscure the implementation and become stale.',
     suggestion:
         'Keep comments that explain constraints or intent and remove narration or restatements of the code.',
-    version: 3,
+    version: 5,
     semanticMaturity: RuleSemanticMaturity.project,
     taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
     limitations: <String>[
@@ -232,7 +232,48 @@ List<_LineFacts> _scanLines(String path, List<String> lines) {
       ),
     );
   }
+  if (path.toLowerCase().endsWith('.go')) {
+    _markGoDocumentationComments(result);
+  }
   return result;
+}
+
+void _markGoDocumentationComments(List<_LineFacts> facts) {
+  final RegExp declaration = RegExp(
+    r'^\s*(?:package\s+\w+|(?:type|var|const)\s+(?:\w+|\()|func\s+(?:\([^)]*\)\s*)?\w+)',
+  );
+  final RegExp declarationBlock = RegExp(
+    r'^\s*type\s+\w+\s+(?:interface|struct)\s*\{',
+  );
+  var braceDepth = 0;
+  int? declarationBlockDepth;
+  for (var index = 0; index < facts.length; index++) {
+    final String code = facts[index].code;
+    if (declaration.hasMatch(code) || declarationBlockDepth != null) {
+      var commentIndex = index - 1;
+      while (commentIndex >= 0 &&
+          facts[commentIndex].code.trim().isEmpty &&
+          facts[commentIndex].comment.trim().isNotEmpty) {
+        final _LineFacts fact = facts[commentIndex];
+        facts[commentIndex] = _LineFacts(
+          code: fact.code,
+          comment: fact.comment,
+          documentation: true,
+        );
+        commentIndex--;
+      }
+    }
+    final int openingBraces = '{'.allMatches(code).length;
+    final int closingBraces = '}'.allMatches(code).length;
+    if (declarationBlock.hasMatch(code)) {
+      declarationBlockDepth = braceDepth + openingBraces - closingBraces;
+    }
+    braceDepth += openingBraces - closingBraces;
+    final int? blockDepth = declarationBlockDepth;
+    if (blockDepth != null && braceDepth < blockDepth) {
+      declarationBlockDepth = null;
+    }
+  }
 }
 
 bool _usesHashComments(String path) => RegExp(

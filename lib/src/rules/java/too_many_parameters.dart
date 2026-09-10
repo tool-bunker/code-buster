@@ -19,6 +19,7 @@ final class JavaTooManyParametersRule extends SelfContainedRule {
               'A wide signature is difficult to call correctly and often combines unrelated responsibilities.',
           suggestion:
               'Split the responsibility or introduce a cohesive parameter object.',
+          version: 3,
           semanticMaturity: RuleSemanticMaturity.token,
           requirements: <RuleAnalysisRequirement>{
             RuleAnalysisRequirement.functions,
@@ -41,6 +42,13 @@ final class JavaTooManyParametersRule extends SelfContainedRule {
       final int open = function.source.indexOf('(');
       if (open == -1) continue;
       final int close = _matchingParenthesis(function.source, open);
+      if (_hasExternallyDefinedSignature(
+            context.sources[function.path]!,
+            function.line,
+          ) ||
+          _isForwardingConstructor(function.source)) {
+        continue;
+      }
       if (close == -1) continue;
       final int count = _parameterCount(
         function.source.substring(open + 1, close),
@@ -56,6 +64,49 @@ final class JavaTooManyParametersRule extends SelfContainedRule {
     }
   }
 }
+
+const Set<String> _externalSignatureAnnotations = <String>{
+  'Inject',
+  'ModifyArg',
+  'ModifyArgs',
+  'ModifyConstant',
+  'ModifyExpressionValue',
+  'ModifyVariable',
+  'Override',
+  'Redirect',
+  'WrapOperation',
+  'WrapWithCondition',
+};
+
+bool _hasExternallyDefinedSignature(String source, int declarationLine) {
+  final List<String> lines = source.split('\n');
+  for (
+    var index = declarationLine - 2;
+    index >= 0 && index >= declarationLine - 12;
+    index--
+  ) {
+    final String line = lines[index].trim();
+    if (line.isEmpty) continue;
+    final RegExpMatch? annotation = RegExp(
+      r'^@(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)\b',
+    ).firstMatch(line);
+    if (annotation != null) {
+      if (_externalSignatureAnnotations.contains(annotation.group(1))) {
+        return true;
+      }
+      continue;
+    }
+    if (line.contains(';') || line.contains('{') || line.contains('}')) {
+      break;
+    }
+  }
+  return false;
+}
+
+bool _isForwardingConstructor(String source) => RegExp(
+  r'\{\s*super\s*\([^;]*\);\s*\}\s*$',
+  multiLine: true,
+).hasMatch(source);
 
 int _matchingParenthesis(String source, int open) {
   var depth = 0;
