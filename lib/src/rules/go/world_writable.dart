@@ -3,7 +3,7 @@
 import '../../core/models.dart';
 import '../../core/rule.dart';
 
-/// Reports world-writable modes passed to Go's `os.Chmod`.
+/// Reports literal world-writable modes passed to Go file APIs.
 final SourcePatternRule goWorldWritableRule = SourcePatternRule(
   metadata: const RuleMetadata(
     id: 'go-world-writable',
@@ -14,7 +14,10 @@ final SourcePatternRule goWorldWritableRule = SourcePatternRule(
     suggestion: 'Use the least permissive mode required by the application.',
     securityKind: SecurityFindingKind.vulnerability,
     languages: <String>['go'],
+    version: 3,
   ),
-  pattern: RegExp(r'os\.Chmod\s*\([^,]+,\s*0?777\s*\)'),
+  pattern: RegExp(
+    r'os\.(?:Chmod\s*\([^,\n]+|WriteFile\s*\([^,\n]+,[^,\n]+|OpenFile\s*\([^,\n]+,[^,\n]+)\s*,\s*(?:0[oO]|0)?[0-7]*[2367]\b',
+  ),
   message: 'world-writable file permission used',
 );

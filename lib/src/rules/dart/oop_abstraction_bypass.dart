@@ -5,6 +5,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 
 /// Supported abstraction roles, inferred only from conventional class suffixes.
 enum OopAbstractionRole {
@@ -53,34 +54,7 @@ final class DartOopAbstractionBypassRule extends SelfContainedRule {
   }
 }
 
-RuleMetadata _metadata(String id) {
-  final OopAbstractionRole role = OopAbstractionRole.values.singleWhere(
-    (OopAbstractionRole candidate) => id == 'oop-${candidate.id}-bypass',
-  );
-  return RuleMetadata(
-    id: id,
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Do not bypass an established ${role.id}',
-    why:
-        'Mixing direct implementation access with a dominant ${role.id} boundary duplicates policy and weakens the subsystem contract.',
-    suggestion:
-        'Route this access through ${role.suffix} or make the direct path an explicit part of the subsystem API.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: const <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: const <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: const <String>['dart'],
-    limitations: <String>[
-      'Requires a conventional ${role.suffix} class name and at least three external files using that abstraction.',
-      'Reports only when abstraction use dominates direct access to structurally owned implementation types.',
-      if (role == OopAbstractionRole.facade)
-        'A facade bypass requires one external file to coordinate at least two facade collaborator types.',
-    ],
-  );
-}
+RuleMetadata _metadata(String id) => oopRuleMetadata(id);
 
 Map<String, List<Finding>> _analyzeAbstractionBypasses(
   Map<String, CompilationUnit> units,

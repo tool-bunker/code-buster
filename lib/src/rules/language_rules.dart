@@ -11,6 +11,7 @@ import 'javascript/rules.dart';
 import 'lua/rules.dart';
 import 'mojo/rules.dart';
 import 'nim/rules.dart';
+import 'odin/rules.dart';
 import 'python/rules.dart';
 import 'rust/rules.dart';
 import 'sql/rules.dart';
@@ -28,6 +29,7 @@ final Map<String, RuleRegistry> languageRuleRegistries = <String, RuleRegistry>{
   'javascript': javascriptRuleRegistry,
   'lua': luaRuleRegistry,
   'mojo': mojoRuleRegistry,
+  'odin': odinRuleRegistry,
   'nim': nimRuleRegistry,
   'python': pythonRuleRegistry,
   'rust': rustRuleRegistry,

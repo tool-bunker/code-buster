@@ -96,6 +96,10 @@ final class SourceClassifier {
     return name.contains('_generated.') ||
         lower.endsWith('.g.dart') ||
         lower.endsWith('.freezed.dart') ||
+        lower.endsWith('.pb.dart') ||
+        lower.endsWith('.pbenum.dart') ||
+        lower.endsWith('.pbjson.dart') ||
+        lower.endsWith('.pbserver.dart') ||
         lower.endsWith('.designer.cs') ||
         lower.endsWith('.generated.cs') ||
         lower.endsWith('.g.cs') ||

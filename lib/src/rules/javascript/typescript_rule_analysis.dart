@@ -152,7 +152,81 @@ final class TypeScriptRuleAnalysis {
         }
       }
     }
+    if (ruleId == 'oop-data-clump') result.addAll(_dataClumps(sources));
     return result;
+  }
+
+  static List<Finding> _dataClumps(Map<String, String> sources) {
+    final declarations =
+        <String, List<({String path, int line, List<String> names})>>{};
+    final RegExp callable = RegExp(
+      r'^\s*(?:(?:export|default|declare|public|private|protected|static|async|abstract|override)\s+)*(?:function\s+)?([A-Za-z_$][\w$]*)(?:\s*<[^>{}]+>)?\s*\(([^()]*)\)\s*(?::\s*[^={;\n]+)?\s*(?:\{|=>|;)',
+      multiLine: true,
+    );
+    final RegExp parameter = RegExp(
+      r'^(?:(?:public|private|protected|readonly)\s+)*([A-Za-z_$][\w$]*)\??\s*:\s*(.+)$',
+    );
+    for (final entry in sources.entries) {
+      if (!entry.key.endsWith('.ts') && !entry.key.endsWith('.tsx')) continue;
+      final String code = _withoutStringLiteralText(
+        _withoutTemplateLiterals(_withoutComments(entry.value)),
+      );
+      for (final RegExpMatch match in callable.allMatches(code)) {
+        if (const <String>{
+          'return',
+          'if',
+          'for',
+          'while',
+          'switch',
+          'catch',
+        }.contains(match.group(1))) {
+          continue;
+        }
+        final values = <({String type, String name})>[];
+        for (final String raw in match.group(2)!.split(',')) {
+          final String value = raw.split('=').first.trim();
+          if (value.isEmpty) continue;
+          final RegExpMatch? parsed = parameter.firstMatch(value);
+          if (parsed == null) {
+            values.clear();
+            break;
+          }
+          values.add((
+            type: parsed.group(2)!.replaceAll(RegExp(r'\s+'), ''),
+            name: parsed.group(1)!,
+          ));
+        }
+        if (values.length < 3) continue;
+        final String key = values
+            .map((value) => '${value.type}:${value.name}')
+            .join(',');
+        declarations.putIfAbsent(key, () => []).add((
+          path: entry.key,
+          line: 1 + '\n'.allMatches(code.substring(0, match.start)).length,
+          names: values.map((value) => value.name).toList(),
+        ));
+      }
+    }
+    final findings = <Finding>[];
+    for (final group in declarations.values) {
+      final Set<String> paths = group.map((value) => value.path).toSet();
+      if (group.length < 3 || paths.length < 2) continue;
+      final first = group.first;
+      findings.add(
+        Finding(
+          code: 'oop-data-clump',
+          severity: RuleSeverity.info,
+          path: first.path,
+          line: first.line,
+          message:
+              'Parameters ${first.names.join(', ')} recur together in ${group.length} declarations across ${paths.length} files',
+          confidence: 'high',
+          relatedFiles: paths.where((path) => path != first.path).toList()
+            ..sort(),
+        ),
+      );
+    }
+    return findings;
   }
 
   static RegExpMatch? _hardcodedSecretAssignment(

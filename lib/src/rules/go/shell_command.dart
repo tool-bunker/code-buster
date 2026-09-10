@@ -14,8 +14,11 @@ final SourcePatternRule goShellCommandRule = SourcePatternRule(
     suggestion:
         'Invoke the target executable directly with separate arguments.',
     languages: <String>['go'],
+    version: 3,
   ),
-  pattern: RegExp(r'''exec\.Command(?:Context)?\s*\([^,]+,\s*["']-c["']'''),
+  pattern: RegExp(
+    r'''exec\.Command(?:Context)?\s*\((?:[^,\n]+,\s*)?["'](?:/bin/)?(?:ba|z|da|k)?sh["']\s*,\s*["']-c["']''',
+  ),
   message: 'shell command execution with -c expands an injection boundary',
   codeFlowMessage: 'shell command execution sink',
   includeCommentsAndStrings: true,

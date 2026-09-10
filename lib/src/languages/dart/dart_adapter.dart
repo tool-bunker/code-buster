@@ -162,10 +162,18 @@ final class DartSourceParser {
         if (value != null) {
           imports.add(value);
         }
+        for (final Configuration configuration in directive.configurations) {
+          final String? conditional = configuration.uri.stringValue;
+          if (conditional != null) imports.add(conditional);
+        }
       } else if (directive case ExportDirective(uri: final StringLiteral uri)) {
         final String? value = uri.stringValue;
         if (value != null) {
           exports.add(value);
+        }
+        for (final Configuration configuration in directive.configurations) {
+          final String? conditional = configuration.uri.stringValue;
+          if (conditional != null) exports.add(conditional);
         }
       } else if (directive case PartDirective(uri: final StringLiteral uri)) {
         final String? value = uri.stringValue;

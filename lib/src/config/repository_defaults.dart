@@ -152,6 +152,7 @@ final class RepositoryDefaults {
           'tests',
           '__tests__',
           'testassets',
+          'testenv',
           'test_assets',
           'integration_test',
           'integration_tests',
@@ -199,6 +200,7 @@ final class RepositoryDefaults {
         segments.any(
           (String segment) =>
               segment.startsWith('example_') ||
+              segment.endsWith('-examples') ||
               segment.endsWith('.benchmark') ||
               segment.endsWith('.benchmarks'),
         )) {
@@ -230,6 +232,7 @@ final class RepositoryDefaults {
   static const List<String> _testIgnores = <String>[
     '**/test/**',
     '**/tests/**',
+    '**/testenv/**',
     '**/test.ts',
     '**/test.tsx',
     '**/test.js',
@@ -299,6 +302,7 @@ final class RepositoryDefaults {
     '**/docs_src/**',
     '**/evals/**',
     '**/example_*/**',
+    '**/*-examples/**',
     '**/sample/**',
     '**/samples/**',
     '**/Samples/**',

@@ -33,6 +33,7 @@
   "productionIgnores": [
     "**/test/**",
     "**/tests/**",
+    "**/testenv/**",
     "**/test.ts",
     "**/test.tsx",
     "**/test.js",
@@ -100,6 +101,7 @@
     "**/docs_src/**",
     "**/evals/**",
     "**/example_*/**",
+    "**/*-examples/**",
     "**/sample/**",
     "**/samples/**",
     "**/Samples/**",
@@ -1252,7 +1254,7 @@
       "id": "cycle",
       "severity": "error",
       "group": "core",
-      "version": 2,
+      "version": 6,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2092,7 +2094,7 @@
       "id": "dead-file",
       "severity": "error",
       "group": "core",
-      "version": 1,
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2134,7 +2136,7 @@
       "id": "excessive-comment-density",
       "severity": "info",
       "group": "maintainability",
-      "version": 3,
+      "version": 5,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2422,7 +2424,7 @@
       "id": "flutter-shared-component-bypass",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2507,7 +2509,7 @@
       "id": "go-defer-in-loop",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2527,7 +2529,7 @@
       "id": "go-http-client-no-timeout",
       "severity": "warn",
       "group": "reliability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2547,7 +2549,7 @@
       "id": "go-insecure-tls",
       "severity": "error",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "vulnerability",
       "taxonomy": [
@@ -2567,7 +2569,7 @@
       "id": "go-response-body-not-closed",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -2589,7 +2591,7 @@
       "id": "go-shell-command",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -2609,7 +2611,7 @@
       "id": "go-world-writable",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "vulnerability",
       "taxonomy": [
@@ -2909,7 +2911,7 @@
       "id": "java-empty-catch",
       "severity": "warn",
       "group": "core",
-      "version": 3,
+      "version": 4,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -2951,7 +2953,7 @@
       "id": "java-objectinputstream",
       "severity": "warn",
       "group": "security",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -3158,7 +3160,7 @@
       "id": "java-too-many-parameters",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -5750,26 +5752,119 @@
       "enabledByDefault": true
     },
     {
+      "id": "odin-panic-call",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "odin"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule masks nested comments and literals but does not perform Odin type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "odin-raw-pointer",
+      "severity": "info",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "odin"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule masks nested comments and literals but does not perform Odin type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "odin-transmute",
+      "severity": "info",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "odin"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule masks nested comments and literals but does not perform Odin type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "odin-undefined-value",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "odin"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "The rule masks nested comments and literals but does not perform Odin type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "oop-data-clump",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
         "Requires the same complete signature of at least three explicitly typed parameters in three declarations across at least two files.",
-        "Parameter names and normalized types must match; inferred field formals and partial parameter subsets are not analyzed."
+        "Parameter names and normalized types must match; inferred parameters and partial parameter subsets are not analyzed.",
+        "TypeScript destructured, inferred, and nested generic parameters are not analyzed.",
+        "C# partial types, aliases, and generic parameter splitting are not resolved."
       ],
       "enabledByDefault": true
     },
@@ -5777,24 +5872,26 @@
       "id": "oop-facade-bypass",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a conventional Facade class name and at least three external files using that abstraction.",
-        "Reports only when abstraction use dominates direct access to structurally owned implementation types.",
-        "A facade bypass requires one external file to coordinate at least two facade collaborator types."
+        "Requires three external boundary users and dominant use over direct implementation access.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -5802,23 +5899,26 @@
       "id": "oop-factory-bypass",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a conventional Factory class name and at least three external files using that abstraction.",
-        "Reports only when abstraction use dominates direct access to structurally owned implementation types."
+        "Requires three external boundary users and dominant use over direct implementation access.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -5826,24 +5926,26 @@
       "id": "oop-feature-envy",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a non-static method to access one explicitly typed parameter at least five times across three distinct members.",
-        "Those accesses must account for at least sixty percent of explicitly received member accesses in the method.",
-        "Resolved ownership, extension methods, inherited members, local aliases, operators, and collection indexing are not analyzed."
+        "Requires five accesses across three members and sixty percent of received accesses.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -5851,24 +5953,27 @@
       "id": "oop-interface-segregation-pressure",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires an abstract contract with at least four methods and at least two direct implementors.",
-        "At least two implementors must explicitly throw UnsupportedError or UnimplementedError for contract methods, with three rejected implementations in total.",
-        "Inherited implementations, mixins, noSuchMethod forwarding, and indirect interface inheritance are not resolved."
+        "Requires a contract with at least four methods and at least two direct implementors.",
+        "At least two implementors must explicitly reject contract methods, with three rejected implementations across two operations.",
+        "Inherited implementations, partial types, mixins, and indirect interface inheritance are not resolved."
       ],
       "enabledByDefault": true
     },
@@ -5876,24 +5981,26 @@
       "id": "oop-message-chain",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires at least three maximal receiver chains of four or more hops across at least two methods in one class.",
-        "Nested callbacks are excluded from the enclosing method.",
-        "Resolved types, extension methods, fluent APIs, null-aware semantics, cascades, and aliases are not distinguished."
+        "Requires three chains of at least four hops across two methods.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -5901,24 +6008,27 @@
       "id": "oop-middle-man-delegation",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
         "Requires at least five public instance methods, with at least four and eighty percent directly forwarding to the same private typed field.",
-        "Forwarded methods must call the same method name using an expression body or a single return or expression statement.",
-        "Classes with extends, implements, or mixin clauses are excluded because proxy, adapter, and framework boundaries may require forwarding."
+        "Forwarded methods must call the same method name with unchanged parameters using an expression body or one statement.",
+        "Classes with inheritance or implemented contracts are excluded because proxy, adapter, and framework boundaries may require forwarding."
       ],
       "enabledByDefault": true
     },
@@ -5926,23 +6036,26 @@
       "id": "oop-proxy-bypass",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a conventional Proxy class name and at least three external files using that abstraction.",
-        "Reports only when abstraction use dominates direct access to structurally owned implementation types."
+        "Requires three external boundary users and dominant use over direct implementation access.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -5950,24 +6063,27 @@
       "id": "oop-refused-bequest",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a directly declared superclass with at least four instance methods and at least two direct subclasses.",
-        "Each qualifying subclass must override and explicitly reject at least two inherited methods using UnsupportedError or UnimplementedError.",
-        "At least three distinct inherited operations must be rejected; indirect inheritance, mixins, and resolved overrides are not analyzed."
+        "Requires a directly declared base class with at least four instance methods and at least two direct subclasses.",
+        "Each qualifying subclass must override and explicitly reject at least two inherited methods; at least three distinct operations must be rejected.",
+        "Indirect inheritance, partial types, mixins, and resolved overrides are not analyzed."
       ],
       "enabledByDefault": true
     },
@@ -5975,24 +6091,26 @@
       "id": "oop-repeated-adapter-mapping",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires three functions across at least two files with one explicitly typed source parameter and an explicitly typed target return.",
-        "The functions must construct that target with the same three or more named arguments read directly from source fields.",
-        "Computed values, positional arguments, nested paths, collection transforms, and assignment-based mappings are not analyzed."
+        "Requires three identical mappings of at least three members across two files.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -6000,24 +6118,26 @@
       "id": "oop-repeated-observer-notification",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a List or Set field conventionally named listeners or observers with direct add and remove calls in its class.",
-        "At least three methods must each iterate that field and make exactly one call to the loop variable using the same callback name.",
-        "Iterable aliases, helper-based registration, asynchronous delivery, callback fields, and resolved listener types are not analyzed."
+        "Requires add/remove registration symmetry and the same callback loop in three methods.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -6025,23 +6145,26 @@
       "id": "oop-repeated-strategy-dispatch",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast"
+        "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires three switch statements across at least two files with the same three or more explicit case labels.",
-        "Every case must invoke behavior and each case in a switch must dispatch to a distinct call name.",
-        "Switch expressions, default-only dispatch, and differing case sets are not analyzed."
+        "Requires three switches over at least three identical variants across two files.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -6049,23 +6172,26 @@
       "id": "oop-repository-bypass",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a conventional Repository class name and at least three external files using that abstraction.",
-        "Reports only when abstraction use dominates direct access to structurally owned implementation types."
+        "Requires three external boundary users and dominant use over direct implementation access.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -6073,24 +6199,26 @@
       "id": "oop-service-locator-dependency",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires one conventionally named getIt, locator, or serviceLocator access from at least three classes across two files.",
-        "At least three distinct explicitly requested generic service types must be present.",
-        "Aliased locators, wrapper functions, generated registration code, dynamic keys, and resolved dependency flow are not analyzed."
+        "Requires three classes across two files resolving three service types from one conventionally named locator.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -6098,23 +6226,26 @@
       "id": "oop-state-behavior-candidate",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 4,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast"
+        "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires a mutable field whose type ends in State, Status, or Phase and is assigned inside its class.",
-        "Requires three methods to switch on that field with the same three or more explicit case labels.",
-        "Equality chains, switch expressions, inherited methods, and externally managed state are not analyzed."
+        "Requires three methods switching over one field and at least three states.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -6122,24 +6253,26 @@
       "id": "oop-template-workflow-candidate",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "ast",
+      "version": 5,
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
         "maintainability"
       ],
       "requirements": [
-        "ast",
         "declarations"
       ],
       "languages": [
-        "dart"
+        "dart",
+        "csharp",
+        "java",
+        "javascript",
+        "typescript"
       ],
       "languageVersions": {},
       "limitations": [
-        "Requires override methods with the same name in sibling classes sharing one direct superclass across different files.",
-        "Invocation sequences must contain four to ten calls, have equal length, and differ at exactly one position.",
-        "Control-flow equivalence, arguments, nested callbacks, inherited intermediate workflows, and resolved call targets are not analyzed."
+        "Requires sibling overrides with four to ten calls and exactly one differing call.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
     },
@@ -6408,7 +6541,7 @@
       "id": "py-hardcoded-secret",
       "severity": "info",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -6433,6 +6566,26 @@
       "securityKind": "none",
       "taxonomy": [
         "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "py-insecure-tls",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
       ],
       "requirements": [
         "sourceText"
@@ -6628,7 +6781,7 @@
       "id": "py-weak-hash",
       "severity": "info",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [

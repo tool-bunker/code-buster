@@ -31,6 +31,43 @@ void main() {
     );
   });
 
+  test('includes registered Go findings in repository results', () {
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: '/project',
+      config: const AnalysisConfig(
+        root: '/project',
+        languages: <String>['go'],
+        ruleGroups: <String>{'security'},
+      ),
+      files: const <SourceFile>[
+        SourceFile(
+          absolutePath: '/project/main.go',
+          relativePath: 'main.go',
+          language: 'go',
+        ),
+      ],
+      sources: const <String, String>{
+        'main.go': '''
+package main
+import "os"
+func main() { _ = os.WriteFile("ready", nil, 0o777) }
+''',
+      },
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+
+    final List<Finding> findings = RuleExecutionStage().execute(
+      CodeBusterCommand.summary,
+      LanguageIndexStage(LanguagePluginRegistry.standard()).build(prepared),
+      GraphAnalysis(DependencyGraph(const <String, Iterable<String>>{})),
+    );
+
+    expect(
+      findings.map((Finding finding) => finding.code),
+      contains('go-world-writable'),
+    );
+  });
+
   test('does not report runner-discovered test scripts as dead files', () {
     const Map<String, String> sources = <String, String>{
       'scripts/main.lua': '',

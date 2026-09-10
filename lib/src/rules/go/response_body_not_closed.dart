@@ -26,6 +26,7 @@ final class GoResponseBodyNotClosedRule extends SelfContainedRule {
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.reliability},
           languages: <String>['go'],
           languageVersions: <String, String>{'go': '>=1.13'},
+          version: 2,
         ),
       );
 

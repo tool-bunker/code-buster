@@ -18,9 +18,11 @@ import '../languages/javascript/javascript_adapter.dart';
 import '../languages/lua/lua_adapter.dart';
 import '../languages/mojo/mojo_adapter.dart';
 import '../languages/nim/nim_adapter.dart';
+import '../languages/odin/odin_adapter.dart';
 import '../languages/python/python_adapter.dart';
 import '../languages/rust/rust_adapter.dart';
 import '../languages/wren/wren_adapter.dart';
+import '../rules/csharp/oop_rules.dart';
 import '../rules/language_rules.dart';
 import '../rules/nim/nim_finding_order.dart';
 
@@ -142,6 +144,7 @@ final class LanguagePluginRegistry {
         JavaScriptLanguagePlugin(),
         LuaLanguagePlugin(),
         MojoLanguagePlugin(),
+        OdinLanguagePlugin(),
         NimLanguagePlugin(),
         PythonLanguagePlugin(),
         RustLanguagePlugin(),
@@ -302,6 +305,19 @@ final class CSharpLanguagePlugin extends BuiltInLanguagePlugin {
   String get id => 'csharp';
 
   @override
+  LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
+    final CSharpOopProject project = CSharpOopProject.parse(sources);
+    return LanguageAnalysis(
+      graph: _adapter.buildGraph(sources),
+      functions: _adapter.functions(sources),
+      findings: <Finding>[
+        ...executeRegisteredRules(sources, config, representation: project),
+      ],
+      representation: project,
+    );
+  }
+
+  @override
   DependencyGraph buildGraph(
     Map<String, String> sources,
     AnalysisConfig config,
@@ -456,6 +472,19 @@ final class JavaLanguagePlugin extends BuiltInLanguagePlugin {
   String get id => 'java';
 
   @override
+  LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
+    final CSharpOopProject project = CSharpOopProject.parse(sources);
+    return LanguageAnalysis(
+      graph: _adapter.buildGraph(sources),
+      functions: _adapter.functions(sources),
+      findings: <Finding>[
+        ...executeRegisteredRules(sources, config, representation: project),
+      ],
+      representation: project,
+    );
+  }
+
+  @override
   DependencyGraph buildGraph(
     Map<String, String> sources,
     AnalysisConfig config,
@@ -478,6 +507,19 @@ final class JavaScriptLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   Set<String> get sourceLanguageIds => <String>{'javascript', 'typescript'};
+
+  @override
+  LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
+    final CSharpOopProject project = CSharpOopProject.parse(sources);
+    return LanguageAnalysis(
+      graph: _graph.build(sources),
+      functions: _functions.functions(sources),
+      findings: <Finding>[
+        ...executeRegisteredRules(sources, config, representation: project),
+      ],
+      representation: project,
+    );
+  }
 
   @override
   DependencyGraph buildGraph(
@@ -516,6 +558,25 @@ final class MojoLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   String get id => 'mojo';
+
+  @override
+  DependencyGraph buildGraph(
+    Map<String, String> sources,
+    AnalysisConfig config,
+  ) => _adapter.buildGraph(sources);
+
+  @override
+  List<FunctionSource> functions(Map<String, String> sources) =>
+      _adapter.functions(sources);
+}
+
+final class OdinLanguagePlugin extends BuiltInLanguagePlugin {
+  const OdinLanguagePlugin();
+
+  static final OdinAdapter _adapter = OdinAdapter();
+
+  @override
+  String get id => 'odin';
 
   @override
   DependencyGraph buildGraph(

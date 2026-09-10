@@ -51,6 +51,41 @@ void main() {
     expect(findings, isEmpty);
   });
 
+  test('excludes Go declaration documentation from implementation density', () {
+    final String documentedGo = <String>[
+      'package api',
+      '',
+      'type API interface {',
+      for (var method = 0; method < 8; method++) ...<String>[
+        '  // Method$method performs an API operation.',
+        '  Method$method() error',
+      ],
+      '}',
+      '',
+      for (var declaration = 0; declaration < 10; declaration++) ...<String>[
+        '// Value$declaration describes the exported value.',
+        'var Value$declaration = $declaration',
+      ],
+      for (var line = 0; line < 10; line++) 'var private$line = $line',
+    ].join('\n');
+    final Map<String, String> sources = <String, String>{
+      for (var file = 0; file < 4; file++)
+        'ordinary_$file.go': List<String>.generate(
+          24,
+          (int line) => 'var value$line = $line',
+        ).join('\n'),
+      'documented.go': documentedGo,
+    };
+
+    final List<Finding> findings = ExcessiveCommentDensityRule()
+        .analyze(
+          RuleContext(config: config, sources: sources, language: 'repository'),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+
   test('reports first-person implementation narration but not rationale', () {
     const RuleContext context = RuleContext(
       config: config,

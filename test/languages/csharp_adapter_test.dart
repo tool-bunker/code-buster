@@ -43,6 +43,36 @@ void main() {
     );
   });
 
+  test('executes project-wide C# OOP rules through the plugin', () {
+    final LanguageAnalysis analysis = LanguagePluginRegistry.standard()
+        .require('csharp')
+        .analyze(
+          <String, String>{
+            'Gateway.cs': '''
+class Gateway {
+  private readonly Client _client;
+  public Result Load(Id id) => _client.Load(id);
+  public Result Save(Id id) => _client.Save(id);
+  public Result Delete(Id id) => _client.Delete(id);
+  public Result Refresh(Id id) => _client.Refresh(id);
+  public Result Inspect(Id id) => _client.Inspect(id);
+}
+''',
+          },
+          const AnalysisConfig(
+            root: '.',
+            severityOverrides: <String, RuleSeverity>{
+              'oop-middle-man-delegation': RuleSeverity.warn,
+            },
+          ),
+        );
+
+    expect(
+      analysis.findings.map((Finding finding) => finding.code),
+      contains('oop-middle-man-delegation'),
+    );
+  });
+
   test('allows async void handlers and overrides but reports other methods', () {
     final LanguageAnalysis
     analysis = LanguagePluginRegistry.standard().require('csharp').analyze(

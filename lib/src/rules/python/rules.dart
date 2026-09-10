@@ -11,6 +11,7 @@ final class PythonSourceRule extends SelfContainedRule {
     required String id,
     required RuleSeverity severity,
     required String group,
+    int version = 1,
     String? why,
     String? suggestion,
   }) : super(
@@ -19,6 +20,7 @@ final class PythonSourceRule extends SelfContainedRule {
            defaultSeverity: severity,
            group: group,
            title: 'Review ${id.substring(3).replaceAll('-', ' ')}',
+           version: version,
            why:
                why ??
                'This scripting construct can weaken correctness, security, or runtime performance.',
@@ -44,12 +46,17 @@ final class PythonSourceRule extends SelfContainedRule {
       );
 }
 
-PythonSourceRule _style(String id) =>
-    PythonSourceRule(id: id, severity: RuleSeverity.info, group: 'nim-style');
+PythonSourceRule _style(String id, {int version = 1}) => PythonSourceRule(
+  id: id,
+  severity: RuleSeverity.info,
+  group: 'nim-style',
+  version: version,
+);
 
 PythonSourceRule _security(
   String id, {
   RuleSeverity severity = RuleSeverity.info,
+  int version = 1,
   String? why,
   String? suggestion,
 }) => PythonSourceRule(
@@ -57,6 +64,7 @@ PythonSourceRule _security(
   severity: severity,
   group: 'security',
   why: why,
+  version: version,
   suggestion: suggestion,
 );
 
@@ -72,7 +80,15 @@ final RuleRegistry pythonRuleRegistry = RuleRegistry(<CodeBusterRule>[
   _security('py-eval-exec', severity: RuleSeverity.error),
   _style('py-extraneous-whitespace'),
   _style('py-function-naming'),
-  _security('py-hardcoded-secret'),
+  _security('py-hardcoded-secret', version: 2),
+  _security(
+    'py-insecure-tls',
+    severity: RuleSeverity.warn,
+    why:
+        'Disabling certificate verification permits network attackers to impersonate the remote service.',
+    suggestion:
+        'Keep verification enabled or pass a trusted CA bundle through `verify`.',
+  ),
   _style('py-import-not-top'),
   _style('py-logging-exception'),
   _style('py-multiple-imports'),
@@ -89,7 +105,7 @@ final RuleRegistry pythonRuleRegistry = RuleRegistry(<CodeBusterRule>[
   _security('py-sql-string-build'),
   _security('py-subprocess-shell'),
   _security('py-tempfile-mktemp'),
-  _security('py-weak-hash'),
+  _security('py-weak-hash', version: 2),
   _style('py-wildcard-import'),
   _security('py-yaml-load', severity: RuleSeverity.error),
 ]);

@@ -45,8 +45,26 @@ void main() {
       RepositoryDefaults.classify('packages/codemod/__testfixtures__/input.js'),
       'test',
     );
+    expect(RepositoryDefaults.classify('internal/testenv/command.go'), 'test');
+    expect(RepositoryDefaults.classify(r'internal\testenv\command.go'), 'test');
+    expect(
+      RepositoryDefaults.classify('internal/testenvironment/runner.go'),
+      'production',
+    );
     expect(RepositoryDefaults.classify('docs_src/tutorial/app.py'), 'example');
     expect(RepositoryDefaults.classify('evals/case.ts'), 'example');
+    expect(
+      RepositoryDefaults.classify('src/xdocs-examples/resources/Example.java'),
+      'example',
+    );
+    expect(
+      RepositoryDefaults.classify('src/order-examples/Example.java'),
+      'example',
+    );
+    expect(
+      RepositoryDefaults.classify('src/exampleservice/Service.java'),
+      'production',
+    );
     expect(
       RepositoryDefaults.classify('packages/next/src/compiled/react.js'),
       'vendored',
@@ -65,6 +83,7 @@ void main() {
         '**/*_test.cpp',
         '**/*.Test/**',
         '**/test.ts',
+        '**/*-examples/**',
       ]),
     );
   });

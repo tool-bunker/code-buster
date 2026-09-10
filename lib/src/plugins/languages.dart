@@ -98,6 +98,11 @@ final class LanguageRegistry {
         extensions: <String>{'.mojo'},
       ),
       LanguageDefinition(
+        id: 'odin',
+        aliases: <String>{'odinlang'},
+        extensions: <String>{'.odin'},
+      ),
+      LanguageDefinition(
         id: 'nim',
         aliases: <String>{},
         extensions: <String>{'.nim', '.nims'},

@@ -5,6 +5,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import '../oop/metadata.dart';
 
 /// Dart advisories for duplicated object-boundary workflows.
 const List<String> dartOopWorkflowCandidateRuleIds = <String>[
@@ -39,53 +40,7 @@ final class DartOopWorkflowCandidateRule extends SelfContainedRule {
   }
 }
 
-RuleMetadata _metadata(String id) => switch (id) {
-  'oop-repeated-adapter-mapping' => const RuleMetadata(
-    id: 'oop-repeated-adapter-mapping',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Centralize a repeated object translation boundary',
-    why:
-        'Repeating the same source-to-target field mapping distributes compatibility policy and allows the translations to drift.',
-    suggestion:
-        'Consider one adapter, mapper, or target factory as the canonical translation boundary.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires three functions across at least two files with one explicitly typed source parameter and an explicitly typed target return.',
-      'The functions must construct that target with the same three or more named arguments read directly from source fields.',
-      'Computed values, positional arguments, nested paths, collection transforms, and assignment-based mappings are not analyzed.',
-    ],
-  ),
-  'oop-template-workflow-candidate' => const RuleMetadata(
-    id: 'oop-template-workflow-candidate',
-    defaultSeverity: RuleSeverity.info,
-    group: 'maintainability',
-    title: 'Share a stable sibling workflow',
-    why:
-        'Sibling overrides repeating an ordered workflow with one varying operation duplicate the invariant part of the algorithm.',
-    suggestion:
-        'Consider a base workflow with one overridable step, or compose the varying operation into a shared workflow.',
-    semanticMaturity: RuleSemanticMaturity.ast,
-    requirements: <RuleAnalysisRequirement>{
-      RuleAnalysisRequirement.ast,
-      RuleAnalysisRequirement.declarations,
-    },
-    taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
-    languages: <String>['dart'],
-    limitations: <String>[
-      'Requires override methods with the same name in sibling classes sharing one direct superclass across different files.',
-      'Invocation sequences must contain four to ten calls, have equal length, and differ at exactly one position.',
-      'Control-flow equivalence, arguments, nested callbacks, inherited intermediate workflows, and resolved call targets are not analyzed.',
-    ],
-  ),
-  _ => throw ArgumentError.value(id, 'id', 'unknown Dart OOP workflow rule'),
-};
+RuleMetadata _metadata(String id) => oopRuleMetadata(id);
 
 Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
   final Map<String, List<_Occurrence>> mappings = <String, List<_Occurrence>>{};
