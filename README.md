@@ -150,9 +150,9 @@ are a guide, not a guarantee.
 | C# | ●●●●○ | ●●●●● |
 | Java | ●●●●○ | ●●●●● |
 | Nim | ●●●●○ | ●○○○○ |
-| Python | ●●●●○ | ●○○○○ |
+| Python | ●●●●○ | ●●●○○ |
 | C/C++ and Objective-C | ●●●○○ | ●○○○○ |
-| Go | ●●●○○ | ●○○○○ |
+| Go | ●●●○○ | ●●●○○ |
 | JavaScript and TypeScript | ●●●○○ | ●●●●● |
 | Lua and Luau | ●●●○○ | ●○○○○ |
 | SQL, PostgreSQL, and MySQL | ●●●○○ | ●○○○○ |
@@ -161,6 +161,7 @@ are a guide, not a guarantee.
 | HTML | ●●○○○ | ●○○○○ |
 | Rust | ●●●○○ | ○○○○○ |
 | Mojo | ●●●○○ | ○○○○○ |
+| Odin | ●●●○○ | ○○○○○ |
 
 **Depth** measures how much useful analysis is implemented. **Real-world
 validation** measures testing against external repositories, including review

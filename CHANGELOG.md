@@ -2,8 +2,31 @@
 
 ## Unreleased
 
-- Add repository-local development skills for validation, rule authoring, false-positive investigation, classification, and releases.
-- Detect uniform repeated Flutter `SizedBox` gaps that can use `Row.spacing` or `Column.spacing`.
+## 0.6.0
+
+### Added
+
+- Add conservative C# advisories for data clumps, interface segregation pressure, refused inheritance, and middle-man delegation.
+- Extend C# OOP analysis with strategy dispatch, state behavior, feature envy, service-locator, observer-notification, and message-chain advisories.
+- Complete C# OOP parity with dominant-boundary bypass, repeated adapter-mapping, and sibling template-workflow advisories.
+- Add conservative Java data-clump and middle-man delegation advisories.
+- Detect Java interface-segregation pressure and rejected superclass operations.
+- Add Java strategy-dispatch, state-behavior, feature-envy, and message-chain advisories.
+- Detect distributed Java service-locator dependencies and repeated observer broadcasts.
+- Complete Java OOP parity with dominant-boundary bypass, repeated constructor mapping, and sibling workflow advisories.
+- Add the complete conservative TypeScript OOP advisory pack for design, behavior, collaboration, boundaries, and workflows.
+
+### Improved
+
+- Reduce Java noise for deliberately ignored empty catches, externally defined annotated signatures, and forwarding constructors.
+- Ignore Java `ObjectInputStream` imports until production code actually uses the deserialization type.
+- Exclude control-flow calls such as returned decorator callbacks from TypeScript data-clump declarations.
+- Analyze TypeScript arrow-property methods across the OOP advisory pack.
+
+## 0.5.0
+
+### Added
+
 - Detect direct Dart implementation access that bypasses a dominant factory, facade, repository, or proxy boundary.
 - Identify repeated Dart parameter groups and repeated callable variant dispatch as value-object and strategy candidates.
 - Detect Dart interface-segregation pressure and repeated mutable lifecycle-state behavior.
@@ -11,6 +34,24 @@
 - Detect Dart feature envy and distributed service-locator dependencies as responsibility and dependency-ownership advisories.
 - Detect repeated Dart observer broadcasts and deep collaboration message chains.
 - Detect rejected Dart superclass operations and predominantly forwarding middle-man classes.
+
+## 0.4.0
+
+### Added
+
+- Add Odin discovery, local package graphs, procedure extraction, and focused correctness and memory-safety rules.
+- Detect uniform repeated Flutter `SizedBox` gaps that can use `Row.spacing` or `Column.spacing`.
+- Detect Python Requests calls that explicitly disable TLS certificate verification.
+
+### Improved
+
+- Resolve every branch of conditional Dart imports and exports so platform-specific implementations remain reachable in dependency graphs.
+- Classify conventional Dart protobuf outputs as generated source.
+- Require an established Flutter shared component to dominate direct framework-control usage before reporting bypasses.
+- Recognize `*-examples` directories as example source.
+- Improve Python import graphs, package reachability, type-only imports, symbolic secret assignments, and explicitly non-security hash usage.
+- Execute registered Go findings in repository results, recognize conventional `testenv` packages, detect modern world-writable file modes, and avoid treating non-shell `-c` invocations as shell injection boundaries.
+- Exclude Go declaration and interface documentation from implementation-comment density advisories.
 
 ## 0.3.0
 
