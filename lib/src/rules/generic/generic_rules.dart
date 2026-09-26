@@ -23,7 +23,7 @@ genericExecutableRuleMetadata = <String, RuleMetadata>{
           : id == 'large-inline-list'
           ? 2
           : id == 'large-number-ungrouped'
-          ? 3
+          ? 5
           : const <String>{'fixme-comment', 'todo-comment'}.contains(id)
           ? 2
           : 1,
@@ -359,6 +359,17 @@ final class LargeNumberUngroupedRule implements CodeBusterRule {
     return false;
   }
 
+  static bool _isJavaSerialVersionUid(
+    String path,
+    String code,
+    String literal,
+  ) {
+    if (!path.endsWith('.java')) return false;
+    return RegExp(
+      '\\bserialVersionUID\\s*=\\s*[+-]?$literal[Ll]?\\b',
+    ).hasMatch(code);
+  }
+
   @override
   RuleMetadata get metadata =>
       genericExecutableRuleMetadata['large-number-ungrouped']!;
@@ -409,7 +420,8 @@ final class LargeNumberUngroupedRule implements CodeBusterRule {
           if (literal.contains('_') ||
               _isLegacyOctalInteger(literal) ||
               _isInsideUrl(rawLines[index], number.start, number.end) ||
-              _isCommitHashLinkLabel(rawLines[index], literal)) {
+              _isCommitHashLinkLabel(rawLines[index], literal) ||
+              _isJavaSerialVersionUid(source.key, scanned.code, literal)) {
             continue;
           }
           yield _genericFinding(
@@ -441,6 +453,7 @@ bool _usesUnavailableDigitGroupingSyntax(String sourcePath) {
         '.css',
         '.h',
         '.lua',
+        '.sql',
         '.m',
       }.contains(extension.toLowerCase());
 }

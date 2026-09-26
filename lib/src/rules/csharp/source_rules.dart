@@ -31,6 +31,7 @@ final class CSharpRuleAnalysis {
         _analyzeStructure(context);
         _analyzeRuntime(context);
         _analyzeLegacyApis(context);
+        _trackArchivePaths(context);
         _analyzeSecurity(context);
       }
     }
@@ -249,6 +250,97 @@ final class CSharpRuleAnalysis {
         'SQL appears to be built with interpolation/concatenation',
       );
     }
+  }
+
+  static void _trackArchivePaths(_CSharpFindingContext context) {
+    final String code = context.legacyApiLine;
+    final RegExpMatch? assignment = RegExp(
+      r'\b(?:var|string)\s+([A-Za-z_]\w*)\s*=\s*(.+?);?$',
+    ).firstMatch(code);
+    if (assignment != null) {
+      final String variable = assignment.group(1)!;
+      final String expression = assignment.group(2)!;
+      if (_containsArchiveEntryPath(expression) ||
+          context.archivePathVariables.any(
+            (String name) =>
+                RegExp('\\b${RegExp.escape(name)}\\b').hasMatch(expression),
+          )) {
+        context.archivePathVariables.add(variable);
+      }
+    }
+
+    for (final String variable in context.archivePathVariables) {
+      if (!RegExp(
+        '\\b${RegExp.escape(variable)}\\.StartsWith\\s*\\(',
+      ).hasMatch(code)) {
+        continue;
+      }
+      final int end = context.index + 5 < context.lines.length
+          ? context.index + 5
+          : context.lines.length;
+      final String guard = context.lines.sublist(context.index, end).join('\n');
+      if (RegExp(r'\b(?:throw|return)\b').hasMatch(guard)) {
+        context.validatedArchivePathVariables.add(variable);
+      }
+    }
+
+    final RegExpMatch? extraction = RegExp(
+      r'\.ExtractToFile\s*\(|\b([A-Za-z_]\w*)\s*\(',
+    ).firstMatch(code);
+    if (extraction == null) return;
+    final bool directExtraction = code.contains('.ExtractToFile');
+    final String? wrapper = extraction.group(1);
+    if (!directExtraction &&
+        (wrapper == null ||
+            !_isArchiveExtractionWrapper(context.lines, wrapper))) {
+      return;
+    }
+    final String destination = code.substring(extraction.end);
+    final bool directEntryPath = _containsArchiveEntryPath(destination);
+    final String? taintedVariable = context.archivePathVariables
+        .where(
+          (String name) =>
+              RegExp('\\b${RegExp.escape(name)}\\b').hasMatch(destination),
+        )
+        .cast<String?>()
+        .firstWhere((String? name) => name != null, orElse: () => null);
+    if (!directEntryPath && taintedVariable == null) return;
+    if (taintedVariable != null &&
+        context.validatedArchivePathVariables.contains(taintedVariable)) {
+      return;
+    }
+    context.add(
+      'cs-archive-path-traversal',
+      RuleSeverity.warn,
+      'archive entry path reaches extraction without a containment check',
+    );
+  }
+
+  static bool _containsArchiveEntryPath(String expression) =>
+      RegExp(r'\b[A-Za-z_]\w*\.FullName\b').hasMatch(expression);
+
+  static bool _isArchiveExtractionWrapper(
+    List<String> lines,
+    String methodName,
+  ) {
+    final RegExp declaration = RegExp(
+      '^\\s*(?:(?:public|protected|internal|private|static|async)\\s+)+'
+      r'[A-Za-z_][\w<>\[\]?,.]*\s+'
+      '${RegExp.escape(methodName)}\\s*\\(',
+    );
+    for (var index = 0; index < lines.length; index++) {
+      if (!declaration.hasMatch(lines[index]) ||
+          lines[index].trim().endsWith(';')) {
+        continue;
+      }
+      final int end = index + 40 < lines.length ? index + 40 : lines.length;
+      if (lines
+          .sublist(index, end)
+          .any((String line) => line.contains('.ExtractToFile('))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static bool _catchesSystemException(String line) =>
@@ -690,6 +782,8 @@ final class _CSharpFindingContext {
   int index = 0;
   final Set<String> enabledIds;
   final Set<String> readonlyHttpClientFields = <String>{};
+  final Set<String> archivePathVariables = <String>{};
+  final Set<String> validatedArchivePathVariables = <String>{};
   int namespaceDepth = 0;
   int loopDepth = 0;
   bool _insideBlockComment = false;
@@ -809,9 +903,10 @@ final class CSharpSourceRule extends SelfContainedRule {
            suggestion: id == 'cs-async-void'
                ? 'Return Task/ValueTask unless this is a UI/event handler with documented intent.'
                : 'Use the safer modern .NET alternative described by the rule.',
-           version: 5,
+           version: id == 'cs-archive-path-traversal' ? 3 : 5,
            securityKind:
                const <String>{
+                 'cs-archive-path-traversal',
                  'cs-cas-api',
                  'cs-dcom-api',
                  'cs-public-pinvoke',

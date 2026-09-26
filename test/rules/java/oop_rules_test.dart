@@ -229,6 +229,32 @@ class JreMap extends Base {
     );
   });
 
+  test('reports a one-operation Java abstraction constructed once', () {
+    final analysis = _analyze({
+      'EmailValidator.java': '''
+interface EmailValidator {
+  boolean validate(String email);
+}
+class StandardEmailValidator implements EmailValidator {
+  public boolean validate(String email) { return email.contains("@"); }
+}
+''',
+      'UserService.java': '''
+class UserService {
+  boolean accept(String email) {
+    StandardEmailValidator validator = new StandardEmailValidator();
+    return validator.validate(email);
+  }
+}
+''',
+    });
+
+    expect(
+      analysis.findings.map((finding) => finding.code),
+      contains('oop-single-use-abstraction'),
+    );
+  });
+
   test('ignores comments, strings, partial groups, and contract wrappers', () {
     final analysis = _analyze({
       'Safe.java': '''

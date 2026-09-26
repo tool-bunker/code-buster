@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:toml/toml.dart';
+
 // The Python registry connects its coordinated analysis to stable rule IDs and the common execution pipeline.
 
 import '../../core/models.dart';
@@ -32,18 +36,66 @@ final class PythonSourceRule extends SelfContainedRule {
        );
 
   @override
-  Iterable<Finding> analyze(RuleContext context) => PythonRuleAnalysis()
-      .findings(context.sources, metadata.id)
-      .map(
-        (Finding finding) => context.report(
-          metadata: metadata,
-          path: finding.path,
-          line: finding.line,
-          endLine: finding.endLine,
-          message: finding.message,
-          confidence: finding.confidence,
-        ),
-      );
+  Iterable<Finding> analyze(RuleContext context) {
+    if (_disabledByPythonProjectPolicy(context.config.root, metadata.id)) {
+      return const <Finding>[];
+    }
+    return PythonRuleAnalysis()
+        .findings(context.sources, metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            endLine: finding.endLine,
+            message: finding.message,
+            confidence: finding.confidence,
+          ),
+        );
+  }
+}
+
+bool _disabledByPythonProjectPolicy(String root, String ruleId) {
+  final File file = File('$root${Platform.pathSeparator}pyproject.toml');
+  if (!file.existsSync()) return false;
+  try {
+    final Map<String, dynamic> values = TomlDocument.parse(
+      file.readAsStringSync(),
+    ).toMap();
+    final Map<String, dynamic> tool =
+        values['tool'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final Map<String, dynamic> pylint =
+        tool['pylint'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final Map<String, dynamic> messages =
+        pylint['messages_control'] as Map<String, dynamic>? ??
+        const <String, dynamic>{};
+    final Set<String> pylintDisabled = {
+      for (final Object? value
+          in messages['disable'] as List<dynamic>? ?? const <dynamic>[])
+        if (value is String) value.toLowerCase(),
+    };
+    final Map<String, dynamic> ruff =
+        tool['ruff'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final Map<String, dynamic> lint =
+        ruff['lint'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final Set<String> ruffIgnored = {
+      for (final Object? value
+          in lint['ignore'] as List<dynamic>? ?? const <dynamic>[])
+        if (value is String) value.toUpperCase(),
+    };
+    return switch (ruleId) {
+      'py-function-naming' => pylintDisabled.contains('invalid-name'),
+      'py-mutable-default' => pylintDisabled.contains(
+        'dangerous-default-value',
+      ),
+      'py-broad-except' => pylintDisabled.contains('broad-exception-caught'),
+      'py-import-not-top' => ruffIgnored.contains('E402'),
+      'py-bare-except' => ruffIgnored.contains('E722'),
+      _ => false,
+    };
+  } on Object {
+    return false;
+  }
 }
 
 PythonSourceRule _style(String id, {int version = 1}) => PythonSourceRule(
@@ -73,14 +125,14 @@ final RuleRegistry pythonRuleRegistry = RuleRegistry(<CodeBusterRule>[
   _style('py-assert-runtime'),
   _security('py-async-blocking-call'),
   _style('py-backslash-continuation'),
-  _style('py-bare-except'),
-  _style('py-broad-except'),
+  _style('py-bare-except', version: 2),
+  _style('py-broad-except', version: 2),
   _style('py-compound-statement'),
   _security('py-debug-enabled'),
   _security('py-eval-exec', severity: RuleSeverity.error),
   _style('py-extraneous-whitespace'),
-  _style('py-function-naming'),
-  _security('py-hardcoded-secret', version: 2),
+  _style('py-function-naming', version: 4),
+  _security('py-hardcoded-secret', version: 3),
   _security(
     'py-insecure-tls',
     severity: RuleSeverity.warn,
@@ -89,10 +141,10 @@ final RuleRegistry pythonRuleRegistry = RuleRegistry(<CodeBusterRule>[
     suggestion:
         'Keep verification enabled or pass a trusted CA bundle through `verify`.',
   ),
-  _style('py-import-not-top'),
+  _style('py-import-not-top', version: 3),
   _style('py-logging-exception'),
   _style('py-multiple-imports'),
-  _style('py-mutable-default'),
+  _style('py-mutable-default', version: 2),
   _security('py-open-no-encoding'),
   _security('py-pickle'),
   _security(

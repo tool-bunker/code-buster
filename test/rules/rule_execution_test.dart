@@ -339,6 +339,102 @@ func main() { _ = os.WriteFile("ready", nil, 0o777) }
     ]);
   });
 
+  test('keeps Dart sources reachable through generated routers', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code_buster_dead_generated_router_',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    File('${root.path}/pubspec.yaml').writeAsStringSync('name: app\n');
+    Directory('${root.path}/lib/routes').createSync(recursive: true);
+    File('${root.path}/lib/routes/app_router.g.dart').writeAsStringSync('''
+// GENERATED CODE - DO NOT MODIFY BY HAND
+import 'package:app/pages/home.dart';
+''');
+    const Map<String, String> sources = <String, String>{
+      'lib/main.dart': "import 'routes/app_router.dart';\nvoid main() {}\n",
+      'lib/routes/app_router.dart': '',
+      'lib/pages/home.dart': "import '../widgets/player.dart';\n",
+      'lib/widgets/player.dart': '',
+      'lib/widgets/orphan.dart': '',
+    };
+    final AnalysisConfig config = AnalysisConfig(root: root.path);
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: root.path,
+      config: config,
+      files: const <SourceFile>[],
+      sources: sources,
+      generatedProvenance: const <GeneratedSourceProvenance>[
+        GeneratedSourceProvenance(
+          path: 'lib/routes/app_router.g.dart',
+          reason: 'matched generated filename convention',
+          source: 'built-in generated policy',
+        ),
+      ],
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+    final LanguageAnalysis dart = LanguagePluginRegistry.standard()
+        .require('dart')
+        .analyze(sources, config);
+
+    final Iterable<Finding> deadFiles = RuleExecutionStage()
+        .execute(
+          CodeBusterCommand.dead,
+          LanguageIndexStage(LanguagePluginRegistry.standard()).build(prepared),
+          GraphAnalysis(dart.graph),
+        )
+        .where((Finding finding) => finding.code == 'dead-file');
+
+    expect(deadFiles.map((Finding finding) => finding.path), <String>[
+      'lib/widgets/orphan.dart',
+    ]);
+  });
+
+  test('uses Dart builder libraries declared by nested packages as roots', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code_buster_dead_builder_',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    Directory('${root.path}/packages/codegen').createSync(recursive: true);
+    File(
+      '${root.path}/packages/codegen/pubspec.yaml',
+    ).writeAsStringSync('name: codegen\n');
+    File('${root.path}/packages/codegen/build.yaml').writeAsStringSync('''
+builders:
+  codegen:
+    import: "package:codegen/src/generator.dart"
+    builder_factories: ["createBuilder"]
+''');
+    const Map<String, String> sources = <String, String>{
+      'packages/codegen/lib/src/generator.dart':
+          "import 'reachable.dart';\nBuilder createBuilder() => Builder();",
+      'packages/codegen/lib/src/reachable.dart': '',
+      'packages/codegen/lib/src/orphan.dart': '',
+    };
+    final AnalysisConfig config = AnalysisConfig(root: root.path);
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: root.path,
+      config: config,
+      files: const <SourceFile>[],
+      sources: sources,
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+    final LanguageAnalysis dart = LanguagePluginRegistry.standard()
+        .require('dart')
+        .analyze(sources, config);
+
+    final Iterable<Finding> deadFiles = RuleExecutionStage()
+        .execute(
+          CodeBusterCommand.dead,
+          LanguageIndexStage(LanguagePluginRegistry.standard()).build(prepared),
+          GraphAnalysis(dart.graph),
+        )
+        .where((Finding finding) => finding.code == 'dead-file');
+
+    expect(deadFiles.map((Finding finding) => finding.path), <String>[
+      'packages/codegen/lib/src/orphan.dart',
+    ]);
+  });
+
   test('reports unreachable Python modules from configured script roots', () {
     const Map<String, String> sources = <String, String>{
       'tool/release.py': 'from package import reachable\n',
@@ -376,6 +472,75 @@ func main() { _ = os.WriteFile("ready", nil, 0o777) }
     expect(deadFiles.map((Finding finding) => finding.path), <String>[
       'package/orphan.py',
     ]);
+  });
+
+  test('treats nested Python src-layout packages as public roots', () {
+    const Map<String, String> sources = <String, String>{
+      'packages/tool/src/tool/__init__.py': 'from .api import convert\n',
+      'packages/tool/src/tool/api.py': 'def convert(): return 1\n',
+      'packages/tool/src/tool/converters/pdf.py':
+          'def convert_pdf(): return 1\n',
+      'packages/tool/tests/test_api.py': 'def test_api(): pass\n',
+    };
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: '/project',
+      config: const AnalysisConfig(root: '/project'),
+      files: const <SourceFile>[],
+      sources: sources,
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+    final DependencyGraph dependencyGraph = DependencyGraph(
+      const <String, Iterable<String>>{
+        'packages/tool/src/tool/__init__.py': <String>[
+          'packages/tool/src/tool/api.py',
+        ],
+        'packages/tool/src/tool/api.py': <String>[],
+        'packages/tool/src/tool/converters/pdf.py': <String>[],
+        'packages/tool/tests/test_api.py': <String>[],
+      },
+    );
+
+    final Iterable<Finding> deadFiles = RuleExecutionStage()
+        .execute(
+          CodeBusterCommand.dead,
+          LanguageIndexStage(LanguagePluginRegistry.standard()).build(prepared),
+          GraphAnalysis(dependencyGraph),
+        )
+        .where((Finding finding) => finding.code == 'dead-file');
+
+    expect(deadFiles, isEmpty);
+  });
+
+  test('treats top-level Python namespace packages as public roots', () {
+    const Map<String, String> sources = <String, String>{
+      'main.py': 'import engine.runtime\n',
+      'engine/runtime.py': 'value = 1\n',
+      'engine/plugins/optional.py': 'value = 2\n',
+    };
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: '/project',
+      config: const AnalysisConfig(root: '/project'),
+      files: const <SourceFile>[],
+      sources: sources,
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+    final DependencyGraph dependencyGraph = DependencyGraph(
+      const <String, Iterable<String>>{
+        'main.py': <String>['engine/runtime.py'],
+        'engine/runtime.py': <String>[],
+        'engine/plugins/optional.py': <String>[],
+      },
+    );
+
+    final Iterable<Finding> deadFiles = RuleExecutionStage()
+        .execute(
+          CodeBusterCommand.dead,
+          LanguageIndexStage(LanguagePluginRegistry.standard()).build(prepared),
+          GraphAnalysis(dependencyGraph),
+        )
+        .where((Finding finding) => finding.code == 'dead-file');
+
+    expect(deadFiles, isEmpty);
   });
 
   test('does not report ordinary Rust module reference cycles', () {

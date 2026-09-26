@@ -136,7 +136,7 @@ and compiler diagnostics. It does not replace them.
 
 ## Current Status
 
-**Overall status: 0.3.0.** The Dart implementation is the
+**Overall status: 0.7.0.** The Dart implementation is the
 canonical runtime and passes strict analysis, the complete test suite, native
 compilation, documentation validation, self-analysis, and multi-repository
 precision checks. 

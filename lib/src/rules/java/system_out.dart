@@ -7,6 +7,7 @@ import '../../core/rule.dart';
 final SourcePatternRule javaSystemOutRule = SourcePatternRule(
   metadata: const RuleMetadata(
     id: 'java-system-out',
+    version: 2,
     defaultSeverity: RuleSeverity.info,
     group: 'nim-style',
     title: 'Review system out',
@@ -16,11 +17,13 @@ final SourcePatternRule javaSystemOutRule = SourcePatternRule(
     languages: <String>['java'],
   ),
   pattern: RegExp(r'System\.(?:out|err)\.println\s*\('),
-  pathExclusion: _isJavaTestSource,
+  pathExclusion: _isJavaTestOrCommandLineSource,
   message: 'System.out/System.err logging used',
   confidence: 'medium',
 );
 
-bool _isJavaTestSource(String path) => RegExp(
-  r'(^|/)(?:src/test|tests?)(/|$)',
-).hasMatch(path.replaceAll('\\', '/').toLowerCase());
+bool _isJavaTestOrCommandLineSource(String path) {
+  final String normalized = path.replaceAll('\\', '/').toLowerCase();
+  return RegExp(r'(^|/)(?:src/test|tests?)(/|$)').hasMatch(normalized) ||
+      RegExp(r'(^|/)(?:cli|[^/]+-cli)(/|$)').hasMatch(normalized);
+}

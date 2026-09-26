@@ -2,6 +2,9 @@
 
 import 'dart:convert';
 
+import 'package:analyzer/dart/analysis/features.dart';
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:crypto/crypto.dart';
 
 import '../../core/models.dart';
@@ -92,7 +95,7 @@ final class DuplicationAnalysis {
         <String, List<_NormalizedLine>>{};
     final List<String> paths = sources.keys.toList()..sort();
     for (final String path in paths) {
-      if (_migrationSql(path)) continue;
+      if (_historicalSql(path)) continue;
       final List<_NormalizedLine> lines = _normalizedLines(
         sources[path]!,
         path,
@@ -159,6 +162,15 @@ final class DuplicationAnalysis {
         locations.add(location);
       }
       if (locations.length < 2) continue;
+      if (locations.length == 2 &&
+          _mutuallyExclusiveGoBuilds(
+            locations[0].path,
+            sources[locations[0].path]!,
+            locations[1].path,
+            sources[locations[1].path]!,
+          )) {
+        continue;
+      }
       if (locations.any((_Location location) {
         final List<_NormalizedLine> lines = normalizedByPath[location.path]!;
         return _overlaps(
@@ -678,7 +690,22 @@ final class DuplicationAnalysis {
       r'''^(?:(?:r)?["'].*["'],?|(?:(?:null|nullptr|nil|none|true|false)\s*,?|(?:[\{\[]\s*)?(?:[-+]?(?:0x[0-9a-f]+|0b[01]+|\d+(?:\.\d*)?(?:e[-+]?\d+)?)[ulf]*)(?:\s*,\s*[-+]?(?:0x[0-9a-f]+|0b[01]+|\d+(?:\.\d*)?(?:e[-+]?\d+)?)[ulf]*)*(?:\s*[\}\]])?,?))\s*(?://.*|/\*.*\*/)?$''',
       caseSensitive: false,
     );
-    final int literalLines = lines.where(literal.hasMatch).length;
+    final RegExp sqlTuple = RegExp(
+      r"""^\(\s*(?:(?:N)?'(?:''|[^'])*'|null|[-+]?\d+(?:\.\d*)?(?:e[-+]?\d+)?)(?:\s*,\s*(?:(?:N)?'(?:''|[^'])*'|null|[-+]?\d+(?:\.\d*)?(?:e[-+]?\d+)?))*\s*\)[,;]?$""",
+      caseSensitive: false,
+    );
+    final RegExp sqlInsert = RegExp(
+      r'^insert\s+into\s+.+\s+values\s*$',
+      caseSensitive: false,
+    );
+    final int literalLines = lines
+        .where(
+          (String line) =>
+              literal.hasMatch(line) ||
+              sqlTuple.hasMatch(line) ||
+              sqlInsert.hasMatch(line),
+        )
+        .length;
     return literalLines * 5 >= lines.length * 4;
   }
 
@@ -689,10 +716,10 @@ final class DuplicationAnalysis {
     return labelLines * 5 >= lines.length * 4;
   }
 
-  static bool _migrationSql(String sourcePath) {
+  static bool _historicalSql(String sourcePath) {
     final String normalized = sourcePath.replaceAll('\\', '/').toLowerCase();
     return normalized.endsWith('.sql') &&
-        RegExp(r'(^|/)migrations?(/|$)').hasMatch(normalized);
+        RegExp(r'(^|/)(?:migrations?|archive)(/|$)').hasMatch(normalized);
   }
 
   static List<_NormalizedLine> _normalizedLines(
@@ -701,6 +728,8 @@ final class DuplicationAnalysis {
   ) {
     final List<_NormalizedLine> result = <_NormalizedLine>[];
     final List<String> lines = source.split('\n');
+    final Set<int> dartForwardingConstructorLines =
+        _dartForwardingConstructorLines(source, sourcePath);
     final Set<int> rustTestLines = sourcePath.endsWith('.rs')
         ? rustCfgTestLines(lines)
         : const <int>{};
@@ -717,6 +746,17 @@ final class DuplicationAnalysis {
         : null;
     var inBlockComment = false;
     for (var index = 0; index < lines.length; index++) {
+      // Preserve a unique barrier so blocks around boilerplate are not joined.
+      if (dartForwardingConstructorLines.contains(index + 1)) {
+        result.add(
+          _NormalizedLine(
+            index + 1,
+            '__code_buster_dart_forwarding_constructor__'
+            '$sourcePath:${index + 1}',
+          ),
+        );
+        continue;
+      }
       if (rustTestLines.contains(index)) continue;
       if (hasHashLineComments && lines[index].trimLeft().startsWith('#')) {
         continue;
@@ -751,6 +791,47 @@ final class DuplicationAnalysis {
     }
     return result;
   }
+
+  static Set<int> _dartForwardingConstructorLines(
+    String source,
+    String sourcePath,
+  ) {
+    if (!sourcePath.toLowerCase().endsWith('.dart')) return const <int>{};
+    final CompilationUnit unit = parseString(
+      content: source,
+      path: sourcePath,
+      featureSet: FeatureSet.latestLanguageVersion(),
+      throwIfDiagnostics: false,
+    ).unit;
+    final Set<int> lines = <int>{};
+    for (final ClassDeclaration declaration
+        in unit.declarations.whereType<ClassDeclaration>()) {
+      for (final ConstructorDeclaration constructor
+          in declaration.body.members.whereType<ConstructorDeclaration>()) {
+        if (constructor.parameters.parameters.isEmpty ||
+            constructor.body is! EmptyFunctionBody ||
+            constructor.initializers.isNotEmpty ||
+            !constructor.parameters.parameters.every(
+              _isForwardingFormalParameter,
+            )) {
+          continue;
+        }
+        final int firstLine = unit.lineInfo
+            .getLocation(constructor.offset)
+            .lineNumber;
+        final int lastLine = unit.lineInfo
+            .getLocation(constructor.end - 1)
+            .lineNumber;
+        lines.addAll(<int>[
+          for (var line = firstLine; line <= lastLine; line++) line,
+        ]);
+      }
+    }
+    return lines;
+  }
+
+  static bool _isForwardingFormalParameter(FormalParameter parameter) =>
+      parameter is FieldFormalParameter || parameter is SuperFormalParameter;
 
   static final RegExp _luaLongCommentStart = RegExp(r'--\[(=*)\[');
 
@@ -990,6 +1071,30 @@ bool _overlaps(Iterable<_LineRange> ranges, _LineRange candidate) => ranges.any(
   (_LineRange range) =>
       candidate.start <= range.end && candidate.end >= range.start,
 );
+
+bool _mutuallyExclusiveGoBuilds(
+  String leftPath,
+  String leftSource,
+  String rightPath,
+  String rightSource,
+) {
+  if (!leftPath.endsWith('.go') || !rightPath.endsWith('.go')) return false;
+
+  String? constraint(String source) {
+    for (final String line in source.split('\n').take(20)) {
+      final RegExpMatch? match = RegExp(
+        r'^\s*//go:build\s+(!?)([A-Za-z_]\w*)\s*$',
+      ).firstMatch(line);
+      if (match != null) return '${match.group(1)}${match.group(2)}';
+    }
+    return null;
+  }
+
+  final String? left = constraint(leftSource);
+  final String? right = constraint(rightSource);
+  if (left == null || right == null) return false;
+  return left == '!$right' || right == '!$left';
+}
 
 int _min3(int first, int second, int third) =>
     first < second && first < third ? first : (second < third ? second : third);

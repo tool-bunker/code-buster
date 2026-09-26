@@ -11,6 +11,7 @@ const List<String> csharpOopRuleIds = <String>[
   'oop-interface-segregation-pressure',
   'oop-refused-bequest',
   'oop-middle-man-delegation',
+  'oop-single-use-abstraction',
   ...csharpOopBehaviorRuleIds,
   ...ids,
 ];
@@ -175,10 +176,80 @@ Map<String, List<Finding>> _analyze(CSharpOopProject project) {
     'oop-data-clump': _dataClumps(project),
     'oop-interface-segregation-pressure': _interfacePressure(project),
     'oop-refused-bequest': _refusedBequests(project),
+    'oop-single-use-abstraction': _singleUseAbstractions(project),
     'oop-middle-man-delegation': _middleMen(project),
     ...analyzeCSharpOopBehavior(project),
     ...analyzeBoundaries(project),
   };
+}
+
+List<Finding> _singleUseAbstractions(CSharpOopProject project) {
+  final List<Finding> findings = <Finding>[];
+  final String projectSource = project.sources.values.join('\n');
+  for (final OopClass contract in project.classes.where(
+    (type) => type.isInterface && type.methods.length == 1,
+  )) {
+    final List<OopClass> implementors = project.classes
+        .where(
+          (type) =>
+              !type.isInterface &&
+              type.parent == null &&
+              type.interfaces.length == 1 &&
+              type.interfaces.single == contract.name,
+        )
+        .toList(growable: false);
+    if (implementors.length != 1) continue;
+    final OopClass implementation = implementors.single;
+    final List<OopMethod> behavior = implementation.methods
+        .where(
+          (method) =>
+              !method.isStatic &&
+              method.name != implementation.name &&
+              method.name != 'constructor',
+        )
+        .toList(growable: false);
+    if (behavior.length != 1 ||
+        behavior.single.name != contract.methods.single.name ||
+        implementation.fields.isNotEmpty ||
+        !_isTrivialOwnedBehavior(behavior.single.body)) {
+      continue;
+    }
+    final int constructions = RegExp(
+      '\\bnew\\s+${RegExp.escape(implementation.name)}\\b',
+    ).allMatches(projectSource).length;
+    final int contractReferences = RegExp(
+      '\\b${RegExp.escape(contract.name)}\\b',
+    ).allMatches(projectSource).length;
+    if (constructions != 1 || contractReferences > 2) continue;
+    findings.add(
+      Finding(
+        code: 'oop-single-use-abstraction',
+        severity: RuleSeverity.info,
+        path: contract.path,
+        line: contract.line,
+        message:
+            '${contract.name} has one stateless implementation, ${implementation.name}, constructed once for one small operation',
+        confidence: 'medium',
+        relatedFiles: <String>[
+          if (implementation.path != contract.path) implementation.path,
+        ],
+      ),
+    );
+  }
+  return findings;
+}
+
+bool _isTrivialOwnedBehavior(String body) {
+  final String normalized = body.trim();
+  if (normalized.isEmpty || normalized.length > 180) return false;
+  if (RegExp(
+    r'\b(?:if|for|while|switch|catch|await|yield|synchronized|lock|using|try)\b',
+  ).hasMatch(normalized)) {
+    return false;
+  }
+  if (RegExp(r'\bnew\s+[A-Za-z_$]').hasMatch(normalized)) return false;
+  final int statements = ';'.allMatches(normalized).length;
+  return statements <= 1;
 }
 
 List<Finding> _dataClumps(CSharpOopProject project) {

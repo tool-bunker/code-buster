@@ -1,4 +1,6 @@
 import 'package:code_buster/src/internal.dart';
+import 'package:code_buster/src/rules/fastapi_quality_rules.dart';
+import 'package:code_buster/src/rules/framework_rules.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -71,6 +73,14 @@ void main() {
           'todo-comment',
           'fixme-comment',
           'operation-on-same-value',
+          'public-mutable-state',
+          'commented-out-code',
+          'placeholder-identifier',
+          'mixed-boundary-responsibility',
+          'repeated-policy-literal',
+          'inconsistent-peer-file-naming',
+          'changed-public-api-without-test',
+          'changed-complexity-regression',
           'excessive-comment-density',
           'narrating-implementation-comment',
           'trivial-comment-restatement',
@@ -82,10 +92,6 @@ void main() {
           'needless-bool-branch',
           'css-duplicate-declaration-set',
           'css-design-token-drift',
-          'flutter-repeated-inline-style',
-          'flutter-theme-bypass',
-          'flutter-parallel-control-component',
-          'flutter-shared-component-bypass',
           'html-parallel-control-pattern',
           'test-repeated-runtime-bootstrap',
           'sql-inline-string-concat',
@@ -93,6 +99,36 @@ void main() {
           'ai-untrusted-prompt-construction',
           'ai-model-output-to-execution',
         ]),
+      );
+      expect(
+        frameworkRuleRegistries['flutter']!.repositoryRules.metadata.map(
+          (RuleMetadata metadata) => metadata.id,
+        ),
+        <String>[
+          'flutter-repeated-inline-style',
+          'flutter-theme-bypass',
+          'flutter-parallel-control-component',
+          'flutter-shared-component-bypass',
+          'flutter-widget-missing-const-constructor',
+          'flutter-listview-large-children',
+          'flutter-image-cache-bypass',
+          'flutter-missing-widget-key',
+          'flutter-setstate-in-build',
+          'flutter-context-after-await',
+          'flutter-controller-created-in-build',
+          'flutter-unlocalized-user-text',
+          'flutter-asset-reference-missing',
+          'flutter-form-without-validation',
+          'flutter-bloc-side-effect-in-builder',
+          'flutter-getit-lookup-in-widget',
+          'flutter-platform-branch-without-adaptation',
+        ],
+      );
+      expect(
+        frameworkRuleRegistries['fastapi']!.repositoryRules.metadata.map(
+          (RuleMetadata metadata) => metadata.id,
+        ),
+        fastApiQualityRuleIds,
       );
       expect(
         () => RuleCatalog.validateExecutableRules(const <CodeBusterRule>[

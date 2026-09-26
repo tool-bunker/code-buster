@@ -23,6 +23,24 @@ Implementation depth and real-world validation are tracked separately. **High**,
 | CSS | Foundational | Needs more testing | Discovery plus targeted structural and style checks |
 | HTML | Foundational | Needs more testing | Discovery, embedded scripts, correctness, and style checks |
 
+## Framework profiles
+
+Frameworks are detected independently from source languages. A framework
+overlay reuses its language parser but owns its framework-specific rules,
+metadata, and repository checks. For example, Flutter activates on top of Dart;
+it is not exposed as a source language.
+
+Current framework profiles:
+
+| Framework | Languages | Detection | Rule coverage |
+| --- | --- | --- | --- |
+| Flutter | Dart | Flutter SDK dependencies in `pubspec.yaml`, including Flutter SDK repositories | Widget lifecycle, build behavior, layout, themes, and shared UI components |
+| React | JavaScript, TypeScript | `react` or `react-dom` dependencies in `package.json` | Repository classification; dedicated framework rules are not yet available |
+
+`cb config explain` reports detected frameworks separately from broader
+repository profiles. `cb explain <rule>` reports a required framework when a
+rule belongs to a framework overlay.
+
 Use `languages = ["auto"]` for manifest and source-based detection, or list languages explicitly in `code-buster.toml`. Use `cb inspect <path>` when an extension, generated marker, or repository profile produces unexpected classification.
 
 Unsupported source remains visible in the coverage ledger. Code Buster does not silently treat unsupported files as analyzed.

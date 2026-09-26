@@ -1,8 +1,7 @@
-// The Dart plugin needs one definitive registry that combines semantic, Flutter, lifecycle, MVVM, and package checks.
+// The Dart registry owns language rules; framework overlays are registered separately.
 
 import '../../core/rule.dart';
 import 'aggregated_rule.dart';
-import 'flutter_repeated_sizedbox_spacing.dart';
 import 'oop_abstraction_bypass.dart';
 import 'oop_collaboration_candidates.dart';
 import 'oop_contract_candidates.dart';
@@ -15,7 +14,6 @@ import 'package_cycle.dart';
 /// Self-contained Dart rules in deterministic execution order.
 final RuleRegistry dartRuleRegistry = RuleRegistry(<CodeBusterRule>[
   const DartPackageCycleRule(),
-  const FlutterRepeatedSizedBoxSpacingRule(),
   for (final String id in dartOopAbstractionBypassRuleIds)
     DartOopAbstractionBypassRule(id),
   for (final String id in dartOopContractCandidateRuleIds)
@@ -30,5 +28,7 @@ final RuleRegistry dartRuleRegistry = RuleRegistry(<CodeBusterRule>[
     DartOopCollaborationCandidateRule(id),
   for (final String id in dartOopInheritanceCandidateRuleIds)
     DartOopInheritanceCandidateRule(id),
-  for (final String id in dartAggregatedRuleIds) DartAggregatedRule(id),
+  for (final String id in dartAggregatedRuleIds)
+    if (!id.startsWith('flutter-') && !id.startsWith('mvvm-'))
+      DartAggregatedRule(id),
 ]);

@@ -1,5 +1,9 @@
 // Rules from many registries must execute deterministically and fail independently, which is handled at this boundary.
 
+import 'dart:io';
+
+import 'package:path/path.dart' as path;
+
 import '../cli/cli_contract.dart';
 import '../controls/finding_controls.dart';
 import '../core/models.dart';
@@ -11,6 +15,7 @@ import '../plugins/language_plugin.dart';
 import '../rules/architecture/architecture.dart';
 import '../rules/architecture/mvvm_architecture.dart';
 import '../rules/duplication/duplication.dart';
+import '../rules/framework_rules.dart';
 import '../rules/regex/regex_rules.dart';
 import '../rules/repository_rules.dart';
 import 'analysis.dart';
@@ -60,6 +65,79 @@ final class RuleExecutionStage {
         ).hasMatch(source);
   }
 
+  static Set<String> _dartBuilderRoots(
+    String root,
+    Iterable<String> sourcePaths,
+  ) {
+    final Set<String> sources = sourcePaths.toSet();
+    final Set<String> packageRoots = <String>{};
+    for (final String sourcePath in sources) {
+      final List<String> segments = sourcePath.replaceAll(r'\', '/').split('/');
+      final int libIndex = segments.indexOf('lib');
+      if (libIndex >= 0) {
+        packageRoots.add(segments.take(libIndex).join('/'));
+      }
+    }
+
+    final Set<String> roots = <String>{};
+    for (final String packageRoot in packageRoots) {
+      final File buildConfig = File(
+        path.joinAll(<String>[root, ...packageRoot.split('/'), 'build.yaml']),
+      );
+      if (!buildConfig.existsSync()) continue;
+      final RegExp imports = RegExp(
+        r'''^\s*import:\s*["']package:([^/]+)/([^"']+)["']\s*$''',
+        multiLine: true,
+      );
+      for (final RegExpMatch match in imports.allMatches(
+        buildConfig.readAsStringSync(),
+      )) {
+        final String candidate = path.posix.join(
+          packageRoot,
+          'lib',
+          match.group(2)!,
+        );
+        if (sources.contains(candidate)) roots.add(candidate);
+      }
+    }
+    return roots;
+  }
+
+  static Set<String> _dartGeneratedDependencyRoots(
+    PreparedAnalysis prepared,
+    DartWorkspaceLayout workspace,
+  ) {
+    final Map<String, String> generatedSources = <String, String>{};
+    for (final GeneratedSourceProvenance provenance
+        in prepared.generatedProvenance) {
+      if (!provenance.path.endsWith('.dart')) continue;
+      final File generated = File(
+        path.joinAll(<String>[
+          prepared.root,
+          ...provenance.path.replaceAll(r'\', '/').split('/'),
+        ]),
+      );
+      if (generated.existsSync()) {
+        generatedSources[provenance.path] = generated.readAsStringSync();
+      }
+    }
+    if (generatedSources.isEmpty) return const <String>{};
+
+    final Map<String, String> graphSources = <String, String>{
+      ...prepared.sources,
+      ...generatedSources,
+    };
+    final DependencyGraph generatedGraph = DartGraphAdapter(
+      root: prepared.root,
+      packageName: '',
+      packageLibDirectories: workspace.packageLibDirectories,
+    ).build(graphSources);
+    final Set<String> generatedReachable = GraphAnalysis(
+      generatedGraph,
+    ).reachableFrom(generatedSources.keys);
+    return generatedReachable.where(prepared.sources.containsKey).toSet();
+  }
+
   static String? _pythonPublicPackagePrefix(String path) {
     final List<String> segments = path.replaceAll(r'\', '/').split('/');
     if (segments.last != '__init__.py') {
@@ -68,8 +146,9 @@ final class RuleExecutionStage {
     if (segments.length == 2) {
       return '${segments.first}/';
     }
-    if (segments.length == 3 && segments.first == 'src') {
-      return '${segments.first}/${segments[1]}/';
+    final int src = segments.lastIndexOf('src');
+    if (src >= 0 && src == segments.length - 3) {
+      return '${segments.take(src + 2).join('/')}/';
     }
     return null;
   }
@@ -191,6 +270,8 @@ final class RuleExecutionStage {
       ...dartDeadFileCandidates.where(
         (String path) => _isDartRoot(path, sources[path]!, dartWorkspace),
       ),
+      ..._dartBuilderRoots(config.root, dartDeadFileCandidates),
+      ..._dartGeneratedDependencyRoots(prepared, dartWorkspace),
     };
     final List<String> pythonDeadFileCandidates = sources.keys
         .where(
@@ -219,11 +300,22 @@ final class RuleExecutionStage {
           return separator < 0 ? '' : path.substring(0, separator + 1);
         })
         .toSet();
+    final Set<String> pythonNamespacePackagePrefixes =
+        configuredPythonRoots.isEmpty
+        ? (pythonDeadFileCandidates
+              .where((String path) => path.contains('/'))
+              .map((String path) => '${path.split('/').first}/')
+              .toSet()
+            ..removeAll(pythonAppPrefixes))
+        : const <String>{};
     final Set<String> pythonGraphRoots = <String>{
       ...configuredPythonRoots,
       ...pythonExecutableRoots,
       ...pythonDeadFileCandidates.where(
         (String path) => pythonPublicPackagePrefixes.any(path.startsWith),
+      ),
+      ...pythonDeadFileCandidates.where(
+        (String path) => pythonNamespacePackagePrefixes.any(path.startsWith),
       ),
     };
     final Iterable<String> pythonDeadFileEligible =
@@ -232,6 +324,7 @@ final class RuleExecutionStage {
         : pythonDeadFileCandidates.where(
             (String path) =>
                 pythonPublicPackagePrefixes.any(path.startsWith) ||
+                pythonNamespacePackagePrefixes.any(path.startsWith) ||
                 pythonAppPrefixes.any(path.startsWith),
           );
     final Set<String> graphRoots = <String>{
@@ -332,17 +425,28 @@ final class RuleExecutionStage {
           ...indexed.require('csharp').findings,
           ...indexed.require('java').findings,
           ...indexed.require('dart').findings,
-          ..._repositoryRules.rules.expand(
-            (CodeBusterRule rule) => rule.analyze(
-              RuleContext(
-                config: config,
-                sources: sources,
-                sourceLines: sourceLines,
-                language: 'repository',
-                graph: graph.graph,
+          ...<CodeBusterRule>[
+                ..._repositoryRules.rules,
+                ...frameworkRepositoryRules(config.frameworks),
+              ]
+              .where(
+                (CodeBusterRule rule) =>
+                    ruleFrameworksAreActive(rule.metadata, config),
+              )
+              .expand(
+                (CodeBusterRule rule) => rule.analyze(
+                  RuleContext(
+                    config: config,
+                    sources: sources,
+                    sourceLines: sourceLines,
+                    language: 'repository',
+                    graph: graph.graph,
+                    changedPaths: prepared.changedPaths,
+                    baseSources: prepared.baseSources,
+                    auxiliaryFiles: prepared.auxiliaryFiles,
+                  ),
+                ),
               ),
-            ),
-          ),
           ...RegexRuleAnalysis().findings(sources),
           ...PatternRuleAnalysis().findings(sources, config.patternRules),
         ]..sort((Finding left, Finding right) {

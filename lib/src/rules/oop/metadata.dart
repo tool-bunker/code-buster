@@ -90,6 +90,29 @@ final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
       'Classes with inheritance or implemented contracts are excluded because proxy, adapter, and framework boundaries may require forwarding.',
     ],
   ),
+  'oop-single-use-abstraction': const RuleMetadata(
+    id: 'oop-single-use-abstraction',
+    version: 2,
+    defaultSeverity: RuleSeverity.info,
+    group: 'yagni',
+    title: 'Collapse a single-use abstraction',
+    why:
+        'A one-method contract with one stateless implementation constructed once can add files and indirection without owning variation or lifecycle.',
+    suggestion:
+        'Consider keeping the small operation at its only caller; retain the abstraction when it is an external, dependency-injection, testing, plugin, or platform boundary.',
+    semanticMaturity: RuleSemanticMaturity.project,
+    requirements: <RuleAnalysisRequirement>{
+      RuleAnalysisRequirement.declarations,
+    },
+    taxonomy: <FindingTaxonomy>{FindingTaxonomy.design},
+    languages: <String>['csharp', 'dart', 'java', 'javascript', 'typescript'],
+    limitations: <String>[
+      'Requires one contract method, exactly one stateless direct implementation with one matching small method, one construction, and no additional contract references.',
+      'Public or exported contracts may have consumers outside the analyzed repository; findings are advisory and medium confidence.',
+      'Reflection, generated implementations, dependency-injection registrations, partial types, and indirect implementations are not resolved.',
+      'Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls.',
+    ],
+  ),
   'oop-repeated-strategy-dispatch': _advisory(
     'oop-repeated-strategy-dispatch',
     'Consolidate repeated variant dispatch',
@@ -109,7 +132,7 @@ final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
     'Keep behavior with the data it uses',
     'A method dominated by one parameter’s members may own misplaced behavior.',
     'Consider moving the behavior to the foreign type or its API.',
-    'Requires five accesses across three members and sixty percent of received accesses.',
+    'Requires five accesses across three members and sixty percent of received accesses; Dart parameters matching the enclosing class type and accesses solely composing a returned Flutter Widget are excluded.',
   ),
   'oop-service-locator-dependency': _advisory(
     'oop-service-locator-dependency',
@@ -186,6 +209,8 @@ RuleMetadata _advisory(
   suggestion: suggestion,
   version: id == 'oop-template-workflow-candidate'
       ? 5
+      : id == 'oop-feature-envy'
+      ? 6
       : _sharedLexicalOopIds.contains(id)
       ? 4
       : 1,

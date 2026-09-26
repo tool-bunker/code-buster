@@ -87,13 +87,19 @@ final class RepositoryAnalysis {
       final (source: String code, endsInBlockComment: bool endsInBlockComment) =
           _stripComments(stringStripped, inBlockComment: inBlockComment);
       inBlockComment = endsInBlockComment;
-      final int signals = RegExp(
-        r'(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|switch|case|catch)([^A-Za-z0-9_]|$)|&&|\|\|',
+      final int cyclomaticSignals = RegExp(
+        r'(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|case|catch)([^A-Za-z0-9_]|$)|&&|\|\|',
       ).allMatches(code).length;
-      cyclomatic += signals;
+      final int cognitiveSignals = RegExp(
+        r'(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|switch|catch)([^A-Za-z0-9_]|$)|&&|\|\|',
+      ).allMatches(code).length;
+      // A switch contributes one cognitive structural break, while its cases
+      // contribute the alternative paths counted by cyclomatic complexity.
+      // Counting both switch and case in both metrics overstates flat dispatch.
+      cyclomatic += cyclomaticSignals;
       // Adapter function bodies include their own outer braces. That lexical
       // wrapper is not control-flow nesting and must not inflate every signal.
-      cognitive += signals * (1 + math.max(0, depth - 1));
+      cognitive += cognitiveSignals * (1 + math.max(0, depth - 1));
       depth += '{'.allMatches(code).length - '}'.allMatches(code).length;
       if (depth < 0) {
         depth = 0;

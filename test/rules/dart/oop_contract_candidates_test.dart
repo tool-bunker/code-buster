@@ -11,6 +11,7 @@ void main() {
             (Finding finding) => <String>{
               'oop-interface-segregation-pressure',
               'oop-state-behavior-candidate',
+              'oop-single-use-abstraction',
             }.contains(finding.code),
           )
           .toList();
@@ -95,6 +96,69 @@ class Order {
     expect(
       findings.single.message,
       contains('mutable status across 3 methods'),
+    );
+  });
+
+  test('reports a one-operation Dart abstraction constructed once', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/user_validator.dart': '''
+abstract interface class UserValidator {
+  bool validate(String email);
+}
+class StandardUserValidator implements UserValidator {
+  @override
+  bool validate(String email) => email.contains('@');
+}
+''',
+      'lib/user_service.dart': '''
+bool processUser(String email) {
+  final validator = StandardUserValidator();
+  return validator.validate(email);
+}
+''',
+    });
+
+    final Finding finding = findings.singleWhere(
+      (finding) => finding.code == 'oop-single-use-abstraction',
+    );
+    expect(finding.path, 'lib/user_validator.dart');
+    expect(finding.message, contains('StandardUserValidator'));
+  });
+
+  test('keeps Dart abstractions with variation, state, or reuse', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/variation.dart': '''
+abstract interface class Parser { bool parse(String value); }
+class JsonParser implements Parser {
+  bool parse(String value) => value.contains('{');
+}
+class XmlParser implements Parser {
+  bool parse(String value) => value.contains('<');
+}
+''',
+      'lib/stateful.dart': '''
+abstract interface class Counter { int count(String value); }
+class StatefulCounter implements Counter {
+  int total = 0;
+  int count(String value) => total + value.length;
+}
+void useCounter() { StatefulCounter(); }
+''',
+      'lib/reused.dart': '''
+abstract interface class Checker { bool check(String value); }
+class BasicChecker implements Checker {
+  bool check(String value) => value.contains('@');
+}
+void useChecker() {
+  BasicChecker();
+  BasicChecker();
+}
+''',
+    });
+
+    expect(
+      findings.where((finding) => finding.code == 'oop-single-use-abstraction'),
+      isEmpty,
     );
   });
 

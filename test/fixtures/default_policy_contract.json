@@ -4,6 +4,7 @@
     "languages": [
       "auto"
     ],
+    "frameworks": [],
     "ruleGroups": [
       "accessibility",
       "core",
@@ -32,6 +33,7 @@
   },
   "productionIgnores": [
     "**/test/**",
+    "**/*_test/**",
     "**/tests/**",
     "**/testenv/**",
     "**/test.ts",
@@ -79,6 +81,7 @@
     "**/*_unittests.cpp",
     "**/*_spec.rb",
     "**/*Test.java",
+    "**/*_test.dart",
     "**/*Tests.java",
     "**/*.test.js",
     "**/*.test.jsx",
@@ -121,12 +124,21 @@
     "**/vendor/**",
     "**/third_party/**",
     "**/compiled/**",
+    "**/cargokit/**",
     "**/.dart_tool/**",
     "**/*.generated.*",
     "**/*.gen.go",
     "**/*.pb.go",
     "**/*.pb.cc",
     "**/*.pb.h",
+    "**/*.backup.js",
+    "**/*.backup.jsx",
+    "**/*.backup.mjs",
+    "**/*.backup.cjs",
+    "**/*.backup.ts",
+    "**/*.backup.tsx",
+    "**/*.backup.mts",
+    "**/*.backup.cts",
     "**/migrations/**/definition.sql"
   ],
   "rules": [
@@ -144,6 +156,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Tracks a named model-output variable to a nearby command-execution sink."
@@ -152,6 +165,27 @@
     },
     {
       "id": "ai-prompt-injection-instruction",
+      "severity": "warn",
+      "group": "core",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires AI-framework context and an explicit override-style instruction."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "ai-untrusted-prompt-construction",
       "severity": "warn",
       "group": "core",
       "version": 2,
@@ -164,26 +198,7 @@
         "sourceText"
       ],
       "languages": [],
-      "languageVersions": {},
-      "limitations": [
-        "Requires AI-framework context and an explicit override-style instruction."
-      ],
-      "enabledByDefault": true
-    },
-    {
-      "id": "ai-untrusted-prompt-construction",
-      "severity": "warn",
-      "group": "core",
-      "version": 1,
-      "semanticMaturity": "text",
-      "securityKind": "hotspot",
-      "taxonomy": [
-        "security"
-      ],
-      "requirements": [
-        "sourceText"
-      ],
-      "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Uses conservative prompt-target and untrusted-input naming evidence."
@@ -204,6 +219,7 @@
         "graph"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -222,6 +238,70 @@
         "graph"
       ],
       "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "changed-complexity-regression",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Runs only with changed-base source snapshots and compares brace-delimited named functions.",
+        "Macro expansion, generated functions, overload identity, and parser recovery are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "changed-public-api-without-test",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Runs only with changed-base evidence and reports only when no changed test path shares the production file concept.",
+        "Tests in external repositories and unchanged broad integration suites cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "commented-out-code",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -230,7 +310,7 @@
       "id": "complex-function",
       "severity": "warn",
       "group": "core",
-      "version": 6,
+      "version": 7,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -241,6 +321,7 @@
         "tokens"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "JavaScript and TypeScript extraction covers named declarations, methods, and block-bodied variable arrow functions.",
@@ -262,6 +343,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -282,6 +364,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -302,6 +385,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -322,6 +406,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -342,6 +427,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -362,6 +448,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -382,6 +469,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -402,6 +490,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -422,6 +511,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -442,6 +532,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -462,6 +553,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -482,6 +574,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -502,6 +595,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -522,6 +616,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -542,6 +637,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -562,6 +658,7 @@
       "languages": [
         "cpp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -582,6 +679,28 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "cs-archive-path-traversal",
+      "severity": "warn",
+      "group": "security",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "csharp"
+      ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -602,6 +721,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -622,6 +742,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -642,6 +763,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -662,6 +784,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -682,6 +805,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -702,6 +826,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -722,6 +847,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -742,6 +868,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -762,6 +889,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -782,6 +910,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -802,6 +931,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -822,6 +952,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -842,6 +973,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -862,6 +994,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -882,6 +1015,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -902,6 +1036,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -922,6 +1057,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -942,6 +1078,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -962,6 +1099,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -982,6 +1120,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1002,6 +1141,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1022,6 +1162,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1042,6 +1183,7 @@
       "languages": [
         "csharp"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1062,6 +1204,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1082,6 +1225,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only exact normalized values with an existing CSS custom property are compared."
@@ -1104,6 +1248,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Nested CSS blocks and semantically equivalent shorthand declarations are not compared."
@@ -1126,6 +1271,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1146,6 +1292,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1166,6 +1313,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1186,6 +1334,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1206,6 +1355,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1226,6 +1376,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1246,6 +1397,7 @@
       "languages": [
         "css"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1264,6 +1416,7 @@
         "graph"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1284,6 +1437,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1292,7 +1446,7 @@
       "id": "dart-bad-certificate-callback",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1304,6 +1458,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1324,6 +1479,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1344,6 +1500,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1364,6 +1521,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1372,7 +1530,7 @@
       "id": "dart-catch-without-stack-trace",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1384,6 +1542,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1404,6 +1563,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1424,6 +1584,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1444,6 +1605,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1464,6 +1626,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1472,7 +1635,7 @@
       "id": "dart-hardcoded-secret",
       "severity": "warn",
       "group": "security",
-      "version": 3,
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1484,6 +1647,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1504,6 +1668,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1524,6 +1689,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1544,6 +1710,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1564,6 +1731,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1584,6 +1752,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1604,6 +1773,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1612,7 +1782,7 @@
       "id": "dart-late-final-persistence",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1624,6 +1794,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1644,6 +1815,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1664,6 +1836,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1672,7 +1845,7 @@
       "id": "dart-null-assertion",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1684,6 +1857,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1705,6 +1879,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1726,6 +1901,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Package ownership is inferred from packages/* and the nearest lib directory."
@@ -1736,7 +1912,7 @@
       "id": "dart-path-traversal",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1748,6 +1924,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1768,6 +1945,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1788,6 +1966,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1808,6 +1987,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1828,6 +2008,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1848,6 +2029,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1868,6 +2050,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1888,6 +2071,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1908,6 +2092,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1928,6 +2113,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1936,7 +2122,7 @@
       "id": "dart-sensitive-data-logging",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1948,6 +2134,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1968,6 +2155,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -1988,6 +2176,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2008,6 +2197,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2028,6 +2218,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2048,6 +2239,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2068,6 +2260,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2086,6 +2279,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2094,7 +2288,7 @@
       "id": "dead-file",
       "severity": "error",
       "group": "core",
-      "version": 4,
+      "version": 8,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2104,6 +2298,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2112,7 +2307,7 @@
       "id": "duplicate-block",
       "severity": "warn",
       "group": "core",
-      "version": 7,
+      "version": 11,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2122,13 +2317,16 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "At most 32 deterministic locations are retained per fingerprint.",
         "Predominantly literal data tables are excluded.",
         "Block-comment license headers are excluded.",
         "Python hash-comment license headers are excluded.",
-        "SQL migration history is excluded from duplication comparison."
+        "SQL migration and archive history is excluded from duplication comparison.",
+        "Mutually exclusive single-tag Go build flavors are excluded.",
+        "Dart constructors composed only of field- and super-formal parameter forwarding are excluded."
       ],
       "enabledByDefault": true
     },
@@ -2136,7 +2334,7 @@
       "id": "excessive-comment-density",
       "severity": "info",
       "group": "maintainability",
-      "version": 5,
+      "version": 7,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2146,10 +2344,661 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires at least five source files with twenty or more substantive lines.",
         "Generated files, tests, documentation comments, and files with fewer than eight implementation-comment lines are excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-background-task-heavy-work",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-broad-http-exception",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-db-session-not-closed",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-global-mutable-cache",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-insecure-jwt-decode",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-missing-auth-dependency",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-missing-error-response-docs",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-missing-rate-limit",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-missing-security-headers",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-permissive-cors",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-plaintext-password",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-query-in-loop",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-request-data-logging",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-role-check-after-resource-access",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-route-body-with-get",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-route-domain-sprawl",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-route-missing-response-model",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-route-status-code-mismatch",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-route-without-integration-test",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-sensitive-error-detail",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-settings-bypass",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-sync-blocking-route",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-transaction-without-rollback",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-unbounded-query",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "fastapi-unvalidated-dict-body",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "python"
+      ],
+      "frameworks": [
+        "fastapi"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+        "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
       ],
       "enabledByDefault": true
     },
@@ -2167,6 +3016,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Generic Flags, flags, and Config members require feature lifecycle terminology."
@@ -2187,12 +3037,166 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
     },
     {
+      "id": "flutter-asset-reference-missing",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-bloc-side-effect-in-builder",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-context-after-await",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-controller-created-in-build",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "flutter-expanded-outside-flex",
+      "severity": "warn",
+      "group": "nim-style",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-form-without-validation",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-future-created-in-build",
       "severity": "warn",
       "group": "nim-style",
       "version": 2,
@@ -2207,25 +3211,8 @@
       "languages": [
         "dart"
       ],
-      "languageVersions": {},
-      "limitations": [],
-      "enabledByDefault": true
-    },
-    {
-      "id": "flutter-future-created-in-build",
-      "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
-      "semanticMaturity": "text",
-      "securityKind": "none",
-      "taxonomy": [
-        "style"
-      ],
-      "requirements": [
-        "sourceText"
-      ],
-      "languages": [
-        "dart"
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [],
@@ -2235,6 +3222,55 @@
       "id": "flutter-gesture-semantic-gap",
       "severity": "info",
       "group": "nim-style",
+      "version": 3,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-getit-lookup-in-widget",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-global-key-created-in-build",
+      "severity": "warn",
+      "group": "nim-style",
       "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
@@ -2247,19 +3283,22 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [
+        "flutter"
+      ],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
     },
     {
-      "id": "flutter-global-key-created-in-build",
-      "severity": "warn",
-      "group": "nim-style",
+      "id": "flutter-image-cache-bypass",
+      "severity": "info",
+      "group": "maintainability",
       "version": 1,
-      "semanticMaturity": "text",
+      "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
-        "style"
+        "maintainability"
       ],
       "requirements": [
         "sourceText"
@@ -2267,15 +3306,21 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [
+        "flutter"
+      ],
       "languageVersions": {},
-      "limitations": [],
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
       "enabledByDefault": true
     },
     {
       "id": "flutter-image-network-no-error-builder",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2286,6 +3331,9 @@
       ],
       "languages": [
         "dart"
+      ],
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [],
@@ -2295,6 +3343,132 @@
       "id": "flutter-listener-without-remove",
       "severity": "info",
       "group": "nim-style",
+      "version": 4,
+      "semanticMaturity": "text",
+      "securityKind": "none",
+      "taxonomy": [
+        "style"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-listview-large-children",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-missing-widget-key",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-parallel-control-component",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 2,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Button-like pointer trees are inferred from GestureDetector or InkWell containing both Container and Text."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-platform-branch-without-adaptation",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-provider-watch-in-callback",
+      "severity": "warn",
+      "group": "nim-style",
       "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
@@ -2307,47 +3481,8 @@
       "languages": [
         "dart"
       ],
-      "languageVersions": {},
-      "limitations": [],
-      "enabledByDefault": true
-    },
-    {
-      "id": "flutter-parallel-control-component",
-      "severity": "info",
-      "group": "maintainability",
-      "version": 1,
-      "semanticMaturity": "project",
-      "securityKind": "none",
-      "taxonomy": [
-        "design"
-      ],
-      "requirements": [
-        "sourceText"
-      ],
-      "languages": [
-        "dart"
-      ],
-      "languageVersions": {},
-      "limitations": [
-        "Button-like pointer trees are inferred from GestureDetector or InkWell containing both Container and Text."
-      ],
-      "enabledByDefault": true
-    },
-    {
-      "id": "flutter-provider-watch-in-callback",
-      "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
-      "semanticMaturity": "text",
-      "securityKind": "none",
-      "taxonomy": [
-        "style"
-      ],
-      "requirements": [
-        "sourceText"
-      ],
-      "languages": [
-        "dart"
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [],
@@ -2357,7 +3492,7 @@
       "id": "flutter-repeated-inline-style",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2368,6 +3503,9 @@
       ],
       "languages": [
         "dart"
+      ],
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [
@@ -2379,7 +3517,7 @@
       "id": "flutter-repeated-sizedbox-spacing",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "ast",
       "securityKind": "none",
       "taxonomy": [
@@ -2391,6 +3529,9 @@
       ],
       "languages": [
         "dart"
+      ],
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [
@@ -2404,7 +3545,7 @@
       "id": "flutter-set-state-after-await",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2416,15 +3557,44 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [
+        "flutter"
+      ],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-setstate-in-build",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
       "enabledByDefault": true
     },
     {
       "id": "flutter-shared-component-bypass",
       "severity": "info",
       "group": "maintainability",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2435,6 +3605,9 @@
       ],
       "languages": [
         "dart"
+      ],
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [
@@ -2447,7 +3620,7 @@
       "id": "flutter-stream-created-in-build",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2459,6 +3632,9 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [
+        "flutter"
+      ],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2467,7 +3643,7 @@
       "id": "flutter-theme-bypass",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -2479,6 +3655,9 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [
+        "flutter"
+      ],
       "languageVersions": {},
       "limitations": [
         "Only exact Color or Colors expressions matching a declared project constant are compared."
@@ -2489,7 +3668,7 @@
       "id": "flutter-unbounded-scrollable",
       "severity": "warn",
       "group": "nim-style",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2501,15 +3680,70 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [
+        "flutter"
+      ],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-unlocalized-user-text",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "flutter-widget-missing-const-constructor",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "dart"
+      ],
+      "frameworks": [
+        "flutter"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Generated, test, example, and vendored sources follow normal source classification controls.",
+        "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+      ],
       "enabledByDefault": true
     },
     {
       "id": "go-defer-in-loop",
       "severity": "warn",
       "group": "core",
-      "version": 2,
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2521,6 +3755,7 @@
       "languages": [
         "go"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2541,6 +3776,7 @@
       "languages": [
         "go"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2561,6 +3797,7 @@
       "languages": [
         "go"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2569,7 +3806,7 @@
       "id": "go-response-body-not-closed",
       "severity": "warn",
       "group": "core",
-      "version": 2,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -2581,6 +3818,7 @@
       "languages": [
         "go"
       ],
+      "frameworks": [],
       "languageVersions": {
         "go": ">=1.13"
       },
@@ -2603,6 +3841,7 @@
       "languages": [
         "go"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2611,7 +3850,7 @@
       "id": "go-world-writable",
       "severity": "warn",
       "group": "security",
-      "version": 3,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "vulnerability",
       "taxonomy": [
@@ -2623,6 +3862,7 @@
       "languages": [
         "go"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2641,6 +3881,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2661,6 +3902,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2681,6 +3923,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2701,6 +3944,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2721,6 +3965,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2741,6 +3986,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2761,6 +4007,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2781,6 +4028,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2801,6 +4049,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2821,6 +4070,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2841,6 +4091,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2861,6 +4112,7 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2881,10 +4133,30 @@
       "languages": [
         "html"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Button-like alternatives are inferred from role=button or click handlers on non-button elements."
       ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "inconsistent-peer-file-naming",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
       "enabledByDefault": true
     },
     {
@@ -2903,6 +4175,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2923,6 +4196,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only catch declarations whose parameter list has no nested parentheses are checked."
@@ -2945,6 +4219,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2965,6 +4240,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -2986,6 +4262,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3006,6 +4283,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3026,6 +4304,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3046,6 +4325,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {
         "java": ">=7"
       },
@@ -3070,6 +4350,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3090,6 +4371,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only explicitly declared String variables and braced loops are checked."
@@ -3112,6 +4394,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3120,7 +4403,7 @@
       "id": "java-system-out",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3132,6 +4415,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3152,6 +4436,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3172,6 +4457,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only method declarations recognized by the Java callable extractor are checked."
@@ -3194,6 +4480,7 @@
       "languages": [
         "java"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3216,6 +4503,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {
         "node": ">=12"
       },
@@ -3238,6 +4526,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3256,6 +4545,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3264,7 +4554,7 @@
       "id": "large-number-ungrouped",
       "severity": "info",
       "group": "suspicious",
-      "version": 3,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3274,6 +4564,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3292,6 +4583,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3310,6 +4602,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Dart is excluded because dart format may intentionally exceed its page width."
@@ -3332,6 +4625,7 @@
       "languages": [
         "lua"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3352,6 +4646,7 @@
       "languages": [
         "lua"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3372,6 +4667,7 @@
       "languages": [
         "lua"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3392,6 +4688,7 @@
       "languages": [
         "lua"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3412,6 +4709,7 @@
       "languages": [
         "lua"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3432,6 +4730,7 @@
       "languages": [
         "lua"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3452,6 +4751,26 @@
       "languages": [
         "lua"
       ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "mixed-boundary-responsibility",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3472,6 +4791,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule follows current Mojo syntax but does not perform compiler type resolution."
@@ -3494,6 +4814,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule follows current Mojo syntax but does not perform compiler type resolution."
@@ -3516,6 +4837,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule follows current Mojo syntax but does not perform compiler type resolution."
@@ -3538,6 +4860,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule follows current Mojo syntax but does not perform compiler type resolution."
@@ -3560,6 +4883,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule follows current Mojo syntax but does not perform compiler type resolution."
@@ -3582,6 +4906,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule checks explicit raise statements and does not resolve transitive throwing calls."
@@ -3604,6 +4929,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule follows current Mojo syntax but does not perform compiler type resolution."
@@ -3626,6 +4952,7 @@
       "languages": [
         "mojo"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule follows current Mojo syntax but does not perform compiler type resolution."
@@ -3648,6 +4975,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -3656,7 +4984,7 @@
       "id": "mvvm-model-imports-ui",
       "severity": "error",
       "group": "architecture",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3668,6 +4996,9 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [
+        "flutter"
+      ],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -3676,7 +5007,7 @@
       "id": "mvvm-viewmodel-performs-navigation",
       "severity": "warn",
       "group": "architecture",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "ast",
       "securityKind": "none",
       "taxonomy": [
@@ -3687,6 +5018,9 @@
       ],
       "languages": [
         "dart"
+      ],
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [],
@@ -3696,7 +5030,7 @@
       "id": "mvvm-viewmodel-returns-widget",
       "severity": "warn",
       "group": "architecture",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "ast",
       "securityKind": "none",
       "taxonomy": [
@@ -3707,6 +5041,9 @@
       ],
       "languages": [
         "dart"
+      ],
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [],
@@ -3716,7 +5053,7 @@
       "id": "mvvm-viewmodel-ui-context",
       "severity": "warn",
       "group": "architecture",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "ast",
       "securityKind": "none",
       "taxonomy": [
@@ -3727,6 +5064,9 @@
       ],
       "languages": [
         "dart"
+      ],
+      "frameworks": [
+        "flutter"
       ],
       "languageVersions": {},
       "limitations": [],
@@ -3746,6 +5086,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only explicit first-person sequencing phrases are reported.",
@@ -3767,6 +5108,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3785,6 +5127,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3803,6 +5146,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -3821,6 +5165,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3839,6 +5184,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3857,6 +5203,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3875,6 +5222,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -3893,6 +5241,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3911,6 +5260,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3929,6 +5279,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3947,6 +5298,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3965,6 +5317,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -3983,6 +5336,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4001,6 +5355,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4019,6 +5374,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4037,6 +5393,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4055,6 +5412,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4073,6 +5431,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4091,6 +5450,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4109,6 +5469,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4127,6 +5488,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4145,6 +5507,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4163,6 +5526,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4181,6 +5545,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4199,6 +5564,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4217,6 +5583,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4235,6 +5602,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4253,6 +5621,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4271,6 +5640,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4289,6 +5659,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4307,6 +5678,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4325,6 +5697,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4343,6 +5716,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4361,6 +5735,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4379,6 +5754,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4397,6 +5773,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4415,6 +5792,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4433,6 +5811,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4451,6 +5830,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4469,6 +5849,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4487,6 +5868,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4505,6 +5887,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4523,6 +5906,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4541,6 +5925,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4559,6 +5944,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4577,6 +5963,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4595,6 +5982,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4613,6 +6001,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4631,6 +6020,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4649,6 +6039,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4667,6 +6058,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4685,6 +6077,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4703,6 +6096,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4721,6 +6115,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4739,6 +6134,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4757,6 +6153,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4775,6 +6172,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4793,6 +6191,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4811,6 +6210,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4829,6 +6229,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4847,6 +6248,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4865,6 +6267,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4883,6 +6286,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4901,6 +6305,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4919,6 +6324,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4937,6 +6343,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4955,6 +6362,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -4973,6 +6381,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -4991,6 +6400,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5009,6 +6419,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5027,6 +6438,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5045,6 +6457,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5063,6 +6476,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5081,6 +6495,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5099,6 +6514,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5117,6 +6533,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5135,6 +6552,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5153,6 +6571,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5171,6 +6590,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5189,6 +6609,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5207,6 +6628,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5225,6 +6647,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5243,6 +6666,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5261,6 +6685,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5279,6 +6704,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5297,6 +6723,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5315,6 +6742,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5333,6 +6761,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5351,6 +6780,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5369,6 +6799,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5387,6 +6818,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5405,6 +6837,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5423,6 +6856,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5441,6 +6875,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5459,6 +6894,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5477,6 +6913,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5495,6 +6932,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5513,6 +6951,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5531,6 +6970,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5549,6 +6989,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5567,6 +7008,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5585,6 +7027,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5603,6 +7046,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5621,6 +7065,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5639,6 +7084,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5657,6 +7103,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5675,6 +7122,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": false
@@ -5693,6 +7141,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5711,6 +7160,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5729,6 +7179,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5747,6 +7198,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -5767,6 +7219,7 @@
       "languages": [
         "odin"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule masks nested comments and literals but does not perform Odin type resolution."
@@ -5789,6 +7242,7 @@
       "languages": [
         "odin"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule masks nested comments and literals but does not perform Odin type resolution."
@@ -5811,6 +7265,7 @@
       "languages": [
         "odin"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule masks nested comments and literals but does not perform Odin type resolution."
@@ -5833,6 +7288,7 @@
       "languages": [
         "odin"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule masks nested comments and literals but does not perform Odin type resolution."
@@ -5859,6 +7315,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires the same complete signature of at least three explicitly typed parameters in three declarations across at least two files.",
@@ -5888,6 +7345,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three external boundary users and dominant use over direct implementation access.",
@@ -5915,6 +7373,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three external boundary users and dominant use over direct implementation access.",
@@ -5926,7 +7385,7 @@
       "id": "oop-feature-envy",
       "severity": "info",
       "group": "maintainability",
-      "version": 4,
+      "version": 6,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -5942,9 +7401,10 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
-        "Requires five accesses across three members and sixty percent of received accesses.",
+        "Requires five accesses across three members and sixty percent of received accesses; Dart parameters matching the enclosing class type and accesses solely composing a returned Flutter Widget are excluded.",
         "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
@@ -5969,6 +7429,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires a contract with at least four methods and at least two direct implementors.",
@@ -5997,6 +7458,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three chains of at least four hops across two methods.",
@@ -6024,6 +7486,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires at least five public instance methods, with at least four and eighty percent directly forwarding to the same private typed field.",
@@ -6052,6 +7515,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three external boundary users and dominant use over direct implementation access.",
@@ -6079,6 +7543,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires a directly declared base class with at least four instance methods and at least two direct subclasses.",
@@ -6107,6 +7572,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three identical mappings of at least three members across two files.",
@@ -6134,6 +7600,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires add/remove registration symmetry and the same callback loop in three methods.",
@@ -6161,6 +7628,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three switches over at least three identical variants across two files.",
@@ -6188,6 +7656,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three external boundary users and dominant use over direct implementation access.",
@@ -6215,9 +7684,40 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three classes across two files resolving three service types from one conventionally named locator.",
+        "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "oop-single-use-abstraction",
+      "severity": "info",
+      "group": "yagni",
+      "version": 2,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "design"
+      ],
+      "requirements": [
+        "declarations"
+      ],
+      "languages": [
+        "csharp",
+        "dart",
+        "java",
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires one contract method, exactly one stateless direct implementation with one matching small method, one construction, and no additional contract references.",
+        "Public or exported contracts may have consumers outside the analyzed repository; findings are advisory and medium confidence.",
+        "Reflection, generated implementations, dependency-injection registrations, partial types, and indirect implementations are not resolved.",
         "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
@@ -6242,6 +7742,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires three methods switching over one field and at least three states.",
@@ -6269,6 +7770,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Requires sibling overrides with four to ten calls and exactly one differing call.",
@@ -6290,6 +7792,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6308,6 +7811,7 @@
         "functions"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Semantic mode currently compares HTTP endpoints, JSON key sets, SQL table operations, and configuration key sets.",
@@ -6330,11 +7834,50 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only map or object literals with at least five identical identifier-like string keys are compared.",
         "Test, fixture, generated, localization, and manifest files are excluded."
       ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "placeholder-identifier",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "public-mutable-state",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
       "enabledByDefault": true
     },
     {
@@ -6353,6 +7896,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6373,6 +7917,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6393,6 +7938,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6401,7 +7947,7 @@
       "id": "py-bare-except",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6413,6 +7959,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6421,7 +7968,7 @@
       "id": "py-broad-except",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6433,6 +7980,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6453,6 +8001,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6473,6 +8022,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6493,6 +8043,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6513,6 +8064,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6521,7 +8073,7 @@
       "id": "py-function-naming",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6533,6 +8085,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6541,7 +8094,7 @@
       "id": "py-hardcoded-secret",
       "severity": "info",
       "group": "security",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -6553,6 +8106,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6561,7 +8115,7 @@
       "id": "py-import-not-top",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6573,6 +8127,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6593,6 +8148,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6613,6 +8169,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6633,6 +8190,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6641,7 +8199,7 @@
       "id": "py-mutable-default",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -6653,6 +8211,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6673,6 +8232,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6693,6 +8253,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6713,6 +8274,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6733,6 +8295,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6753,6 +8316,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6773,6 +8337,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6793,6 +8358,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6813,6 +8379,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6833,6 +8400,7 @@
       "languages": [
         "python"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6851,6 +8419,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6869,6 +8438,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6887,6 +8457,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Bounded optional outer groups are excluded from risk findings.",
@@ -6908,6 +8479,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6926,6 +8498,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Dart syntax validation is limited to raw non-interpolated literals."
@@ -6946,6 +8519,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6964,6 +8538,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -6982,6 +8557,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7000,6 +8576,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7018,6 +8595,26 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "repeated-policy-literal",
+      "severity": "info",
+      "group": "maintainability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7038,6 +8635,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7060,6 +8658,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7082,6 +8681,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7104,6 +8704,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7126,6 +8727,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7148,6 +8750,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7170,6 +8773,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7192,6 +8796,7 @@
       "languages": [
         "rust"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
@@ -7214,6 +8819,7 @@
       "languages": [
         "dart"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only compact Dart classes whose complete body is a field, constructor, and expression-bodied method are reported.",
@@ -7235,6 +8841,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7255,6 +8862,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7275,6 +8883,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7283,7 +8892,7 @@
       "id": "sql-create-index-nonconcurrent",
       "severity": "info",
       "group": "sql",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -7295,9 +8904,11 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
-        "Opt-in because transactional migration runners cannot use CONCURRENTLY."
+        "Opt-in because transactional migration runners cannot use CONCURRENTLY.",
+        "Dialect inference recognizes explicit PostgreSQL paths and repeated sibling MySQL syntax."
       ],
       "enabledByDefault": true
     },
@@ -7317,6 +8928,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7337,6 +8949,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7355,6 +8968,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Commented-out source is excluded."
@@ -7377,6 +8991,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7397,6 +9012,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7417,6 +9033,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7437,6 +9054,7 @@
       "languages": [
         "sql"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only statements beginning with UPDATE are checked."
@@ -7457,6 +9075,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7475,6 +9094,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7493,6 +9113,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7511,6 +9132,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7529,6 +9151,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "At most 50 deterministic file findings are retained per run.",
@@ -7552,6 +9175,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only literal process commands in selected test sources are checked.",
@@ -7574,6 +9198,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7592,6 +9217,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "At most 50 deterministic file findings are retained per run.",
@@ -7613,6 +9239,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [
         "Only narrow return, assignment, increment, and invocation restatements are reported.",
@@ -7637,6 +9264,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7658,6 +9286,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7666,7 +9295,7 @@
       "id": "ts-console",
       "severity": "info",
       "group": "nim-style",
-      "version": 2,
+      "version": 7,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -7679,6 +9308,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7700,6 +9330,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7708,7 +9339,7 @@
       "id": "ts-eval",
       "severity": "error",
       "group": "security",
-      "version": 2,
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -7721,6 +9352,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7742,6 +9374,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7763,6 +9396,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7771,7 +9405,7 @@
       "id": "ts-inner-html",
       "severity": "warn",
       "group": "security",
-      "version": 2,
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -7784,6 +9418,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7792,7 +9427,7 @@
       "id": "ts-json-parse-unsafe",
       "severity": "info",
       "group": "nim-style",
-      "version": 2,
+      "version": 6,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -7805,6 +9440,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7826,6 +9462,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7847,6 +9484,7 @@
         "javascript",
         "typescript"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7865,6 +9503,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7883,6 +9522,7 @@
         "sourceText"
       ],
       "languages": [],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7903,6 +9543,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7923,6 +9564,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7943,6 +9585,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7963,6 +9606,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -7983,6 +9627,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -8003,6 +9648,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -8023,6 +9669,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true
@@ -8043,6 +9690,7 @@
       "languages": [
         "wren"
       ],
+      "frameworks": [],
       "languageVersions": {},
       "limitations": [],
       "enabledByDefault": true

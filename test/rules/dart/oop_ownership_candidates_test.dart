@@ -36,6 +36,69 @@ class CustomerFormatter {
     );
   });
 
+  test('ignores member comparisons against another instance of this type', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/painter.dart': '''
+class AtlasPainter {
+  bool shouldRepaint(AtlasPainter oldDelegate) =>
+      oldDelegate.document != document ||
+      oldDelegate.items != items ||
+      oldDelegate.atlases != atlases ||
+      oldDelegate.selectedId != selectedId ||
+      oldDelegate.viewport != viewport;
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
+
+  test(
+    'ignores returned Flutter widget composition but retains foreign behavior',
+    () {
+      final List<Finding> findings = analyze(<String, String>{
+        'lib/resource_panel.dart': '''
+import 'package:flutter/material.dart';
+
+class ResourcePanel extends StatefulWidget {}
+
+class ResourcePanelState extends State<ResourcePanel> {
+  Widget resourceRow(Resource resource) => Card(
+    child: Column(
+      children: [
+        Text(resource.id),
+        Text(resource.id),
+        Text(resource.path),
+        Text(resource.path),
+        Text(resource.kind),
+        Text(resource.kind),
+      ],
+    ),
+  );
+
+  Widget prepare(Resource resource) {
+    resource.load();
+    resource.validate();
+    resource.save();
+    resource.load();
+    resource.audit();
+    return const SizedBox();
+  }
+}
+''',
+      });
+
+      expect(findings, hasLength(1));
+      expect(findings.single.code, 'oop-feature-envy');
+      expect(
+        findings.single.message,
+        contains(
+          'ResourcePanelState.prepare accesses Resource parameter resource',
+        ),
+      );
+    },
+  );
+
   test('requires five dominant accesses across three foreign members', () {
     final List<Finding> findings = analyze(<String, String>{
       'lib/formatter.dart': '''

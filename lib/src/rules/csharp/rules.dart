@@ -17,6 +17,7 @@ const Set<String> _informationalRules = <String>{
 };
 const Set<String> _securityRules = <String>{
   'cs-aptca-attribute',
+  'cs-archive-path-traversal',
   'cs-binaryformatter',
   'cs-cas-api',
   'cs-dcom-api',
@@ -33,6 +34,7 @@ const Set<String> _securityRules = <String>{
 final RuleRegistry csharpRuleRegistry = RuleRegistry(<CodeBusterRule>[
   for (final String id in csharpOopRuleIds) CSharpOopRule(id),
   for (final String id in const <String>[
+    'cs-archive-path-traversal',
     'cs-aptca-attribute',
     'cs-async-void',
     'cs-binaryformatter',

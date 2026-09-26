@@ -2,6 +2,7 @@
 
 import '../core/models.dart';
 import '../core/rule.dart';
+import '../rules/framework_rules.dart';
 import '../rules/language_rules.dart';
 import '../rules/repository_rules.dart';
 import 'generic_rule_catalog.dart';
@@ -111,7 +112,7 @@ final class RuleCatalog {
       why: 'A function exceeds configured complexity thresholds.',
       suggestion:
           'Split the function, simplify branching, or raise thresholds if intentional.',
-      version: 6,
+      version: 7,
       semanticMaturity: RuleSemanticMaturity.token,
       requirements: <RuleAnalysisRequirement>{
         RuleAnalysisRequirement.functions,
@@ -161,7 +162,7 @@ final class RuleCatalog {
       why: 'A source file is not reachable from configured entry points.',
       suggestion:
           'Remove the file, add an entry point, or add the missing dependency edge.',
-      version: 4,
+      version: 8,
     ),
     'duplicate-block': RuleMetadata(
       id: 'duplicate-block',
@@ -171,13 +172,15 @@ final class RuleCatalog {
       why: 'The same normalized code block appears in more than one location.',
       suggestion:
           'Extract shared logic or raise min_duplication_lines if the duplication is intentional.',
-      version: 7,
+      version: 11,
       limitations: <String>[
         'At most 32 deterministic locations are retained per fingerprint.',
         'Predominantly literal data tables are excluded.',
         'Block-comment license headers are excluded.',
         'Python hash-comment license headers are excluded.',
-        'SQL migration history is excluded from duplication comparison.',
+        'SQL migration and archive history is excluded from duplication comparison.',
+        'Mutually exclusive single-tag Go build flavors are excluded.',
+        'Dart constructors composed only of field- and super-formal parameter forwarding are excluded.',
       ],
     ),
     'feature-flag': RuleMetadata(
@@ -268,6 +271,15 @@ final class RuleCatalog {
     ...regexRuleCatalog,
     for (final RuleRegistry registry in languageRuleRegistries.values)
       for (final RuleMetadata metadata in registry.metadata)
+        metadata.id: metadata,
+    for (final FrameworkRuleRegistry framework
+        in frameworkRuleRegistries.values)
+      for (final RuleRegistry registry in framework.languageRules.values)
+        for (final RuleMetadata metadata in registry.metadata)
+          metadata.id: metadata,
+    for (final FrameworkRuleRegistry framework
+        in frameworkRuleRegistries.values)
+      for (final RuleMetadata metadata in framework.repositoryRules.metadata)
         metadata.id: metadata,
     for (final RuleMetadata metadata in repositoryRuleRegistry.metadata)
       metadata.id: metadata,

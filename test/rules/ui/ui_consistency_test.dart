@@ -85,6 +85,21 @@ void main() {
       expect(findings.single.message, contains('primary'));
     });
 
+    test('ignores transparent colors because they express visual absence', () {
+      final List<Finding> findings = const FlutterThemeBypassRule()
+          .analyze(
+            _context(<String, String>{
+              'lib/theme.dart':
+                  'abstract final class AppColors { static const clear = Colors.transparent; }',
+              'lib/button.dart':
+                  'final ring = isFocused ? Colors.blue : Colors.transparent;',
+            }),
+          )
+          .toList();
+
+      expect(findings, isEmpty);
+    });
+
     test('reports button-like Flutter pointer trees beside buttons', () {
       final List<Finding> findings = const FlutterParallelControlComponentRule()
           .analyze(

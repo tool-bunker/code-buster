@@ -200,7 +200,7 @@ void main() {
         .where((Finding finding) => finding.code == 'ts-eval')
         .toList();
 
-    expect(findings.map((Finding finding) => finding.line), <int>[3, 4, 5]);
+    expect(findings.map((Finding finding) => finding.line), <int>[3, 4, 5, 6, 7]);
   });
 
   test('accepts JSON embedded in a dedicated document element', () {
@@ -287,7 +287,25 @@ void main() {
         .where((Finding finding) => finding.code == 'ts-inner-html')
         .toList();
 
-    expect(findings.map((Finding finding) => finding.line), <int>[6, 10]);
+    expect(findings.map((Finding finding) => finding.line), <int>[7, 11]);
+  });
+
+  test('accepts trusted HTML wrappers only for static input', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('javascript')
+        .analyze(<String, String>{
+          'trusted.js': '''
+element.innerHTML = create_trusted_html('<option>safe</option>');
+element.innerHTML = policy.createHTML('<strong>safe</strong>');
+element.innerHTML = createTrustedHTML(userHtml);
+element.innerHTML = policy.createHTML(renderedHtml);
+''',
+        }, configFor('ts-'))
+        .findings
+        .where((Finding finding) => finding.code == 'ts-inner-html')
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.line), <int>[3, 4]);
   });
 
   test('ignores innerHTML names in string text but scans interpolations', () {
@@ -328,6 +346,72 @@ void main() {
       ),
       isEmpty,
     );
+  });
+
+  test('allows console output in conventional tooling sources', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('javascript')
+        .analyze(<String, String>{
+          'gulpfile.js': 'console.log("building");',
+          'scripts/release.js': 'console.log("released");',
+          'sandbox/server.js': 'console.debug("listening");',
+          'docs/scripts/render.js': 'console.log("rendered");',
+          'extra/check-config.js': 'console.log("checked");',
+          'packages/cli/bin/run.js': 'console.log("running");',
+          'packages/app/scripts/build.js': 'console.log("built");',
+          'tools/tasks/smoke.js': 'console.log("smoked");',
+          'packages/runtime/src/dev/debug.js': 'console.log("debug");',
+          'benchmarking/report.js': 'console.log("profile");',
+          'playgrounds/demo/server.js': 'console.log("ready");',
+          'src/logger.js': 'console.log("unexpected");',
+        }, configFor('ts-'))
+        .findings
+        .where((Finding finding) => finding.code == 'ts-console')
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.path, 'src/logger.js');
+  });
+
+  test('allows console output in Node command-line entrypoints', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('javascript')
+        .analyze(<String, String>{
+          'src/cli.ts': '#!/usr/bin/env node\nconsole.log("ready");',
+          'src/debug-cli.ts':
+              '#!/usr/bin/env -S node --experimental-strip-types\n'
+              'console.debug("ready");',
+          'src/server.ts': 'console.log("unexpected");',
+        }, configFor('ts-'))
+        .findings
+        .where((Finding finding) => finding.code == 'ts-console')
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.path, 'src/server.ts');
+  });
+
+  test('allows trusted JSON metadata parsing in tooling sources', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('javascript')
+        .analyze(<String, String>{
+          'gulpfile.js': "JSON.parse(await fs.readFile('package.json'));",
+          'scripts/release.js': 'JSON.parse(metadata);',
+          'extra/check-config.js': 'JSON.parse(metadata);',
+          'packages/cli/bin/read.js': 'JSON.parse(metadata);',
+          'packages/app/scripts/build.js': 'JSON.parse(metadata);',
+          'tools/tasks/smoke.js': 'JSON.parse(metadata);',
+          'packages/runtime/src/dev/fixture.js': 'JSON.parse(metadata);',
+          'benchmarks/profile.js': 'JSON.parse(profile);',
+          'playground/demo/config.js': 'JSON.parse(config);',
+          'src/response.js': 'JSON.parse(responseBody);',
+        }, configFor('ts-'))
+        .findings
+        .where((Finding finding) => finding.code == 'ts-json-parse-unsafe')
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.path, 'src/response.js');
   });
 
   test('reports await only in an open loop in the same function', () {

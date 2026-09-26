@@ -309,6 +309,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
       final String? literal = _stringLiteralValue(initializer);
       if (literal != null &&
           _looksLikeSecret(literal) &&
+          !_isPublicProtocolIdentifier(name, literal) &&
           !_looksLikeGraphQlDocument(literal) &&
           !_isDeterministicTestFixtureSecret(literal)) {
         _add(
@@ -390,6 +391,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
         _isReportedNullAssertionSyntax(node) &&
         !_isGuaranteedWholeMatch(node) &&
         !_isKeyProvenPresent(node) &&
+        !_isProvenNonNullByControlFlow(node) &&
         _nullAssertionLines.add(line)) {
       _add(
         node,
@@ -447,6 +449,316 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
       current = current.parent;
     }
     return false;
+  }
+
+  bool _isProvenNonNullByControlFlow(PostfixExpression node) {
+    final String target = node.operand.toSource();
+    if (!RegExp(
+      r'^(?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*|\[[^\]]+\])*$',
+    ).hasMatch(target)) {
+      return false;
+    }
+    final List<({Expression expression, bool expected})> constraints =
+        <({Expression expression, bool expected})>[];
+    AstNode child = node;
+    AstNode? current = node.parent;
+    while (current != null && current is! FunctionBody) {
+      if (current case final IfStatement statement) {
+        if (_containsNode(statement.thenStatement, child)) {
+          constraints.add((expression: statement.expression, expected: true));
+        } else if (statement.elseStatement case final Statement otherwise
+            when _containsNode(otherwise, child)) {
+          constraints.add((expression: statement.expression, expected: false));
+        }
+      } else if (current case final ConditionalExpression conditional) {
+        if (_containsNode(conditional.thenExpression, child)) {
+          constraints.add((expression: conditional.condition, expected: true));
+        } else if (_containsNode(conditional.elseExpression, child)) {
+          constraints.add((expression: conditional.condition, expected: false));
+        }
+      } else if (current case final BinaryExpression binary) {
+        if (_containsNode(binary.rightOperand, child)) {
+          if (binary.operator.lexeme == '&&') {
+            constraints.add((expression: binary.leftOperand, expected: true));
+          } else if (binary.operator.lexeme == '||') {
+            constraints.add((expression: binary.leftOperand, expected: false));
+          }
+        }
+      } else if (current case final Block block) {
+        final int statementIndex = block.statements.indexWhere(
+          (Statement statement) => _containsNode(statement, child),
+        );
+        if (statementIndex >= 0) {
+          for (var index = statementIndex - 1; index >= 0; index--) {
+            final Statement previous = block.statements[index];
+            if (_writesExpression(previous, target)) break;
+            if (previous case final IfStatement guard) {
+              final bool thenExits = _alwaysExits(guard.thenStatement);
+              final bool elseExits =
+                  guard.elseStatement != null &&
+                  _alwaysExits(guard.elseStatement!);
+              if (thenExits && !elseExits) {
+                constraints.add((
+                  expression: guard.expression,
+                  expected: false,
+                ));
+              } else if (elseExits && !thenExits) {
+                constraints.add((expression: guard.expression, expected: true));
+              }
+            }
+          }
+        }
+      }
+      child = current;
+      current = current.parent;
+    }
+    if (constraints.isEmpty) return false;
+
+    final Map<String, Expression> getterConditions = _getterConditions(node);
+    final Set<String> atoms = <String>{};
+    for (final ({Expression expression, bool expected}) constraint
+        in constraints) {
+      _collectConditionAtoms(
+        constraint.expression,
+        target,
+        getterConditions,
+        atoms,
+        <String>{},
+      );
+    }
+    if (atoms.length > 12) return false;
+    final List<String> atomList = atoms.toList(growable: false);
+    final int assignmentCount = 1 << atomList.length;
+    for (var mask = 0; mask < assignmentCount; mask++) {
+      final Map<String, bool> assignment = <String, bool>{
+        for (var index = 0; index < atomList.length; index++)
+          atomList[index]: mask & (1 << index) != 0,
+      };
+      final bool reachable = constraints.every(
+        (({Expression expression, bool expected}) constraint) =>
+            _evaluateCondition(
+              constraint.expression,
+              target,
+              getterConditions,
+              assignment,
+              <String>{},
+            ) ==
+            constraint.expected,
+      );
+      if (reachable) return false;
+    }
+    return true;
+  }
+
+  bool _containsNode(AstNode container, AstNode node) =>
+      container.offset <= node.offset && node.end <= container.end;
+
+  bool _writesExpression(Statement statement, String target) {
+    final String escaped = RegExp.escape(target);
+    return RegExp(
+      '(?:^|[^=!<>])\\b$escaped\\s*(?:=(?!=)|\\+\\+|--|\\?\\?=)',
+    ).hasMatch(statement.toSource());
+  }
+
+  bool _alwaysExits(Statement statement) {
+    if (statement is ReturnStatement ||
+        statement is BreakStatement ||
+        statement is ContinueStatement) {
+      return true;
+    }
+    if (statement case final ExpressionStatement expressionStatement) {
+      return expressionStatement.expression is ThrowExpression;
+    }
+    if (statement case final Block block when block.statements.isNotEmpty) {
+      return _alwaysExits(block.statements.last);
+    }
+    return false;
+  }
+
+  Map<String, Expression> _getterConditions(AstNode node) {
+    AstNode? current = node.parent;
+    while (current != null && current is! ClassDeclaration) {
+      current = current.parent;
+    }
+    if (current is! ClassDeclaration) return const <String, Expression>{};
+    final Map<String, Expression> result = <String, Expression>{};
+    for (final MethodDeclaration method
+        in current.body.members.whereType<MethodDeclaration>()) {
+      if (!method.isGetter) continue;
+      final FunctionBody body = method.body;
+      if (body case final ExpressionFunctionBody expressionBody) {
+        result[method.name.lexeme] = expressionBody.expression;
+      } else if (body case final BlockFunctionBody blockBody) {
+        final List<Statement> statements = blockBody.block.statements;
+        if (statements.length == 1) {
+          final Statement statement = statements.single;
+          if (statement is ReturnStatement && statement.expression != null) {
+            result[method.name.lexeme] = statement.expression!;
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  void _collectConditionAtoms(
+    Expression expression,
+    String target,
+    Map<String, Expression> getterConditions,
+    Set<String> atoms,
+    Set<String> expandingGetters,
+  ) {
+    if (expression case final ParenthesizedExpression parenthesized) {
+      _collectConditionAtoms(
+        parenthesized.expression,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      return;
+    }
+    if (expression case final PrefixExpression prefix
+        when prefix.operator.lexeme == '!') {
+      _collectConditionAtoms(
+        prefix.operand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      return;
+    }
+    if (expression case final BinaryExpression binary
+        when binary.operator.lexeme == '&&' || binary.operator.lexeme == '||') {
+      _collectConditionAtoms(
+        binary.leftOperand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      _collectConditionAtoms(
+        binary.rightOperand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      return;
+    }
+    if (_nullComparisonValue(expression, target) != null ||
+        expression is BooleanLiteral) {
+      return;
+    }
+    final String source = expression.toSource();
+    final Expression? getter = getterConditions[source];
+    if (getter != null && expandingGetters.add(source)) {
+      _collectConditionAtoms(
+        getter,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      expandingGetters.remove(source);
+      return;
+    }
+    atoms.add(source);
+  }
+
+  bool _evaluateCondition(
+    Expression expression,
+    String target,
+    Map<String, Expression> getterConditions,
+    Map<String, bool> atoms,
+    Set<String> expandingGetters,
+  ) {
+    if (expression case final ParenthesizedExpression parenthesized) {
+      return _evaluateCondition(
+        parenthesized.expression,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+    }
+    if (expression case final PrefixExpression prefix
+        when prefix.operator.lexeme == '!') {
+      return !_evaluateCondition(
+        prefix.operand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+    }
+    if (expression case final BinaryExpression binary) {
+      if (binary.operator.lexeme == '&&') {
+        return _evaluateCondition(
+              binary.leftOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            ) &&
+            _evaluateCondition(
+              binary.rightOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            );
+      }
+      if (binary.operator.lexeme == '||') {
+        return _evaluateCondition(
+              binary.leftOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            ) ||
+            _evaluateCondition(
+              binary.rightOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            );
+      }
+    }
+    final bool? comparison = _nullComparisonValue(expression, target);
+    if (comparison != null) return comparison;
+    if (expression case final BooleanLiteral literal) return literal.value;
+    final String source = expression.toSource();
+    final Expression? getter = getterConditions[source];
+    if (getter != null && expandingGetters.add(source)) {
+      final bool value = _evaluateCondition(
+        getter,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      expandingGetters.remove(source);
+      return value;
+    }
+    return atoms[source]!;
+  }
+
+  bool? _nullComparisonValue(Expression expression, String target) {
+    if (expression is! BinaryExpression ||
+        expression.operator.lexeme != '==' &&
+            expression.operator.lexeme != '!=') {
+      return null;
+    }
+    final bool comparesTarget =
+        expression.leftOperand.toSource() == target &&
+            expression.rightOperand is NullLiteral ||
+        expression.rightOperand.toSource() == target &&
+            expression.leftOperand is NullLiteral;
+    if (!comparesTarget) return null;
+    return expression.operator.lexeme == '==';
   }
 
   @override
@@ -524,6 +836,13 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
     final bool hasUpper = RegExp('[A-Z]').hasMatch(normalized);
     final bool hasDigit = RegExp(r'\d').hasMatch(normalized);
     return hasLower && (hasUpper || hasDigit);
+  }
+
+  bool _isPublicProtocolIdentifier(String name, String value) {
+    final String lowerName = name.toLowerCase();
+    return Uri.tryParse(value)?.hasScheme == true ||
+        lowerName.contains('useragent') ||
+        lowerName.contains('user_agent');
   }
 
   bool _looksLikeGraphQlDocument(String value) =>

@@ -7,10 +7,17 @@ import 'dart:io';
 /// Built-in repository classification inferred without project configuration.
 final class RepositoryDefaults {
   /// Creates inferred defaults with provenance labels.
-  const RepositoryDefaults({required this.profiles, required this.ignores});
+  const RepositoryDefaults({
+    required this.profiles,
+    required this.frameworks,
+    required this.ignores,
+  });
 
   /// Detected language/framework profiles, including nested projects.
   final List<String> profiles;
+
+  /// Detected application frameworks that activate framework rule overlays.
+  final Set<String> frameworks;
 
   /// Production-scope ignore globs.
   final List<String> ignores;
@@ -45,6 +52,19 @@ final class RepositoryDefaults {
                 ? 'react'
                 : 'javascript/node',
           );
+        } else if (const <String>{
+          'requirements.txt',
+          'pyproject.toml',
+          'poetry.lock',
+          'pdm.lock',
+        }.contains(name)) {
+          final String source = _readManifest(file);
+          if (RegExp(
+            r'''(^|[\s"'=])fastapi(?:[\s"'<>=~^]|$)''',
+            caseSensitive: false,
+          ).hasMatch(source)) {
+            profiles.add('fastapi');
+          }
         } else if (name.endsWith('.sln') ||
             name.endsWith('.slnx') ||
             name.endsWith('.csproj')) {
@@ -73,6 +93,14 @@ final class RepositoryDefaults {
       '**/*.pb.go',
       '**/*.pb.cc',
       '**/*.pb.h',
+      '**/*.backup.js',
+      '**/*.backup.jsx',
+      '**/*.backup.mjs',
+      '**/*.backup.cjs',
+      '**/*.backup.ts',
+      '**/*.backup.tsx',
+      '**/*.backup.mts',
+      '**/*.backup.cts',
       '**/migrations/**/definition.sql',
     ]);
     if (profiles.contains('flutter') && !includeTests) {
@@ -101,6 +129,12 @@ final class RepositoryDefaults {
     }
     return RepositoryDefaults(
       profiles: List<String>.unmodifiable(profiles.toList()..sort()),
+      frameworks: Set<String>.unmodifiable(<String>{
+        if (profiles.contains('flutter') || profiles.contains('flutter-sdk'))
+          'flutter',
+        if (profiles.contains('react')) 'react',
+        if (profiles.contains('fastapi')) 'fastapi',
+      }),
       ignores: List<String>.unmodifiable(ignores),
     );
   }
@@ -121,13 +155,19 @@ final class RepositoryDefaults {
     final List<String> segments = normalized.split('/');
     final String name = segments.last;
     bool has(Set<String> names) => segments.any(names.contains);
+    if (segments.any((String segment) => segment.endsWith('_test'))) {
+      return 'test';
+    }
     if (RegExp(
-      r'(?:_test\.(?:go|py|rs)|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$',
+      r'(?:_test\.(?:dart|go|py|rs)|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$',
     ).hasMatch(name)) {
       return 'test';
     }
     if (name.contains('.generated.') ||
         name.contains('_generated.') ||
+        RegExp(
+          r'\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$',
+        ).hasMatch(name) ||
         name.endsWith('.gen.go') ||
         name.endsWith('.pb.go') ||
         name.endsWith('.pb.cc') ||
@@ -179,7 +219,10 @@ final class RepositoryDefaults {
               segment.endsWith('.unittests') ||
               segment.endsWith('.integrationtest') ||
               segment.endsWith('.integrationtests') ||
-              segment.contains('.tests.'),
+              segment.contains('.tests.') ||
+              segment == 'test-unit' ||
+              segment == 'tests-unit' ||
+              segment == 'unit-tests',
         )) {
       return 'test';
     }
@@ -200,16 +243,27 @@ final class RepositoryDefaults {
         segments.any(
           (String segment) =>
               segment.startsWith('example_') ||
+              segment.endsWith('_examples') ||
               segment.endsWith('-examples') ||
               segment.endsWith('.benchmark') ||
               segment.endsWith('.benchmarks'),
         )) {
       return 'example';
     }
-    if (has(const <String>{'vendor', 'third_party', 'compiled'})) {
+    if (has(const <String>{'vendor', 'third_party', 'compiled', 'cargokit'})) {
       return 'vendored';
     }
-    if (has(const <String>{'build', 'dist', 'obj', '.dart_tool'})) {
+    final int buildIndex = segments.indexOf('build');
+    final bool sourceBuildDirectory =
+        buildIndex > 0 &&
+        const <String>{
+          'command',
+          'commands',
+          'cmd',
+          'cmds',
+        }.contains(segments[buildIndex - 1]);
+    if ((!sourceBuildDirectory && buildIndex >= 0) ||
+        has(const <String>{'dist', 'obj', '.dart_tool'})) {
       return 'generated';
     }
     return 'production';
@@ -231,6 +285,7 @@ final class RepositoryDefaults {
 
   static const List<String> _testIgnores = <String>[
     '**/test/**',
+    '**/*_test/**',
     '**/tests/**',
     '**/testenv/**',
     '**/test.ts',
@@ -278,6 +333,7 @@ final class RepositoryDefaults {
     '**/*_unittests.cpp',
     '**/*_spec.rb',
     '**/*Test.java',
+    '**/*_test.dart',
     '**/*Tests.java',
     '**/*.test.js',
     '**/*.test.jsx',
@@ -324,6 +380,7 @@ final class RepositoryDefaults {
     '**/vendor/**',
     '**/third_party/**',
     '**/compiled/**',
+    '**/cargokit/**',
   ];
   static String _readManifest(File file) =>
       utf8.decode(file.readAsBytesSync(), allowMalformed: true);

@@ -26,7 +26,15 @@ final class TypeScriptSourceRule extends SelfContainedRule {
            suggestion:
                suggestion ??
                'Use the safer explicit pattern described by the rule.',
-           version: 2,
+           version: id == 'ts-eval'
+               ? 4
+               : id == 'ts-inner-html'
+               ? 4
+               : id == 'ts-console'
+               ? 7
+               : id == 'ts-json-parse-unsafe'
+               ? 6
+               : 2,
            languages: const <String>['javascript', 'typescript'],
          ),
        );

@@ -196,6 +196,77 @@ class Bypass {
     );
   });
 
+  test('reports a one-operation abstraction constructed once', () {
+    final List<Finding> findings = _findings({
+      'user_validator.ts': '''
+export interface UserValidator {
+  validate(email: string): boolean;
+}
+export class StandardUserValidator implements UserValidator {
+  validate(email: string): boolean { return email.includes("@"); }
+}
+''',
+      'user_service.ts': '''
+export function processUser(rawEmail: string): string {
+  const validator = new StandardUserValidator();
+  if (!validator.validate(rawEmail)) throw new Error("Invalid");
+  return rawEmail.trim().toLowerCase();
+}
+''',
+    });
+
+    final Finding finding = findings.singleWhere(
+      (finding) => finding.code == 'oop-single-use-abstraction',
+    );
+    expect(finding.path, 'user_validator.ts');
+    expect(finding.message, contains('StandardUserValidator'));
+    expect(finding.relatedFiles, isEmpty);
+  });
+
+  test(
+    'keeps abstractions with variation, state, or repeated construction',
+    () {
+      final List<Finding> findings = _findings({
+        'variation.ts': '''
+interface Parser { parse(value: string): boolean; }
+class JsonParser implements Parser {
+  parse(value: string): boolean { return value.includes("{"); }
+}
+class XmlParser implements Parser {
+  parse(value: string): boolean { return value.includes("<"); }
+}
+''',
+        'stateful.ts': '''
+interface Counter { count(value: string): number; }
+class StatefulCounter implements Counter {
+  private total: number = 0;
+  count(value: string): number { return this.total + value.length; }
+}
+new StatefulCounter();
+''',
+        'reused.ts': '''
+interface Checker { check(value: string): boolean; }
+class BasicChecker implements Checker {
+  check(value: string): boolean { return value.includes("@"); }
+}
+new BasicChecker();
+new BasicChecker();
+''',
+        'noise.ts': '''
+const sample = "interface Fake { run(): void } class Only implements Fake {}";
+// interface Hidden { run(): void }
+''',
+      });
+
+      expect(
+        findings.where(
+          (finding) => finding.code == 'oop-single-use-abstraction',
+        ),
+        isEmpty,
+      );
+    },
+  );
+
   test('ignores TypeScript OOP evidence below project thresholds', () {
     final findings = _findings({
       'safe-a.ts': '''

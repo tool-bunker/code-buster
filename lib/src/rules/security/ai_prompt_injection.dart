@@ -7,7 +7,7 @@ import '../../core/rule.dart';
 const Map<String, RuleMetadata> aiSecurityRuleMetadata = <String, RuleMetadata>{
   'ai-prompt-injection-instruction': RuleMetadata(
     id: 'ai-prompt-injection-instruction',
-    version: 2,
+    version: 3,
     defaultSeverity: RuleSeverity.warn,
     group: 'core',
     title: 'Review a likely prompt-injection instruction',
@@ -24,6 +24,7 @@ const Map<String, RuleMetadata> aiSecurityRuleMetadata = <String, RuleMetadata>{
   'ai-untrusted-prompt-construction': RuleMetadata(
     id: 'ai-untrusted-prompt-construction',
     defaultSeverity: RuleSeverity.warn,
+    version: 2,
     group: 'core',
     title: 'Separate untrusted data from AI instructions',
     why:
@@ -231,11 +232,11 @@ final RegExp _instruction = RegExp(
 );
 final RegExp _textLike = RegExp(r'''["'`]|//|/\*|<!--|#''');
 final RegExp _defensiveInstruction = RegExp(
-  r'treat\s+.*\s+as\s+(?:untrusted\s+)?data|never\s+(?:as\s+)?instructions|do\s+not\s+follow|disregard\s+it|defen[cs]e\s+against\s+prompt\s+injection|prompt.?injection|sanitiz',
+  r'treat\s+.*\s+as\s+(?:untrusted\s+)?data|never\s+(?:as\s+)?instructions|do\s+not\s+follow|disregard\s+it|defen[cs]e\s+against\s+prompt\s+injection|prompt.?injection|sanitiz|\binstructions?\b.*\blike\b.*\bignore\b.*\bmust\s+ignore\b',
   caseSensitive: false,
 );
 final RegExp _promptTarget = RegExp(
-  r'''(?:system|user|developer)?_?prompt\s*(?:=|:)|(?:system|user|developer).?message|messages?\.(?:push|add)|["'](?:system|user|developer)["']\s*:''',
+  r'''(?:system|user|developer)?_?prompt\s*(?:=|:)|(?:system|user|developer).?message\s*(?:=|:)|messages?\.(?:push|add)|["'](?:system|user|developer)["']\s*:''',
   caseSensitive: false,
 );
 final RegExp _untrustedComposition = RegExp(
