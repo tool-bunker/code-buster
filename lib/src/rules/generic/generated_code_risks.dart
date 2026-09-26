@@ -17,7 +17,7 @@ generatedCodeRiskMetadata = <String, RuleMetadata>{
         'A source file has substantially more commentary than comparable files in the same repository, which can obscure the implementation and become stale.',
     suggestion:
         'Keep comments that explain constraints or intent and remove narration or restatements of the code.',
-    version: 5,
+    version: 7,
     semanticMaturity: RuleSemanticMaturity.project,
     taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
     limitations: <String>[
@@ -109,6 +109,13 @@ bool _excludedCommentPath(String path) =>
     _testPath.hasMatch(path) ||
     _generatedPath.hasMatch(path) ||
     _documentationPath.hasMatch(path);
+
+bool _excludedCommentDensityPath(String path) =>
+    _excludedCommentPath(path) ||
+    RegExp(
+      r'(^|/)(?:go\.mod|package(?:-lock)?\.json|pubspec\.ya?ml|cargo\.toml)$',
+      caseSensitive: false,
+    ).hasMatch(path);
 
 final class _LineFacts {
   const _LineFacts({
@@ -296,16 +303,18 @@ final class ExcessiveCommentDensityRule extends SelfContainedRule {
     >
     files = [];
     for (final MapEntry<String, String> source in context.sources.entries) {
-      if (_excludedCommentPath(source.key)) continue;
+      if (_excludedCommentDensityPath(source.key)) continue;
       final List<_LineFacts> facts = _scanLines(
         source.key,
         context.linesFor(source.key),
       );
+      final int leadingLicenseEnd = _leadingLicenseEnd(facts);
       var code = 0;
       var comments = 0;
       var baselineComments = 0;
       var first = 0;
       for (var index = 0; index < facts.length; index++) {
+        if (index < leadingLicenseEnd) continue;
         final _LineFacts fact = facts[index];
         if (fact.code.trim().isNotEmpty) code++;
         if (fact.comment.trim().isNotEmpty) baselineComments++;
@@ -350,6 +359,26 @@ final class ExcessiveCommentDensityRule extends SelfContainedRule {
       );
     }
   }
+}
+
+int _leadingLicenseEnd(List<_LineFacts> facts) {
+  final StringBuffer header = StringBuffer();
+  var end = 0;
+  for (var index = 0; index < facts.length && index < 40; index++) {
+    final _LineFacts fact = facts[index];
+    if (fact.code.trim().isNotEmpty) break;
+    final String comment = fact.comment.trim();
+    if (comment.isNotEmpty) {
+      header.writeln(comment);
+      end = index + 1;
+    }
+  }
+  final String text = header.toString().toLowerCase();
+  return text.contains('copyright') &&
+          (text.contains('licensed under') ||
+              text.contains('permission is hereby granted'))
+      ? end
+      : 0;
 }
 
 /// Reports explicit diary-style sequencing in implementation comments.

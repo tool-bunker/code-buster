@@ -53,7 +53,9 @@ int _config(CodeBusterCliOptions options) {
       includeVendored: options.includeAll || options.includeVendored,
     );
     final bool configured = file.existsSync();
-    final AnalysisConfig effective = CodeBusterConfigLoader.loadFromRoot(root);
+    final AnalysisConfig effective = CodeBusterConfigLoader.loadFromRoot(
+      root,
+    ).copyWith(frameworks: defaults.frameworks);
     final List<String> formatterFiles = <String>[
       for (final String name in <String>[
         '.editorconfig',
@@ -76,12 +78,14 @@ int _config(CodeBusterCliOptions options) {
               if (options.includeVendored) 'vendored',
             ].join('+'),
       'detected_profiles': defaults.profiles,
+      'detected_frameworks': defaults.frameworks.toList()..sort(),
       'language_versions': languageVersions,
       'formatter_files': formatterFiles,
       'effective': <String, Object>{
         'languages': effective.languages.isEmpty
             ? <String>[effective.language]
             : effective.languages,
+        'frameworks': effective.frameworks.toList()..sort(),
         'duplication_min_lines': effective.minDuplicationLines,
         'duplication_mode': effective.duplicationMode.name,
         'quality_profile': effective.qualityProfile,
@@ -122,6 +126,9 @@ int _config(CodeBusterCliOptions options) {
       stdout.writeln('scope=${explanation['scope']}');
       stdout.writeln(
         'detected_profiles=${defaults.profiles.isEmpty ? 'none' : defaults.profiles.join(',')}',
+      );
+      stdout.writeln(
+        'detected_frameworks=${defaults.frameworks.isEmpty ? 'none' : (defaults.frameworks.toList()..sort()).join(',')}',
       );
       stdout.writeln(
         'language_versions=${languageVersions.isEmpty ? 'none' : languageVersions.entries.map((MapEntry<String, String> entry) => '${entry.key}:${entry.value}').join(',')}',

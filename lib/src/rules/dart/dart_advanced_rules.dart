@@ -351,7 +351,10 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitAssignmentExpression(AssignmentExpression node) {
-    if (node.leftHandSide.toSource().endsWith('badCertificateCallback') &&
+    if (const <String>{
+          'badCertificateCallback',
+          'onBadCertificate',
+        }.any(node.leftHandSide.toSource().endsWith) &&
         RegExp(
           r'=>\s*true\b|return\s+true\s*;',
         ).hasMatch(node.rightHandSide.toSource())) {
@@ -412,6 +415,7 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
           node.argumentList,
           node,
           _pathInputName,
+          allowPathGuards: true,
         )) {
       _add(
         node,
@@ -429,6 +433,7 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
           node.argumentList,
           node,
           _pathInputName,
+          allowPathGuards: true,
         )) {
       _add(
         node,
@@ -445,7 +450,7 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
         _sensitiveName,
       );
       node.argumentList.accept(sensitive);
-      if (sensitive.found) {
+      if (sensitive.found || _logsResetPasswordToken(node)) {
         _add(
           node,
           code: 'dart-sensitive-data-logging',
@@ -526,6 +531,7 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
           node.argumentList,
           node,
           _pathInputName,
+          allowPathGuards: true,
         )) {
       _add(
         node,
@@ -574,7 +580,11 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
     if (exception != null &&
         node.stackTraceParameter == null &&
         RegExp(
-          '\\b(?:print|log|debug|info|warn|warning|error|severe)\\s*\\([^)]*\\b${RegExp.escape(exception)}\\b',
+          '(?:\\b(?:logger|log)\\s*\\.\\s*'
+          '(?:debug|info|warn|warning|error|severe)|'
+          '(?:^|[^.\\w])(?:print|log|debug|info|warn|warning|error|severe))'
+          '\\s*\\([^)]*\\b${RegExp.escape(exception)}\\b',
+          multiLine: true,
         ).hasMatch(body) &&
         !RegExp(r'\brethrow\b|\bthrow\b').hasMatch(body)) {
       _add(
@@ -762,7 +772,25 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
             'Define an explicit stable wire value and parse it deliberately.',
       );
     }
-    if (text.contains('toJson') && text.contains('fromJson')) {
+    final MethodDeclaration? persistenceEncoder = node.body.members
+        .whereType<MethodDeclaration>()
+        .where((MethodDeclaration method) => method.name.lexeme == 'toJson')
+        .firstOrNull;
+    final AstNode? persistenceDecoder =
+        node.body.members
+            .whereType<ConstructorDeclaration>()
+            .where(
+              (ConstructorDeclaration constructor) =>
+                  constructor.name?.lexeme == 'fromJson',
+            )
+            .firstOrNull ??
+        node.body.members
+            .whereType<MethodDeclaration>()
+            .where(
+              (MethodDeclaration method) => method.name.lexeme == 'fromJson',
+            )
+            .firstOrNull;
+    if (persistenceEncoder != null && persistenceDecoder != null) {
       final Iterable<String> lateFinalFields = node.body.members
           .whereType<FieldDeclaration>()
           .where(
@@ -772,14 +800,23 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
                 declaration.fields.isFinal,
           )
           .expand(
-            (FieldDeclaration declaration) => declaration.fields.variables.map(
-              (VariableDeclaration variable) => variable.name.lexeme,
-            ),
+            (FieldDeclaration declaration) => declaration.fields.variables
+                .where(
+                  (VariableDeclaration variable) =>
+                      variable.initializer == null,
+                )
+                .map((VariableDeclaration variable) => variable.name.lexeme),
+          )
+          .where(
+            (String field) => RegExp(
+              '\\b${RegExp.escape(field)}\\b',
+            ).hasMatch(persistenceEncoder.toSource()),
           );
+      final String decoder = persistenceDecoder.toSource();
       for (final String field in lateFinalFields) {
         if (RegExp(
           '\\b${RegExp.escape(field)}\\s*=\\s*(?:json|map|data)\\s*\\[',
-        ).hasMatch(text)) {
+        ).hasMatch(decoder)) {
           continue;
         }
         _add(
@@ -1199,19 +1236,67 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
   bool _referencesPotentiallyUntrustedParameter(
     ArgumentList arguments,
     AstNode node,
-    RegExp namePattern,
-  ) {
+    RegExp namePattern, {
+    bool allowPathGuards = false,
+  }) {
     final Set<String> parameters = _enclosingParameterNames(
       node,
     ).where(namePattern.hasMatch).toSet();
     if (parameters.isEmpty) return false;
     final String text = arguments.toSource();
     return parameters.any(
-      (String name) => RegExp('\\b${RegExp.escape(name)}\\b').hasMatch(text),
+      (String name) =>
+          RegExp('\\b${RegExp.escape(name)}\\b').hasMatch(text) &&
+          (!allowPathGuards || !_hasCompletePathGuardBefore(node, name)),
     );
   }
 
+  bool _hasCompletePathGuardBefore(AstNode node, String parameter) {
+    final AstNode? function = _enclosingFunction(node);
+    if (function == null) return false;
+    AstNode? current = node;
+    while (current != null && !identical(current, function)) {
+      final AstNode? parent = current.parent;
+      if (parent is Block) {
+        for (final Statement statement in parent.statements) {
+          if (statement.offset >= current.offset) break;
+          if (statement is IfStatement &&
+              statement.elseStatement == null &&
+              _alwaysTerminates(statement.thenStatement) &&
+              _rejectsUnsafePath(statement.expression, parameter)) {
+            return true;
+          }
+        }
+      }
+      current = parent;
+    }
+    return false;
+  }
+
+  bool _rejectsUnsafePath(Expression expression, String parameter) {
+    final String name = RegExp.escape(parameter);
+    final String condition = expression.toSource();
+    final bool rejectsUnixRoot = RegExp(
+      '$name\\s*\\.\\s*startsWith\\s*\\([^)]*/[^)]*\\)',
+    ).hasMatch(condition);
+    final bool rejectsWindowsRoot = RegExp(
+      '$name\\s*\\.\\s*startsWith\\s*\\([^)]*\\\\[^)]*\\)',
+    ).hasMatch(condition);
+    final bool rejectsDriveRoot = RegExp(
+      '\\w+\\s*\\.\\s*hasMatch\\s*\\(\\s*$name\\s*\\)',
+    ).hasMatch(condition);
+    final bool rejectsParentSegment = RegExp(
+      '$name\\s*\\.\\s*split\\s*\\([^)]*\\)\\s*\\.\\s*contains'
+      '\\s*\\([^)]*\\.\\.[^)]*\\)',
+    ).hasMatch(condition);
+    return rejectsUnixRoot &&
+        rejectsWindowsRoot &&
+        rejectsDriveRoot &&
+        rejectsParentSegment;
+  }
+
   Set<String> _enclosingParameterNames(AstNode node) {
+    final Set<String> names = <String>{};
     AstNode? current = node.parent;
     while (current != null) {
       FormalParameterList? list;
@@ -1221,14 +1306,15 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
       }
       if (current is FunctionExpression) list = current.parameters;
       if (list != null) {
-        return list.parameters
-            .map((FormalParameter parameter) => parameter.name?.lexeme)
-            .nonNulls
-            .toSet();
+        names.addAll(
+          list.parameters
+              .map((FormalParameter parameter) => parameter.name?.lexeme)
+              .nonNulls,
+        );
       }
       current = current.parent;
     }
-    return const <String>{};
+    return names;
   }
 
   bool _hasAwaitBefore(AstNode node) {
@@ -1408,13 +1494,29 @@ final class _AdvancedDartVisitor extends RecursiveAstVisitor<void> {
     caseSensitive: false,
   );
   static final RegExp _pathInputName = RegExp(
-    r'filename|fileName|relativePath|requestPath|upload|userPath|inputPath',
+    r'relativePath|requestPath|upload|userPath|inputPath',
     caseSensitive: false,
   );
+  bool _logsResetPasswordToken(MethodInvocation node) {
+    if (!_resetPasswordTokenText.hasMatch(node.argumentList.toSource())) {
+      return false;
+    }
+    final _SensitiveIdentifierVisitor token = _SensitiveIdentifierVisitor(
+      _tokenName,
+    );
+    node.argumentList.accept(token);
+    return token.found;
+  }
+
   static final RegExp _sensitiveName = RegExp(
     r'password|secret|api_?key|access_?token|auth_?token|authorization|cookie|private_?key',
     caseSensitive: false,
   );
+  static final RegExp _resetPasswordTokenText = RegExp(
+    r'reset[\s_-]+password[\s_-]+token',
+    caseSensitive: false,
+  );
+  static final RegExp _tokenName = RegExp(r'^token$', caseSensitive: false);
 }
 
 final class _VariableNameVisitor extends RecursiveAstVisitor<void> {

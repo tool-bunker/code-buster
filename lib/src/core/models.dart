@@ -88,6 +88,7 @@ final class AnalysisConfig {
     required this.root,
     this.language = 'auto',
     this.languages = const <String>[],
+    this.frameworks = const <String>{},
     this.entryPoints = const <String>[],
     this.includes = const <String>[],
     this.excludes = const <String>[],
@@ -153,6 +154,9 @@ final class AnalysisConfig {
 
   /// Enabled language identifiers. An empty value uses [language].
   final List<String> languages;
+
+  /// Detected framework identifiers that activate framework-specific rules.
+  final Set<String> frameworks;
 
   final List<String> includes;
 
@@ -241,6 +245,7 @@ final class AnalysisConfig {
     String? root,
     String? language,
     List<String>? languages,
+    Set<String>? frameworks,
     List<String>? includes,
     List<String>? excludes,
     List<String>? ignorePatterns,
@@ -250,6 +255,7 @@ final class AnalysisConfig {
     root: root ?? this.root,
     language: language ?? this.language,
     languages: languages ?? this.languages,
+    frameworks: frameworks ?? this.frameworks,
     entryPoints: entryPoints,
     includes: includes ?? this.includes,
     excludes: excludes ?? this.excludes,
@@ -356,6 +362,7 @@ final class RuleMetadata {
     this.taxonomy = const <FindingTaxonomy>{},
     this.securityKind = SecurityFindingKind.none,
     this.languages = const <String>[],
+    this.frameworks = const <String>{},
     this.languageVersions = const <String, String>{},
     this.limitations = const <String>[],
   });
@@ -407,6 +414,9 @@ final class RuleMetadata {
 
   /// Explicit supported languages; empty means descriptor-derived applicability.
   final List<String> languages;
+
+  /// Framework profiles required in addition to the supported language.
+  final Set<String> frameworks;
 
   final Map<String, String> languageVersions;
 

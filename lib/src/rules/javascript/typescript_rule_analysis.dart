@@ -8,6 +8,8 @@ final class TypeScriptRuleAnalysis {
   List<Finding> findings(Map<String, String> sources, String ruleId) {
     final List<Finding> result = <Finding>[];
     for (final MapEntry<String, String> entry in sources.entries) {
+      final bool isToolingSource = _isToolingSource(entry.key);
+      final bool isCommandLineSource = _isNodeCommandLineSource(entry.value);
       final List<String> lines = entry.value.split('\n');
       final String uncommentedSource = _withoutComments(entry.value);
       final List<String> uncommentedLines = uncommentedSource.split('\n');
@@ -20,6 +22,7 @@ final class TypeScriptRuleAnalysis {
       for (var index = 0; index < lines.length; index++) {
         final String raw = lines[index];
         final String line = _strip(codeLines[index]).trim();
+        final String sinkLine = _strip(sinkCodeLines[index]).trim();
         final String lower = raw.toLowerCase();
         void add(String id, RuleSeverity severity, String message) {
           if (id != ruleId) return;
@@ -55,7 +58,10 @@ final class TypeScriptRuleAnalysis {
             'non-null assertion used',
           );
         }
-        if (line.contains('console.log(') || line.contains('console.debug(')) {
+        if (!isToolingSource &&
+            !isCommandLineSource &&
+            (line.contains('console.log(') ||
+                line.contains('console.debug('))) {
           add('ts-console', RuleSeverity.info, 'console logging left in code');
         }
         if (line == 'debugger;') {
@@ -65,11 +71,12 @@ final class TypeScriptRuleAnalysis {
             'debugger statement left in code',
           );
         }
-        if ((_directEvalCall.hasMatch(line) ||
-                    _globalEvalCall.hasMatch(line)) &&
-                !_evalFunctionDeclaration.hasMatch(line) &&
-                !_evalMethodDeclaration.hasMatch(line) ||
-            RegExp(r'\bnew\s+Function\s*\(').hasMatch(line)) {
+        if (((_directEvalCall.hasMatch(sinkLine) ||
+                    _globalEvalCall.hasMatch(sinkLine)) &&
+                !_evalFunctionDeclaration.hasMatch(sinkLine) &&
+                !_evalMethodDeclaration.hasMatch(sinkLine)) ||
+            (RegExp(r'\bnew\s+Function\s*\(').hasMatch(sinkLine) &&
+                !_isStaticFunctionConstructor(uncommentedLines, index))) {
           add(
             'ts-eval',
             RuleSeverity.error,
@@ -128,7 +135,8 @@ final class TypeScriptRuleAnalysis {
             'possible hardcoded secret',
           );
         }
-        if (line.contains('JSON.parse(') &&
+        if (!isToolingSource &&
+            line.contains('JSON.parse(') &&
             !_embeddedJsonElementParse.hasMatch(line) &&
             !_jsonRoundTripParse.hasMatch(line) &&
             !_isParseOfImmediatelyStringifiedValue(codeLines, index) &&
@@ -154,6 +162,21 @@ final class TypeScriptRuleAnalysis {
     }
     if (ruleId == 'oop-data-clump') result.addAll(_dataClumps(sources));
     return result;
+  }
+
+  bool _isToolingSource(String path) {
+    final String normalized = path.replaceAll('\\', '/').toLowerCase();
+    return normalized == 'gulpfile.js' ||
+        RegExp(
+          r'(^|/)(?:extra|scripts|tasks|bin|sandbox|playgrounds?|benchmarks?|benchmarking|dev)/',
+        ).hasMatch(normalized);
+  }
+
+  bool _isNodeCommandLineSource(String source) {
+    final String firstLine = source.split('\n').first.trim();
+    return RegExp(
+      r'^#!\s*(?:/usr/bin/env(?:\s+-S)?\s+|/(?:usr/)?bin/)(?:node|nodejs)(?:\s|$)',
+    ).hasMatch(firstLine);
   }
 
   static List<Finding> _dataClumps(Map<String, String> sources) {
@@ -617,6 +640,77 @@ final class TypeScriptRuleAnalysis {
     return false;
   }
 
+  static bool _isStaticFunctionConstructor(List<String> lines, int index) {
+    final String source = lines.skip(index).take(20).join('\n');
+    final RegExpMatch? start = RegExp(
+      r'\bnew\s+Function\s*\(',
+    ).firstMatch(source);
+    if (start == null) return false;
+
+    final StringBuffer arguments = StringBuffer();
+    String? quote;
+    var escaped = false;
+    var depth = 1;
+    for (var offset = start.end; offset < source.length; offset++) {
+      final String character = source[offset];
+      if (quote != null) {
+        arguments.write(character);
+        if (escaped) {
+          escaped = false;
+        } else if (character == r'\') {
+          escaped = true;
+        } else if (character == quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (character == '"' || character == "'" || character == '`') {
+        quote = character;
+        arguments.write(character);
+      } else if (character == '(' || character == '[' || character == '{') {
+        depth++;
+        arguments.write(character);
+      } else if (character == ')' || character == ']' || character == '}') {
+        depth--;
+        if (depth == 0) {
+          final String value = arguments.toString().trim();
+          if (value.isEmpty) return true;
+          return _splitStaticArguments(value).every(_isStaticStringLiteral);
+        }
+        arguments.write(character);
+      } else {
+        arguments.write(character);
+      }
+    }
+    return false;
+  }
+
+  static List<String> _splitStaticArguments(String source) {
+    final List<String> result = <String>[];
+    String? quote;
+    var escaped = false;
+    var start = 0;
+    for (var index = 0; index < source.length; index++) {
+      final String character = source[index];
+      if (quote != null) {
+        if (escaped) {
+          escaped = false;
+        } else if (character == r'\') {
+          escaped = true;
+        } else if (character == quote) {
+          quote = null;
+        }
+      } else if (character == '"' || character == "'" || character == '`') {
+        quote = character;
+      } else if (character == ',') {
+        result.add(source.substring(start, index).trim());
+        start = index + 1;
+      }
+    }
+    result.add(source.substring(start).trim());
+    return result;
+  }
+
   static final RegExp _startsPromiseCall = RegExp(
     r'^(?:fetch\s*\(|axios(?:\.[A-Za-z_$][\w$]*)*\s*\()',
   );
@@ -734,11 +828,18 @@ final class TypeScriptRuleAnalysis {
       return true;
     }
     if (RegExp(
-      r'''^[A-Za-z_$][\w$.[\]]*\s*\?\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*:\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')$''',
+      r'''^[A-Za-z_$][\w$.[\]]*\s*\?\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$]|\$(?!\{))*`)\s*:\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$]|\$(?!\{))*`)$''',
     ).hasMatch(expression)) {
       return true;
     }
 
+    final RegExpMatch? trustedHtml = RegExp(
+      r'^(?:create_trusted_html|createTrustedHTML|[A-Za-z_$][\w$.[\]]*\.createHTML)\s*\(([\s\S]*)\)$',
+    ).firstMatch(expression);
+    if (trustedHtml != null &&
+        _isStaticInnerHtmlExpression(trustedHtml.group(1)!)) {
+      return true;
+    }
     final List<int> operators = _topLevelStaticOperators(expression);
     final int question = operators.indexWhere(
       (int offset) => expression[offset] == '?',
@@ -882,7 +983,7 @@ final RegExp _globalEvalCall = RegExp(
 );
 final RegExp _evalFunctionDeclaration = RegExp(r'\bfunction\s*\*?\s+eval\s*\(');
 final RegExp _evalMethodDeclaration = RegExp(
-  r'^(?:(?:public|private|protected|static|abstract|async|override)\s+)*eval\s*\([^)]*\)\s*(?::[^{]+)?\{',
+  r'^(?:(?:public|private|protected|static|abstract|async|override)\s+)*eval\s*\([^)]*\)\s*(?:(?::[^{]+)?\{|:[^;]+;)',
 );
 
 final RegExp _literalAssignment = RegExp(

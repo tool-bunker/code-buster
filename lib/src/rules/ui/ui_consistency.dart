@@ -144,6 +144,8 @@ final class FlutterRepeatedInlineStyleRule extends SelfContainedRule {
           semanticMaturity: RuleSemanticMaturity.project,
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.design},
           languages: <String>['dart'],
+          frameworks: <String>{'flutter'},
+          version: 2,
           limitations: <String>[
             'Only exact normalized style constructors with at least three named arguments are compared.',
           ],
@@ -196,6 +198,7 @@ final class FlutterThemeBypassRule extends SelfContainedRule {
           id: 'flutter-theme-bypass',
           defaultSeverity: RuleSeverity.info,
           group: 'maintainability',
+          version: 3,
           title: 'Use existing Flutter theme tokens',
           why:
               'Repeating a raw visual value bypasses the project abstraction that keeps the interface consistent.',
@@ -204,6 +207,7 @@ final class FlutterThemeBypassRule extends SelfContainedRule {
           semanticMaturity: RuleSemanticMaturity.project,
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.design},
           languages: <String>['dart'],
+          frameworks: <String>{'flutter'},
           limitations: <String>[
             'Only exact Color or Colors expressions matching a declared project constant are compared.',
           ],
@@ -227,6 +231,7 @@ final class FlutterThemeBypassRule extends SelfContainedRule {
         entry.value,
       )) {
         final String expression = _normalizeDart(match.group(2)!);
+        if (expression == 'Colors.transparent') continue;
         final int line = _lineAt(entry.value, match.start);
         tokens.putIfAbsent(
           expression,
@@ -280,6 +285,8 @@ final class FlutterParallelControlComponentRule extends SelfContainedRule {
           semanticMaturity: RuleSemanticMaturity.project,
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.design},
           languages: <String>['dart'],
+          frameworks: <String>{'flutter'},
+          version: 2,
           limitations: <String>[
             'Button-like pointer trees are inferred from GestureDetector or InkWell containing both Container and Text.',
           ],
@@ -346,10 +353,11 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
               'Direct framework controls can drift from a shared component already used as the project convention.',
           suggestion:
               'Confirm the direct control is an intentional variant; otherwise use the established shared component.',
-          version: 2,
+          version: 3,
           semanticMaturity: RuleSemanticMaturity.project,
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.design},
           languages: <String>['dart'],
+          frameworks: <String>{'flutter'},
           limitations: <String>[
             'A convention requires at least three external uses across two production files.',
             'Shared widgets are inferred from StatelessWidget or StatefulWidget classes that contain a known Flutter control.',

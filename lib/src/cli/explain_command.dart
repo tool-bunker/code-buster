@@ -44,6 +44,9 @@ int _explain(CodeBusterCliOptions options) {
   stdout.writeln(
     'Languages: ${rule.languages.isEmpty ? 'descriptor-derived' : rule.languages.join(', ')}',
   );
+  if (rule.frameworks.isNotEmpty) {
+    stdout.writeln('Frameworks: ${rule.frameworks.join(', ')}');
+  }
   if (rule.languageVersions.isNotEmpty) {
     stdout.writeln(
       'Language versions: ${rule.languageVersions.entries.map((MapEntry<String, String> entry) => '${entry.key} ${entry.value}').join(', ')}',

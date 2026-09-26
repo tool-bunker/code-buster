@@ -8,6 +8,7 @@ void main() {
         <String, String>{'lib/view.dart': source},
         const AnalysisConfig(
           root: '.',
+          frameworks: <String>{'flutter'},
           severityOverrides: <String, RuleSeverity>{
             'flutter-repeated-sizedbox-spacing': RuleSeverity.info,
           },
@@ -51,6 +52,47 @@ Widget toolbar() {
     expect(findings.map((Finding finding) => finding.line), <int>[2, 14]);
     expect(findings.first.message, contains('2 identical 12 vertical'));
     expect(findings.last.message, contains('Row.spacing'));
+  });
+
+  test('runs only when the Flutter framework profile is active', () {
+    const Map<String, String> sources = <String, String>{
+      'lib/view.dart': '''
+Widget build() => Column(children: [
+  Header(),
+  SizedBox(height: 12),
+  Content(),
+  SizedBox(height: 12),
+  Footer(),
+]);
+''',
+    };
+    final LanguagePlugin plugin = LanguagePluginRegistry.standard().require(
+      'dart',
+    );
+
+    expect(
+      plugin
+          .analyze(sources, const AnalysisConfig(root: '.'))
+          .findings
+          .where(
+            (Finding finding) =>
+                finding.code == 'flutter-repeated-sizedbox-spacing',
+          ),
+      isEmpty,
+    );
+    expect(
+      plugin
+          .analyze(
+            sources,
+            const AnalysisConfig(root: '.', frameworks: <String>{'flutter'}),
+          )
+          .findings
+          .where(
+            (Finding finding) =>
+                finding.code == 'flutter-repeated-sizedbox-spacing',
+          ),
+      hasLength(1),
+    );
   });
 
   test('ignores exceptional, incomplete, and mixed gaps', () {

@@ -93,6 +93,22 @@ CREATE INDEX `idx_mysql` ON `users` (`name`);
     ]);
   });
 
+  test('uses repeated sibling MySQL evidence for neutral schema files', () {
+    final Iterable<Finding> findings = SqlRuleAnalysis()
+        .findings(<String, String>{
+          'db/tables.sql': 'CREATE TABLE `users` (`name` varchar(100));',
+          'db/options.sql': 'CREATE TABLE logs (id int) ENGINE=InnoDB;',
+          'db/indexes.sql': 'CREATE INDEX idx_users ON users(name);',
+          'db/postgresql.sql': 'CREATE INDEX idx_events ON events(name);',
+        }, checkNonConcurrentIndexes: true)
+        .where(
+          (Finding finding) => finding.code == 'sql-create-index-nonconcurrent',
+        );
+
+    expect(findings.map((Finding finding) => finding.path), <String>[
+      'db/postgresql.sql',
+    ]);
+  });
   test('respects MySQL dialect and catches inline string construction', () {
     expect(
       SqlRuleAnalysis().findings(<String, String>{

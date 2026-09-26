@@ -170,7 +170,8 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
               lifecycle.removedCallbacks.contains(scopedCallback)) ||
           disposedTargets.contains(registration.key) ||
           disposedAnimations.contains(registration.key) ||
-          disposedTargets.any(registration.key.contains)) {
+          disposedTargets.any(registration.key.contains) ||
+          _isHookOwnedListener(registration.value, registration.key)) {
         continue;
       }
       _add(
@@ -182,6 +183,30 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
         suggestion: 'Remove the same listener during disposal.',
       );
     }
+  }
+
+  bool _isHookOwnedListener(MethodInvocation registration, String target) {
+    final RegExpMatch? entryMatch = RegExp(
+      r'^([A-Za-z_]\w*)\.value$',
+    ).firstMatch(target);
+    if (entryMatch == null) return false;
+    AstNode? method = registration;
+    while (method != null && method is! MethodDeclaration) {
+      method = method.parent;
+    }
+    if (method is! MethodDeclaration) return false;
+    final String source = method.toSource();
+    final String entry = RegExp.escape(entryMatch.group(1)!);
+    final RegExpMatch? loop = RegExp(
+      'for\\s*\\(\\s*final\\s+$entry\\s+in\\s+([A-Za-z_]\\w*)\\.entries\\s*\\)',
+    ).firstMatch(source);
+    if (loop == null) return false;
+    final String collection = RegExp.escape(loop.group(1)!);
+    return RegExp(
+      '(?:final|var)\\s+$collection\\s*=\\s*<[^;]+'
+      r'use(?:FocusNode|AnimationController|ValueNotifier)\s*\(',
+      dotAll: true,
+    ).hasMatch(source);
   }
 }
 

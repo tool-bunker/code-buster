@@ -24,6 +24,9 @@ final class PreparedAnalysis {
     required this.files,
     required this.sources,
     required this.changedLineRanges,
+    this.changedPaths = const <String>{},
+    this.baseSources = const <String, String>{},
+    this.auxiliaryFiles = const <String, String>{},
     this.coverage = const <String, int>{},
     this.diagnostics = const <ProcessingDiagnostic>[],
     this.languageVersions = const <String, String>{},
@@ -39,6 +42,10 @@ final class PreparedAnalysis {
   final Map<String, String> sources;
 
   final Map<String, List<ChangedLineRange>> changedLineRanges;
+  final Set<String> changedPaths;
+
+  final Map<String, String> baseSources;
+  final Map<String, String> auxiliaryFiles;
 
   final Map<String, int> coverage;
 
@@ -93,9 +100,19 @@ final class AnalysisCacheStage {
     CodeBusterCommand command,
     List<Finding> Function() analyze,
   ) {
+    final Map<String, String> findingInputs = <String, String>{
+      ...prepared.sources,
+      for (final MapEntry<String, String> entry in prepared.baseSources.entries)
+        '@base/${entry.key}': entry.value,
+      for (final String changedPath in prepared.changedPaths)
+        '@changed/$changedPath': '',
+      for (final MapEntry<String, String> entry
+          in prepared.auxiliaryFiles.entries)
+        '@aux/${entry.key}': entry.value,
+    };
     final String key = cache.key(
       config: prepared.config,
-      sources: prepared.sources,
+      sources: findingInputs,
       kind: 'findings:${command.name}',
     );
     final List<Finding>? cached = cache.loadFindings(
@@ -236,6 +253,7 @@ final class AnalysisPreparationStage {
       root: root,
       language: options.language.isEmpty ? null : options.language,
       languages: options.languages.isEmpty ? null : options.languages,
+      frameworks: defaults.frameworks,
       includes: options.includes.isEmpty ? null : options.includes,
       excludes: options.excludes.isEmpty ? null : options.excludes,
       changedBase: options.changedBase.isEmpty ? null : options.changedBase,
@@ -289,11 +307,42 @@ final class AnalysisPreparationStage {
         );
       }
     }
+    final Set<String> changedPaths = discovery.changedFiles();
+    final Map<String, String> baseSources = discovery.baseSources(sources.keys);
+    final Map<String, String> auxiliaryFiles = <String, String>{};
+    for (final String relative in const <String>[
+      'pubspec.yaml',
+      'analysis_options.yaml',
+      'l10n.yaml',
+      'pyproject.toml',
+      'requirements.txt',
+    ]) {
+      final File file = File('$root${Platform.pathSeparator}$relative');
+      if (file.existsSync()) {
+        auxiliaryFiles[relative] = file.readAsStringSync();
+      }
+    }
+    for (final String source in sources.values) {
+      for (final RegExpMatch match in RegExp(
+        r'''['"](assets/[^'"]+)['"]''',
+      ).allMatches(source)) {
+        final String asset = match.group(1)!;
+        auxiliaryFiles['@exists/$asset'] =
+            File(
+              '$root${Platform.pathSeparator}${asset.replaceAll('/', Platform.pathSeparator)}',
+            ).existsSync()
+            ? 'true'
+            : 'false';
+      }
+    }
     return PreparedAnalysis(
       root: root,
       config: config,
       files: List<SourceFile>.unmodifiable(files),
       sources: Map<String, String>.unmodifiable(sources),
+      changedPaths: changedPaths,
+      baseSources: baseSources,
+      auxiliaryFiles: Map<String, String>.unmodifiable(auxiliaryFiles),
       coverage: coverage,
       diagnostics: List<ProcessingDiagnostic>.unmodifiable(diagnostics),
       languageVersions: const LanguageVersionDetector().detect(root),

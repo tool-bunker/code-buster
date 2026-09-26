@@ -43,6 +43,169 @@ void logic() {
     expect(repository.measure(function).cyclomatic, 5);
   });
 
+  test('scores flat dispatch switches with standard switch semantics', () {
+    const FunctionSource function = FunctionSource(
+      path: 'lib/action_dispatcher.dart',
+      name: 'dispatch',
+      line: 1,
+      source: '''
+void dispatch(Action action) {
+  switch (action) {
+    case Action.a:
+      onA();
+    case Action.b:
+      onB();
+    case Action.c:
+      onC();
+    case Action.d:
+      onD();
+    case Action.e:
+      onE();
+    case Action.f:
+      onF();
+    case Action.g:
+      onG();
+    case Action.h:
+      onH();
+    case Action.i:
+      onI();
+    case Action.j:
+      onJ();
+    case Action.k:
+      onK();
+    case Action.l:
+      onL();
+    case Action.m:
+      onM();
+    case Action.n:
+      onN();
+    case Action.o:
+      onO();
+    case Action.p:
+      onP();
+  }
+}
+''',
+    );
+
+    final FunctionMetrics metrics = repository.measure(function);
+
+    expect(metrics.cyclomatic, 17);
+    expect(metrics.cognitive, 1);
+    expect(
+      repository.complexityFindings(
+        functions: <FunctionSource>[function],
+        config: const AnalysisConfig(
+          root: '/project',
+          complexityThreshold: 17,
+          cognitiveThreshold: 1,
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      repository
+          .complexityFindings(
+            functions: <FunctionSource>[function],
+            config: const AnalysisConfig(root: '/project'),
+          )
+          .single
+          .message,
+      'dispatch complexity=17 cognitive=1',
+    );
+  });
+
+  test('retains cognitive findings for decisions nested in switch arms', () {
+    const FunctionSource function = FunctionSource(
+      path: 'lib/behavior.dart',
+      name: 'apply',
+      line: 1,
+      source: '''
+void apply(int value) {
+  switch (value) {
+    case 0:
+      if (ready && visible) {
+        for (final item in items) {
+          save(item);
+        }
+      }
+    case 1:
+      reset();
+  }
+}
+''',
+    );
+    const AnalysisConfig config = AnalysisConfig(
+      root: '/project',
+      complexityThreshold: 100,
+      cognitiveThreshold: 1,
+    );
+
+    final FunctionMetrics metrics = repository.measure(function);
+    final Finding finding = repository
+        .complexityFindings(
+          functions: <FunctionSource>[function],
+          config: config,
+        )
+        .single;
+
+    expect(metrics.cyclomatic, 6);
+    expect(metrics.cognitive, 8);
+    expect(finding.message, 'apply complexity=6 cognitive=8');
+  });
+
+  test(
+    'retains cyclomatic findings for wide switches with grouped and substantial arms',
+    () {
+      const FunctionSource function = FunctionSource(
+        path: 'lib/behavior.dart',
+        name: 'apply',
+        line: 1,
+        source: '''
+void apply(int value) {
+  switch (value) {
+    case 0:
+    case 1:
+      prepare();
+      applyValue();
+      recordResult();
+    case 2:
+      onTwo();
+    case 3:
+      onThree();
+    case 4:
+      onFour();
+    case 5:
+      onFive();
+    case 6:
+      onSix();
+    case 7:
+      onSeven();
+    case 8:
+      onEight();
+    case 9:
+      onNine();
+    case 10:
+      onTen();
+  }
+}
+''',
+      );
+
+      final FunctionMetrics metrics = repository.measure(function);
+      final Finding finding = repository
+          .complexityFindings(
+            functions: <FunctionSource>[function],
+            config: const AnalysisConfig(root: '/project'),
+          )
+          .single;
+
+      expect(metrics.cyclomatic, 12);
+      expect(metrics.cognitive, 1);
+      expect(finding.message, 'apply complexity=12 cognitive=1');
+    },
+  );
+
   test('ignores control-flow syntax and braces inside comments', () {
     const FunctionSource function = FunctionSource(
       path: 'src/style.cpp',

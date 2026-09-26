@@ -15,6 +15,9 @@ final class RuleContext {
     this.graph,
     this.sourceLines = const <String, List<String>>{},
     this.languageAnalysis,
+    this.changedPaths = const <String>{},
+    this.baseSources = const <String, String>{},
+    this.auxiliaryFiles = const <String, String>{},
   });
 
   final AnalysisConfig config;
@@ -28,6 +31,15 @@ final class RuleContext {
   final DependencyGraph? graph;
 
   final Object? languageAnalysis;
+
+  /// All repository paths changed relative to the configured base, including tests.
+  final Set<String> changedPaths;
+
+  /// Production source snapshots loaded from the configured base revision.
+  final Map<String, String> baseSources;
+
+  /// Non-source project inputs needed by repository and framework rules.
+  final Map<String, String> auxiliaryFiles;
 
   List<String> linesFor(String path) =>
       sourceLines[path] ?? sources[path]!.split('\n');
@@ -67,6 +79,10 @@ final class RuleContext {
     codeFlow: codeFlow,
   );
 }
+
+/// Whether every framework required by [metadata] is active for this run.
+bool ruleFrameworksAreActive(RuleMetadata metadata, AnalysisConfig config) =>
+    config.frameworks.containsAll(metadata.frameworks);
 
 /// Blanks C-family preprocessor directives and branches that are provably
 /// inactive while preserving source line numbers.

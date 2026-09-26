@@ -57,6 +57,8 @@ final class DartAggregatedRule extends SelfContainedRule {
             'Models should remain independent of Flutter presentation concerns.',
         suggestion: 'Move UI conversion into the View or ViewModel.',
         languages: <String>['dart'],
+        frameworks: <String>{'flutter'},
+        version: 2,
       );
     }
     if (id.startsWith('mvvm-')) {
@@ -71,6 +73,8 @@ final class DartAggregatedRule extends SelfContainedRule {
         suggestion:
             'Expose typed state or events and let the View handle presentation.',
         languages: const <String>['dart'],
+        frameworks: const <String>{'flutter'},
+        version: 2,
       );
     }
     if (id == 'dart-overlapping-data-model') {
@@ -106,12 +110,23 @@ final class DartAggregatedRule extends SelfContainedRule {
           'This Dart construct can weaken static safety, reliability, or security.',
       suggestion:
           'Use the safer typed asynchronous Dart pattern described by the rule.',
-      version: id == 'dart-hardcoded-secret'
+      version: id.startsWith('flutter-')
+          ? _versionThreeIds.contains(id)
+                ? 4
+                : _versionTwoIds.contains(id)
+                ? 3
+                : 2
+          : id == 'dart-hardcoded-secret'
+          ? 4
+          : _versionThreeIds.contains(id)
           ? 3
           : _versionTwoIds.contains(id)
           ? 2
           : 1,
       languages: const <String>['dart'],
+      frameworks: id.startsWith('flutter-')
+          ? const <String>{'flutter'}
+          : const <String>{},
     );
   }
 
@@ -126,12 +141,24 @@ final class DartAggregatedRule extends SelfContainedRule {
     'dart-sql-interpolation',
   };
 
+  static const Set<String> _versionThreeIds = <String>{
+    'flutter-listener-without-remove',
+    'dart-path-traversal',
+  };
+
   static const Set<String> _versionTwoIds = <String>{
+    'dart-bad-certificate-callback',
+    'dart-catch-without-stack-trace',
+    'dart-late-final-persistence',
+    'dart-null-assertion',
     'dart-insecure-random',
     'dart-http-client-not-closed',
+    'dart-path-traversal',
+    'dart-sensitive-data-logging',
     'flutter-expanded-outside-flex',
     'flutter-gesture-semantic-gap',
     'flutter-listener-without-remove',
+    'flutter-set-state-after-await',
     'flutter-unbounded-scrollable',
   };
 

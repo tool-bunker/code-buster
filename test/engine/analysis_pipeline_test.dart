@@ -64,6 +64,11 @@ void main() {
     File(path.join(root.path, 'test', 'ignored.dart'))
       ..createSync(recursive: true)
       ..writeAsStringSync('void ignored() {}\n');
+    File(path.join(root.path, 'pubspec.yaml')).writeAsStringSync('''
+dependencies:
+  flutter:
+    sdk: flutter
+''');
     File(path.join(root.path, 'code-buster.toml')).writeAsStringSync('''
 languages = ["auto"]
 [files]
@@ -78,6 +83,7 @@ exclude = ["test"]
       prepared.config.languages,
       containsAll(<String>['dart', 'javascript']),
     );
+    expect(prepared.config.frameworks, <String>{'flutter'});
     expect(prepared.sources.keys, <String>[
       'lib/main.dart',
       'tool/helper.py',

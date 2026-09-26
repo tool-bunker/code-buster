@@ -12,9 +12,21 @@ final class SqlRuleAnalysis {
   }) {
     final List<Finding> result = <Finding>[];
     final bool postgres = dialect.toLowerCase() != 'mysql';
+    final Map<String, int> mysqlEvidenceByDirectory = <String, int>{};
+    for (final MapEntry<String, String> entry in sources.entries) {
+      if (_mysqlSyntax.hasMatch(entry.value)) {
+        final String directory = _sourceDirectory(entry.key);
+        mysqlEvidenceByDirectory[directory] =
+            (mysqlEvidenceByDirectory[directory] ?? 0) + 1;
+      }
+    }
     for (final MapEntry<String, String> entry in sources.entries) {
       final bool entryPostgres =
-          postgres && !_isClearlyNonPostgres(entry.key, entry.value);
+          postgres &&
+          (_postgresPath.hasMatch(entry.key) ||
+              (!_isClearlyNonPostgres(entry.key, entry.value) &&
+                  (mysqlEvidenceByDirectory[_sourceDirectory(entry.key)] ?? 0) <
+                      2));
       final List<String> lines = entry.value.split('\n');
       var statement = '';
       var startLine = 1;
@@ -110,6 +122,12 @@ final class SqlRuleAnalysis {
     return (code: code.toString(), inBlockComment: inBlockComment);
   }
 
+  static String _sourceDirectory(String path) {
+    final String normalized = path.replaceAll(r'\', '/');
+    final int separator = normalized.lastIndexOf('/');
+    return separator < 0 ? '' : normalized.substring(0, separator);
+  }
+
   static bool _isClearlyNonPostgres(String path, String source) {
     if (_nonPostgresPath.hasMatch(path)) return true;
 
@@ -120,6 +138,10 @@ final class SqlRuleAnalysis {
         _sqlServerSyntax.hasMatch(source);
   }
 
+  static final RegExp _postgresPath = RegExp(
+    r'(?:^|[\\/])postgres(?:ql)?(?:[\\/]|$)|postgres(?:ql)?(?=\.sql$)',
+    caseSensitive: false,
+  );
   static final RegExp _nonPostgresPath = RegExp(
     r'(?:^|[\\/])(?:mysql|sqlite|sqlserver|mssql)(?:[\\/]|$)',
     caseSensitive: false,

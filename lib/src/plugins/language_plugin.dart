@@ -23,6 +23,7 @@ import '../languages/python/python_adapter.dart';
 import '../languages/rust/rust_adapter.dart';
 import '../languages/wren/wren_adapter.dart';
 import '../rules/csharp/oop_rules.dart';
+import '../rules/framework_rules.dart';
 import '../rules/language_rules.dart';
 import '../rules/nim/nim_finding_order.dart';
 
@@ -99,14 +100,18 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
                 MapEntry<String, List<String>>(path, source.split('\n')),
           ),
         );
-    return registeredRules.rules
+    return <CodeBusterRule>[
+          ...registeredRules.rules,
+          ...frameworkLanguageRules(config.frameworks, id),
+        ]
         .where(
           (CodeBusterRule rule) =>
-              config.ruleGroups.contains(rule.metadata.group) ||
-              config.ruleGroups.contains(
-                RulePolicy.taxonomyGroupFor(rule.metadata.id),
-              ) ||
-              config.severityOverrides.containsKey(rule.metadata.id),
+              ruleFrameworksAreActive(rule.metadata, config) &&
+              (config.ruleGroups.contains(rule.metadata.group) ||
+                  config.ruleGroups.contains(
+                    RulePolicy.taxonomyGroupFor(rule.metadata.id),
+                  ) ||
+                  config.severityOverrides.containsKey(rule.metadata.id)),
         )
         .expand(
           (CodeBusterRule rule) => rule.analyze(

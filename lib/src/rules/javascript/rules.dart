@@ -15,6 +15,7 @@ final RuleRegistry javascriptRuleRegistry = RuleRegistry(<CodeBusterRule>[
     'oop-interface-segregation-pressure',
     'oop-refused-bequest',
     'oop-middle-man-delegation',
+    'oop-single-use-abstraction',
     'oop-repeated-strategy-dispatch',
     'oop-state-behavior-candidate',
     'oop-feature-envy',

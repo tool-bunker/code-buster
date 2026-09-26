@@ -24,6 +24,7 @@ final RuleRegistry javaRuleRegistry = RuleRegistry(<CodeBusterRule>[
   CSharpOopRule('oop-middle-man-delegation'),
   CSharpOopRule('oop-interface-segregation-pressure'),
   CSharpOopRule('oop-refused-bequest'),
+  CSharpOopRule('oop-single-use-abstraction'),
   CSharpOopRule('oop-repeated-strategy-dispatch'),
   CSharpOopRule('oop-state-behavior-candidate'),
   CSharpOopRule('oop-feature-envy'),

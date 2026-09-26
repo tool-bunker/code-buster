@@ -11,6 +11,7 @@ import '../oop/metadata.dart';
 const List<String> dartOopContractCandidateRuleIds = <String>[
   'oop-interface-segregation-pressure',
   'oop-state-behavior-candidate',
+  'oop-single-use-abstraction',
 ];
 
 final Expando<Map<String, List<Finding>>> _findingsByUnits =
@@ -43,6 +44,7 @@ final class DartOopContractCandidateRule extends SelfContainedRule {
 RuleMetadata _metadata(String id) => switch (id) {
   'oop-interface-segregation-pressure' => oopRuleMetadata(id),
   'oop-state-behavior-candidate' => oopRuleMetadata(id),
+  'oop-single-use-abstraction' => oopRuleMetadata(id),
   _ => throw ArgumentError.value(id, 'id', 'unknown Dart OOP contract rule'),
 };
 
@@ -157,7 +159,170 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
   return <String, List<Finding>>{
     'oop-interface-segregation-pressure': interfaceFindings,
     'oop-state-behavior-candidate': stateFindings,
+    'oop-single-use-abstraction': _singleUseFindings(units),
   };
+}
+
+List<Finding> _singleUseFindings(Map<String, CompilationUnit> units) {
+  final List<
+    ({String path, CompilationUnit unit, ClassDeclaration declaration})
+  >
+  classes =
+      <({String path, CompilationUnit unit, ClassDeclaration declaration})>[];
+  for (final MapEntry<String, CompilationUnit> entry in units.entries) {
+    for (final ClassDeclaration declaration
+        in entry.value.declarations.whereType<ClassDeclaration>()) {
+      classes.add((
+        path: entry.key,
+        unit: entry.value,
+        declaration: declaration,
+      ));
+    }
+  }
+
+  final List<Finding> findings = <Finding>[];
+  for (final contract in classes) {
+    final List<MethodDeclaration> contractMethods = contract
+        .declaration
+        .body
+        .members
+        .whereType<MethodDeclaration>()
+        .toList(growable: false);
+    if (contractMethods.length != 1 ||
+        contractMethods.single.body is! EmptyFunctionBody ||
+        contract.declaration.body.members
+            .whereType<FieldDeclaration>()
+            .isNotEmpty) {
+      continue;
+    }
+    final String contractName = contract.declaration.namePart.typeName.lexeme;
+    final List<
+      ({String path, CompilationUnit unit, ClassDeclaration declaration})
+    >
+    implementors = classes
+        .where((candidate) {
+          final ClassDeclaration declaration = candidate.declaration;
+          final List<NamedType> interfaces =
+              declaration.implementsClause?.interfaces ?? const <NamedType>[];
+          return interfaces.length == 1 &&
+              _baseType(interfaces.single.toSource()) == contractName &&
+              declaration.extendsClause == null &&
+              declaration.withClause == null;
+        })
+        .toList(growable: false);
+    if (implementors.length != 1) continue;
+
+    final implementation = implementors.single;
+    final List<MethodDeclaration> methods = implementation
+        .declaration
+        .body
+        .members
+        .whereType<MethodDeclaration>()
+        .where((method) => !method.isStatic)
+        .toList(growable: false);
+    if (methods.length != 1 ||
+        methods.single.name.lexeme != contractMethods.single.name.lexeme ||
+        implementation.declaration.body.members
+            .whereType<FieldDeclaration>()
+            .isNotEmpty ||
+        !_isSmallDartBehavior(methods.single)) {
+      continue;
+    }
+
+    final _TypeEvidenceVisitor evidence = _TypeEvidenceVisitor(
+      contractName,
+      implementation.declaration.namePart.typeName.lexeme,
+    );
+    for (final CompilationUnit unit in units.values) {
+      unit.accept(evidence);
+    }
+    if (evidence.contractReferences > 2 ||
+        evidence.implementationConstructions != 1) {
+      continue;
+    }
+    findings.add(
+      Finding(
+        code: 'oop-single-use-abstraction',
+        severity: RuleSeverity.info,
+        path: contract.path,
+        line: contract.unit.lineInfo
+            .getLocation(contract.declaration.offset)
+            .lineNumber,
+        message:
+            '$contractName has one stateless implementation, ${implementation.declaration.namePart.typeName.lexeme}, constructed once for one small operation',
+        confidence: 'medium',
+        relatedFiles: <String>[
+          if (implementation.path != contract.path) implementation.path,
+        ],
+      ),
+    );
+  }
+  return findings;
+}
+
+bool _isSmallDartBehavior(MethodDeclaration method) {
+  final String source = method.body.toSource();
+  if (source.length > 180) return false;
+  final _ComplexBehaviorVisitor visitor = _ComplexBehaviorVisitor();
+  method.body.accept(visitor);
+  return !visitor.complex;
+}
+
+final class _TypeEvidenceVisitor extends RecursiveAstVisitor<void> {
+  _TypeEvidenceVisitor(this.contractName, this.implementationName);
+
+  final String contractName;
+  final String implementationName;
+  int contractReferences = 0;
+  int implementationConstructions = 0;
+
+  @override
+  void visitNamedType(NamedType node) {
+    if (_baseType(node.toSource()) == contractName) contractReferences++;
+    super.visitNamedType(node);
+  }
+
+  @override
+  void visitInstanceCreationExpression(InstanceCreationExpression node) {
+    if (_baseType(node.constructorName.type.toSource()) == implementationName) {
+      implementationConstructions++;
+    }
+    super.visitInstanceCreationExpression(node);
+  }
+
+  @override
+  void visitMethodInvocation(MethodInvocation node) {
+    if (node.target == null && node.methodName.name == implementationName) {
+      implementationConstructions++;
+    }
+    super.visitMethodInvocation(node);
+  }
+}
+
+final class _ComplexBehaviorVisitor extends RecursiveAstVisitor<void> {
+  bool complex = false;
+
+  @override
+  void visitAwaitExpression(AwaitExpression node) => complex = true;
+
+  @override
+  void visitForStatement(ForStatement node) => complex = true;
+
+  @override
+  void visitIfStatement(IfStatement node) => complex = true;
+
+  @override
+  void visitInstanceCreationExpression(InstanceCreationExpression node) =>
+      complex = true;
+
+  @override
+  void visitSwitchStatement(SwitchStatement node) => complex = true;
+
+  @override
+  void visitTryStatement(TryStatement node) => complex = true;
+
+  @override
+  void visitWhileStatement(WhileStatement node) => complex = true;
 }
 
 Finding? _stateFinding(

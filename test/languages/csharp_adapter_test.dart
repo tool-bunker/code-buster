@@ -312,6 +312,29 @@ class Gateway {
     );
   });
 
+  test('reports archive extraction paths without containment checks', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('csharp')
+        .analyze(
+          <String, String>{
+            'Archives.cs': sourceFixture(
+              'csharp/reports_archive_entry_path_traversal/Archives.cs',
+            ),
+          },
+          const AnalysisConfig(
+            root: '.',
+            severityOverrides: <String, RuleSeverity>{
+              'cs-archive-path-traversal': RuleSeverity.warn,
+            },
+          ),
+        )
+        .findings
+        .where((Finding finding) => finding.code == 'cs-archive-path-traversal')
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.line), <int>[11, 17]);
+  });
+
   test('cs-sql-string-build ignores literal-only query composition', () {
     final List<Finding> findings = LanguagePluginRegistry.standard()
         .require('csharp')
@@ -456,7 +479,7 @@ class Gateway {
   test('catalogues the complete current C# rule pack', () {
     expect(
       RuleCatalog.all.where((RuleMetadata rule) => rule.id.startsWith('cs-')),
-      hasLength(24),
+      hasLength(25),
     );
   });
   test('recommends file-scoped namespaces only when configured', () {

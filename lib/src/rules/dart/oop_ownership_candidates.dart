@@ -77,6 +77,10 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
             if (_typedParameter(parameter) case final _TypedParameter typed)
               typed,
         ];
+        parameters.removeWhere(
+          (_TypedParameter parameter) =>
+              _sameDeclaredType(parameter.type, className),
+        );
         if (parameters.isEmpty) continue;
         final _MemberAccessVisitor accesses = _MemberAccessVisitor(
           parameters.map((_TypedParameter parameter) => parameter.name).toSet(),
@@ -96,6 +100,9 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
           }
         }
         if (best == null) continue;
+        if (_isFlutterWidgetComposition(entry.value, method, best, bestCount)) {
+          continue;
+        }
         final Set<String> distinct = accesses.foreignMembers[best.name]!
             .toSet();
         featureEnvy.add(
@@ -175,6 +182,38 @@ _TypedParameter? _typedParameter(FormalParameter parameter) {
   return _TypedParameter(name: name, type: typed.group(1)!);
 }
 
+bool _sameDeclaredType(String type, String className) {
+  final String withoutNullability = type.endsWith('?')
+      ? type.substring(0, type.length - 1)
+      : type;
+  final int typeArguments = withoutNullability.indexOf('<');
+  return (typeArguments < 0
+          ? withoutNullability
+          : withoutNullability.substring(0, typeArguments)) ==
+      className;
+}
+
+bool _isFlutterWidgetComposition(
+  CompilationUnit unit,
+  MethodDeclaration method,
+  _TypedParameter parameter,
+  int totalAccessCount,
+) {
+  if (method.returnType?.toSource() != 'Widget' ||
+      !unit.directives.whereType<ImportDirective>().any(
+        (ImportDirective directive) =>
+            directive.uri.stringValue?.startsWith('package:flutter/') ?? false,
+      )) {
+    return false;
+  }
+  final _ReturnedMemberAccessVisitor returned = _ReturnedMemberAccessVisitor(
+    <String>{parameter.name},
+  );
+  method.body.accept(returned);
+  return (returned.accesses.foreignMembers[parameter.name]?.length ?? 0) ==
+      totalAccessCount;
+}
+
 final class _MemberAccessVisitor extends RecursiveAstVisitor<void> {
   _MemberAccessVisitor(this.parameterNames);
 
@@ -215,6 +254,28 @@ final class _MemberAccessVisitor extends RecursiveAstVisitor<void> {
   void _record(String receiver, String member) {
     if (!parameterNames.contains(receiver)) return;
     foreignMembers.putIfAbsent(receiver, () => <String>[]).add(member);
+  }
+}
+
+final class _ReturnedMemberAccessVisitor extends RecursiveAstVisitor<void> {
+  _ReturnedMemberAccessVisitor(Set<String> parameterNames)
+    : accesses = _MemberAccessVisitor(parameterNames);
+
+  final _MemberAccessVisitor accesses;
+
+  @override
+  void visitExpressionFunctionBody(ExpressionFunctionBody node) {
+    node.expression.accept(accesses);
+  }
+
+  @override
+  void visitReturnStatement(ReturnStatement node) {
+    node.expression?.accept(accesses);
+  }
+
+  @override
+  void visitFunctionExpression(FunctionExpression node) {
+    // A callback's return value does not compose the enclosing Widget.
   }
 }
 

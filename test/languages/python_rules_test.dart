@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:code_buster/src/internal.dart';
 import 'package:test/test.dart';
 
@@ -141,6 +143,9 @@ token = "credential"
           'example.py': '''client(api_key="your-api-key")
 client(api_key="fc-YOUR_API-KEY")
 client(api_key="replace-me")
+token = "None"
+password = "null"
+client_secret = "undefined"
 ''',
           'tests/test_client.py': '''client(api_key="test")
 client(api_key="test-api-key")
@@ -549,6 +554,51 @@ password = 'x' * (47 * 1024)
     expect(findings, hasLength(1));
     expect(findings.single.line, 8);
   });
+
+  test('accepts PEP 695 generic function names', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('python')
+        .analyze(<String, String>{
+          'sort.py': '''
+def bubble_sort[T: Comparable](values: list[T]) -> list[T]:
+    return values
+
+def camelCase[T](value: T) -> T:
+    return value
+''',
+        }, config)
+        .findings
+        .where((Finding finding) => finding.code == 'py-function-naming')
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.line), <int>[4]);
+  });
+
+  test('accepts monkey patch replacement names', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('python')
+        .analyze(<String, String>{
+          'patches.py': '''
+def Linear_forward(self, value):
+    return original(self, value)
+
+def Block_init(self):
+    return original(self)
+
+def CamelCase():
+    return None
+
+torch.nn.Linear.forward = Linear_forward
+original_init = patches.patch(target, replacement=Block_init)
+''',
+        }, config)
+        .findings
+        .where((Finding finding) => finding.code == 'py-function-naming')
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.line), <int>[7]);
+  });
+
   test('ignores prose and comments that resemble Python findings', () {
     final List<Finding> findings = LanguagePluginRegistry.standard()
         .require('python')
@@ -609,5 +659,69 @@ password = 'x' * (47 * 1024)
         .toList();
 
     expect(findings, isEmpty);
+  });
+
+  test('honors Python project lint suppressions', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code-buster-python-policy-',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    File('${root.path}/pyproject.toml').writeAsStringSync('''
+[tool.pylint.messages_control]
+disable = ["invalid-name", "dangerous-default-value", "broad-exception-caught"]
+
+[tool.ruff.lint]
+ignore = ["E402", "E722"]
+''');
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('python')
+        .analyze(<String, String>{
+          'app.py': '''
+value = 1
+import late
+
+def CamelCase(values=[]):
+    try:
+        return values
+    except Exception:
+        return []
+    except:
+        return None
+''',
+        }, AnalysisConfig(root: root.path))
+        .findings
+        .where(
+          (Finding finding) => <String>{
+            'py-function-naming',
+            'py-mutable-default',
+            'py-broad-except',
+            'py-import-not-top',
+            'py-bare-except',
+          }.contains(finding.code),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+
+  test('py-import-not-top honors matching inline noqa directives', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('python')
+        .analyze(<String, String>{
+          'module.py': '''
+value = 1
+import flagged
+import allowed  # noqa: E402
+from package import accepted  # noqa
+import still_flagged  # noqa: F401
+message = "# noqa: E402"
+import after_string
+''',
+        }, config)
+        .findings
+        .where((Finding finding) => finding.code == 'py-import-not-top')
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.line), <int>[2, 5, 7]);
   });
 }

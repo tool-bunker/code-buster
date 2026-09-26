@@ -14,6 +14,11 @@ languages = ["dart"]
 [architecture]
 profile = "dart-mvvm"
 ''');
+    File('${root.path}/pubspec.yaml').writeAsStringSync('''
+dependencies:
+  flutter:
+    sdk: flutter
+''');
     Directory('${root.path}/lib/views').createSync(recursive: true);
     Directory('${root.path}/lib/view_models').createSync(recursive: true);
     Directory('${root.path}/lib/models').createSync(recursive: true);

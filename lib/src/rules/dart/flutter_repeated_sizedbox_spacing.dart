@@ -27,6 +27,8 @@ final class FlutterRepeatedSizedBoxSpacingRule extends SelfContainedRule {
             FindingTaxonomy.style,
           },
           languages: <String>['dart'],
+          frameworks: <String>{'flutter'},
+          version: 2,
           limitations: <String>[
             'Only explicit Row and Column list literals with a spacer in every gap are analyzed.',
             'Conditional, spread, loop-produced, leading, trailing, and mixed-size gaps are skipped.',

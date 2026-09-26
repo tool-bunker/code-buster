@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+## 0.7.0
+
+
+### Added
+
+- Separate framework rule overlays from source-language registries, with detected Flutter and React profiles and framework-aware rule metadata.
+- Detect one-method C#, Dart, Java, and TypeScript abstractions with one stateless implementation constructed once.
+- Add conservative clean-code checks for public mutable state, commented-out code, placeholder names, mixed boundary responsibilities, repeated policy literals, local file naming outliers, changed public APIs without related tests, and changed-function complexity regressions.
+- Add Flutter profile checks for immutable widget constructors, lazy lists, image caching, widget keys, build purity, async context safety, controller ownership, localization, assets, form validation, BLoC side effects, widget injection, and adaptive controls.
+- Detect FastAPI projects and add 25 conservative checks for route contracts, authentication, transport security, request logging, database lifecycle, query bounds, background work, settings, module cohesion, and changed-route integration tests.
+
+### Improved
+
+- Preserve Dart production reachability through generated routers and other generated dependency bridges without analyzing generated files for findings.
+- Honor root-anchored `.gitignore` patterns and retain Dart source under command-oriented `cmd/commands/build` directories.
+- Require explicit untrusted-input provenance for Dart path-traversal hotspots instead of treating generic filename parameters as attacker-controlled.
+- Recognize generated-by headers paired with “do not modify” provenance, including Drift versioned-schema outputs.
+- Avoid listener-lifecycle advisories for collection values owned and disposed by Flutter hooks.
+- Detect C# archive extraction paths derived from `ZipArchiveEntry.FullName` without a containment check, including local extraction wrappers.
+- Recognize public Python packages in nested workspace `src` layouts when computing dead-file reachability.
+- Parse PEP 695 generic function declarations without treating type parameters as part of the function name.
+- Treat `None`, `null`, and `undefined` string sentinels as placeholders rather than hardcoded Python credentials.
+- Accept deliberately class-qualified Python function names when the function is installed as a local monkey-patch replacement.
+- Recognize top-level PEP 420 namespace packages as public Python dependency roots.
+- Classify `tests-unit` directories as tests and `*_examples` directories as examples.
+- Honor explicit Pylint and Ruff suppressions for equivalent Python style rules.
+- Honor matching inline `# noqa` directives for Python import-placement findings.
+- Avoid digit-grouping suggestions for SQL, where underscore-separated numeric literals are not portable.
+- Exclude predominantly literal SQL `VALUES` data and archived SQL snapshots from duplicate-code findings.
+- Infer neutral SQL files as MySQL only from repeated sibling syntax, while preserving explicitly named PostgreSQL files.
+- Track Go loop scopes across nested blocks without reporting defers scoped by an immediately invoked function.
+- Require explicit `net/http` client type evidence before treating generic Go `Do` methods as HTTP responses.
+- Exclude leading license headers and dependency manifests from implementation comment-density findings.
+- Avoid Go defer-in-loop findings when an unconditional return, break, continue, or goto prevents the next iteration.
+- Exclude duplicated Go implementations selected by complementary single-tag build constraints.
+- Require `os.O_CREATE` before treating a Go `OpenFile` mode as an effective creation permission.
+- Recognize HTTP response bodies closed by a typed local helper.
+- Ignore Java `serialVersionUID` values in digit-grouping advice because they are opaque serialization identifiers, not human-readable quantities.
+- Avoid TypeScript security findings for `Function` constructors and `innerHTML` ternaries whose inputs are entirely static string literals.
+- Exclude conventional JavaScript and TypeScript `.backup` source copies from production analysis.
+- Recognize conventional JavaScript and TypeScript tooling directories at any workspace depth when evaluating console output and metadata parsing.
+- Avoid AI prompt-injection hotspots for explicitly defensive quoted examples and for unrelated properties such as session message counts.
+- Treat conventional development, playground, and benchmark trees as JavaScript/TypeScript tooling, and accept static HTML passed through explicit Trusted Types wrappers.
+- Exclude conventional `.gen` JavaScript and TypeScript outputs, including generated TanStack Router route trees, from production findings.
+- Recognize substantial formatted Babel JavaScript bundles from their emitted helper set, including ESM and CommonJS outputs.
+- Allow intentional console output in executable Node.js entrypoints identified by their shebang.
+
 ## 0.6.0
 
 ### Added

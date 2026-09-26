@@ -34,6 +34,9 @@ final class PythonRuleAnalysis {
               : null;
           code = _codeBeforeComment(scanned.code);
         }
+        final String comment = startsInContinuedString
+            ? ''
+            : raw.substring(_codeBeforeComment(raw).length);
         final String line = _strip(code).trim();
         final int indent = raw.length - raw.trimLeft().length;
         final bool inImportContinuation = importContinuationDepth > 0;
@@ -75,7 +78,8 @@ final class PythonRuleAnalysis {
         if ((line.startsWith('import ') || line.startsWith('from ')) &&
             indent == 0 &&
             sawCode &&
-            !inTypeCheckingBlock) {
+            !inTypeCheckingBlock &&
+            !_hasNoqaFor(comment, 'E402')) {
           add(
             'py-import-not-top',
             RuleSeverity.info,
@@ -111,12 +115,13 @@ final class PythonRuleAnalysis {
           );
         }
         final RegExpMatch? function = RegExp(
-          r'^(?:async\s+)?def\s+([^\s(]+)',
+          r'^(?:async\s+)?def\s+([A-Za-z_]\w*)',
         ).firstMatch(line);
         if (function != null &&
             !_httpRequestHandlerMethod.hasMatch(function.group(1)!) &&
             !_pythonTestLifecycleMethod.hasMatch(function.group(1)!) &&
             !_isComInterfaceMethod(lines, index, indent) &&
+            !_isMonkeyPatchReplacement(lines, function.group(1)!) &&
             (function.group(1)!.contains('-') ||
                 RegExp(r'[A-Z]').hasMatch(function.group(1)!))) {
           add(
@@ -466,6 +471,22 @@ final class PythonRuleAnalysis {
     return false;
   }
 
+  static bool _isMonkeyPatchReplacement(List<String> lines, String name) {
+    final String escaped = RegExp.escape(name);
+    final RegExp directAssignment = RegExp(
+      '\\.[A-Za-z_]\\w*\\s*=\\s*$escaped\\b',
+    );
+    final RegExp patchCall = RegExp(
+      '\\bpatch(?:es)?\\.patch\\s*\\([^#\\n]*\\b$escaped\\b',
+    );
+    return lines
+        .map(_codeBeforeComment)
+        .any(
+          (String line) =>
+              directAssignment.hasMatch(line) || patchCall.hasMatch(line),
+        );
+  }
+
   static bool _isTestPath(String path) {
     final String normalized = path.replaceAll(r'\', '/').toLowerCase();
     final String name = normalized.substring(normalized.lastIndexOf('/') + 1);
@@ -477,6 +498,19 @@ final class PythonRuleAnalysis {
   static final RegExp _pythonTestDirectory = RegExp(
     r'(?:^|/)(?:test|tests|__tests__)(?:/|$)',
   );
+
+  static bool _hasNoqaFor(String comment, String code) {
+    final RegExpMatch? directive = RegExp(
+      r'#\s*noqa\b(?:\s*:\s*([A-Z0-9_,\s]+))?',
+      caseSensitive: false,
+    ).firstMatch(comment);
+    if (directive == null) return false;
+    final String? listedCodes = directive.group(1);
+    if (listedCodes == null) return true;
+    return listedCodes
+        .split(RegExp(r'[\s,]+'))
+        .any((String listed) => listed.toUpperCase() == code);
+  }
 
   static String _codeBeforeComment(String line) {
     int? quote;
@@ -665,7 +699,7 @@ final class PythonRuleAnalysis {
     r'''[rRuUbBfF]{0,2}(?:"([^"]*)"|'([^']*)')''',
   );
   static final RegExp _documentationSecretPlaceholder = RegExp(
-    r'(?:^|[-_])your(?:[-_])(?:[a-z0-9]+[-_])*(?:key|token|secret|password|credential)(?:$|[-_])|(?:^|[-_])replace[-_]?me(?:$|[-_])',
+    r'^(?:none|null|undefined)$|(?:^|[-_])your(?:[-_])(?:[a-z0-9]+[-_])*(?:key|token|secret|password|credential)(?:$|[-_])|(?:^|[-_])replace[-_]?me(?:$|[-_])',
     caseSensitive: false,
   );
   static final RegExp _testSecretPlaceholder = RegExp(
