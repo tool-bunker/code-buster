@@ -125,6 +125,8 @@ See the [command reference](https://toolbunker.dev/code-buster/docs/reference/co
 
 ## Current status
 
+Current release: **0.7.1**.
+
 Code Buster is pre-1.0 and under active development. Use it for local repository
 exploration, focused AI context, and reviewing changes before handoff. Do not yet
 rely on it as a blocking production quality gate; evaluate CI and report

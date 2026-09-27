@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+
+## 0.7.1
+
 ### Improved
 
 - Reuse compiled regular expressions across analysis passes and refine repeated-traversal, public-state, policy-literal, and peer-file naming advisories to remove self-analysis noise.

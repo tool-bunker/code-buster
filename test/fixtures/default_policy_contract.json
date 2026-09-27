@@ -7555,7 +7555,7 @@
       "id": "oop-message-chain",
       "severity": "info",
       "group": "maintainability",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
