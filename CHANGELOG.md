@@ -14,6 +14,7 @@
 - Replace avoidable null assertions across source discovery, CLI gates and graphs, reporting, plugins, analysis pipelines, metadata registries, result buckets, duplication indices, language adapters, and rule packs with checked values; centralize mandatory map lookups and numbered or named regular-expression captures behind invariant-reporting accessors; and recognize map lookups proven by matching key iteration or `containsKey` control flow.
 - Tighten project-wide advisory precision by requiring cross-file policy evidence, excluding generic counters and private implementation models, recognizing projection factories, and excluding analyzer, rule-pack, visitor, rule-registration, and finding-emission infrastructure from domain-design heuristics.
 - Add repository-local agent guidance and a rule-development skill covering semantic evidence, precision safeguards, cache-version contracts, regression design, verification, and user ownership of committed changes.
+- Move canonical user documentation to `toolbunker.dev`, refresh the README around focused findings for developers and AI agents, and remove the duplicate repository documentation tree.
 
 
 ## 0.7.0
