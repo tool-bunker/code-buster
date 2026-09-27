@@ -337,9 +337,7 @@ final class FindingReporter {
       );
       output.write('\n<failure message="${_xml(finding.message)}">');
       output.write(
-        _xml(
-          '${finding.severity.configValue} $location ${finding.message}',
-        ),
+        _xml('${finding.severity.configValue} $location ${finding.message}'),
       );
       output.write('</failure>\n</testcase>');
     }
@@ -380,7 +378,6 @@ final class FindingReporter {
     'nim-prefer-let' => 'Use let unless the value is reassigned or mutated.',
     _ => 'Review the finding and update code or configuration as appropriate.',
   };
-
 
   String _xml(String value) => value
       .replaceAll('&', '&amp;')
