@@ -1,6 +1,7 @@
 // Credential-shaped Java constants need a focused security rule with conservative naming and value evidence.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import 'java_lexical.dart';
 
@@ -41,16 +42,16 @@ final class JavaHardcodedSecretRule extends SelfContainedRule {
         if (assignment == null) {
           continue;
         }
-        final String identifier = assignment.group(1)!;
-        final String literal = assignment.group(2)!;
+        final String identifier = assignment.requiredGroup(1);
+        final String literal = assignment.requiredGroup(2);
         final String lowerIdentifier = identifier.toLowerCase();
         final String lowerLiteral = literal.toLowerCase();
         final String normalizedIdentifier = lowerIdentifier.replaceAll(
-          RegExp(r'[^a-z0-9]'),
+          cachedRegExp(r'[^a-z0-9]'),
           '',
         );
         final String normalizedLiteral = lowerLiteral.replaceAll(
-          RegExp(r'[^a-z0-9]'),
+          cachedRegExp(r'[^a-z0-9]'),
           '',
         );
         if (!_secretIdentifier.hasMatch(lowerIdentifier) ||
@@ -64,7 +65,7 @@ final class JavaHardcodedSecretRule extends SelfContainedRule {
             _nonCredentialKey.hasMatch(lowerIdentifier) ||
             _nonCredentialRole.hasMatch(lowerIdentifier) ||
             normalizedIdentifier == normalizedLiteral ||
-            (RegExp(r'^\d+$').hasMatch(normalizedLiteral) &&
+            (cachedRegExp(r'^\d+$').hasMatch(normalizedLiteral) &&
                 normalizedLiteral.length < 8) ||
             _symbolicLiteral.hasMatch(literal) ||
             _placeholderLiteral.hasMatch(normalizedLiteral) ||
@@ -85,14 +86,14 @@ final class JavaHardcodedSecretRule extends SelfContainedRule {
     }
   }
 
-  static final RegExp _literalAssignment = RegExp(
+  static final RegExp _literalAssignment = cachedRegExp(
     r'''(?:^|[^\w$"'])([A-Za-z_$][\w$]*)\s*=\s*"((?:\\.|[^"\\])*)"\s*;''',
   );
-  static final RegExp _secretIdentifier = RegExp(
+  static final RegExp _secretIdentifier = cachedRegExp(
     r'(?:^|_)(?:token|secret|password|passwd|api_?(?:key|secret)|nonce|salt)(?:$|_)',
     caseSensitive: false,
   );
-  static final RegExp _nonCredentialKey = RegExp(
+  static final RegExp _nonCredentialKey = cachedRegExp(
     r'(?:^|_)(?:map|preference|package|action|type|path|error|width|height|quality)(?:_|$)',
     caseSensitive: false,
   );
@@ -103,7 +104,7 @@ final class JavaHardcodedSecretRule extends SelfContainedRule {
     String normalizedIdentifier,
     String normalizedLiteral,
   ) {
-    if (RegExp(r'^[A-Z][A-Z0-9_]*$').hasMatch(identifier) &&
+    if (cachedRegExp(r'^[A-Z][A-Z0-9_]*$').hasMatch(identifier) &&
         (literal.contains('%') || literal.contains("{{"))) {
       return true;
     }
@@ -119,17 +120,17 @@ final class JavaHardcodedSecretRule extends SelfContainedRule {
             normalizedLiteral;
   }
 
-  static final RegExp _nonCredentialRole = RegExp(
+  static final RegExp _nonCredentialRole = cachedRegExp(
     r'(?:^|_)(?:prefix|suffix|cache|header|claim|message|name|path|pattern|regex|property|success|failure|template|format)(?:_|$)',
     caseSensitive: false,
   );
-  static final RegExp _symbolicLiteral = RegExp(
+  static final RegExp _symbolicLiteral = cachedRegExp(
     r'^(?:[A-Z][A-Z0-9_]*|[A-Za-z][A-Za-z0-9]*(?:[.:][A-Za-z0-9_]+)+|[A-Za-z0-9_]+[:_])$',
   );
-  static final RegExp _placeholderLiteral = RegExp(
+  static final RegExp _placeholderLiteral = cachedRegExp(
     r'^(?:changeme|placeholder|example|test|your(?:token|secret|password|apikey)|(?:fake|mock|dummy|test)[a-z0-9]*(?:key|token|secret|password|passwd)|(?:asdf){2,})$',
   );
-  static final RegExp _credentialPlaceholder = RegExp(
+  static final RegExp _credentialPlaceholder = cachedRegExp(
     r'^(?:token|secret|password|passwd|api[_-]?(?:key|secret)|nonce|salt)$',
     caseSensitive: false,
   );

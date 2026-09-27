@@ -4,6 +4,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../oop/metadata.dart';
 
@@ -28,16 +29,18 @@ final class DartOopContractCandidateRule extends SelfContainedRule {
         .requireLanguageAnalysis<Map<String, CompilationUnit>>();
     final Map<String, List<Finding>> findingsByCode =
         _findingsByUnits[units] ??= _analyze(units);
-    return findingsByCode[metadata.id]!.map(
-      (Finding finding) => context.report(
-        metadata: metadata,
-        path: finding.path,
-        line: finding.line,
-        message: finding.message,
-        confidence: finding.confidence,
-        relatedFiles: finding.relatedFiles,
-      ),
-    );
+    return findingsByCode
+        .requiredValue(metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            message: finding.message,
+            confidence: finding.confidence,
+            relatedFiles: finding.relatedFiles,
+          ),
+        );
   }
 }
 
@@ -249,7 +252,7 @@ List<Finding> _singleUseFindings(Map<String, CompilationUnit> units) {
             .getLocation(contract.declaration.offset)
             .lineNumber,
         message:
-            '$contractName has one stateless implementation, ${implementation.declaration.namePart.typeName.lexeme}, constructed once for one small operation',
+            '$contractName is a speculative extension point: one stateless implementation, ${implementation.declaration.namePart.typeName.lexeme}, constructed once for one small operation',
         confidence: 'medium',
         relatedFiles: <String>[
           if (implementation.path != contract.path) implementation.path,
@@ -383,8 +386,8 @@ bool _throwsUnsupported(MethodDeclaration method) {
 }
 
 String _baseType(String source) => source
-    .replaceFirst(RegExp(r'<.*$'), '')
-    .replaceFirst(RegExp(r'\?$'), '')
+    .replaceFirst(cachedRegExp(r'<.*$'), '')
+    .replaceFirst(cachedRegExp(r'\?$'), '')
     .trim();
 
 final class _Contract {
@@ -469,12 +472,14 @@ final class _StateSwitchVisitor extends RecursiveAstVisitor<void> {
     }
     final List<String> labels = <String>[];
     for (final SwitchMember member in node.members) {
-      final RegExpMatch? label = RegExp(
+      final RegExpMatch? label = cachedRegExp(
         r'^\s*case\s+(.+?)(?:\s+when\s+.+)?:',
         dotAll: true,
       ).firstMatch(member.toSource());
       if (label == null) continue;
-      labels.add(label.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim());
+      labels.add(
+        label.requiredGroup(1).replaceAll(cachedRegExp(r'\s+'), ' ').trim(),
+      );
     }
     if (labels.length >= 3) {
       labels.sort();

@@ -82,6 +82,64 @@ class JsonProcessor extends DocumentProcessor {
     expect(findings.single.relatedFiles, <String>['lib/json.dart']);
   });
 
+  test('ignores analyzer execution hooks', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/csv_rule.dart': '''
+class CsvRule extends SourceRule {
+  @override
+  void analyze() {
+    load();
+    validate();
+    inspectCsv();
+    report();
+  }
+}
+''',
+      'lib/json_rule.dart': '''
+class JsonRule extends SourceRule {
+  @override
+  void analyze() {
+    load();
+    validate();
+    inspectJson();
+    report();
+  }
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
+
+  test('ignores AST visitor hooks', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/csv_visitor.dart': '''
+class CsvVisitor extends SourceVisitor {
+  @override
+  void visitCsv() {
+    load();
+    validate();
+    inspectCsv();
+    report();
+  }
+}
+''',
+      'lib/json_visitor.dart': '''
+class JsonVisitor extends SourceVisitor {
+  @override
+  void visitJson() {
+    load();
+    validate();
+    inspectJson();
+    report();
+  }
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
+
   test('requires three exact direct mappings in multiple files', () {
     final List<Finding> findings = analyze(<String, String>{
       'lib/one.dart': '''

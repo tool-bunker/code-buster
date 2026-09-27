@@ -512,3 +512,15 @@ final class Finding {
       .toUpperCase()
       .substring(0, 12);
 }
+
+/// Accesses a map entry that must exist and contain a non-null value.
+extension RequiredMapValue<K, V> on Map<K, V> {
+  /// Returns the value for [key], or reports a violated map invariant.
+  V requiredValue(K key) {
+    final V? value = this[key];
+    if (value == null) {
+      throw StateError('Required map entry is absent for key `$key`');
+    }
+    return value;
+  }
+}

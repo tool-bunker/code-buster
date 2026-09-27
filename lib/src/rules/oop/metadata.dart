@@ -3,7 +3,7 @@ import '../../core/models.dart';
 final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
   'oop-data-clump': const RuleMetadata(
     id: 'oop-data-clump',
-    version: 4,
+    version: 5,
     defaultSeverity: RuleSeverity.info,
     group: 'maintainability',
     title: 'Group a repeated parameter concept',
@@ -22,6 +22,7 @@ final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
       'Parameter names and normalized types must match; inferred parameters and partial parameter subsets are not analyzed.',
       'TypeScript destructured, inferred, and nested generic parameters are not analyzed.',
       'C# partial types, aliases, and generic parameter splitting are not resolved.',
+      'Local closures and rule registration or finding-emission signatures are excluded because they do not represent shared domain data.',
     ],
   ),
   'oop-interface-segregation-pressure': const RuleMetadata(
@@ -92,14 +93,14 @@ final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
   ),
   'oop-single-use-abstraction': const RuleMetadata(
     id: 'oop-single-use-abstraction',
-    version: 2,
+    version: 3,
     defaultSeverity: RuleSeverity.info,
     group: 'yagni',
-    title: 'Collapse a single-use abstraction',
+    title: 'Review a speculative extension point',
     why:
-        'A one-method contract with one stateless implementation constructed once can add files and indirection without owning variation or lifecycle.',
+        'A one-method contract with one stateless implementation constructed once is usually scaffolding for variation that does not exist yet.',
     suggestion:
-        'Consider keeping the small operation at its only caller; retain the abstraction when it is an external, dependency-injection, testing, plugin, or platform boundary.',
+        'Keep the operation at its only caller until a second implementation or a real external, dependency-injection, testing, plugin, or platform boundary requires the contract.',
     semanticMaturity: RuleSemanticMaturity.project,
     requirements: <RuleAnalysisRequirement>{
       RuleAnalysisRequirement.declarations,
@@ -132,7 +133,7 @@ final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
     'Keep behavior with the data it uses',
     'A method dominated by one parameter’s members may own misplaced behavior.',
     'Consider moving the behavior to the foreign type or its API.',
-    'Requires five accesses across three members and sixty percent of received accesses; Dart parameters matching the enclosing class type and accesses solely composing a returned Flutter Widget are excluded.',
+    'Requires five accesses across three members and sixty percent of received accesses; Dart parameters matching the enclosing class type, AST visitor implementations, and accesses solely composing a returned Flutter Widget are excluded.',
   ),
   'oop-service-locator-dependency': _advisory(
     'oop-service-locator-dependency',
@@ -153,7 +154,7 @@ final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
     'Hide repeated deep collaboration chains',
     'Deep navigation couples a class to an entire collaborator graph.',
     'Consider a higher-level query or narrow facade.',
-    'Requires three chains of at least four hops across two methods.',
+    'Requires three chains of at least four hops across two methods; AST visitor implementations and analyzer or rule-pack orchestration classes are excluded.',
   ),
   for (final role in <String>['factory', 'facade', 'repository', 'proxy'])
     'oop-$role-bypass': _advisory(
@@ -175,7 +176,7 @@ final Map<String, RuleMetadata> _metadata = <String, RuleMetadata>{
     'Share a stable sibling workflow',
     'Sibling overrides repeating an ordered workflow duplicate invariant behavior.',
     'Consider a shared workflow with one varying step.',
-    'Requires sibling overrides with four to ten calls and exactly one differing call.',
+    'Requires sibling overrides with four to ten calls and exactly one differing call; analyzer execution hooks named `analyze` and AST visitor hooks named `visit...` are excluded.',
   ),
 };
 
@@ -208,8 +209,10 @@ RuleMetadata _advisory(
   why: why,
   suggestion: suggestion,
   version: id == 'oop-template-workflow-candidate'
-      ? 5
+      ? 7
       : id == 'oop-feature-envy'
+      ? 8
+      : id == 'oop-message-chain'
       ? 6
       : _sharedLexicalOopIds.contains(id)
       ? 4

@@ -53,6 +53,27 @@ class AtlasPainter {
     expect(findings, isEmpty);
   });
 
+  test('ignores scalar processing and data projection boundaries', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/encoder.dart': '''
+class Encoder {
+  String normalize(String source) =>
+      source.trim().toLowerCase().replaceAll('a', 'b').replaceAll('c', 'd');
+
+  Map<String, Object?> encode(Customer customer) => <String, Object?>{
+    'first': customer.firstName,
+    'last': customer.lastName,
+    'street': customer.street,
+    'city': customer.city,
+    'postcode': customer.postcode,
+  };
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
+
   test(
     'ignores returned Flutter widget composition but retains foreign behavior',
     () {
@@ -197,4 +218,38 @@ class Two {
       expect(findings, isEmpty);
     },
   );
+  test('ignores foreign member access required by AST visitor hooks', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/visitor.dart': '''
+class RuleVisitor extends RecursiveAstVisitor<void> {
+  void visitMethodDeclaration(MethodDeclaration node) {
+    print(node.name);
+    print(node.body);
+    print(node.metadata);
+    print(node.parameters);
+    print(node.returnType);
+  }
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
+  test('ignores typed object projection boundaries', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/reporter.dart': '''
+class Reporter {
+  Finding enrich(Finding finding) => Finding(
+    code: finding.code,
+    path: finding.path,
+    line: finding.line,
+    message: finding.message,
+    why: finding.why,
+  );
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
 }

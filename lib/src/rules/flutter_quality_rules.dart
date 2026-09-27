@@ -1,6 +1,7 @@
 // Conservative Flutter project checks infer local framework evidence instead of imposing one architecture.
 
 import '../core/models.dart';
+import '../core/regexp_cache.dart';
 import '../core/rule.dart';
 import 'generic/generic_rules.dart';
 
@@ -110,7 +111,11 @@ RuleMetadata _metadata(
 );
 
 final class FlutterQualityRule extends SelfContainedRule {
-  FlutterQualityRule(String id) : super(flutterQualityRuleMetadata[id]!);
+  FlutterQualityRule(String id)
+    : super(switch (flutterQualityRuleMetadata[id]) {
+        final RuleMetadata metadata => metadata,
+        null => throw StateError('Unknown Flutter quality rule `$id`'),
+      });
 
   @override
   Iterable<Finding> analyze(RuleContext context) => switch (metadata.id) {
@@ -147,12 +152,12 @@ final class FlutterQualityRule extends SelfContainedRule {
     for (final _Source source in _dartSources(context)) {
       for (final _ClassBlock block in _classes(source)) {
         if (!block.header.contains('extends StatelessWidget')) continue;
-        final RegExp constructor = RegExp(
+        final RegExp constructor = cachedRegExp(
           '(?:^|\\n)\\s*(const\\s+)?${RegExp.escape(block.name)}\\s*\\(',
         );
         final RegExpMatch? match = constructor.firstMatch(block.body);
         if (match == null || match.group(1) != null) continue;
-        if (RegExp(
+        if (cachedRegExp(
           r'^\s*(?!(?:static|final|const)\b)[A-Za-z_$][\w$<>?,.\[\]]*\s+\w+\s*(?:=|;)',
           multiLine: true,
         ).hasMatch(block.body)) {
@@ -170,18 +175,18 @@ final class FlutterQualityRule extends SelfContainedRule {
 
   Iterable<Finding> _largeLists(RuleContext context) sync* {
     for (final _Source source in _dartSources(context)) {
-      for (final RegExpMatch start in RegExp(
+      for (final RegExpMatch start in cachedRegExp(
         r'\bListView\s*\(',
       ).allMatches(source.masked)) {
         final String tail = source.masked.substring(
           start.start,
           (start.start + 3000).clamp(0, source.masked.length),
         );
-        final RegExpMatch? children = RegExp(
+        final RegExpMatch? children = cachedRegExp(
           r'children\s*:\s*\[([\s\S]*?)\]',
         ).firstMatch(tail);
         if (children != null &&
-            ','.allMatches(children.group(1)!).length >= 12) {
+            ','.allMatches(children.requiredGroup(1)).length >= 12) {
           yield _finding(
             context,
             source.path,
@@ -203,7 +208,7 @@ final class FlutterQualityRule extends SelfContainedRule {
           source.masked.contains('CachedNetworkImageProvider(')) {
         establishedCache = true;
       }
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'\bImage\.network\s*\(',
       ).allMatches(source.masked)) {
         direct.add((path: source.path, line: source.lineAt(match.start)));
@@ -226,13 +231,13 @@ final class FlutterQualityRule extends SelfContainedRule {
             block.name.startsWith('_')) {
           continue;
         }
-        final RegExpMatch? constructor = RegExp(
+        final RegExpMatch? constructor = cachedRegExp(
           '${RegExp.escape(block.name)}\\s*\\(([^)]*)\\)',
         ).firstMatch(block.body);
         if (constructor != null &&
-            !RegExp(
+            !cachedRegExp(
               r'\b(?:super\.key|Key\??\s+key)\b',
-            ).hasMatch(constructor.group(1)!)) {
+            ).hasMatch(constructor.requiredGroup(1))) {
           yield _finding(
             context,
             source.path,
@@ -247,7 +252,7 @@ final class FlutterQualityRule extends SelfContainedRule {
   Iterable<Finding> _setStateInBuild(RuleContext context) sync* {
     yield* _buildMatches(
       context,
-      RegExp(r'\bsetState\s*\('),
+      cachedRegExp(r'\bsetState\s*\('),
       'build calls setState directly',
     );
   }
@@ -255,11 +260,13 @@ final class FlutterQualityRule extends SelfContainedRule {
   Iterable<Finding> _contextAfterAwait(RuleContext context) sync* {
     for (final _Source source in _dartSources(context)) {
       for (final _FunctionBlock function in _functions(source)) {
-        final int awaitOffset = function.body.indexOf(RegExp(r'\bawait\b'));
+        final int awaitOffset = function.body.indexOf(
+          cachedRegExp(r'\bawait\b'),
+        );
         if (awaitOffset < 0) continue;
         final String after = function.body.substring(awaitOffset);
-        if (RegExp(r'\bcontext\b').hasMatch(after) &&
-            !RegExp(r'\b(?:context\.)?mounted\b').hasMatch(after)) {
+        if (cachedRegExp(r'\bcontext\b').hasMatch(after) &&
+            !cachedRegExp(r'\b(?:context\.)?mounted\b').hasMatch(after)) {
           yield _finding(
             context,
             source.path,
@@ -274,7 +281,7 @@ final class FlutterQualityRule extends SelfContainedRule {
   Iterable<Finding> _controllersInBuild(RuleContext context) sync* {
     yield* _buildMatches(
       context,
-      RegExp(
+      cachedRegExp(
         r'\b(?:TextEditingController|AnimationController|ScrollController|PageController|TabController|FocusNode)\s*\(',
       ),
       'build creates a controller or focus node',
@@ -292,11 +299,11 @@ final class FlutterQualityRule extends SelfContainedRule {
         );
     if (!localized) return;
     for (final _Source source in _dartSources(context)) {
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'''\b(?:Text|Tooltip)\s*\(\s*['"]([^'"$]{4,})['"]''',
       ).allMatches(source.raw)) {
-        final String text = match.group(1)!.trim();
-        if (RegExp(r'^[\d\W_]+$').hasMatch(text)) continue;
+        final String text = match.requiredGroup(1).trim();
+        if (cachedRegExp(r'^[\d\W_]+$').hasMatch(text)) continue;
         yield _finding(
           context,
           source.path,
@@ -310,10 +317,10 @@ final class FlutterQualityRule extends SelfContainedRule {
   Iterable<Finding> _missingAssets(RuleContext context) sync* {
     final String pubspec = context.auxiliaryFiles['pubspec.yaml'] ?? '';
     for (final _Source source in _dartSources(context)) {
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'''\b(?:Image\.asset|AssetImage)\s*\(\s*['"](assets/[^'"]+)['"]''',
       ).allMatches(source.raw)) {
-        final String asset = match.group(1)!;
+        final String asset = match.requiredGroup(1);
         final bool declared =
             pubspec.contains(asset) || _declaredAssetDirectory(pubspec, asset);
         final bool exists = context.auxiliaryFiles['@exists/$asset'] == 'true';
@@ -335,10 +342,10 @@ final class FlutterQualityRule extends SelfContainedRule {
           !source.masked.contains('TextFormField(')) {
         continue;
       }
-      final bool submits = RegExp(
+      final bool submits = cachedRegExp(
         r'\bon(?:Pressed|FieldSubmitted|EditingComplete)\s*:',
       ).hasMatch(source.masked);
-      final bool validates = RegExp(
+      final bool validates = cachedRegExp(
         r'\bvalidator\s*:|\.validate\s*\(',
       ).hasMatch(source.masked);
       if (submits && !validates) {
@@ -354,14 +361,14 @@ final class FlutterQualityRule extends SelfContainedRule {
 
   Iterable<Finding> _blocBuilderEffects(RuleContext context) sync* {
     for (final _Source source in _dartSources(context)) {
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'\bBlocBuilder(?:<[^>]+>)?\s*\(',
       ).allMatches(source.masked)) {
         final String tail = source.masked.substring(
           match.start,
           (match.start + 3000).clamp(0, source.masked.length),
         );
-        if (RegExp(
+        if (cachedRegExp(
           r'\b(?:Navigator\.|showDialog\s*\(|ScaffoldMessenger\.|analytics\.|repository\.|\.save\s*\()',
         ).hasMatch(tail)) {
           yield _finding(
@@ -378,12 +385,12 @@ final class FlutterQualityRule extends SelfContainedRule {
   Iterable<Finding> _getItWidgets(RuleContext context) sync* {
     for (final _Source source in _dartSources(context)) {
       for (final _ClassBlock block in _classes(source)) {
-        if (!RegExp(
+        if (!cachedRegExp(
           r'extends\s+(?:StatelessWidget|StatefulWidget|State<)',
         ).hasMatch(block.header)) {
           continue;
         }
-        if (RegExp(
+        if (cachedRegExp(
           r'\b(?:GetIt\.I|getIt)(?:\.get)?\s*(?:<|\()',
         ).hasMatch(block.body)) {
           yield _finding(
@@ -402,10 +409,10 @@ final class FlutterQualityRule extends SelfContainedRule {
       for (final _FunctionBlock build in _functions(
         source,
       ).where((function) => function.name == 'build')) {
-        final bool platformCheck = RegExp(
+        final bool platformCheck = cachedRegExp(
           r'\b(?:Platform\.is(?:IOS|Android|MacOS|Windows)|defaultTargetPlatform)\b',
         ).hasMatch(build.body);
-        final bool adaptableControl = RegExp(
+        final bool adaptableControl = cachedRegExp(
           r'\b(?:Switch|Slider|CircularProgressIndicator|RefreshIndicator)\s*\(',
         ).hasMatch(build.body);
         final bool adapted =
@@ -487,7 +494,7 @@ final class _FunctionBlock {
 
 List<_ClassBlock> _classes(_Source source) {
   final List<_ClassBlock> result = <_ClassBlock>[];
-  for (final RegExpMatch match in RegExp(
+  for (final RegExpMatch match in cachedRegExp(
     r'\bclass\s+([A-Za-z_$]\w*)[^\{]*\{',
   ).allMatches(source.masked)) {
     final int end = _blockEnd(source.masked, match.end - 1);
@@ -506,7 +513,7 @@ List<_ClassBlock> _classes(_Source source) {
 
 List<_FunctionBlock> _functions(_Source source) {
   final List<_FunctionBlock> result = <_FunctionBlock>[];
-  final RegExp declaration = RegExp(
+  final RegExp declaration = cachedRegExp(
     r'(?:^|\n)\s*(?:@[\w.()]+\s*)*(?:(?:Future<[^>]+>|Future|Widget|void|dynamic|[A-Za-z_$]\w*)\s+)([A-Za-z_$]\w*)\s*\([^;]*\)\s*(?:async\s*)?\{',
   );
   for (final RegExpMatch match in declaration.allMatches(source.masked)) {

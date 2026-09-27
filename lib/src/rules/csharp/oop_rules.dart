@@ -1,6 +1,7 @@
 // Conservative C# object-design advisories use one project-wide lexical model.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../oop/metadata.dart';
 import 'oop_behavior_rules.dart';
@@ -42,8 +43,8 @@ final class CSharpOopProject {
         if (open < 0) continue;
         final int close = _matchingBrace(code, open);
         if (close < 0) continue;
-        final String kind = declaration.group(1)!;
-        final String name = declaration.group(2)!;
+        final String kind = declaration.requiredGroup(1);
+        final String name = declaration.requiredGroup(2);
         final List<String> bases = _baseTypes(
           <String>[
             declaration.group(3) ?? '',
@@ -156,7 +157,11 @@ final class CSharpOopRule extends SelfContainedRule {
         .requireLanguageAnalysis<CSharpOopProject>();
     final Map<String, List<Finding>> findings = _findingsByProject[project] ??=
         _analyze(project);
-    return findings[metadata.id]!.map(
+    final List<Finding>? matchingFindings = findings[metadata.id];
+    if (matchingFindings == null) {
+      throw StateError('Missing C# OOP findings for ${metadata.id}');
+    }
+    return matchingFindings.map(
       (Finding finding) => context.report(
         metadata: metadata,
         path: finding.path,
@@ -214,10 +219,10 @@ List<Finding> _singleUseAbstractions(CSharpOopProject project) {
         !_isTrivialOwnedBehavior(behavior.single.body)) {
       continue;
     }
-    final int constructions = RegExp(
+    final int constructions = cachedRegExp(
       '\\bnew\\s+${RegExp.escape(implementation.name)}\\b',
     ).allMatches(projectSource).length;
-    final int contractReferences = RegExp(
+    final int contractReferences = cachedRegExp(
       '\\b${RegExp.escape(contract.name)}\\b',
     ).allMatches(projectSource).length;
     if (constructions != 1 || contractReferences > 2) continue;
@@ -228,7 +233,7 @@ List<Finding> _singleUseAbstractions(CSharpOopProject project) {
         path: contract.path,
         line: contract.line,
         message:
-            '${contract.name} has one stateless implementation, ${implementation.name}, constructed once for one small operation',
+            '${contract.name} is a speculative extension point: one stateless implementation, ${implementation.name}, constructed once for one small operation',
         confidence: 'medium',
         relatedFiles: <String>[
           if (implementation.path != contract.path) implementation.path,
@@ -242,12 +247,12 @@ List<Finding> _singleUseAbstractions(CSharpOopProject project) {
 bool _isTrivialOwnedBehavior(String body) {
   final String normalized = body.trim();
   if (normalized.isEmpty || normalized.length > 180) return false;
-  if (RegExp(
+  if (cachedRegExp(
     r'\b(?:if|for|while|switch|catch|await|yield|synchronized|lock|using|try)\b',
   ).hasMatch(normalized)) {
     return false;
   }
-  if (RegExp(r'\bnew\s+[A-Za-z_$]').hasMatch(normalized)) return false;
+  if (cachedRegExp(r'\bnew\s+[A-Za-z_$]').hasMatch(normalized)) return false;
   final int statements = ';'.allMatches(normalized).length;
   return statements <= 1;
 }
@@ -448,12 +453,12 @@ List<Finding> _middleMen(CSharpOopProject project) {
   return findings;
 }
 
-bool _rejects(String body) => RegExp(
+bool _rejects(String body) => cachedRegExp(
   r'\bthrow\s+new\s+(?:NotSupportedException|NotImplementedException|UnsupportedOperationException|Error)\b',
 ).hasMatch(body);
 
 String? _forwardedField(OopMethod method, Set<String> fields) {
-  final RegExpMatch? call = RegExp(
+  final RegExpMatch? call = cachedRegExp(
     r'^\s*(?:return\s+)?(?:this\.)?([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*\(([^)]*)\)\s*;?\s*$',
   ).firstMatch(method.body);
   if (call == null ||
@@ -461,9 +466,10 @@ String? _forwardedField(OopMethod method, Set<String> fields) {
       !fields.contains(call.group(1))) {
     return null;
   }
-  final List<String> arguments = call.group(3)!.trim().isEmpty
+  final String argumentSource = call.requiredGroup(3);
+  final List<String> arguments = argumentSource.trim().isEmpty
       ? <String>[]
-      : call.group(3)!.split(',').map((value) => value.trim()).toList();
+      : argumentSource.split(',').map((value) => value.trim()).toList();
   final List<String> parameters = method.parameters
       .map((parameter) => parameter.name)
       .toList();
@@ -493,13 +499,13 @@ List<OopMethod> _methods(String body, String path) {
     for (final RegExpMatch match in declaration.pattern.allMatches(body)) {
       if (_braceDepth(body, match.start) != 0) continue;
       final String modifiers = match.group(1) ?? '';
-      final String name = match.group(2)!;
+      final String name = match.requiredGroup(2);
       final List<({String type, String name})>? parameters = _parameters(
-        match.group(3)!,
+        match.requiredGroup(3),
         isTypeScript: isTypeScript,
       );
       if (parameters == null) continue;
-      final String terminator = match.group(4)!;
+      final String terminator = match.requiredGroup(4);
       String methodBody = '';
       if (declaration.arrow) {
         final int next = _nextNonWhitespace(body, match.end);
@@ -528,12 +534,12 @@ List<OopMethod> _methods(String body, String path) {
           parameters: parameters,
           body: methodBody,
           isPublic: isTypeScript
-              ? !RegExp(r'\b(?:private|protected)\b').hasMatch(modifiers)
-              : RegExp(r'\bpublic\b').hasMatch(modifiers),
-          isStatic: RegExp(r'\bstatic\b').hasMatch(modifiers),
+              ? !cachedRegExp(r'\b(?:private|protected)\b').hasMatch(modifiers)
+              : cachedRegExp(r'\bpublic\b').hasMatch(modifiers),
+          isStatic: cachedRegExp(r'\bstatic\b').hasMatch(modifiers),
           isOverride:
-              RegExp(r'\boverride\b').hasMatch(modifiers) ||
-              RegExp(
+              cachedRegExp(r'\boverride\b').hasMatch(modifiers) ||
+              cachedRegExp(
                 r'@Override\s*$',
               ).hasMatch(body.substring(0, match.start).split('\n').last),
         ),
@@ -558,17 +564,19 @@ Set<String> _fields(String body, String path) {
       ? _typescriptFieldDeclaration
       : _fieldDeclaration;
   for (final RegExpMatch match in declaration.allMatches(body)) {
-    if (_braceDepth(body, match.start) == 0) fields.add(match.group(1)!);
+    if (_braceDepth(body, match.start) == 0) {
+      fields.add(match.requiredGroup(1));
+    }
   }
   if (isTypeScript) {
-    for (final RegExpMatch constructor in RegExp(
+    for (final RegExpMatch constructor in cachedRegExp(
       r'\bconstructor\s*\(([^)]*)\)',
       dotAll: true,
     ).allMatches(body)) {
-      for (final RegExpMatch parameter in RegExp(
+      for (final RegExpMatch parameter in cachedRegExp(
         r'\b(?:private|protected)\s+(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*:',
-      ).allMatches(constructor.group(1)!)) {
-        fields.add(parameter.group(1)!);
+      ).allMatches(constructor.requiredGroup(1))) {
+        fields.add(parameter.requiredGroup(1));
       }
     }
   }
@@ -591,20 +599,20 @@ List<({String type, String name})>? _parameters(
       return null;
     }
     final RegExpMatch? match = isTypeScript
-        ? RegExp(
+        ? cachedRegExp(
             r'^(?:(?:public|private|protected|readonly)\s+)*([A-Za-z_$][\w$]*)\??\s*:\s*(.+)$',
           ).firstMatch(parameter)
-        : RegExp(
+        : cachedRegExp(
             r'^(?:(?:ref|out|in|params|this)\s+)?([A-Za-z_]\w*(?:[.<>?\[\],]\w*)*)\s+([A-Za-z_]\w*)$',
           ).firstMatch(parameter);
     if (match == null) return null;
     result.add(
       isTypeScript
           ? (
-              type: match.group(2)!.replaceAll(RegExp(r'\s+'), ''),
-              name: match.group(1)!,
+              type: match.requiredGroup(2).replaceAll(cachedRegExp(r'\s+'), ''),
+              name: match.requiredGroup(1),
             )
-          : (type: match.group(1)!, name: match.group(2)!),
+          : (type: match.requiredGroup(1), name: match.requiredGroup(2)),
     );
   }
   return result;
@@ -612,7 +620,7 @@ List<({String type, String name})>? _parameters(
 
 List<String> _baseTypes(String source) => source
     .split(',')
-    .map((value) => value.trim().replaceAll(RegExp(r'<.*>'), ''))
+    .map((value) => value.trim().replaceAll(cachedRegExp(r'<.*>'), ''))
     .where((value) => value.isNotEmpty)
     .toList(growable: false);
 
@@ -713,27 +721,27 @@ String _maskNonCode(String source) {
   return String.fromCharCodes(result);
 }
 
-final RegExp _classDeclaration = RegExp(
+final RegExp _classDeclaration = cachedRegExp(
   r'\b(?:public|internal|private|protected|abstract|sealed|static|partial|final|strictfp|new|\s)*\b(class|interface)\s+([A-Za-z_]\w*)(?:\s*<[^>{}]+>)?\s*(?:(?::\s*([^\n{]+))|(?:extends\s+([A-Za-z_]\w*)\s*)?(?:implements\s+([^\n{]+))?)?\s*\{',
   multiLine: true,
 );
-final RegExp _methodDeclaration = RegExp(
+final RegExp _methodDeclaration = cachedRegExp(
   r'^\s*((?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|extern|unsafe|new|partial)\s+)*)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|<[^(){};]+>|\[\]|\?)*\s+([A-Za-z_]\w*)\s*(?:<[^>{}]+>)?\s*\(([^)]*)\)\s*(?:where[^\n{;=]+\s*)?(=>|\{|;)',
   multiLine: true,
 );
-final RegExp _typescriptMethodDeclaration = RegExp(
+final RegExp _typescriptMethodDeclaration = cachedRegExp(
   r'^\s*((?:(?:public|private|protected|static|abstract|async|override|readonly|declare|get|set)\s+)*)([A-Za-z_$][\w$]*|constructor)\s*(?:<[^>{}]+>)?\s*\(([^)]*)\)\s*(?::\s*[^={;\n]+)?\s*(=>|\{|;)',
   multiLine: true,
 );
-final RegExp _typescriptArrowMethodDeclaration = RegExp(
+final RegExp _typescriptArrowMethodDeclaration = cachedRegExp(
   r'^\s*((?:(?:public|private|protected|static|readonly|declare|override)\s+)*)([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*[^=;\n]+)?\s*(=>)',
   multiLine: true,
 );
-final RegExp _fieldDeclaration = RegExp(
+final RegExp _fieldDeclaration = cachedRegExp(
   r'^\s*(?:private|protected|internal)\s+(?:readonly\s+)?(?:static\s+)?[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|<[^(){};]+>|\[\]|\?)*\s+([A-Za-z_]\w*)\s*(?:=[^;]+)?;',
   multiLine: true,
 );
-final RegExp _typescriptFieldDeclaration = RegExp(
+final RegExp _typescriptFieldDeclaration = cachedRegExp(
   r'^\s*(?:(?:public|private|protected|static|readonly|declare|abstract)\s+)*([A-Za-z_$][\w$]*)[!?]?\s*:\s*[^;=]+(?:=[^;]+)?;',
   multiLine: true,
 );

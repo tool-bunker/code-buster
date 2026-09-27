@@ -440,7 +440,7 @@ List<ProcessingDiagnostic> _dartProcessingDiagnostics(
     }
     final List<String> messages = grouped.keys.toList()..sort();
     for (final String message in messages.take(5)) {
-      final List<int> lines = grouped[message]!..sort();
+      final List<int> lines = grouped.requiredValue(message)..sort();
       result.add(
         ProcessingDiagnostic(
           code: 'dart-parse-error',

@@ -1,6 +1,7 @@
 // Straightforward Nim style and safety patterns can be detected deterministically per line without paying for deeper analysis.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'canonical_nim_evidence.dart';
 
 /// Executes stateless style, security, string, and idiomatic line rules.
@@ -117,7 +118,7 @@ final class NimSimpleLineRulePack {
     ).firstMatch(line);
     if (opening == null) return false;
 
-    final String tag = opening.group(1)!;
+    final String tag = opening.requiredGroup(1);
     final String remainder = line.substring(opening.end);
     final RegExpMatch? closing = RegExp(
       '''["']</${RegExp.escape(tag)}\\s*>["']''',
@@ -284,8 +285,8 @@ final class NimSimpleLineRulePack {
       r'^(?:proc|func)\s+([A-Za-z_]\w*)_([A-Za-z_]\w*)\s*\(\s*\w+\s*:\s*(?:var\s+|ref\s+|ptr\s+)?([A-Za-z_]\w*)',
     ).firstMatch(line);
     if (namedProc != null &&
-        namedProc.group(1)!.toLowerCase() ==
-            namedProc.group(3)!.toLowerCase()) {
+        namedProc.requiredGroup(1).toLowerCase() ==
+            namedProc.requiredGroup(3).toLowerCase()) {
       context.add(
         'nim-type-prefix-proc-naming',
         RuleSeverity.info,
@@ -345,8 +346,10 @@ final class NimSimpleLineRulePack {
     final RegExpMatch? callable = RegExp(
       r'^(?:proc|func|method)\s+[^\(]+\(([^)]*)\)',
     ).firstMatch(line);
-    if (callable != null && ','.allMatches(callable.group(1)!).length >= 5) {
-      final int parameterCount = ','.allMatches(callable.group(1)!).length + 1;
+    if (callable != null &&
+        ','.allMatches(callable.requiredGroup(1)).length >= 5) {
+      final int parameterCount =
+          ','.allMatches(callable.requiredGroup(1)).length + 1;
       context.add(
         'nim-too-many-parameters',
         RuleSeverity.warn,

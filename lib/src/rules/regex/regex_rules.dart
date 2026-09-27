@@ -1,6 +1,7 @@
 // Potentially catastrophic or misleading regular expressions need a purpose-built scanner that reasons about pattern structure.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 /// Language-neutral regular-expression correctness and maintainability checks.
 final class RegexRuleAnalysis {
@@ -10,7 +11,7 @@ final class RegexRuleAnalysis {
     for (final MapEntry<String, String> entry in sources.entries) {
       final List<String> lines = entry.value.split('\n');
       final Map<String, int> seenPatterns = <String, int>{};
-      final bool supportsSlashLiterals = RegExp(
+      final bool supportsSlashLiterals = cachedRegExp(
         r'\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$',
       ).hasMatch(entry.key.toLowerCase());
       var inBlockComment = false;
@@ -18,8 +19,10 @@ final class RegexRuleAnalysis {
         final commentScan = _withoutComments(
           lines[index],
           inBlockComment: inBlockComment,
-          hashComments: RegExp(r'\.(?:py|nim)$').hasMatch(entry.key),
-          dashComments: RegExp(r'\.(?:lua|luau|sql)$').hasMatch(entry.key),
+          hashComments: cachedRegExp(r'\.(?:py|nim)$').hasMatch(entry.key),
+          dashComments: cachedRegExp(
+            r'\.(?:lua|luau|sql)$',
+          ).hasMatch(entry.key),
         );
         final String codeLine = commentScan.code;
         inBlockComment = commentScan.inBlockComment;
@@ -30,7 +33,7 @@ final class RegexRuleAnalysis {
           final String pattern = patternSite.pattern;
           // Runtime interpolation determines the final expression and cannot be
           // validated as a complete static regex literal.
-          if (RegExp(r'(?<!\\)\$(?:[A-Za-z_]|\{)').hasMatch(pattern)) {
+          if (cachedRegExp(r'(?<!\\)\$(?:[A-Za-z_]|\{)').hasMatch(pattern)) {
             continue;
           }
           void add(
@@ -61,7 +64,7 @@ final class RegexRuleAnalysis {
           // constructs that Dart's ECMAScript-style engine rejects.
           if (entry.key.toLowerCase().endsWith('.dart') && patternSite.raw) {
             try {
-              RegExp(pattern);
+              cachedRegExp(pattern);
             } on FormatException {
               add(
                 'regex-invalid',
@@ -73,7 +76,7 @@ final class RegexRuleAnalysis {
             }
           }
           if (pattern.length == 1 &&
-              RegExp(r'^[A-Za-z0-9]$').hasMatch(pattern)) {
+              cachedRegExp(r'^[A-Za-z0-9]$').hasMatch(pattern)) {
             add(
               'regex-single-literal',
               RuleSeverity.info,
@@ -135,7 +138,7 @@ final class RegexRuleAnalysis {
 
   Iterable<({String pattern, bool constructor, bool raw, int start, int end})>
   _patterns(String line, {required bool supportsSlashLiterals}) sync* {
-    for (final RegExpMatch match in RegExp(
+    for (final RegExpMatch match in cachedRegExp(
       r'''(?:RegExp|re\.compile|Pattern\.compile)\s*\(\s*(r)?(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')(?:\s*,\s*["'][gimsuy]*["'])?\s*\)''',
     ).allMatches(line)) {
       yield (
@@ -148,7 +151,7 @@ final class RegexRuleAnalysis {
     }
     if (supportsSlashLiterals) {
       final String code = _maskQuotedStringsAndComments(line);
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'(?<!/)/(?![/*])((?:\\.|[^/\n]){2,})/[gimsuy]*',
       ).allMatches(code)) {
         if (_canStartSlashLiteral(code, match.start)) {
@@ -165,21 +168,23 @@ final class RegexRuleAnalysis {
   }
 
   bool _hasAmbiguousNestedRepetition(String pattern) {
-    if (RegExp(r'(?:\.\*){2,}|(?:\.\+){2,}').hasMatch(pattern)) return true;
+    if (cachedRegExp(r'(?:\.\*){2,}|(?:\.\+){2,}').hasMatch(pattern)) {
+      return true;
+    }
     for (final ({String inner, String quantifier}) group in _quantifiedGroups(
       pattern,
     )) {
-      if (RegExp(r'^\{\d+\}$').hasMatch(group.quantifier) ||
+      if (cachedRegExp(r'^\{\d+\}$').hasMatch(group.quantifier) ||
           group.quantifier == '{0,1}') {
         continue;
       }
-      final String inner = group.inner.replaceFirst(RegExp(r'^\?:'), '');
+      final String inner = group.inner.replaceFirst(cachedRegExp(r'^\?:'), '');
       // Repetition separated by a required literal delimiter consumes a
       // character the repeated atom cannot consume, so iterations cannot
       // overlap (for example `(?:[\w-]+\/)+`).
-      if (RegExp(r'\\[^A-Za-z0-9]$').hasMatch(inner)) continue;
+      if (cachedRegExp(r'\\[^A-Za-z0-9]$').hasMatch(inner)) continue;
       if (inner.contains('.*') || inner.contains('.+')) return true;
-      if (RegExp(r'^(?:\\.|\[[^]]+\]|[^\\])[+*]$').hasMatch(inner)) {
+      if (cachedRegExp(r'^(?:\\.|\[[^]]+\]|[^\\])[+*]$').hasMatch(inner)) {
         return true;
       }
     }
@@ -225,7 +230,7 @@ final class RegexRuleAnalysis {
         final int end = pattern.indexOf('}', index + 2);
         if (end > 0) {
           final String quantifier = pattern.substring(index + 1, end + 1);
-          if (RegExp(r'^\{\d*,?\d*\}$').hasMatch(quantifier)) {
+          if (cachedRegExp(r'^\{\d*,?\d*\}$').hasMatch(quantifier)) {
             yield (
               inner: pattern.substring(start + 1, index),
               quantifier: quantifier,
@@ -241,7 +246,7 @@ final class RegexRuleAnalysis {
     if (prefix.isEmpty) return true;
     final String previous = prefix[prefix.length - 1];
     if ('=([{,:;!?'.contains(previous)) return true;
-    return RegExp(r'(?:return|case|throw|yield|=>)$').hasMatch(prefix);
+    return cachedRegExp(r'(?:return|case|throw|yield|=>)$').hasMatch(prefix);
   }
 
   ({String code, bool inBlockComment}) _withoutComments(
@@ -374,19 +379,19 @@ final class RegexRuleAnalysis {
         '${' ' * (patternSite.end - patternSite.start)}'
         '${line.substring(patternSite.end)}';
     final String code = _maskQuotedStringsAndComments(withoutPattern);
-    if (RegExp(r'\.toMatch\s*\(').hasMatch(code)) return false;
-    if (!RegExp(
+    if (cachedRegExp(r'\.toMatch\s*\(').hasMatch(code)) return false;
+    if (!cachedRegExp(
       r'\b(?:validation|validator|validate|isValid)\w*',
       caseSensitive: false,
     ).hasMatch(code)) {
       return false;
     }
-    if (RegExp(
+    if (cachedRegExp(
       r'\.(?:test|hasMatch|firstMatch|allMatches|matches|match)\s*\(',
     ).hasMatch(code)) {
       return true;
     }
-    return RegExp(
+    return cachedRegExp(
       r'\b(?:validation|validator|validate|isValid)\w*\s*=',
       caseSensitive: false,
     ).hasMatch(code);

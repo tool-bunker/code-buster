@@ -7,6 +7,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../catalog/rule_catalog.dart';
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'dart_advanced_rules.dart';
 import 'dart_mvvm_rules.dart';
 
@@ -42,10 +43,11 @@ final class DartRuleAnalysis {
     final List<Finding> result = <Finding>[];
     final List<String> paths = sources.keys.toList()..sort();
     for (final String path in paths) {
-      final String source = sources[path]!;
+      final String? source = sources[path];
+      final CompilationUnit? unit = units[path];
+      if (source == null || unit == null) continue;
       result.addAll(_layoutFindings(path, source, maxLineLength));
       result.addAll(_currentDartStyleFindings(path, source));
-      final CompilationUnit unit = units[path]!;
       final _DartRuleVisitor visitor = _DartRuleVisitor(path, source);
       unit.accept(visitor);
       result.addAll(
@@ -110,7 +112,7 @@ final class DartRuleAnalysis {
         asyncDepth += '{'.allMatches(raw).length - '}'.allMatches(raw).length;
       }
       if (asyncDepth > 0 &&
-          RegExp(
+          cachedRegExp(
             r'\b(?:sleep|readAsStringSync|writeAsStringSync|readAsBytesSync)\s*\(',
           ).hasMatch(line)) {
         result.add(
@@ -203,7 +205,7 @@ final class DartRuleAnalysis {
       if (!insideTripleString &&
           tripleQuote == null &&
           line.isNotEmpty &&
-          RegExp(r'[ \t]$').hasMatch(line)) {
+          cachedRegExp(r'[ \t]$').hasMatch(line)) {
         result.add(
           Finding(
             code: 'trailing-whitespace',
@@ -324,7 +326,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
               'Load the value from a secret manager or environment configuration.',
         );
       }
-      if (RegExp(r'\bRandom\s*\(').hasMatch(initializer.toSource())) {
+      if (cachedRegExp(r'\bRandom\s*\(').hasMatch(initializer.toSource())) {
         _add(
           node,
           code: 'dart-insecure-random',
@@ -361,7 +363,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
     if (target == 'Process' &&
         const <String>{'run', 'start'}.contains(method) &&
         node.argumentList.toSource().contains(
-          RegExp(r'runInShell\s*:\s*true'),
+          cachedRegExp(r'runInShell\s*:\s*true'),
         )) {
       _add(
         node,
@@ -431,18 +433,19 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
 
   bool _isKeyProvenPresent(PostfixExpression node) {
     final String lookup = node.operand.toSource();
-    final RegExpMatch? indexed = RegExp(
-      r'^([A-Za-z_]\w*)\[([A-Za-z_]\w*)\]$',
+    final RegExpMatch? indexed = cachedRegExp(
+      r'^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\[([A-Za-z_]\w*)\]$',
     ).firstMatch(lookup);
     if (indexed == null) return false;
-    final String map = indexed.group(1)!;
-    final String key = indexed.group(2)!;
+    final String map = indexed.requiredGroup(1);
+    final String key = indexed.requiredGroup(2);
     AstNode? current = node.parent;
     while (current != null) {
       if (current is ForStatement || current is ForElement) {
-        return RegExp(
-          'for\\s*\\([^)]*\\b${RegExp.escape(key)}\\s+in\\s+'
-          '${RegExp.escape(map)}\\.keys\\b',
+        return cachedRegExp(
+          'for\\s*\\([^;{}]*\\b${RegExp.escape(key)}\\s+in\\s+'
+          '${RegExp.escape(map)}\\.keys'
+          '(?:\\.toList\\(\\)\\.\\.sort\\(\\))?\\s*\\)',
         ).hasMatch(current.toSource());
       }
       if (current is FunctionBody) return false;
@@ -453,7 +456,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
 
   bool _isProvenNonNullByControlFlow(PostfixExpression node) {
     final String target = node.operand.toSource();
-    if (!RegExp(
+    if (!cachedRegExp(
       r'^(?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*|\[[^\]]+\])*$',
     ).hasMatch(target)) {
       return false;
@@ -555,7 +558,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
 
   bool _writesExpression(Statement statement, String target) {
     final String escaped = RegExp.escape(target);
-    return RegExp(
+    return cachedRegExp(
       '(?:^|[^=!<>])\\b$escaped\\s*(?:=(?!=)|\\+\\+|--|\\?\\?=)',
     ).hasMatch(statement.toSource());
   }
@@ -648,6 +651,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
       return;
     }
     if (_nullComparisonValue(expression, target) != null ||
+        _mapPresenceValue(expression, target) != null ||
         expression is BooleanLiteral) {
       return;
     }
@@ -729,6 +733,8 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
     }
     final bool? comparison = _nullComparisonValue(expression, target);
     if (comparison != null) return comparison;
+    final bool? presence = _mapPresenceValue(expression, target);
+    if (presence != null) return presence;
     if (expression case final BooleanLiteral literal) return literal.value;
     final String source = expression.toSource();
     final Expression? getter = getterConditions[source];
@@ -743,7 +749,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
       expandingGetters.remove(source);
       return value;
     }
-    return atoms[source]!;
+    return atoms.requiredValue(source);
   }
 
   bool? _nullComparisonValue(Expression expression, String target) {
@@ -759,6 +765,16 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
             expression.leftOperand is NullLiteral;
     if (!comparesTarget) return null;
     return expression.operator.lexeme == '==';
+  }
+
+  bool? _mapPresenceValue(Expression expression, String target) {
+    final RegExpMatch? lookup = cachedRegExp(
+      r'^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\[([A-Za-z_]\w*)\]$',
+    ).firstMatch(target);
+    if (lookup == null) return null;
+    final String map = lookup.requiredGroup(1);
+    final String key = lookup.requiredGroup(2);
+    return expression.toSource() == '$map.containsKey($key)' ? false : null;
   }
 
   @override
@@ -779,29 +795,29 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
 
   bool _forwardsCaughtFailure(CatchClause node) {
     final String body = node.body.toSource();
-    if (RegExp(r'\brethrow\b').hasMatch(body)) return true;
+    if (cachedRegExp(r'\brethrow\b').hasMatch(body)) return true;
     final String? error = node.exceptionParameter?.name.lexeme;
     final String? stack = node.stackTraceParameter?.name.lexeme;
     if (error == null || stack == null) return false;
-    return RegExp(
+    return cachedRegExp(
       '\\bcompleteError\\s*\\(\\s*${RegExp.escape(error)}\\s*,\\s*'
       '${RegExp.escape(stack)}\\s*\\)',
     ).hasMatch(body);
   }
 
-  static final RegExp _sensitiveName = RegExp(
+  static final RegExp _sensitiveName = cachedRegExp(
     r'password|secret|api_?key|access_?token|auth_?token|token|nonce|private_?key',
     caseSensitive: false,
   );
-  static final RegExp _testSourcePath = RegExp(
+  static final RegExp _testSourcePath = cachedRegExp(
     r'(?:^|/)(?:test|tests)(?:/|$)|_test\.dart$',
     caseSensitive: false,
   );
-  static final RegExp _numberedFixtureCredential = RegExp(
+  static final RegExp _numberedFixtureCredential = cachedRegExp(
     r'^[a-z]+(?:[-_][a-z]+)+[-_]\d{1,6}$',
     caseSensitive: false,
   );
-  static final RegExp _graphQlOperation = RegExp(
+  static final RegExp _graphQlOperation = cachedRegExp(
     r'^(?:query|mutation|subscription|fragment)\b',
   );
 
@@ -828,13 +844,13 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
         }.contains(lower)) {
       return false;
     }
-    if (RegExp(r'^[A-Za-z][A-Za-z0-9]*$').hasMatch(normalized) &&
-        !RegExp(r'\d').hasMatch(normalized)) {
+    if (cachedRegExp(r'^[A-Za-z][A-Za-z0-9]*$').hasMatch(normalized) &&
+        !cachedRegExp(r'\d').hasMatch(normalized)) {
       return false;
     }
-    final bool hasLower = RegExp('[a-z]').hasMatch(normalized);
-    final bool hasUpper = RegExp('[A-Z]').hasMatch(normalized);
-    final bool hasDigit = RegExp(r'\d').hasMatch(normalized);
+    final bool hasLower = cachedRegExp('[a-z]').hasMatch(normalized);
+    final bool hasUpper = cachedRegExp('[A-Z]').hasMatch(normalized);
+    final bool hasDigit = cachedRegExp(r'\d').hasMatch(normalized);
     return hasLower && (hasUpper || hasDigit);
   }
 

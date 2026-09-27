@@ -1,5 +1,6 @@
 // C# projects need namespace-aware dependency and function facts before shared graph and complexity checks can run.
 
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -18,7 +19,7 @@ final class CSharpAdapter {
     final Map<String, Iterable<String>> edges = <String, Iterable<String>>{};
     for (final MapEntry<String, String> entry in sources.entries) {
       final Set<String> dependencies = <String>{};
-      final Set<String> referencedNames = RegExp(r'\b[A-Za-z_]\w*\b')
+      final Set<String> referencedNames = cachedRegExp(r'\b[A-Za-z_]\w*\b')
           .allMatches(entry.value)
           .map((RegExpMatch match) => match.group(0)!)
           .toSet();
@@ -87,13 +88,13 @@ final class CSharpAdapter {
     return result;
   }
 
-  static final RegExp _typeDeclaration = RegExp(
+  static final RegExp _typeDeclaration = cachedRegExp(
     r'\b(?:(?:public|internal|private|protected)\s+)?(?:(?:static|sealed|abstract|partial)\s+)*(?:class|interface|struct|enum|record)\s+([A-Za-z_]\w*)',
   );
-  static final RegExp _method = RegExp(
+  static final RegExp _method = cachedRegExp(
     r'(?:^|\s)(?!(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|unsafe|extern|partial|new|extension|bool|byte|char|decimal|double|float|int|long|object|sbyte|short|string|uint|ulong|ushort|void)\s*\()([A-Za-z_]\w*)\s*(?:<[A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*>)?\s*\([^;{}]*\)\s*(?:where[^{}]+)?\{',
   );
-  static final RegExp _control = RegExp(
+  static final RegExp _control = cachedRegExp(
     r'^(?:if|for|foreach|while|switch|catch|using|lock)\b',
   );
 }

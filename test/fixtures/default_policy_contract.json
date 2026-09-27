@@ -143,6 +143,28 @@
   ],
   "rules": [
     {
+      "id": "abstraction-cost-exceeds-use",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Reports changed files adding at least three type declarations but no more than two behavioral lines.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "ai-model-output-to-execution",
       "severity": "error",
       "group": "core",
@@ -241,6 +263,72 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "boolean-option-explosion",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Reports newly added single-line function declarations containing at least three Boolean parameters.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "broad-refactor-in-focused-change",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires changed-base snapshots and reports only when one file mixes behavior changes with at least six style-equivalent edits.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "changed-behavior-without-test",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires changed-base evidence; external tests and unchanged integration coverage cannot be resolved.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
       "enabledByDefault": true
     },
     {
@@ -1364,7 +1452,7 @@
       "id": "css-universal-selector",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1424,8 +1512,8 @@
     {
       "id": "dart-analyzer-ignore",
       "severity": "info",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1446,7 +1534,7 @@
       "id": "dart-bad-certificate-callback",
       "severity": "warn",
       "group": "security",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1466,8 +1554,8 @@
     {
       "id": "dart-blocking-in-async",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1487,8 +1575,8 @@
     {
       "id": "dart-broad-catch",
       "severity": "info",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1508,8 +1596,8 @@
     {
       "id": "dart-catch-return-null",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1529,8 +1617,8 @@
     {
       "id": "dart-catch-without-stack-trace",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1550,8 +1638,8 @@
     {
       "id": "dart-controller-not-disposed",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1571,8 +1659,8 @@
     {
       "id": "dart-copy-with-missing-field",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1592,8 +1680,8 @@
     {
       "id": "dart-dynamic",
       "severity": "info",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1613,8 +1701,8 @@
     {
       "id": "dart-enum-name-persistence",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1635,7 +1723,7 @@
       "id": "dart-hardcoded-secret",
       "severity": "warn",
       "group": "security",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1655,8 +1743,8 @@
     {
       "id": "dart-http-client-not-closed",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1677,7 +1765,7 @@
       "id": "dart-insecure-random",
       "severity": "warn",
       "group": "security",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1697,8 +1785,8 @@
     {
       "id": "dart-iosink-not-closed",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1718,8 +1806,8 @@
     {
       "id": "dart-isolate-not-terminated",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1739,8 +1827,8 @@
     {
       "id": "dart-json-cast-without-validation",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1760,8 +1848,8 @@
     {
       "id": "dart-json-serialization-asymmetry",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1781,8 +1869,8 @@
     {
       "id": "dart-late-final-persistence",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1802,8 +1890,8 @@
     {
       "id": "dart-late-mutable",
       "severity": "info",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1823,8 +1911,8 @@
     {
       "id": "dart-map-string-dynamic-boundary",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1844,8 +1932,8 @@
     {
       "id": "dart-null-assertion",
       "severity": "info",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1866,7 +1954,7 @@
       "id": "dart-overlapping-data-model",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -1881,7 +1969,9 @@
       ],
       "frameworks": [],
       "languageVersions": {},
-      "limitations": [],
+      "limitations": [
+        "Private implementation classes are excluded because their shapes are library-local rather than shared data contracts."
+      ],
       "enabledByDefault": true
     },
     {
@@ -1912,7 +2002,7 @@
       "id": "dart-path-traversal",
       "severity": "warn",
       "group": "security",
-      "version": 3,
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1932,8 +2022,8 @@
     {
       "id": "dart-print",
       "severity": "info",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -1954,7 +2044,7 @@
       "id": "dart-process-shell",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1975,7 +2065,7 @@
       "id": "dart-process-untrusted-argument",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -1995,8 +2085,8 @@
     {
       "id": "dart-quadratic-list-membership",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2016,8 +2106,8 @@
     {
       "id": "dart-random-access-file-not-closed",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2037,8 +2127,8 @@
     {
       "id": "dart-receive-port-not-closed",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2058,8 +2148,8 @@
     {
       "id": "dart-recommended-lints-missing",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2079,8 +2169,8 @@
     {
       "id": "dart-regexp-created-in-loop",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2100,8 +2190,8 @@
     {
       "id": "dart-repeated-iterable-traversal",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2122,7 +2212,7 @@
       "id": "dart-sensitive-data-logging",
       "severity": "warn",
       "group": "security",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -2143,7 +2233,7 @@
       "id": "dart-sql-interpolation",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -2163,8 +2253,8 @@
     {
       "id": "dart-string-concat-in-loop",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2184,8 +2274,8 @@
     {
       "id": "dart-synchronous-file-io-in-async",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2205,8 +2295,8 @@
     {
       "id": "dart-throw-string",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2226,8 +2316,8 @@
     {
       "id": "dart-timer-not-cancelled",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 1,
+      "group": "style",
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2248,7 +2338,7 @@
       "id": "dart-unreachable-statement",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3149,8 +3239,8 @@
     {
       "id": "flutter-expanded-outside-flex",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 3,
+      "group": "style",
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3198,8 +3288,8 @@
     {
       "id": "flutter-future-created-in-build",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3221,8 +3311,8 @@
     {
       "id": "flutter-gesture-semantic-gap",
       "severity": "info",
-      "group": "nim-style",
-      "version": 3,
+      "group": "style",
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3270,8 +3360,8 @@
     {
       "id": "flutter-global-key-created-in-build",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3319,8 +3409,8 @@
     {
       "id": "flutter-image-network-no-error-builder",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3342,8 +3432,8 @@
     {
       "id": "flutter-listener-without-remove",
       "severity": "info",
-      "group": "nim-style",
-      "version": 4,
+      "group": "style",
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3468,8 +3558,8 @@
     {
       "id": "flutter-provider-watch-in-callback",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3544,8 +3634,8 @@
     {
       "id": "flutter-set-state-after-await",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 3,
+      "group": "style",
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3619,8 +3709,8 @@
     {
       "id": "flutter-stream-created-in-build",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 2,
+      "group": "style",
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -3667,8 +3757,8 @@
     {
       "id": "flutter-unbounded-scrollable",
       "severity": "warn",
-      "group": "nim-style",
-      "version": 3,
+      "group": "style",
+      "version": 4,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -4144,7 +4234,7 @@
       "id": "inconsistent-peer-file-naming",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -5130,6 +5220,28 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "new-unused-declaration",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a newly added private function or method whose name appears only at its declaration.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
       "enabledByDefault": true
     },
     {
@@ -7299,7 +7411,7 @@
       "id": "oop-data-clump",
       "severity": "info",
       "group": "maintainability",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -7321,7 +7433,8 @@
         "Requires the same complete signature of at least three explicitly typed parameters in three declarations across at least two files.",
         "Parameter names and normalized types must match; inferred parameters and partial parameter subsets are not analyzed.",
         "TypeScript destructured, inferred, and nested generic parameters are not analyzed.",
-        "C# partial types, aliases, and generic parameter splitting are not resolved."
+        "C# partial types, aliases, and generic parameter splitting are not resolved.",
+        "Local closures and rule registration or finding-emission signatures are excluded because they do not represent shared domain data."
       ],
       "enabledByDefault": true
     },
@@ -7385,7 +7498,7 @@
       "id": "oop-feature-envy",
       "severity": "info",
       "group": "maintainability",
-      "version": 6,
+      "version": 8,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -7404,7 +7517,7 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [
-        "Requires five accesses across three members and sixty percent of received accesses; Dart parameters matching the enclosing class type and accesses solely composing a returned Flutter Widget are excluded.",
+        "Requires five accesses across three members and sixty percent of received accesses; Dart parameters matching the enclosing class type, AST visitor implementations, and accesses solely composing a returned Flutter Widget are excluded.",
         "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
@@ -7442,7 +7555,7 @@
       "id": "oop-message-chain",
       "severity": "info",
       "group": "maintainability",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -7461,7 +7574,7 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [
-        "Requires three chains of at least four hops across two methods.",
+        "Requires three chains of at least four hops across two methods; AST visitor implementations and analyzer or rule-pack orchestration classes are excluded.",
         "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
@@ -7696,7 +7809,7 @@
       "id": "oop-single-use-abstraction",
       "severity": "info",
       "group": "yagni",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -7754,7 +7867,7 @@
       "id": "oop-template-workflow-candidate",
       "severity": "info",
       "group": "maintainability",
-      "version": 5,
+      "version": 7,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -7773,7 +7886,7 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [
-        "Requires sibling overrides with four to ten calls and exactly one differing call.",
+        "Requires sibling overrides with four to ten calls and exactly one differing call; analyzer execution hooks named `analyze` and AST visitor hooks named `visit...` are excluded.",
         "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
       ],
       "enabledByDefault": true
@@ -7795,6 +7908,28 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "optional-feature-bundle",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Reports changed files that add at least three optional feature controls and speculative cache, validation, notification, retry, or callback vocabulary.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
       "enabledByDefault": true
     },
     {
@@ -7865,7 +8000,7 @@
       "id": "public-mutable-state",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -8604,7 +8739,7 @@
       "id": "repeated-policy-literal",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 7,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -8616,7 +8751,9 @@
       "languages": [],
       "frameworks": [],
       "languageVersions": {},
-      "limitations": [],
+      "limitations": [
+        "Collection length comparisons and bare `count` identifiers are excluded because generic receiver names do not establish a shared policy concept across files."
+      ],
       "enabledByDefault": true
     },
     {
@@ -8800,6 +8937,28 @@
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "single-caller-wrapper",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a newly added expression-bodied or one-line private forwarding function with exactly one caller.",
+        "Runs only for focused changes touching at most five production source files."
       ],
       "enabledByDefault": true
     },
@@ -9116,6 +9275,28 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "style-drift-in-diff",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires changed-base snapshots and reports only repeated style-equivalent line replacements alongside behavior changes.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
       "enabledByDefault": true
     },
     {
@@ -9487,6 +9668,28 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "unrelated-symbol-churn",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires at least four changed named functions and reports only symbols disconnected from every other changed function.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
       "enabledByDefault": true
     },
     {

@@ -59,28 +59,22 @@ bool _disabledByPythonProjectPolicy(String root, String ruleId) {
   final File file = File('$root${Platform.pathSeparator}pyproject.toml');
   if (!file.existsSync()) return false;
   try {
-    final Map<String, dynamic> values = TomlDocument.parse(
-      file.readAsStringSync(),
-    ).toMap();
-    final Map<String, dynamic> tool =
-        values['tool'] as Map<String, dynamic>? ?? const <String, dynamic>{};
-    final Map<String, dynamic> pylint =
-        tool['pylint'] as Map<String, dynamic>? ?? const <String, dynamic>{};
-    final Map<String, dynamic> messages =
-        pylint['messages_control'] as Map<String, dynamic>? ??
-        const <String, dynamic>{};
-    final Set<String> pylintDisabled = {
-      for (final Object? value
-          in messages['disable'] as List<dynamic>? ?? const <dynamic>[])
+    final Map<String, Object?> values = Map<String, Object?>.from(
+      TomlDocument.parse(file.readAsStringSync()).toMap(),
+    );
+    final Map<String, Object?> tool = _objectTable(values['tool']);
+    final Map<String, Object?> pylint = _objectTable(tool['pylint']);
+    final Map<String, Object?> messages = _objectTable(
+      pylint['messages_control'],
+    );
+    final Set<String> pylintDisabled = <String>{
+      for (final Object? value in _objectList(messages['disable']))
         if (value is String) value.toLowerCase(),
     };
-    final Map<String, dynamic> ruff =
-        tool['ruff'] as Map<String, dynamic>? ?? const <String, dynamic>{};
-    final Map<String, dynamic> lint =
-        ruff['lint'] as Map<String, dynamic>? ?? const <String, dynamic>{};
-    final Set<String> ruffIgnored = {
-      for (final Object? value
-          in lint['ignore'] as List<dynamic>? ?? const <dynamic>[])
+    final Map<String, Object?> ruff = _objectTable(tool['ruff']);
+    final Map<String, Object?> lint = _objectTable(ruff['lint']);
+    final Set<String> ruffIgnored = <String>{
+      for (final Object? value in _objectList(lint['ignore']))
         if (value is String) value.toUpperCase(),
     };
     return switch (ruleId) {
@@ -97,6 +91,12 @@ bool _disabledByPythonProjectPolicy(String root, String ruleId) {
     return false;
   }
 }
+
+Map<String, Object?> _objectTable(Object? value) =>
+    value is Map ? Map<String, Object?>.from(value) : const <String, Object?>{};
+
+List<Object?> _objectList(Object? value) =>
+    value is List ? List<Object?>.from(value) : const <Object?>[];
 
 PythonSourceRule _style(String id, {int version = 1}) => PythonSourceRule(
   id: id,

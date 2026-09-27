@@ -42,15 +42,17 @@ final class DartOopAbstractionBypassRule extends SelfContainedRule {
         .requireLanguageAnalysis<Map<String, CompilationUnit>>();
     final Map<String, List<Finding>> findingsByCode =
         _findingsByUnits[units] ??= _analyzeAbstractionBypasses(units);
-    return findingsByCode[metadata.id]!.map(
-      (Finding finding) => context.report(
-        metadata: metadata,
-        path: finding.path,
-        line: finding.line,
-        message: finding.message,
-        confidence: finding.confidence,
-      ),
-    );
+    return findingsByCode
+        .requiredValue(metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            message: finding.message,
+            confidence: finding.confidence,
+          ),
+        );
   }
 }
 
@@ -107,19 +109,24 @@ Map<String, List<Finding>> _analyzeAbstractionBypasses(
     for (final MapEntry<String, _ExternalUsage> bypass in bypasses) {
       final List<String> directTypes = bypass.value.directTypes.toList()
         ..sort();
-      result[code]!.add(
-        Finding(
-          code: code,
-          severity: RuleSeverity.info,
-          path: bypass.key,
-          line: units[bypass.key]!.lineInfo
-              .getLocation(bypass.value.firstBypassOffset!)
-              .lineNumber,
-          message:
-              '${bypass.key} accesses ${directTypes.join(', ')} directly although ${abstraction.name} is used by $abstractionFiles external files and is the dominant ${abstraction.role.id} boundary',
-          confidence: 'high',
-        ),
-      );
+      final int? firstBypassOffset = bypass.value.firstBypassOffset;
+      final CompilationUnit? unit = units[bypass.key];
+      if (firstBypassOffset == null || unit == null) {
+        throw StateError('Recorded abstraction bypass has no source location');
+      }
+      result
+          .requiredValue(code)
+          .add(
+            Finding(
+              code: code,
+              severity: RuleSeverity.info,
+              path: bypass.key,
+              line: unit.lineInfo.getLocation(firstBypassOffset).lineNumber,
+              message:
+                  '${bypass.key} accesses ${directTypes.join(', ')} directly although ${abstraction.name} is used by $abstractionFiles external files and is the dominant ${abstraction.role.id} boundary',
+              confidence: 'high',
+            ),
+          );
     }
   }
   return result;

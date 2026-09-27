@@ -1,6 +1,7 @@
 // Rust findings focus on explicit failure, unsafe boundaries, leaked ownership, debug residue, and shell execution that deserve review in production source.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../languages/rust/rust_adapter.dart';
 
@@ -78,7 +79,7 @@ final class RustSourceRule extends SelfContainedRule {
       (RegExpMatch attribute) => allowedLints.any(
         (String lint) => RegExp(
           '(^|[,\\s])${RegExp.escape(lint)}([,\\s]|\$)',
-        ).hasMatch(attribute.group(1)!),
+        ).hasMatch(attribute.requiredGroup(1)),
       ),
     );
   }
@@ -94,7 +95,7 @@ Set<int> _rustAllowedLines(List<String> lines, List<String> allowedLints) {
         allowedLints.any(
           (String lint) => RegExp(
             '(^|[,\\s])${RegExp.escape(lint)}([,\\s]|\$)',
-          ).hasMatch(attribute.group(1)!),
+          ).hasMatch(attribute.requiredGroup(1)),
         );
   });
 }

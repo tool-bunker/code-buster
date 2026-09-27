@@ -27,16 +27,18 @@ final class DartOopInheritanceCandidateRule extends SelfContainedRule {
         .requireLanguageAnalysis<Map<String, CompilationUnit>>();
     final Map<String, List<Finding>> findingsByCode =
         _findingsByUnits[units] ??= _analyze(units);
-    return findingsByCode[metadata.id]!.map(
-      (Finding finding) => context.report(
-        metadata: metadata,
-        path: finding.path,
-        line: finding.line,
-        message: finding.message,
-        confidence: finding.confidence,
-        relatedFiles: finding.relatedFiles,
-      ),
-    );
+    return findingsByCode
+        .requiredValue(metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            message: finding.message,
+            confidence: finding.confidence,
+            relatedFiles: finding.relatedFiles,
+          ),
+        );
   }
 }
 

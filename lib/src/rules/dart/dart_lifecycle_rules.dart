@@ -7,7 +7,7 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
     for (final FieldDeclaration declaration
         in node.body.members.whereType<FieldDeclaration>()) {
       final String type = (declaration.fields.type?.toSource() ?? '')
-          .replaceFirst(RegExp(r'\?$'), '');
+          .replaceFirst(cachedRegExp(r'\?$'), '');
       if (!const <String>{
         'AnimationController',
         'PageController',
@@ -22,7 +22,7 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
         final String field = variable.name.lexeme;
         if (!field.startsWith('_') ||
             !_constructsController(text, field, type) ||
-            RegExp(
+            cachedRegExp(
               '${RegExp.escape(field)}[!?]?\\s*\\.\\s*dispose\\s*\\(',
             ).hasMatch(text)) {
           continue;
@@ -79,7 +79,7 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
     for (final FieldDeclaration declaration
         in node.body.members.whereType<FieldDeclaration>()) {
       final String type = (declaration.fields.type?.toSource() ?? '')
-          .replaceFirst(RegExp(r'\?$'), '');
+          .replaceFirst(cachedRegExp(r'\?$'), '');
       if (type == node.namePart.typeName.lexeme) continue;
       final ({String code, String kind, String action})? resource =
           type.startsWith('StreamSink<')
@@ -89,7 +89,7 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
       for (final VariableDeclaration variable in declaration.fields.variables) {
         final String field = variable.name.lexeme;
         if (variable.initializer == null &&
-            !RegExp(
+            !cachedRegExp(
               '\\b${RegExp.escape(field)}\\s*(?:\\?\\?=|=(?!=))',
             ).hasMatch(text)) {
           continue;
@@ -106,10 +106,11 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
     }
   }
 
-  bool _constructsController(String text, String field, String type) => RegExp(
-    '\\b${RegExp.escape(field)}\\s*(?:\\?\\?=|=(?!=))\\s*'
-    '(?:const\\s+)?${RegExp.escape(type)}(?:\\s*\\.\\s*\\w+)?\\s*\\(',
-  ).hasMatch(text);
+  bool _constructsController(String text, String field, String type) =>
+      cachedRegExp(
+        '\\b${RegExp.escape(field)}\\s*(?:\\?\\?=|=(?!=))\\s*'
+        '(?:const\\s+)?${RegExp.escape(type)}(?:\\s*\\.\\s*\\w+)?\\s*\\(',
+      ).hasMatch(text);
 
   void _checkClosableResource(
     ClassDeclaration node,
@@ -119,7 +120,7 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
     required String kind,
     required String action,
   }) {
-    if (RegExp(
+    if (cachedRegExp(
       '${RegExp.escape(field)}[!?]?\\.$action\\s*\\(',
     ).hasMatch(text)) {
       return;
@@ -149,8 +150,9 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
       for (final VariableDeclaration variable in declaration.fields.variables) {
         final String initializer = variable.initializer?.toSource() ?? '';
         if (disposedTargets.any(
-          (String target) =>
-              RegExp('\\b${RegExp.escape(target)}\\b').hasMatch(initializer),
+          (String target) => cachedRegExp(
+            '\\b${RegExp.escape(target)}\\b',
+          ).hasMatch(initializer),
         )) {
           disposedAnimations.add(variable.name.lexeme);
         }
@@ -186,7 +188,7 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
   }
 
   bool _isHookOwnedListener(MethodInvocation registration, String target) {
-    final RegExpMatch? entryMatch = RegExp(
+    final RegExpMatch? entryMatch = cachedRegExp(
       r'^([A-Za-z_]\w*)\.value$',
     ).firstMatch(target);
     if (entryMatch == null) return false;
@@ -196,13 +198,13 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
     }
     if (method is! MethodDeclaration) return false;
     final String source = method.toSource();
-    final String entry = RegExp.escape(entryMatch.group(1)!);
-    final RegExpMatch? loop = RegExp(
+    final String entry = RegExp.escape(entryMatch.requiredGroup(1));
+    final RegExpMatch? loop = cachedRegExp(
       'for\\s*\\(\\s*final\\s+$entry\\s+in\\s+([A-Za-z_]\\w*)\\.entries\\s*\\)',
     ).firstMatch(source);
     if (loop == null) return false;
-    final String collection = RegExp.escape(loop.group(1)!);
-    return RegExp(
+    final String collection = RegExp.escape(loop.requiredGroup(1));
+    return cachedRegExp(
       '(?:final|var)\\s+$collection\\s*=\\s*<[^;]+'
       r'use(?:FocusNode|AnimationController|ValueNotifier)\s*\(',
       dotAll: true,
@@ -248,7 +250,9 @@ final class _ListenerLifecycleVisitor extends RecursiveAstVisitor<void> {
   String? _targetName(MethodInvocation node) {
     final String? source = node.realTarget?.toSource();
     if (source == null || source.isEmpty) return null;
-    if (RegExp(r'^[A-Z]\w*(?:<[^>]+>)?(?:\.\w+)?\s*\(').hasMatch(source)) {
+    if (cachedRegExp(
+      r'^[A-Z]\w*(?:<[^>]+>)?(?:\.\w+)?\s*\(',
+    ).hasMatch(source)) {
       AstNode? current = node.parent;
       while (current != null && current is! ClassMember) {
         if (current is VariableDeclaration) {
@@ -263,8 +267,8 @@ final class _ListenerLifecycleVisitor extends RecursiveAstVisitor<void> {
       }
     }
     final String normalized = source
-        .replaceFirst(RegExp(r'^this\.'), '')
-        .replaceFirst(RegExp(r'[!?]+$'), '');
+        .replaceFirst(cachedRegExp(r'^this\.'), '')
+        .replaceFirst(cachedRegExp(r'[!?]+$'), '');
     return normalized;
   }
 }

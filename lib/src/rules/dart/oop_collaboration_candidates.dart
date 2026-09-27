@@ -4,6 +4,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../oop/metadata.dart';
 
@@ -27,15 +28,17 @@ final class DartOopCollaborationCandidateRule extends SelfContainedRule {
         .requireLanguageAnalysis<Map<String, CompilationUnit>>();
     final Map<String, List<Finding>> findingsByCode =
         _findingsByUnits[units] ??= _analyze(units);
-    return findingsByCode[metadata.id]!.map(
-      (Finding finding) => context.report(
-        metadata: metadata,
-        path: finding.path,
-        line: finding.line,
-        message: finding.message,
-        confidence: finding.confidence,
-      ),
-    );
+    return findingsByCode
+        .requiredValue(metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            message: finding.message,
+            confidence: finding.confidence,
+          ),
+        );
   }
 }
 
@@ -48,7 +51,16 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
   for (final MapEntry<String, CompilationUnit> entry in units.entries) {
     for (final ClassDeclaration declaration
         in entry.value.declarations.whereType<ClassDeclaration>()) {
+      final String? superclass = declaration.extendsClause?.superclass
+          .toSource();
+      if (superclass != null &&
+          superclass.split('<').first.endsWith('AstVisitor')) {
+        continue;
+      }
       final String className = declaration.namePart.typeName.lexeme;
+      if (className.endsWith('Analysis') || className.endsWith('RulePack')) {
+        continue;
+      }
       final int classLine = entry.value.lineInfo
           .getLocation(declaration.offset)
           .lineNumber;
@@ -197,7 +209,7 @@ final class _NotificationLoopVisitor extends RecursiveAstVisitor<void> {
         r'(?:^|\s)([A-Za-z_$][\w$]*)\s+in\s+' + RegExp.escape(field) + r'\s*$',
       ).firstMatch(node.forLoopParts.toSource());
       if (parts == null) continue;
-      final _LoopCallVisitor calls = _LoopCallVisitor(parts.group(1)!);
+      final _LoopCallVisitor calls = _LoopCallVisitor(parts.requiredGroup(1));
       node.body.accept(calls);
       if (calls.totalCalls == 1 && calls.calls.length == 1) {
         loops.add(
@@ -277,11 +289,15 @@ bool _continuesInParent(Expression node) {
 }
 
 int _chainDepth(Expression expression) => switch (expression) {
-  final MethodInvocation invocation when invocation.target != null =>
-    _chainDepth(invocation.target!) + 1,
+  final MethodInvocation invocation => switch (invocation.target) {
+    final Expression target => _chainDepth(target) + 1,
+    null => 0,
+  },
   final PropertyAccess access => _chainDepth(access.realTarget) + 1,
   PrefixedIdentifier _ => 1,
-  final IndexExpression index when index.target != null =>
-    _chainDepth(index.target!) + 1,
+  final IndexExpression index => switch (index.target) {
+    final Expression target => _chainDepth(target) + 1,
+    null => 0,
+  },
   _ => 0,
 };

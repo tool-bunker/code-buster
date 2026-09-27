@@ -1,10 +1,12 @@
 // Lua source checks need string-safe lexical facts and repository context that are cheaper to collect together.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 /// Shared stateful scan used by independently registered Lua rules.
 final class LuaRuleAnalysis {
   /// Emits findings for [ruleId] in source order.
+  // code-buster-ignore complex-function: rule-ID dispatch shares Lua block state and executes independent checks in one source pass.
   List<Finding> findings(Map<String, String> sources, String ruleId) {
     final List<Finding> result = <Finding>[];
     for (final MapEntry<String, String> entry in sources.entries) {
@@ -44,7 +46,7 @@ final class LuaRuleAnalysis {
           );
         }
 
-        final Match? assignment = RegExp(
+        final Match? assignment = cachedRegExp(
           r'^([A-Za-z_]\w*)\s*=(?!=)',
         ).firstMatch(line);
         final bool assignsLocal =
@@ -63,11 +65,11 @@ final class LuaRuleAnalysis {
             'possible global assignment',
           );
         }
-        final Match? localFunctionDeclaration = RegExp(
+        final Match? localFunctionDeclaration = cachedRegExp(
           r'\blocal\s+function\s+([A-Za-z_]\w*)\s*\(',
         ).firstMatch(line);
         if (localFunctionDeclaration != null) {
-          localScopes.last.add(localFunctionDeclaration.group(1)!);
+          localScopes.last.add(localFunctionDeclaration.requiredGroup(1));
         }
         if (_usesGlobalDynamicLoad(codeLines, index, line, localScopes)) {
           add(
@@ -121,28 +123,28 @@ final class LuaRuleAnalysis {
           );
         }
 
-        final Match? localDeclaration = RegExp(
+        final Match? localDeclaration = cachedRegExp(
           r'^local\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)(?:\s*=|\s*$)',
         ).firstMatch(line);
         if (localDeclaration != null) {
           localScopes.last.addAll(
             localDeclaration
-                .group(1)!
+                .requiredGroup(1)
                 .split(',')
                 .map((String name) => name.trim()),
           );
         }
 
-        final Match? functionDeclaration = RegExp(
+        final Match? functionDeclaration = cachedRegExp(
           r'\bfunction\s*(?:[A-Za-z_][\w.:]*)?\s*\(([^)]*)\)',
         ).firstMatch(line);
         final bool completesPendingBlock =
             pendingBlockTerminator != null &&
-            RegExp(
+            cachedRegExp(
               '\\b${RegExp.escape(pendingBlockTerminator)}\\b',
             ).hasMatch(line);
         if (completesPendingBlock) pendingBlockTerminator = null;
-        final Match? blockDeclaration = RegExp(
+        final Match? blockDeclaration = cachedRegExp(
           r'^(if|for|while|repeat)\b',
         ).firstMatch(line);
         final bool opensStandaloneDo = line == 'do' && !completesPendingBlock;
@@ -155,19 +157,21 @@ final class LuaRuleAnalysis {
           if (functionDeclaration != null) {
             scope.addAll(
               functionDeclaration
-                  .group(1)!
+                  .requiredGroup(1)
                   .split(',')
                   .map((String name) => name.trim())
-                  .where((String name) => RegExp(r'^\w+$').hasMatch(name)),
+                  .where(
+                    (String name) => cachedRegExp(r'^\w+$').hasMatch(name),
+                  ),
             );
           }
-          final Match? loopDeclaration = RegExp(
+          final Match? loopDeclaration = cachedRegExp(
             r'^for\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+(?:in\b|=)',
           ).firstMatch(line);
           if (loopDeclaration != null) {
             scope.addAll(
               loopDeclaration
-                  .group(1)!
+                  .requiredGroup(1)
                   .split(',')
                   .map((String name) => name.trim()),
             );
@@ -175,20 +179,20 @@ final class LuaRuleAnalysis {
           localScopes.add(scope);
         }
         if (blockDeclaration != null) {
-          final String keyword = blockDeclaration.group(1)!;
+          final String keyword = blockDeclaration.requiredGroup(1);
           final String terminator = keyword == 'if'
               ? 'then'
               : const <String>{'for', 'while'}.contains(keyword)
               ? 'do'
               : '';
           if (terminator.isNotEmpty &&
-              !RegExp('\\b$terminator\\b').hasMatch(line)) {
+              !cachedRegExp('\\b$terminator\\b').hasMatch(line)) {
             pendingBlockTerminator = terminator;
           }
         }
         final int closingScopes =
-            RegExp(r'\bend\b').allMatches(line).length +
-            (RegExp(r'^until\b').hasMatch(line) ? 1 : 0);
+            cachedRegExp(r'\bend\b').allMatches(line).length +
+            (cachedRegExp(r'^until\b').hasMatch(line) ? 1 : 0);
         for (
           var count = 0;
           count < closingScopes && localScopes.length > 1;
@@ -218,16 +222,16 @@ final class LuaRuleAnalysis {
     String line,
     List<Set<String>> localScopes,
   ) {
-    for (final RegExpMatch match in RegExp(
+    for (final RegExpMatch match in cachedRegExp(
       r'\b(load(?:string)?)\b',
     ).allMatches(line)) {
-      final String name = match.group(1)!;
+      final String name = match.requiredGroup(1);
       if (localScopes.any((Set<String> scope) => scope.contains(name))) {
         continue;
       }
 
       final String prefix = line.substring(0, match.start).trimRight();
-      if (RegExp(r'\bfunction$').hasMatch(prefix) ||
+      if (cachedRegExp(r'\bfunction$').hasMatch(prefix) ||
           prefix.endsWith('.') ||
           prefix.endsWith(':')) {
         continue;
@@ -239,7 +243,7 @@ final class LuaRuleAnalysis {
         suffix = _strip(lines[nextLine]).split('--').first;
         nextLine++;
       }
-      if (RegExp(r'^\s*\(').hasMatch(suffix)) {
+      if (cachedRegExp(r'^\s*\(').hasMatch(suffix)) {
         return true;
       }
     }
@@ -251,12 +255,12 @@ final class LuaRuleAnalysis {
     int lineIndex,
     String line,
   ) {
-    final Match? loop = RegExp(
+    final Match? loop = cachedRegExp(
       r'^for\b.*\bin\s+(?:i?pairs)\s*\((.+)\)\s*do\s*$',
     ).firstMatch(line);
     if (loop == null) return false;
 
-    final String iterated = loop.group(1)!.trim();
+    final String iterated = loop.requiredGroup(1).trim();
     if (!_tableExpression.hasMatch(iterated)) return false;
 
     final Set<String> aliases = <String>{iterated};
@@ -264,22 +268,22 @@ final class LuaRuleAnalysis {
     var scopeStart = 0;
     for (var index = lineIndex - 1; index >= 0; index--) {
       final String candidate = _strip(lines[index]).split('--').first.trim();
-      if (RegExp(r'^(?:local\s+)?function\b').hasMatch(candidate)) {
+      if (cachedRegExp(r'^(?:local\s+)?function\b').hasMatch(candidate)) {
         scopeStart = index + 1;
         break;
       }
     }
     for (var index = scopeStart; index < lineIndex; index++) {
       final String candidate = _strip(lines[index]).split('--').first.trim();
-      final Match? assignment = RegExp(
+      final Match? assignment = cachedRegExp(
         r'^(local\s+)?([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*$',
       ).firstMatch(candidate);
       if (assignment == null) continue;
-      final String name = assignment.group(2)!;
+      final String name = assignment.requiredGroup(2);
       if (assignment.group(1) == null) {
         localAliases.remove(name);
       } else {
-        localAliases[name] = assignment.group(3)!;
+        localAliases[name] = assignment.requiredGroup(3);
       }
     }
     var addedAlias = true;
@@ -307,13 +311,13 @@ final class LuaRuleAnalysis {
 
   static bool _mutatesTable(String line, String table) {
     final String escaped = RegExp.escape(table);
-    final RegExp indexedAssignment = RegExp(
+    final RegExp indexedAssignment = cachedRegExp(
       '(?:^|[^A-Za-z0-9_.])$escaped\\s*\\[[^\\]]+\\]\\s*=(?!=)',
     );
-    final RegExp structuralCall = RegExp(
+    final RegExp structuralCall = cachedRegExp(
       'table\\.(?:insert|remove|sort)\\s*\\(\\s*$escaped(?:\\s*[,\\)])',
     );
-    final RegExp moveDestination = RegExp(
+    final RegExp moveDestination = cachedRegExp(
       'table\\.move\\s*\\([^,]+,[^,]+,[^,]+,[^,]+,\\s*$escaped(?:\\s*[,\\)])',
     );
     return indexedAssignment.hasMatch(line) ||
@@ -322,37 +326,40 @@ final class LuaRuleAnalysis {
   }
 
   static bool _declaresHotFunction(String line) {
-    final Match? declaration = RegExp(
+    final Match? declaration = cachedRegExp(
       r'\bfunction\s+([A-Za-z_]\w*(?:[.:][A-Za-z_]\w*)*)\s*\(',
     ).firstMatch(line);
-    final Match? assignment = RegExp(
+    final Match? assignment = cachedRegExp(
       r'([A-Za-z_]\w*(?:[.:][A-Za-z_]\w*)*)\s*=\s*function\s*\(',
     ).firstMatch(line);
     final String? qualifiedName = declaration?.group(1) ?? assignment?.group(1);
     if (qualifiedName == null) return false;
-    final String name = qualifiedName.split(RegExp(r'[.:]')).last.toLowerCase();
+    final String name = qualifiedName
+        .split(cachedRegExp(r'[.:]'))
+        .last
+        .toLowerCase();
     return name == 'update' || name == 'draw';
   }
 
-  static final RegExp _tableExpression = RegExp(
+  static final RegExp _tableExpression = cachedRegExp(
     r'^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$',
   );
 
   static int _blockDepthDelta(String line) {
     var delta = 0;
-    if (RegExp(r'\bfunction\b').hasMatch(line)) delta++;
-    if (RegExp(
+    if (cachedRegExp(r'\bfunction\b').hasMatch(line)) delta++;
+    if (cachedRegExp(
       r'^(?:if\b.*\bthen|for\b.*\bdo|while\b.*\bdo|repeat\b|do\b)',
     ).hasMatch(line)) {
       delta++;
     }
-    delta -= RegExp(r'\bend\b').allMatches(line).length;
-    if (RegExp(r'^until\b').hasMatch(line)) delta--;
+    delta -= cachedRegExp(r'\bend\b').allMatches(line).length;
+    if (cachedRegExp(r'^until\b').hasMatch(line)) delta--;
     return delta;
   }
 
-  static final RegExp _luaLongBracketOpening = RegExp(r'\[(=*)\[');
-  static final RegExp _luaLongCommentOpening = RegExp(r'^--\[(=*)\[');
+  static final RegExp _luaLongBracketOpening = cachedRegExp(r'\[(=*)\[');
+  static final RegExp _luaLongCommentOpening = cachedRegExp(r'^--\[(=*)\[');
   static List<String> _codeOutsideLuaLongBracketsAndComments(
     List<String> lines,
   ) {
@@ -394,7 +401,7 @@ final class LuaRuleAnalysis {
           line.substring(comment),
         );
         if (commentOpening == null) break;
-        final String closing = ']${commentOpening.group(1)!}]';
+        final String closing = ']${commentOpening.requiredGroup(1)}]';
         final int close = line.indexOf(closing, comment + commentOpening.end);
         if (close < 0) {
           return (code: code.toString(), longBracketEnd: closing);
@@ -408,7 +415,7 @@ final class LuaRuleAnalysis {
       }
 
       code.write(line.substring(offset, openingOffset));
-      final String closing = ']${opening.group(1)!}]';
+      final String closing = ']${opening.requiredGroup(1)}]';
       final int close = line.indexOf(closing, offset + opening.end);
       if (close < 0) {
         return (code: code.toString(), longBracketEnd: closing);
@@ -419,7 +426,7 @@ final class LuaRuleAnalysis {
   }
 
   static String _strip(String line) => line.replaceAll(
-    RegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''),
+    cachedRegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''),
     '',
   );
 }

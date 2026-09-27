@@ -4,6 +4,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../oop/metadata.dart';
 
@@ -27,16 +28,18 @@ final class DartOopOwnershipCandidateRule extends SelfContainedRule {
         .requireLanguageAnalysis<Map<String, CompilationUnit>>();
     final Map<String, List<Finding>> findingsByCode =
         _findingsByUnits[units] ??= _analyze(units);
-    return findingsByCode[metadata.id]!.map(
-      (Finding finding) => context.report(
-        metadata: metadata,
-        path: finding.path,
-        line: finding.line,
-        message: finding.message,
-        confidence: finding.confidence,
-        relatedFiles: finding.relatedFiles,
-      ),
-    );
+    return findingsByCode
+        .requiredValue(metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            message: finding.message,
+            confidence: finding.confidence,
+            relatedFiles: finding.relatedFiles,
+          ),
+        );
   }
 }
 
@@ -50,6 +53,12 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
   for (final MapEntry<String, CompilationUnit> entry in units.entries) {
     for (final ClassDeclaration declaration
         in entry.value.declarations.whereType<ClassDeclaration>()) {
+      final String? superclass = declaration.extendsClause?.superclass
+          .toSource();
+      if (superclass != null &&
+          superclass.split('<').first.endsWith('AstVisitor')) {
+        continue;
+      }
       final String className = declaration.namePart.typeName.lexeme;
       final _LocatorVisitor locator = _LocatorVisitor();
       declaration.body.accept(locator);
@@ -79,9 +88,14 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
         ];
         parameters.removeWhere(
           (_TypedParameter parameter) =>
-              _sameDeclaredType(parameter.type, className),
+              _sameDeclaredType(parameter.type, className) ||
+              parameter.type == 'String',
         );
         if (parameters.isEmpty) continue;
+        if (_returnsDataProjection(method) ||
+            _returnsConstructedProjection(method)) {
+          continue;
+        }
         final _MemberAccessVisitor accesses = _MemberAccessVisitor(
           parameters.map((_TypedParameter parameter) => parameter.name).toSet(),
         );
@@ -124,6 +138,27 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
     'oop-feature-envy': featureEnvy,
     'oop-service-locator-dependency': _locatorFindings(locatorUses),
   };
+}
+
+bool _returnsDataProjection(MethodDeclaration method) {
+  final String returnType = method.returnType?.toSource() ?? '';
+  return returnType == 'Map' || returnType.startsWith('Map<');
+}
+
+bool _returnsConstructedProjection(MethodDeclaration method) {
+  final String? returnType = method.returnType?.toSource();
+  if (returnType == null) return false;
+  final String bareReturnType = returnType.split('<').first;
+  final FunctionBody body = method.body;
+  if (body is! ExpressionFunctionBody) return false;
+  final Expression expression = body.expression;
+  if (expression is InstanceCreationExpression) {
+    return expression.constructorName.type.toSource().split('<').first ==
+        bareReturnType;
+  }
+  return expression is MethodInvocation &&
+      expression.target == null &&
+      expression.methodName.name == bareReturnType;
 }
 
 List<Finding> _locatorFindings(Map<String, List<_LocatorUse>> usesByLocator) {
@@ -179,7 +214,7 @@ _TypedParameter? _typedParameter(FormalParameter parameter) {
     dotAll: true,
   ).firstMatch(parameter.toSource());
   if (typed == null) return null;
-  return _TypedParameter(name: name, type: typed.group(1)!);
+  return _TypedParameter(name: name, type: typed.requiredGroup(1));
 }
 
 bool _sameDeclaredType(String type, String className) {

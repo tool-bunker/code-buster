@@ -1,6 +1,7 @@
 // SQL must be split into statements with comments and strings understood before safety rules can inspect clauses reliably.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 /// PostgreSQL/MySQL statement checks for standalone SQL files.
 final class SqlRuleAnalysis {
@@ -138,28 +139,28 @@ final class SqlRuleAnalysis {
         _sqlServerSyntax.hasMatch(source);
   }
 
-  static final RegExp _postgresPath = RegExp(
+  static final RegExp _postgresPath = cachedRegExp(
     r'(?:^|[\\/])postgres(?:ql)?(?:[\\/]|$)|postgres(?:ql)?(?=\.sql$)',
     caseSensitive: false,
   );
-  static final RegExp _nonPostgresPath = RegExp(
+  static final RegExp _nonPostgresPath = cachedRegExp(
     r'(?:^|[\\/])(?:mysql|sqlite|sqlserver|mssql)(?:[\\/]|$)',
     caseSensitive: false,
   );
-  static final RegExp _sqliteHeader = RegExp(
+  static final RegExp _sqliteHeader = cachedRegExp(
     r'^\s*--[^\n]*\bsqlite\b',
     caseSensitive: false,
     multiLine: true,
   );
-  static final RegExp _sqliteSyntax = RegExp(
+  static final RegExp _sqliteSyntax = cachedRegExp(
     r'\bAUTOINCREMENT\b',
     caseSensitive: false,
   );
-  static final RegExp _mysqlSyntax = RegExp(
+  static final RegExp _mysqlSyntax = cachedRegExp(
     r'\bENGINE\s*=\s*[A-Za-z]|\bCHARACTER\s+SET\s*=?\s*utf8mb4\b|`[^`\r\n]+`',
     caseSensitive: false,
   );
-  static final RegExp _sqlServerSyntax = RegExp(
+  static final RegExp _sqlServerSyntax = cachedRegExp(
     r'\bOBJECT_ID\s*\(|\bsys\.indexes\b|^\s*GO\s*$',
     caseSensitive: false,
     multiLine: true,
@@ -173,7 +174,10 @@ final class SqlRuleAnalysis {
     bool postgres,
     bool checkNonConcurrentIndexes,
   ) {
-    final String sql = statement.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final String sql = statement.toLowerCase().replaceAll(
+      cachedRegExp(r'\s+'),
+      ' ',
+    );
     void add(
       String id,
       RuleSeverity severity,
@@ -204,7 +208,7 @@ final class SqlRuleAnalysis {
         'sql-select-star',
         RuleSeverity.info,
         'SQL uses SELECT *',
-        locationPattern: RegExp(r'\bselect\s+\*', caseSensitive: false),
+        locationPattern: cachedRegExp(r'\bselect\s+\*', caseSensitive: false),
         confidence: 'low',
       );
     }
@@ -213,17 +217,20 @@ final class SqlRuleAnalysis {
         'sql-delete-without-where',
         RuleSeverity.warn,
         'DELETE has no WHERE clause',
-        locationPattern: RegExp(r'\bdelete\s+from\b', caseSensitive: false),
+        locationPattern: cachedRegExp(
+          r'\bdelete\s+from\b',
+          caseSensitive: false,
+        ),
       );
     }
-    if (RegExp(r'^update\b').hasMatch(sql) &&
+    if (cachedRegExp(r'^update\b').hasMatch(sql) &&
         sql.contains(' set ') &&
         !sql.contains(' where ')) {
       add(
         'sql-update-without-where',
         RuleSeverity.warn,
         'UPDATE has no WHERE clause',
-        locationPattern: RegExp(r'^update\b', caseSensitive: false),
+        locationPattern: cachedRegExp(r'^update\b', caseSensitive: false),
       );
     }
     if (sql.contains('drop table') && !sql.contains('if exists')) {
@@ -232,7 +239,10 @@ final class SqlRuleAnalysis {
         RuleSeverity.info,
         'DROP TABLE lacks IF EXISTS',
         confidence: 'low',
-        locationPattern: RegExp(r'\bdrop\s+table\b', caseSensitive: false),
+        locationPattern: cachedRegExp(
+          r'\bdrop\s+table\b',
+          caseSensitive: false,
+        ),
       );
     }
     if (sql.contains('not in') && sql.contains('select')) {
@@ -241,7 +251,7 @@ final class SqlRuleAnalysis {
         RuleSeverity.info,
         'NOT IN subquery can behave unexpectedly with NULLs',
         confidence: 'low',
-        locationPattern: RegExp(r'\bnot\s+in\s*\(', caseSensitive: false),
+        locationPattern: cachedRegExp(r'\bnot\s+in\s*\(', caseSensitive: false),
       );
     }
     if (sql.contains(" like '") &&
@@ -253,7 +263,10 @@ final class SqlRuleAnalysis {
         RuleSeverity.info,
         'LIKE search appears case-sensitive',
         confidence: 'low',
-        locationPattern: RegExp(r'\blike\s+[\x27"]', caseSensitive: false),
+        locationPattern: cachedRegExp(
+          r'\blike\s+[\x27"]',
+          caseSensitive: false,
+        ),
       );
     }
     if (sql.contains(" like '%")) {
@@ -262,7 +275,10 @@ final class SqlRuleAnalysis {
         RuleSeverity.info,
         'LIKE pattern starts with wildcard',
         confidence: 'low',
-        locationPattern: RegExp(r'\blike\s+[\x27"]%', caseSensitive: false),
+        locationPattern: cachedRegExp(
+          r'\blike\s+[\x27"]%',
+          caseSensitive: false,
+        ),
       );
     }
     if (postgres &&
@@ -274,7 +290,10 @@ final class SqlRuleAnalysis {
         RuleSeverity.info,
         'CREATE INDEX is not CONCURRENTLY',
         confidence: 'low',
-        locationPattern: RegExp(r'\bcreate\s+index\b', caseSensitive: false),
+        locationPattern: cachedRegExp(
+          r'\bcreate\s+index\b',
+          caseSensitive: false,
+        ),
       );
     }
     if (sql.contains('alter table ') &&
@@ -285,7 +304,7 @@ final class SqlRuleAnalysis {
         'sql-add-not-null-default',
         RuleSeverity.warn,
         'ADD COLUMN NOT NULL DEFAULT may rewrite or lock table',
-        locationPattern: RegExp(
+        locationPattern: cachedRegExp(
           r'\balter\s+table\b.*\badd\s+column\b',
           caseSensitive: false,
         ),
@@ -296,12 +315,12 @@ final class SqlRuleAnalysis {
   /// Detects SQL assembled through interpolation/concatenation in other languages.
   List<Finding> inlineFindings(Map<String, String> sources) {
     final List<Finding> result = <Finding>[];
-    final RegExp statement = RegExp(
+    final RegExp statement = cachedRegExp(
       r'\b(?:select\s+.+\s+from\b(?!\s*:)|insert\s+into|update\s+.+\s+set|delete\s+from)\b',
       caseSensitive: false,
     );
     for (final MapEntry<String, String> entry in sources.entries) {
-      if (!RegExp(
+      if (!cachedRegExp(
         r'\.(?:dart|java|kt|kts|cs|js|jsx|mjs|cjs|ts|tsx|py|rb|php|go)$',
         caseSensitive: false,
       ).hasMatch(entry.key)) {
@@ -341,8 +360,11 @@ final class SqlRuleAnalysis {
           continue;
         }
         final bool interpolated =
-            line.contains(r'${') || RegExp(r'''\$"[^"\n]*\{''').hasMatch(line);
-        final bool taggedSqlTemplate = RegExp(r'\bsql\s*`').hasMatch(line);
+            line.contains(r'${') ||
+            cachedRegExp(r'''\$"[^"\n]*\{''').hasMatch(line);
+        final bool taggedSqlTemplate = cachedRegExp(
+          r'\bsql\s*`',
+        ).hasMatch(line);
         final bool safeSqlInterpolation =
             interpolated &&
             (taggedSqlTemplate ||
@@ -350,7 +372,7 @@ final class SqlRuleAnalysis {
                 _onlySafeCSharpNumericInterpolation(line, lines, index));
         final bool efCoreParameterizedInterpolation =
             interpolated && _isEfCoreParameterizedInterpolation(lines, index);
-        final bool concatenated = RegExp(
+        final bool concatenated = cachedRegExp(
           r'''(?:["'][^"']*(?:select|insert|update|delete)[^"']*["']\s*\+\s*(?!["'])\w|\b\w[\w.()]*\s*\+\s*["'][^"']*(?:select|insert|update|delete))''',
           caseSensitive: false,
         ).hasMatch(line);
@@ -385,7 +407,7 @@ final class SqlRuleAnalysis {
     if (!sourcePath.toLowerCase().endsWith('.dart')) return source;
     final List<int> masked = source.codeUnits.toList();
     for (final String quote in <String>["'''", '"""']) {
-      final RegExp fixture = RegExp(
+      final RegExp fixture = cachedRegExp(
         '''["'][^"'\\r\\n]+\\.(?:cs|java|kt|kts|js|jsx|mjs|cjs|ts|tsx|py|rb|php|go)["']\\s*:\\s*r?${RegExp.escape(quote)}''',
         caseSensitive: false,
       );
@@ -403,17 +425,17 @@ final class SqlRuleAnalysis {
 
   static bool _isSqlConstructionContext(List<String> lines, int index) {
     final String line = lines[index];
-    final RegExp execution = RegExp(
+    final RegExp execution = cachedRegExp(
       r'\b(?:execute|exec|query|prepare|raw)\w*\s*\(',
       caseSensitive: false,
     );
     if (execution.hasMatch(line)) return true;
 
-    final RegExpMatch? assignment = RegExp(
+    final RegExpMatch? assignment = cachedRegExp(
       r'\b([A-Za-z_$][\w$]*)\s*=',
     ).firstMatch(line);
     if (assignment != null) {
-      final String variable = assignment.group(1)!.toLowerCase();
+      final String variable = assignment.requiredGroup(1).toLowerCase();
       final bool sqlStorage =
           variable.contains('query') || variable.contains('sql');
       final bool diagnostic =
@@ -423,7 +445,7 @@ final class SqlRuleAnalysis {
       if (sqlStorage && !diagnostic) return true;
     }
 
-    if (index == 0 || !RegExp(r'''^\s*(?:["'`]|\$")''').hasMatch(line)) {
+    if (index == 0 || !cachedRegExp(r'''^\s*(?:["'`]|\$")''').hasMatch(line)) {
       return false;
     }
     return execution.hasMatch(lines[index - 1]);
@@ -431,7 +453,7 @@ final class SqlRuleAnalysis {
 
   static bool _isManagementObjectQuery(List<String> lines, int index) {
     final String line = lines[index];
-    final RegExp searcherCall = RegExp(
+    final RegExp searcherCall = cachedRegExp(
       r'\b(?:ManagementObjectSearcher|QueryInstances)\s*\(',
     );
     if (searcherCall.hasMatch(line) ||
@@ -439,20 +461,20 @@ final class SqlRuleAnalysis {
       return true;
     }
 
-    final RegExpMatch? assignment = RegExp(
+    final RegExpMatch? assignment = cachedRegExp(
       r'\b([A-Za-z_]\w*)\s*=',
     ).firstMatch(line);
     if (assignment == null) return false;
-    final String variable = assignment.group(1)!;
+    final String variable = assignment.requiredGroup(1);
     final String lowerVariable = variable.toLowerCase();
     if ((lowerVariable.contains('wmi') || lowerVariable.contains('cim')) &&
         lowerVariable.contains('query')) {
       return true;
     }
-    final RegExp variableReference = RegExp(
+    final RegExp variableReference = cachedRegExp(
       r'\b' + RegExp.escape(variable) + r'\b',
     );
-    final RegExp variableAssignment = RegExp(
+    final RegExp variableAssignment = cachedRegExp(
       r'\b' + RegExp.escape(variable) + r'\s*=',
     );
     for (var next = index + 1; next < lines.length; next++) {
@@ -468,24 +490,26 @@ final class SqlRuleAnalysis {
   }
 
   static bool _onlySafeSqlInterpolation(String line, String source) {
-    final List<RegExpMatch> expressions = RegExp(
+    final List<RegExpMatch> expressions = cachedRegExp(
       r'\$\{([^}]*)\}',
     ).allMatches(line).toList(growable: false);
     if (expressions.isEmpty) return false;
     for (final RegExpMatch match in expressions) {
-      final String expression = match.group(1)!.trim();
+      final String expression = match.requiredGroup(1).trim();
       if (_parameterPlaceholderFactory.hasMatch(expression)) continue;
-      if (!RegExp(r'^[A-Za-z_$][\w$]*$').hasMatch(expression)) return false;
+      if (!cachedRegExp(r'^[A-Za-z_$][\w$]*$').hasMatch(expression)) {
+        return false;
+      }
       if (_isStaticNumericConstant(expression, source) ||
           _isAllowlistedSqlIdentifier(expression, source)) {
         continue;
       }
-      final RegExpMatch? declaration = RegExp(
+      final RegExpMatch? declaration = cachedRegExp(
         '\\b(?:const|let|var)\\s+${RegExp.escape(expression)}\\s*=\\s*([^;\\n]+)',
       ).firstMatch(source);
       if (declaration == null ||
           !_parameterPlaceholderFactory.hasMatch(
-            declaration.group(1)!.trim(),
+            declaration.requiredGroup(1).trim(),
           )) {
         return false;
       }
@@ -498,39 +522,39 @@ final class SqlRuleAnalysis {
     List<String> lines,
     int index,
   ) {
-    if (!RegExp(r'''\$@?"|@\$"''').hasMatch(line)) return false;
-    final List<RegExpMatch> expressions = RegExp(
+    if (!cachedRegExp(r'''\$@?"|@\$"''').hasMatch(line)) return false;
+    final List<RegExpMatch> expressions = cachedRegExp(
       r'(?<!\{)\{([^{}]+)\}(?!\})',
     ).allMatches(line).toList(growable: false);
     if (expressions.isEmpty) return false;
 
     return expressions.every((RegExpMatch match) {
-      final String expression = match.group(1)!.trim();
-      if (RegExp(
+      final String expression = match.requiredGroup(1).trim();
+      if (cachedRegExp(
         r'^\((?:s?byte|u?short|u?int|u?long|float|double|decimal)\)\s*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$',
       ).hasMatch(expression)) {
         return true;
       }
-      if (!RegExp(r'^[A-Za-z_]\w*$').hasMatch(expression)) return false;
+      if (!cachedRegExp(r'^[A-Za-z_]\w*$').hasMatch(expression)) return false;
 
       final int first = index > 80 ? index - 80 : 0;
       for (var previous = index - 1; previous >= first; previous--) {
         final String declaration = lines[previous];
         final String name = RegExp.escape(expression);
-        if (RegExp(
+        if (cachedRegExp(
           '\\b(?:const\\s+)?(?:s?byte|u?short|u?int|u?long|float|double|decimal)\\s+$name\\b',
         ).hasMatch(declaration)) {
           return true;
         }
-        final RegExpMatch? inferred = RegExp(
+        final RegExpMatch? inferred = cachedRegExp(
           '\\bvar\\s+$name\\s*=\\s*([^;]+)',
         ).firstMatch(declaration);
         if (inferred != null) {
-          final String value = inferred.group(1)!.trim();
-          return RegExp(
+          final String value = inferred.requiredGroup(1).trim();
+          return cachedRegExp(
                 r'^[+-]?\d[\d_]*(?:\.\d[\d_]*)?[fFdDmMuUlL]*$',
               ).hasMatch(value) ||
-              RegExp(r'\.Ticks\b').hasMatch(value);
+              cachedRegExp(r'\.Ticks\b').hasMatch(value);
         }
       }
       return false;
@@ -540,29 +564,30 @@ final class SqlRuleAnalysis {
   static bool _isStaticNumericConstant(
     String expression,
     String source,
-  ) => RegExp(
+  ) => cachedRegExp(
     '\\bconst\\s+${RegExp.escape(expression)}\\s*=\\s*[0-9][0-9_]*(?:\\.[0-9_]+)?\\s*;',
   ).hasMatch(source);
 
   static bool _isAllowlistedSqlIdentifier(String expression, String source) {
-    final RegExpMatch? loop = RegExp(
+    final RegExpMatch? loop = cachedRegExp(
       '\\bfor\\s*\\(\\s*const\\s+${RegExp.escape(expression)}\\s+of\\s+'
       r'([A-Za-z_$][\w$]*)\s*\)',
     ).firstMatch(source);
     if (loop == null) return false;
-    final RegExpMatch? declaration = RegExp(
-      '\\bconst\\s+${RegExp.escape(loop.group(1)!)}\\s*=\\s*\\[([\\s\\S]*?)\\]\\s+as\\s+const',
+    final RegExpMatch? declaration = cachedRegExp(
+      '\\bconst\\s+${RegExp.escape(loop.requiredGroup(1))}\\s*=\\s*\\[([\\s\\S]*?)\\]\\s+as\\s+const',
     ).firstMatch(source);
     if (declaration == null) return false;
     final List<String> values = declaration
-        .group(1)!
+        .requiredGroup(1)
         .split(',')
         .map((String value) => value.trim())
         .where((String value) => value.isNotEmpty)
         .toList(growable: false);
     return values.isNotEmpty &&
         values.every(
-          (String value) => RegExp(r'''^(['"])[^'"]+\1$''').hasMatch(value),
+          (String value) =>
+              cachedRegExp(r'''^(['"])[^'"]+\1$''').hasMatch(value),
         );
   }
 
@@ -572,12 +597,12 @@ final class SqlRuleAnalysis {
   ) {
     final int start = index == 0 ? 0 : index - 1;
     final String invocation = lines.sublist(start, index + 1).join(' ');
-    return RegExp(
+    return cachedRegExp(
       r'\bExecuteSqlInterpolated(?:Async)?\s*\(',
     ).hasMatch(invocation);
   }
 
-  static final RegExp _parameterPlaceholderFactory = RegExp(
+  static final RegExp _parameterPlaceholderFactory = cachedRegExp(
     r'''^(?:[A-Za-z_$][\w$]*\.map\(\s*\(\s*\)\s*=>\s*['"]\?['"]\s*\)|new\s+Array\([^)]*\)\.fill\(\s*['"]\?['"]\s*\))\.join\(\s*['"],['"]\s*\)$''',
   );
 

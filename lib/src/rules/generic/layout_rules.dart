@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 
 /// Canonical metadata owned by repository layout rules.
@@ -58,7 +59,7 @@ final class TabIndentRule implements CodeBusterRule {
   const TabIndentRule();
 
   @override
-  RuleMetadata get metadata => layoutRuleMetadata['tab-indent']!;
+  RuleMetadata get metadata => layoutRuleMetadata.requiredValue('tab-indent');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -98,10 +99,11 @@ final class TrailingWhitespaceRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const TrailingWhitespaceRule();
 
-  static final RegExp _trailingWhitespace = RegExp(r'[ \t]$');
+  static final RegExp _trailingWhitespace = cachedRegExp(r'[ \t]$');
 
   @override
-  RuleMetadata get metadata => layoutRuleMetadata['trailing-whitespace']!;
+  RuleMetadata get metadata =>
+      layoutRuleMetadata.requiredValue('trailing-whitespace');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -148,7 +150,7 @@ final class LongLineRule implements CodeBusterRule {
   const LongLineRule();
 
   @override
-  RuleMetadata get metadata => layoutRuleMetadata['long-line']!;
+  RuleMetadata get metadata => layoutRuleMetadata.requiredValue('long-line');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -156,7 +158,7 @@ final class LongLineRule implements CodeBusterRule {
       if (source.key.endsWith('.dart')) continue;
       final int lineLimit = genericLineLimit(source.key, context.config);
       final List<String> lines = context.linesFor(source.key);
-      final bool templateLanguage = RegExp(
+      final bool templateLanguage = cachedRegExp(
         r'\.(?:js|jsx|mjs|cjs|ts|tsx)$',
       ).hasMatch(source.key);
       var inTemplate = false;
@@ -164,7 +166,7 @@ final class LongLineRule implements CodeBusterRule {
         final String raw = lines[index];
         final bool startedInTemplate = inTemplate;
         if (templateLanguage &&
-            RegExp(r'(?<!\\)`').allMatches(raw).length.isOdd) {
+            cachedRegExp(r'(?<!\\)`').allMatches(raw).length.isOdd) {
           inTemplate = !inTemplate;
         }
         final bool templateContent = startedInTemplate || inTemplate;
@@ -200,10 +202,10 @@ final class LongLineRule implements CodeBusterRule {
 
 List<int> _tabIndentLines(List<String> lines, String sourcePath) {
   final List<int> matches = <int>[];
-  final bool templateLanguage = RegExp(
+  final bool templateLanguage = cachedRegExp(
     r'\.(?:js|jsx|mjs|cjs|ts|tsx)$',
   ).hasMatch(sourcePath);
-  final bool lua = RegExp(r'\.(?:lua|luau)$').hasMatch(sourcePath);
+  final bool lua = cachedRegExp(r'\.(?:lua|luau)$').hasMatch(sourcePath);
   var inTemplate = false;
   var inBlockComment = false;
   String? luaLongString;
@@ -211,20 +213,21 @@ List<int> _tabIndentLines(List<String> lines, String sourcePath) {
     final String line = lines[index];
     final bool contentLine =
         inTemplate || inBlockComment || luaLongString != null;
-    if (!contentLine && RegExp(r'^[ ]*\t').hasMatch(line)) {
+    if (!contentLine && cachedRegExp(r'^[ ]*\t').hasMatch(line)) {
       matches.add(index + 1);
     }
 
-    if (templateLanguage && RegExp(r'(?<!\\)`').allMatches(line).length.isOdd) {
+    if (templateLanguage &&
+        cachedRegExp(r'(?<!\\)`').allMatches(line).length.isOdd) {
       inTemplate = !inTemplate;
     }
     if (lua) {
       if (luaLongString != null) {
         if (line.contains(']$luaLongString]')) luaLongString = null;
       } else {
-        final Match? opening = RegExp(r'\[(=*)\[').firstMatch(line);
+        final Match? opening = cachedRegExp(r'\[(=*)\[').firstMatch(line);
         if (opening != null) {
-          final String equals = opening.group(1)!;
+          final String equals = opening.requiredGroup(1);
           if (!line.substring(opening.end).contains(']$equals]')) {
             luaLongString = equals;
           }
@@ -342,10 +345,10 @@ int? _prettierLineLimit(String sourcePath, AnalysisConfig? config) {
     ]) {
       final File file = File(p.join(directory, name));
       if (!file.existsSync()) continue;
-      final RegExpMatch? match = RegExp(
+      final RegExpMatch? match = cachedRegExp(
         r'''(?:["']?printWidth["']?\s*[:=]\s*)(\d+)''',
       ).firstMatch(file.readAsStringSync());
-      if (match != null) return int.parse(match.group(1)!);
+      if (match != null) return int.parse(match.requiredGroup(1));
     }
     if (directory == root) break;
     directory = p.dirname(directory);
@@ -382,12 +385,12 @@ int? _editorConfigLineLimit(String sourcePath, AnalysisConfig? config) {
                       .contains(extension));
           continue;
         }
-        final RegExpMatch? match = RegExp(
+        final RegExpMatch? match = cachedRegExp(
           r'^max_line_length\s*=\s*(\d+|off)$',
           caseSensitive: false,
         ).firstMatch(line);
         if (applies && match != null) {
-          final String value = match.group(1)!.toLowerCase();
+          final String value = match.requiredGroup(1).toLowerCase();
           selected = value == 'off' ? 0 : int.parse(value);
         }
       }
@@ -408,9 +411,9 @@ int? _biomeLineLimit(String sourcePath, AnalysisConfig? config) {
     if (biome.existsSync()) {
       try {
         final Object? value = jsonDecode(biome.readAsStringSync());
-        if (value is Map<String, dynamic>) {
+        if (value is Map) {
           final Object? formatter = value['formatter'];
-          if (formatter is Map<String, dynamic>) {
+          if (formatter is Map) {
             if (formatter['enabled'] == false) return 0;
             final Object? width = formatter['lineWidth'];
             if (width is int && width > 0) return width;
@@ -464,12 +467,12 @@ bool trailingWhitespaceForbidden(String sourcePath, AnalysisConfig? config) {
                       .contains(extension));
           continue;
         }
-        final RegExpMatch? match = RegExp(
+        final RegExpMatch? match = cachedRegExp(
           r'^trim_trailing_whitespace\s*=\s*(true|false)$',
           caseSensitive: false,
         ).firstMatch(line);
         if (applies && match != null) {
-          selected = match.group(1)!.toLowerCase() == 'true';
+          selected = match.requiredGroup(1).toLowerCase() == 'true';
         }
       }
       if (selected != null) return selected;
@@ -498,9 +501,9 @@ bool tabsForbidden(String sourcePath, AnalysisConfig? config) {
       final String source = prettier.readAsStringSync();
       try {
         final Object? value = jsonDecode(source);
-        if (value is Map<String, dynamic>) return value['useTabs'] != true;
+        if (value is Map) return value['useTabs'] != true;
       } on FormatException {
-        final RegExpMatch? useTabs = RegExp(
+        final RegExpMatch? useTabs = cachedRegExp(
           r'''useTabs\s*[:=]\s*(true|false)''',
         ).firstMatch(source);
         return useTabs?.group(1) != 'true';
@@ -530,12 +533,12 @@ bool tabsForbidden(String sourcePath, AnalysisConfig? config) {
                       .contains(extension));
           continue;
         }
-        final RegExpMatch? match = RegExp(
+        final RegExpMatch? match = cachedRegExp(
           r'^indent_style\s*=\s*(space|tab)$',
           caseSensitive: false,
         ).firstMatch(line);
         if (applies && match != null) {
-          selected = match.group(1)!.toLowerCase() == 'space';
+          selected = match.requiredGroup(1).toLowerCase() == 'space';
         }
       }
       if (selected != null) return selected;

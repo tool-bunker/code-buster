@@ -4,6 +4,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../oop/metadata.dart';
 
@@ -27,16 +28,18 @@ final class DartOopDesignCandidateRule extends SelfContainedRule {
         .requireLanguageAnalysis<Map<String, CompilationUnit>>();
     final Map<String, List<Finding>> findingsByCode =
         _findingsByUnits[units] ??= _analyze(units);
-    return findingsByCode[metadata.id]!.map(
-      (Finding finding) => context.report(
-        metadata: metadata,
-        path: finding.path,
-        line: finding.line,
-        message: finding.message,
-        confidence: finding.confidence,
-        relatedFiles: finding.relatedFiles,
-      ),
-    );
+    return findingsByCode
+        .requiredValue(metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            message: finding.message,
+            confidence: finding.confidence,
+            relatedFiles: finding.relatedFiles,
+          ),
+        );
   }
 }
 
@@ -160,7 +163,9 @@ final class _DesignCandidateVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitFunctionDeclaration(FunctionDeclaration node) {
-    _recordParameters(node.functionExpression.parameters, node.offset);
+    if (node.parent is CompilationUnit) {
+      _recordParameters(node.functionExpression.parameters, node.offset);
+    }
     super.visitFunctionDeclaration(node);
   }
 
@@ -181,7 +186,7 @@ final class _DesignCandidateVisitor extends RecursiveAstVisitor<void> {
     final List<String> labels = <String>[];
     final List<Set<String>> callsByCase = <Set<String>>[];
     for (final SwitchMember member in node.members) {
-      final RegExpMatch? label = RegExp(
+      final RegExpMatch? label = cachedRegExp(
         r'^\s*case\s+(.+?)(?:\s+when\s+.+)?:',
         dotAll: true,
       ).firstMatch(member.toSource());
@@ -192,7 +197,9 @@ final class _DesignCandidateVisitor extends RecursiveAstVisitor<void> {
         labels.clear();
         break;
       }
-      labels.add(label.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim());
+      labels.add(
+        label.requiredGroup(1).replaceAll(cachedRegExp(r'\s+'), ' ').trim(),
+      );
       callsByCase.add(calls.names);
     }
     if (labels.length >= 3 && _hasDistinctDispatchCalls(callsByCase)) {
@@ -232,7 +239,7 @@ final class _DesignCandidateVisitor extends RecursiveAstVisitor<void> {
       final String? name = parameter.name?.lexeme;
       if (name == null) return;
       final String source = parameter.toSource();
-      final RegExpMatch? typed = RegExp(
+      final RegExpMatch? typed = cachedRegExp(
         r'^\s*(?:required\s+)?(?:final\s+)?([A-Za-z_$][\w$]*(?:<[^>]+>)?\??)\s+(?:this\.)?' +
             RegExp.escape(name) +
             r'(?:\s*=.*)?\s*$',
@@ -242,6 +249,13 @@ final class _DesignCandidateVisitor extends RecursiveAstVisitor<void> {
       parameters.add('${typed.group(1)} $name');
     }
     parameters.sort();
+    final Set<String> names = parameters
+        .map((String parameter) => parameter.split(' ').last)
+        .toSet();
+    if (names.containsAll(const <String>{'id', 'severity'}) &&
+        (names.contains('message') || names.contains('group'))) {
+      return;
+    }
     onParameterGroup(
       parameters.join('|'),
       _Occurrence(path: path, line: lineAt(offset)),

@@ -10,6 +10,7 @@ import '../config/repository_defaults.dart';
 import '../controls/finding_controls.dart';
 import '../core/models.dart';
 import '../core/processing_diagnostic.dart';
+import '../core/regexp_cache.dart';
 import '../discovery/discovery.dart';
 import '../discovery/language_versions.dart';
 import '../graph/graph.dart';
@@ -69,9 +70,11 @@ final class AnalysisCacheStage {
 
   final PersistentAnalysisCache cache;
 
-  bool graphCacheHit = false;
+  bool _graphCacheHit = false;
+  bool get graphCacheHit => _graphCacheHit;
 
-  bool findingsCacheHit = false;
+  bool _findingsCacheHit = false;
+  bool get findingsCacheHit => _findingsCacheHit;
 
   DependencyGraph graph(
     PreparedAnalysis prepared,
@@ -87,7 +90,7 @@ final class AnalysisCacheStage {
       key: key,
     );
     if (cached != null) {
-      graphCacheHit = true;
+      _graphCacheHit = true;
       return cached;
     }
     final DependencyGraph result = build();
@@ -120,7 +123,7 @@ final class AnalysisCacheStage {
       key: key,
     );
     if (cached != null) {
-      findingsCacheHit = true;
+      _findingsCacheHit = true;
       return List<Finding>.unmodifiable(cached);
     }
     final List<Finding> result = List<Finding>.unmodifiable(analyze());
@@ -161,11 +164,10 @@ final class FindingControlStage {
     Finding finding,
     Map<String, List<ChangedLineRange>> ranges,
   ) {
-    if (ranges.isEmpty || !ranges.containsKey(finding.path)) {
-      return ranges.isEmpty;
-    }
+    final List<ChangedLineRange>? pathRanges = ranges[finding.path];
+    if (pathRanges == null) return ranges.isEmpty;
     final int end = finding.endLine == 0 ? finding.line : finding.endLine;
-    return ranges[finding.path]!.any(
+    return pathRanges.any(
       (ChangedLineRange range) =>
           finding.line <= range.end && end >= range.start,
     );
@@ -323,10 +325,10 @@ final class AnalysisPreparationStage {
       }
     }
     for (final String source in sources.values) {
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'''['"](assets/[^'"]+)['"]''',
       ).allMatches(source)) {
-        final String asset = match.group(1)!;
+        final String asset = match.requiredGroup(1);
         auxiliaryFiles['@exists/$asset'] =
             File(
               '$root${Platform.pathSeparator}${asset.replaceAll('/', Platform.pathSeparator)}',

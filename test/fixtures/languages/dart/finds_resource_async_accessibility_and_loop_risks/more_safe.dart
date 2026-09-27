@@ -5,25 +5,30 @@ class MoreSafe {
 
   Future<String> load(File source) async => source.readAsString();
 
-  Widget build(BuildContext context) => Column(children: [
-    Expanded(child: ListView(children: const [])),
-    Semantics(
-      button: true,
-      child: GestureDetector(onTap: activate, child: const Text('Run')),
-    ),
-    Listener(
-      onPointerDown: track,
-      onPointerMove: track,
-      onPointerUp: track,
-      child: const Text('Tracked region'),
-    ),
-  ]);
+  Widget build(BuildContext context) => Column(
+    children: [
+      Expanded(child: ListView(children: const [])),
+      Semantics(
+        button: true,
+        child: GestureDetector(onTap: activate, child: const Text('Run')),
+      ),
+      Listener(
+        onPointerDown: track,
+        onPointerMove: track,
+        onPointerUp: track,
+        child: const Text('Tracked region'),
+      ),
+    ],
+  );
 
   String scan(List<String> items) {
     final buffer = StringBuffer();
     for (final item in items) {
       if (matcher.hasMatch(item)) buffer.write(item);
     }
+    items.any(valid);
+    items.firstWhere(valid);
+    items.contains('done');
     return buffer.toString();
   }
 

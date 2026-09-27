@@ -3,6 +3,8 @@
 
 import 'dart:io';
 
+import 'package:code_buster/src/core/regexp_cache.dart';
+
 void main(List<String> arguments) {
   if (arguments.length != 1) {
     stderr.writeln('usage: dart run tool/release_version.dart <tag>');
@@ -33,7 +35,7 @@ String? validateReleaseVersion({
   ).firstMatch(pubspec);
   if (versionMatch == null) return 'pubspec.yaml has no version';
 
-  final String version = versionMatch.group(1)!;
+  final String version = versionMatch.requiredGroup(1);
   if (tag != 'v$version') {
     return 'tag $tag does not match pubspec version $version';
   }

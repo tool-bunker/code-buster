@@ -38,7 +38,7 @@ final class SarifIngestion {
         if (decoded is! Map || decoded['runs'] is! List) {
           throw const FormatException('expected a SARIF runs array');
         }
-        for (final Object? rawRun in decoded['runs'] as List<dynamic>) {
+        for (final Object? rawRun in decoded['runs'] as List<Object?>) {
           if (rawRun is! Map) continue;
           final Map<Object?, Object?> run = rawRun;
           final String provider = _provider(run);

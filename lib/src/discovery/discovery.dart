@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 
 import '../config/repository_defaults.dart';
 import '../core/models.dart';
+import '../core/regexp_cache.dart';
 import '../plugins/languages.dart';
 import 'source_classifier.dart';
 
@@ -20,7 +21,7 @@ const Set<String> _defaultIgnoredDirectories = <String>{
   '.vscode',
 };
 
-bool _isSourceBuildDirectory(String relative) => RegExp(
+bool _isSourceBuildDirectory(String relative) => cachedRegExp(
   r'(^|/)(?:command|commands|cmd|cmds)/build/?$',
 ).hasMatch(relative.replaceAll(r'\', '/').toLowerCase());
 
@@ -413,7 +414,9 @@ final class SourceDiscovery {
       return _immutableRanges(result);
     }
     String current = '';
-    final RegExp hunk = RegExp(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@');
+    final RegExp hunk = cachedRegExp(
+      r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@',
+    );
     for (final String line in (diff.stdout as String).split('\n')) {
       if (line.startsWith('+++ b/')) {
         current = _normalizeRelative(line.substring(6).trim());
@@ -423,7 +426,7 @@ final class SourceDiscovery {
       if (match == null || current.isEmpty) {
         continue;
       }
-      final int start = int.parse(match.group(1)!);
+      final int start = int.parse(match.requiredGroup(1));
       final int count = int.parse(match.group(2) ?? '1');
       if (count > 0) {
         result
@@ -461,7 +464,7 @@ final class SourceDiscovery {
     for (final String rawPattern in patterns) {
       final String pattern = _normalizeRelative(
         rawPattern.trim(),
-      ).replaceAll(RegExp(r'^/+|/+$'), '');
+      ).replaceAll(cachedRegExp(r'^/+|/+$'), '');
       final bool wildcard = pattern.contains('*');
       if (pattern.isNotEmpty &&
           ((wildcard && _globMatches(normalized, pattern)) ||
@@ -508,7 +511,7 @@ final class SourceDiscovery {
         rules.add(
           GitIgnoreRule(
             base: base == '.' ? '' : base,
-            pattern: withoutNegation.replaceAll(RegExp(r'^/+|/+$'), ''),
+            pattern: withoutNegation.replaceAll(cachedRegExp(r'^/+|/+$'), ''),
             negated: negated,
             directoryOnly: withoutNegation.endsWith('/'),
             anchored: withoutNegation.startsWith('/'),
@@ -526,7 +529,7 @@ final class SourceDiscovery {
   ) {
     final String normalized = _normalizeRelative(
       relative,
-    ).replaceAll(RegExp(r'/$'), '');
+    ).replaceAll(cachedRegExp(r'/$'), '');
     var ignored = false;
     for (final GitIgnoreRule rule in rules) {
       if (rule.base.isNotEmpty &&
@@ -583,7 +586,7 @@ final class SourceDiscovery {
       }
     }
     expression.write(r'$');
-    return RegExp(expression.toString()).hasMatch(text);
+    return cachedRegExp(expression.toString()).hasMatch(text);
   }
 
   void _addExistingChangedPaths(Set<String> paths, String output) {
