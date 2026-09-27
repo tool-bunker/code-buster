@@ -87,6 +87,9 @@ final class DartAggregatedRule extends SelfContainedRule {
             'Separate cross-file data models have strongly overlapping fields.',
         suggestion:
             'Confirm distinct contracts or share a common value object.',
+        limitations: <String>[
+          'Private implementation classes are excluded because their shapes are library-local rather than shared data contracts.',
+        ],
         semanticMaturity: RuleSemanticMaturity.project,
         requirements: <RuleAnalysisRequirement>{
           RuleAnalysisRequirement.ast,
@@ -94,6 +97,7 @@ final class DartAggregatedRule extends SelfContainedRule {
         },
         taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
         languages: <String>['dart'],
+        version: 2,
       );
     }
     final bool warning = _warningIds.contains(id);
@@ -104,25 +108,27 @@ final class DartAggregatedRule extends SelfContainedRule {
           ? 'core'
           : _securityIds.contains(id)
           ? 'security'
-          : 'nim-style',
+          : 'style',
       title: 'Review ${id.substring(5).replaceAll('-', ' ')}',
       why:
           'This Dart construct can weaken static safety, reliability, or security.',
       suggestion:
           'Use the safer typed asynchronous Dart pattern described by the rule.',
-      version: id.startsWith('flutter-')
-          ? _versionThreeIds.contains(id)
-                ? 4
-                : _versionTwoIds.contains(id)
-                ? 3
-                : 2
-          : id == 'dart-hardcoded-secret'
-          ? 4
-          : _versionThreeIds.contains(id)
-          ? 3
-          : _versionTwoIds.contains(id)
-          ? 2
-          : 1,
+      version:
+          1 +
+          (id.startsWith('flutter-')
+              ? _versionThreeIds.contains(id)
+                    ? 4
+                    : _versionTwoIds.contains(id)
+                    ? 3
+                    : 2
+              : id == 'dart-hardcoded-secret'
+              ? 4
+              : _versionThreeIds.contains(id)
+              ? 3
+              : _versionTwoIds.contains(id)
+              ? 2
+              : 1),
       languages: const <String>['dart'],
       frameworks: id.startsWith('flutter-')
           ? const <String>{'flutter'}
@@ -144,6 +150,7 @@ final class DartAggregatedRule extends SelfContainedRule {
   static const Set<String> _versionThreeIds = <String>{
     'flutter-listener-without-remove',
     'dart-path-traversal',
+    'dart-null-assertion',
   };
 
   static const Set<String> _versionTwoIds = <String>{
@@ -154,6 +161,7 @@ final class DartAggregatedRule extends SelfContainedRule {
     'dart-insecure-random',
     'dart-http-client-not-closed',
     'dart-path-traversal',
+    'dart-repeated-iterable-traversal',
     'dart-sensitive-data-logging',
     'flutter-expanded-outside-flex',
     'flutter-gesture-semantic-gap',

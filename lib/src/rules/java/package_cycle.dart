@@ -1,6 +1,7 @@
 // Java package boundaries can cycle independently of class-level details, so this rule analyzes the package dependency projection.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../graph/graph.dart';
 
@@ -49,7 +50,7 @@ final class JavaPackageCycleRule extends SelfContainedRule {
       if (owner == null) continue;
       final String ownerNode = _packageNode(owner.module, owner.package);
       for (final RegExpMatch match in _import.allMatches(source.value)) {
-        final String imported = match.group(1)!;
+        final String imported = match.requiredGroup(1);
         String? packageName;
         for (final String candidate in nodesByPackage.keys) {
           if ((imported == candidate || imported.startsWith('$candidate.')) &&
@@ -58,7 +59,9 @@ final class JavaPackageCycleRule extends SelfContainedRule {
           }
         }
         if (packageName == null || packageName == owner.package) continue;
-        final Set<String> candidates = nodesByPackage[packageName]!;
+        final Set<String> candidates = nodesByPackage.requiredValue(
+          packageName,
+        );
         final String sameModule = _packageNode(owner.module, packageName);
         final String? target = candidates.contains(sameModule)
             ? sameModule
@@ -66,7 +69,7 @@ final class JavaPackageCycleRule extends SelfContainedRule {
             ? candidates.single
             : null;
         if (target != null && target != ownerNode) {
-          edges[ownerNode]!.add(target);
+          edges.requiredValue(ownerNode).add(target);
         }
       }
     }

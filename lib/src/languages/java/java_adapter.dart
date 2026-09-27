@@ -1,5 +1,6 @@
 // Java package and import structure is translated here into repository-owned edges and callable regions for downstream checks.
 
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -32,7 +33,7 @@ final class JavaAdapter {
       final List<String> lines = entry.value.split('\n');
       for (var index = 0; index < lines.length; index++) {
         final String declarationLine = lines[index].trimLeft().replaceFirst(
-          RegExp(r'^(?:}\s*)+(?:else\s+)?'),
+          cachedRegExp(r'^(?:}\s*)+(?:else\s+)?'),
           '',
         );
         final RegExpMatch? match = _method.firstMatch(declarationLine);
@@ -64,14 +65,14 @@ final class JavaAdapter {
     return result;
   }
 
-  static final RegExp _type = RegExp(
+  static final RegExp _type = cachedRegExp(
     r'\b(?:class|interface|enum|record)\s+([A-Za-z_]\w*)',
   );
-  static final RegExp _identifier = RegExp(r'\b[A-Za-z_]\w*\b');
-  static final RegExp _method = RegExp(
+  static final RegExp _identifier = cachedRegExp(r'\b[A-Za-z_]\w*\b');
+  static final RegExp _method = cachedRegExp(
     r'(?:^|\s)([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:throws[^{}]+)?\{',
   );
-  static final RegExp _control = RegExp(
+  static final RegExp _control = cachedRegExp(
     r'^(?:if|for|while|switch|catch|try|synchronized)\b',
   );
 }

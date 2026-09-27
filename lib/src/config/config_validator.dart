@@ -4,7 +4,7 @@
 final class CodeBusterConfigValidator {
   /// Returns deterministic diagnostics for [values].
   static List<String> validate(
-    Map<String, dynamic> values, {
+    Map<String, Object?> values, {
     required void Function() verifyLoad,
   }) {
     const Map<String, Set<String>?> schema = <String, Set<String>?>{
@@ -64,24 +64,24 @@ final class CodeBusterConfigValidator {
       'structure_required_dirs',
     };
     final List<String> diagnostics = <String>[];
-    for (final MapEntry<String, dynamic> entry in values.entries) {
+    for (final MapEntry<String, Object?> entry in values.entries) {
       if (entry.key == 'languages' || legacy.contains(entry.key)) continue;
       final Set<String>? keys = schema[entry.key];
       if (keys == null) {
         diagnostics.add('unknown configuration key: ${entry.key}');
         continue;
       }
-      if (entry.value is! Map<String, dynamic>) {
+      if (entry.value is! Map<String, Object?>) {
         diagnostics.add('expected table: ${entry.key}');
         continue;
       }
-      for (final String key in (entry.value as Map<String, dynamic>).keys) {
+      for (final String key in (entry.value as Map<String, Object?>).keys) {
         if (!keys.contains(key)) {
           diagnostics.add('unknown configuration key: ${entry.key}.$key');
         }
       }
     }
-    final Map<String, dynamic> quality = _table(values, 'quality');
+    final Map<String, Object?> quality = _table(values, 'quality');
     final String qualityProfile = _string(
       quality,
       'profile',
@@ -102,7 +102,7 @@ final class CodeBusterConfigValidator {
         }
       }
     }
-    final Map<String, dynamic> analysis = _table(values, 'analysis');
+    final Map<String, Object?> analysis = _table(values, 'analysis');
     final String duplicationMode = _string(
       analysis,
       'duplication_mode',
@@ -115,12 +115,12 @@ final class CodeBusterConfigValidator {
     }.contains(duplicationMode)) {
       diagnostics.add('unsupported duplication mode: $duplicationMode');
     }
-    final Map<String, dynamic> architecture = _table(values, 'architecture');
+    final Map<String, Object?> architecture = _table(values, 'architecture');
     final String profile = _string(architecture, 'profile', fallback: '');
     if (profile.isNotEmpty && profile != 'dart-mvvm') {
       diagnostics.add('unsupported architecture profile: $profile');
     }
-    final Map<String, dynamic> mvvm = _table(architecture, 'mvvm');
+    final Map<String, Object?> mvvm = _table(architecture, 'mvvm');
     const Set<String> mvvmKeys = <String>{
       'views',
       'view_models',
@@ -145,17 +145,17 @@ final class CodeBusterConfigValidator {
     r'^\s*[a-z][a-z0-9_.]*\s*(?:==|!=|<=|>=|<|>)\s*\d+(?:\.\d+)?\s*$',
   );
 
-  static Map<String, dynamic> _table(Map<String, dynamic> values, String key) {
-    final dynamic value = values[key];
-    return value is Map<String, dynamic> ? value : <String, dynamic>{};
+  static Map<String, Object?> _table(Map<String, Object?> values, String key) {
+    final Object? value = values[key];
+    return value is Map<String, Object?> ? value : <String, Object?>{};
   }
 
   static String _string(
-    Map<String, dynamic> values,
+    Map<String, Object?> values,
     String key, {
     required String fallback,
   }) {
-    final dynamic value = values[key];
+    final Object? value = values[key];
     return value is String ? value : fallback;
   }
 }

@@ -1,6 +1,7 @@
 // Source that embeds instructions for language models creates a distinct trust boundary and deserves focused evidence rather than a generic string warning.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 
 /// Canonical metadata owned by AI security rules.
@@ -61,7 +62,7 @@ final class AiPromptInjectionInstructionRule implements CodeBusterRule {
 
   @override
   RuleMetadata get metadata =>
-      aiSecurityRuleMetadata['ai-prompt-injection-instruction']!;
+      aiSecurityRuleMetadata.requiredValue('ai-prompt-injection-instruction');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -101,7 +102,7 @@ final class AiUntrustedPromptConstructionRule implements CodeBusterRule {
 
   @override
   RuleMetadata get metadata =>
-      aiSecurityRuleMetadata['ai-untrusted-prompt-construction']!;
+      aiSecurityRuleMetadata.requiredValue('ai-untrusted-prompt-construction');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -117,7 +118,7 @@ final class AiUntrustedPromptConstructionRule implements CodeBusterRule {
             trimmed.startsWith('#') ||
             !_promptTarget.hasMatch(line) ||
             !_untrustedComposition.hasMatch(line) ||
-            RegExp(
+            cachedRegExp(
               r'\bsanitiz(?:e|ed|er|ing)',
               caseSensitive: false,
             ).hasMatch(line)) {
@@ -144,7 +145,7 @@ final class AiModelOutputExecutionRule implements CodeBusterRule {
 
   @override
   RuleMetadata get metadata =>
-      aiSecurityRuleMetadata['ai-model-output-to-execution']!;
+      aiSecurityRuleMetadata.requiredValue('ai-model-output-to-execution');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -156,12 +157,14 @@ final class AiModelOutputExecutionRule implements CodeBusterRule {
           lines[index],
         );
         if (assignment == null) continue;
-        final String variable = assignment.group(1)!;
+        final String variable = assignment.requiredGroup(1);
         final int limit = (index + 13).clamp(0, lines.length);
         for (var sinkIndex = index + 1; sinkIndex < limit; sinkIndex++) {
           final String sink = lines[sinkIndex];
           if (!_executionSink.hasMatch(sink) ||
-              !RegExp('\\b${RegExp.escape(variable)}\\b').hasMatch(sink)) {
+              !cachedRegExp(
+                '\\b${RegExp.escape(variable)}\\b',
+              ).hasMatch(sink)) {
             continue;
           }
           yield Finding(
@@ -222,32 +225,32 @@ Finding _finding(
 
 bool _hasAiContext(String source) => _aiContext.hasMatch(source);
 
-final RegExp _aiContext = RegExp(
+final RegExp _aiContext = cachedRegExp(
   r'(?<![A-Za-z0-9])(?:openai|anthropic|claude|gemini|generativeai|langchain|semantic.?kernel|chatcompletion|chat.?completion|systemprompt|system_prompt|llm|language.?model)(?![A-Za-z0-9])',
   caseSensitive: false,
 );
-final RegExp _instruction = RegExp(
+final RegExp _instruction = cachedRegExp(
   r'ignore\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules?)|disregard\s+(?:the\s+)?(?:previous|prior|system|developer)\s+(?:instructions?|prompts?|message)|override\s+(?:the\s+)?(?:system|developer)\s+(?:instructions?|prompt|message)|reveal\s+(?:the\s+)?system\s+prompt|you\s+are\s+now\s+(?:(?:an?\s+)[a-z][\w-]*(?:\s+[a-z][\w-]*){0,3}|dan\b|(?:in\s+)?(?:developer|jailbreak|god)\s+mode\b)|do\s+not\s+follow\s+(?:the\s+)?(?:previous|system|developer)',
   caseSensitive: false,
 );
-final RegExp _textLike = RegExp(r'''["'`]|//|/\*|<!--|#''');
-final RegExp _defensiveInstruction = RegExp(
+final RegExp _textLike = cachedRegExp(r'''["'`]|//|/\*|<!--|#''');
+final RegExp _defensiveInstruction = cachedRegExp(
   r'treat\s+.*\s+as\s+(?:untrusted\s+)?data|never\s+(?:as\s+)?instructions|do\s+not\s+follow|disregard\s+it|defen[cs]e\s+against\s+prompt\s+injection|prompt.?injection|sanitiz|\binstructions?\b.*\blike\b.*\bignore\b.*\bmust\s+ignore\b',
   caseSensitive: false,
 );
-final RegExp _promptTarget = RegExp(
+final RegExp _promptTarget = cachedRegExp(
   r'''(?:system|user|developer)?_?prompt\s*(?:=|:)|(?:system|user|developer).?message\s*(?:=|:)|messages?\.(?:push|add)|["'](?:system|user|developer)["']\s*:''',
   caseSensitive: false,
 );
-final RegExp _untrustedComposition = RegExp(
+final RegExp _untrustedComposition = cachedRegExp(
   r'''(?:\$?\{[^}\n]*(?:user.?input|request\.(?:body|query)|req\.(?:body|query)|input\.(?:query|content|text)|retrieved|document|payload|currentHtml|evidence|headlines?|headlineText|feed.?content|story.?content)[^}\n]*\}|(?:\+|\.format\s*\()[^\n]*(?:user.?input|request\.(?:body|query)|req\.(?:body|query)|input\.(?:query|content|text)|retrieved|document|payload|currentHtml|evidence|headlines?|headlineText|feed.?content|story.?content))''',
   caseSensitive: false,
 );
-final RegExp _modelOutputAssignment = RegExp(
+final RegExp _modelOutputAssignment = cachedRegExp(
   r'\b((?:response|completion|modelOutput|model_output|assistantOutput|assistant_output|llmOutput|llm_output)\w*|[A-Za-z_]\w*(?:Response|Completion|ModelOutput|AssistantOutput|LlmOutput)\w*)\s*=',
   caseSensitive: false,
 );
-final RegExp _executionSink = RegExp(
+final RegExp _executionSink = cachedRegExp(
   r'Process\.(?:run|start)|Runtime\.getRuntime\(\)\.exec|subprocess\.(?:run|Popen|call)|os\.system|child_process\.(?:exec|spawn)|(?:^|[^\w])(?:exec|execSync|spawn|spawnSync)\s*\(',
   caseSensitive: false,
 );

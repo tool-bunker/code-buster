@@ -1,6 +1,7 @@
 // Closeable Java resources need ownership evidence, and this check flags constructions with no visible close or managed scope.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../engine/analysis.dart';
 import '../../languages/java/java_adapter.dart';
@@ -33,7 +34,7 @@ final class JavaResourceNotClosedRule extends SelfContainedRule {
         ),
       );
 
-  static final RegExp _closeableAllocation = RegExp(
+  static final RegExp _closeableAllocation = cachedRegExp(
     r'\b(?:FileInputStream|FileOutputStream|FileReader|FileWriter|Connection|Statement|ResultSet)\s+([A-Za-z_]\w*)\s*=\s*new\s+',
   );
 
@@ -49,12 +50,12 @@ final class JavaResourceNotClosedRule extends SelfContainedRule {
       for (final RegExpMatch allocation in _closeableAllocation.allMatches(
         function.source,
       )) {
-        final String variable = allocation.group(1)!;
-        if (RegExp(
+        final String variable = allocation.requiredGroup(1);
+        if (cachedRegExp(
               '\\b${RegExp.escape(variable)}\\.close\\s*\\(',
             ).hasMatch(function.source) ||
-            RegExp(r'\btry\s*\(').hasMatch(function.source) ||
-            RegExp(
+            cachedRegExp(r'\btry\s*\(').hasMatch(function.source) ||
+            cachedRegExp(
               '\\breturn\\s+${RegExp.escape(variable)}\\s*;',
             ).hasMatch(function.source)) {
           continue;

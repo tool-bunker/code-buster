@@ -8,6 +8,8 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:path/path.dart' as path;
 
+import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -101,41 +103,43 @@ final class DartSourceParser {
 
   String _normalizeCompatibilitySyntax(String source) => source
       .replaceAllMapped(
-        RegExp(
+        cachedRegExp(
           r'for\s*\(\s*final\s+MapEntry\(key:\s*([A-Za-z_]\w*),\s*value:\s*([A-Za-z_]\w*)\)\s+in\s+([^\n]+?)\)\s*\{',
         ),
         (Match match) =>
             'for (final _cbEntry in ${match.group(3)}) { final ${match.group(1)} = _cbEntry.key; final ${match.group(2)} = _cbEntry.value;',
       )
       .replaceAllMapped(
-        RegExp(r'\brequired(\s+)final\b'),
+        cachedRegExp(r'\brequired(\s+)final\b'),
         (Match match) => 'required${match.group(1)}     ',
       )
       .replaceAllMapped(
-        RegExp(r'(@[A-Za-z_]\w*(?:\([^)]*\))?[ \t]+)final(?=[ \t]+[A-Za-z_])'),
+        cachedRegExp(
+          r'(@[A-Za-z_]\w*(?:\([^)]*\))?[ \t]+)final(?=[ \t]+[A-Za-z_])',
+        ),
         (Match match) => '${match.group(1)}     ',
       )
       .replaceAllMapped(
-        RegExp(r'({[ \t]*)final(?=[ \t]+[A-Za-z_])'),
+        cachedRegExp(r'({[ \t]*)final(?=[ \t]+[A-Za-z_])'),
         (Match match) => '${match.group(1)}     ',
       )
       .replaceAllMapped(
-        RegExp(r'([[(,]\s*)final(?=\s+[A-Za-z_])'),
+        cachedRegExp(r'([[(,]\s*)final(?=\s+[A-Za-z_])'),
         (Match match) => '${match.group(1)}     ',
       )
       .replaceAllMapped(
-        RegExp(r'(\(\s*\(\s*)var(?=\s+[A-Za-z_]\w*)'),
+        cachedRegExp(r'(\(\s*\(\s*)var(?=\s+[A-Za-z_]\w*)'),
         (Match match) => '${match.group(1)}   ',
       )
       .replaceAllMapped(
-        RegExp(
+        cachedRegExp(
           r'^(\s*)final(?=[ \t]+(?:void|Future(?:<[^>]+>)?)[ \t]+Function\b)',
           multiLine: true,
         ),
         (Match match) => '${match.group(1)}     ',
       )
       .replaceAllMapped(
-        RegExp(
+        cachedRegExp(
           r'^(\s*)final(?=\s+[A-Za-z_][^=;\n]*\s+[A-Za-z_]\w*(?:\s*=|,|\)))',
           multiLine: true,
         ),
@@ -193,28 +197,28 @@ final class DartSourceParser {
   List<String> _publicDeclarations(CompilationUnit unit) {
     final Set<String> names = <String>{};
     for (final CompilationUnitMember member in unit.declarations) {
-      final RegExpMatch? match = RegExp(
+      final RegExpMatch? match = cachedRegExp(
         r'^(?:abstract\s+|base\s+|final\s+|sealed\s+|interface\s+)?'
         r'(?:(?:class|enum)(?:\s+const)?|mixin(?:\s+class)?|'
         r'extension(?:\s+type)?|typedef)\s+([A-Za-z_]\w*)',
         multiLine: true,
       ).firstMatch(member.toSource());
-      if (match != null && !match.group(1)!.startsWith('_')) {
-        names.add(match.group(1)!);
+      if (match != null && !match.requiredGroup(1).startsWith('_')) {
+        names.add(match.requiredGroup(1));
       }
-      final RegExpMatch? callable = RegExp(
+      final RegExpMatch? callable = cachedRegExp(
         r'^(?:[A-Za-z_]\w*(?:<[^>]+>)?\s+)+([A-Za-z_]\w*)\s*(?:<[^>]+>)?\s*\(',
         multiLine: true,
       ).firstMatch(member.toSource());
-      if (callable != null && !callable.group(1)!.startsWith('_')) {
-        names.add(callable.group(1)!);
+      if (callable != null && !callable.requiredGroup(1).startsWith('_')) {
+        names.add(callable.requiredGroup(1));
       }
-      final RegExpMatch? variable = RegExp(
+      final RegExpMatch? variable = cachedRegExp(
         r'^(?:const|final|var|late)\s+(?:[A-Za-z_]\w*(?:<[^>]+>)?\s+)?([A-Za-z_]\w*)',
         multiLine: true,
       ).firstMatch(member.toSource());
-      if (variable != null && !variable.group(1)!.startsWith('_')) {
-        names.add(variable.group(1)!);
+      if (variable != null && !variable.requiredGroup(1).startsWith('_')) {
+        names.add(variable.requiredGroup(1));
       }
     }
     return names.toList()..sort();
@@ -294,13 +298,13 @@ final class DartWorkspaceLayout {
         path.joinAll(<String>[root, ...packageRoot.split('/'), 'pubspec.yaml']),
       );
       if (!pubspec.existsSync()) continue;
-      final RegExpMatch? name = RegExp(
+      final RegExpMatch? name = cachedRegExp(
         r'^name:\s*([^\s#]+)',
         multiLine: true,
       ).firstMatch(pubspec.readAsStringSync());
       if (name == null) continue;
       packageRoots.add(packageRoot);
-      packageLibDirectories[name.group(1)!] = path.posix.join(
+      packageLibDirectories[name.requiredGroup(1)] = path.posix.join(
         packageRoot,
         'lib',
       );
@@ -374,7 +378,7 @@ final class DartGraphAdapter {
     final Map<String, Iterable<String>> edges = <String, Iterable<String>>{};
     final List<String> files = sources.keys.toList()..sort();
     for (final String sourcePath in files) {
-      final DartUnit unit = parser.summarize(units[sourcePath]!);
+      final DartUnit unit = parser.summarize(units.requiredValue(sourcePath));
       final Set<String> dependencies = <String>{};
       for (final String uri in <String>[
         ...unit.imports,

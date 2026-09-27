@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Improved
+
+- Reuse compiled regular expressions across analysis passes and refine repeated-traversal, public-state, policy-literal, and peer-file naming advisories to remove self-analysis noise.
+- Describe single-use contracts explicitly as speculative extension points so coding agents can recognize premature abstraction.
+- Add a shared semantic diff model and advisory checks for broad refactors, style drift, untested behavior changes, speculative option bundles, and declaration-heavy abstractions.
+- Detect newly unused private declarations, single-caller forwarding wrappers, and disconnected symbol churn in focused diffs.
+- Flag newly added APIs with three or more Boolean options before opaque mode combinations spread to callers.
+- Accept standard universal-selector border-box resets while retaining CSS universal-selector findings for broad matching rules.
+- Treat scalar processing and explicit data projections as ownership boundaries rather than feature envy, and keep parsed TOML, JSON, and SARIF values behind typed object boundaries.
+- Replace avoidable null assertions across source discovery, CLI gates and graphs, reporting, plugins, analysis pipelines, metadata registries, result buckets, duplication indices, language adapters, and rule packs with checked values; centralize mandatory map lookups and numbered or named regular-expression captures behind invariant-reporting accessors; and recognize map lookups proven by matching key iteration or `containsKey` control flow.
+- Tighten project-wide advisory precision by requiring cross-file policy evidence, excluding generic counters and private implementation models, recognizing projection factories, and excluding analyzer, rule-pack, visitor, rule-registration, and finding-emission infrastructure from domain-design heuristics.
+
+
 ## 0.7.0
 
 

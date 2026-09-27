@@ -3,6 +3,7 @@
 import 'package:analyzer/dart/ast/ast.dart';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../graph/graph.dart';
 import '../../languages/dart/dart_adapter.dart';
@@ -60,9 +61,9 @@ final class DartPackageCycleRule extends SelfContainedRule {
       for (final String uri in <String>[...unit.imports, ...unit.exports]) {
         final RegExpMatch? imported = _packageImport.firstMatch(uri);
         if (imported == null) continue;
-        final String target = imported.group(1)!;
+        final String target = imported.requiredGroup(1);
         if (target != owner && owners.contains(target)) {
-          edges[owner]!.add(target);
+          edges.requiredValue(owner).add(target);
         }
       }
     }

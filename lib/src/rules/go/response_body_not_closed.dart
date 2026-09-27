@@ -1,6 +1,7 @@
 // HTTP response bodies hold resources in Go, so this check follows request results to evidence of a corresponding Close.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../engine/analysis.dart';
 import '../../languages/go/go_adapter.dart';
@@ -42,7 +43,7 @@ final class GoResponseBodyNotClosedRule extends SelfContainedRule {
         for (final RegExpMatch request in _httpResponse.allMatches(
           function.source,
         )) {
-          final String response = request.namedGroup('response')!;
+          final String response = request.requiredNamedGroup('response');
           final String? receiver = request.namedGroup('receiver');
           if (receiver != null &&
               !_isHttpClientReceiver(receiver, function.source, source.value)) {
@@ -84,7 +85,7 @@ final class GoResponseBodyNotClosedRule extends SelfContainedRule {
       '\\s*\\(\\s*${RegExp.escape(response)}\\s*\\)',
     );
     for (final RegExpMatch match in call.allMatches(caller)) {
-      final String name = match.namedGroup('name')!;
+      final String name = match.requiredNamedGroup('name');
       for (final FunctionSource helper in functions) {
         if (helper.name != name) continue;
         final RegExpMatch? parameter = RegExp(
@@ -93,7 +94,7 @@ final class GoResponseBodyNotClosedRule extends SelfContainedRule {
         ).firstMatch(helper.source);
         if (parameter == null) continue;
         final String escaped = RegExp.escape(
-          parameter.namedGroup('parameter')!,
+          parameter.requiredNamedGroup('parameter'),
         );
         if (RegExp(
           '\\b$escaped\\.Body\\.Close\\s*\\(',

@@ -2,6 +2,7 @@
 
 import 'package:path/path.dart' as path;
 
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -19,7 +20,7 @@ final class MojoAdapter {
     for (final MapEntry<String, String> entry in sources.entries) {
       final Set<String> dependencies = <String>{};
       for (final RegExpMatch match in _import.allMatches(entry.value)) {
-        final String module = (match.group(1) ?? match.group(2)!)
+        final String module = (match.group(1) ?? match.requiredGroup(2))
             .split('.')
             .last;
         final List<String> candidates = owners[module] ?? const <String>[];

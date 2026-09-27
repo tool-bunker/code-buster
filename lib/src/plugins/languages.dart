@@ -196,7 +196,10 @@ final class LanguageRegistry {
     for (final String value in selections) {
       if (value.toLowerCase() == 'frontend' || value.toLowerCase() == 'web') {
         for (final String id in <String>['html', 'css']) {
-          final LanguageDefinition definition = lookup(id)!;
+          final LanguageDefinition? definition = lookup(id);
+          if (definition == null) {
+            throw StateError('Built-in language `$id` is not registered');
+          }
           if (selected.add(definition.id)) result.add(definition);
         }
         continue;

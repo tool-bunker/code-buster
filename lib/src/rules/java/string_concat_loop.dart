@@ -1,6 +1,7 @@
 // Growing a String in a loop repeatedly copies old content and can become unexpectedly slow.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import 'java_lexical.dart';
 
@@ -42,7 +43,7 @@ final class JavaStringConcatLoopRule extends SelfContainedRule {
       );
       final Set<String> strings = _stringDeclaration
           .allMatches(code)
-          .map((RegExpMatch match) => match.group(1)!)
+          .map((RegExpMatch match) => match.requiredGroup(1))
           .toSet();
       if (strings.isEmpty) continue;
       final Set<int> reportedOffsets = <int>{};

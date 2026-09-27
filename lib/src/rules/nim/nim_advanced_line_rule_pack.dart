@@ -1,6 +1,7 @@
 // Stateful Nim patterns involving hooks, protocol code, allocation, and serialization need more context than the simple lexical pack.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'canonical_nim_evidence.dart';
 
 /// Executes stateful advanced API, hook, protocol, and serialization rules.
@@ -9,16 +10,20 @@ final class NimAdvancedLineRulePack {
   int _objectIndent = -1;
 
   /// Generic hook declarations encountered in the file.
-  int genericHookCount = 0;
+  int _genericHookCount = 0;
 
   /// Whether the file imports another module.
-  bool hasImport = false;
+  bool _hasImport = false;
 
   /// Whether an exported generic serialization wrapper was found.
-  bool hasGenericSerializationWrapper = false;
+  bool _hasGenericSerializationWrapper = false;
 
   /// Number of public JSON-oriented API declarations.
-  int jsonApiCount = 0;
+  int _jsonApiCount = 0;
+  int get genericHookCount => _genericHookCount;
+  bool get hasImport => _hasImport;
+  bool get hasGenericSerializationWrapper => _hasGenericSerializationWrapper;
+  int get jsonApiCount => _jsonApiCount;
 
   /// Declared distinct types.
   final Set<String> distinctTypes = <String>{};
@@ -84,7 +89,7 @@ final class NimAdvancedLineRulePack {
       );
     }
     if (line.startsWith('import ') || line.startsWith('from ')) {
-      hasImport = true;
+      _hasImport = true;
     }
   }
 
@@ -102,7 +107,7 @@ final class NimAdvancedLineRulePack {
         parameterOpen > genericClose;
     final bool genericHook = genericDeclaration && line.contains('Hook');
     if (genericHook) {
-      genericHookCount++;
+      _genericHookCount++;
       context.add(
         'nim-hook-too-generic',
         RuleSeverity.info,
@@ -136,7 +141,7 @@ final class NimAdvancedLineRulePack {
           r'tojson|dump|serialize|encode',
           caseSensitive: false,
         ).hasMatch(line)) {
-      hasGenericSerializationWrapper = true;
+      _hasGenericSerializationWrapper = true;
     }
   }
 
@@ -236,12 +241,12 @@ final class NimAdvancedLineRulePack {
         RegExp(
           r'JsonNode|JsonValue|:\s*(?:var\s+)?Value\b|seq\[Value\]|Table\[string,\s*Value\]',
         ).hasMatch(line)) {
-      jsonApiCount++;
+      _jsonApiCount++;
     }
     final RegExpMatch? distinct = RegExp(
       r'^(?:type\s+)?([A-Za-z_]\w*)\*?\s*=\s*distinct\s+',
     ).firstMatch(line);
-    if (distinct != null) distinctTypes.add(distinct.group(1)!);
+    if (distinct != null) distinctTypes.add(distinct.requiredGroup(1));
     final bool dumpHook =
         line.startsWith('proc ') &&
         (line.contains('dumpHook') ||

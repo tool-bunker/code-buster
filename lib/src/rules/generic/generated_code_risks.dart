@@ -1,6 +1,7 @@
 // Generated-looking code can still reveal maintainability problems; these rules use repository-relative comparisons to avoid punishing normal structure.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 
 /// Advisory rules for concrete maintainability risks common in generated code.
@@ -94,6 +95,14 @@ generatedCodeRiskMetadata = <String, RuleMetadata>{
     ],
   ),
 };
+
+RuleMetadata _generatedMetadata(String id) {
+  final RuleMetadata? metadata = generatedCodeRiskMetadata[id];
+  if (metadata == null) {
+    throw StateError('Missing generated-code risk metadata for $id');
+  }
+  return metadata;
+}
 
 final RegExp _testPath = RegExp(
   r'(^|/)(?:test|tests|spec|specs|__tests__|fixture|fixtures)(?:/|$)|(?:_test|\.test|\.spec)\.',
@@ -294,7 +303,7 @@ bool _usesDashComments(String path) =>
 final class ExcessiveCommentDensityRule extends SelfContainedRule {
   /// Creates the repository-level comment-density rule.
   ExcessiveCommentDensityRule()
-    : super(generatedCodeRiskMetadata['excessive-comment-density']!);
+    : super(_generatedMetadata('excessive-comment-density'));
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -385,7 +394,7 @@ int _leadingLicenseEnd(List<_LineFacts> facts) {
 final class NarratingImplementationCommentRule extends SelfContainedRule {
   /// Creates the implementation-comment narration rule.
   NarratingImplementationCommentRule()
-    : super(generatedCodeRiskMetadata['narrating-implementation-comment']!);
+    : super(_generatedMetadata('narrating-implementation-comment'));
 
   static final RegExp _narration = RegExp(
     r'^\s*(?:(?:first|next|now|then|finally),?\s+(?:we|i)(?:\s+will|\s+need\s+to|\s+can|\s+should)?|(?:we|i)\s+(?:will|need\s+to|are\s+going\s+to)\s+(?:first|next|now|then))\b',
@@ -420,7 +429,7 @@ final class NarratingImplementationCommentRule extends SelfContainedRule {
 final class TrivialCommentRestatementRule extends SelfContainedRule {
   /// Creates the adjacent code-restatement rule.
   TrivialCommentRestatementRule()
-    : super(generatedCodeRiskMetadata['trivial-comment-restatement']!);
+    : super(_generatedMetadata('trivial-comment-restatement'));
 
   static final RegExp _commentShape = RegExp(
     r'^\s*(return|returns|increment|increments|decrement|decrements|set|sets|assign|assigns|call|calls|invoke|invokes)\s+(?:the\s+)?([A-Za-z_]\w*)[.!]?\s*$',
@@ -447,8 +456,8 @@ final class TrivialCommentRestatementRule extends SelfContainedRule {
         }
         if (next >= facts.length) continue;
         final String code = facts[next].code.trim();
-        final String verb = match.group(1)!.toLowerCase();
-        final String name = match.group(2)!;
+        final String verb = match.requiredGroup(1).toLowerCase();
+        final String name = match.requiredGroup(2);
         if (!_restates(verb, name, code)) continue;
         yield report(
           context,
@@ -488,7 +497,7 @@ final class TrivialCommentRestatementRule extends SelfContainedRule {
 final class SingleMethodDelegatingClassRule extends SelfContainedRule {
   /// Creates the narrow Dart delegation-wrapper rule.
   SingleMethodDelegatingClassRule()
-    : super(generatedCodeRiskMetadata['single-method-delegating-class']!);
+    : super(_generatedMetadata('single-method-delegating-class'));
 
   static final RegExp _candidate = RegExp(
     r'class\s+([A-Za-z_]\w*)\s*\{\s*(?:final\s+)?([A-Za-z_]\w*(?:<[^;{}]+>)?)\s+([A-Za-z_]\w*)\s*;\s*\1\s*\(\s*this\.\3\s*\)\s*;\s*(?:Future(?:<[^>{}]+>)?|[A-Za-z_]\w*(?:<[^>{}]+>)?|void)\s+([A-Za-z_]\w*)\s*\(([^{};]*)\)\s*(?:async\s*)?=>\s*(?:await\s+)?\3\.\4\s*\(([^{};]*)\)\s*;\s*\}',
@@ -502,8 +511,8 @@ final class SingleMethodDelegatingClassRule extends SelfContainedRule {
         continue;
       }
       for (final RegExpMatch match in _candidate.allMatches(source.value)) {
-        final List<String> parameters = _parameterNames(match.group(5)!);
-        final List<String> arguments = _arguments(match.group(6)!);
+        final List<String> parameters = _parameterNames(match.requiredGroup(5));
+        final List<String> arguments = _arguments(match.requiredGroup(6));
         if (parameters.isEmpty || !_sameItems(parameters, arguments)) continue;
         final int line =
             '\n'.allMatches(source.value.substring(0, match.start)).length + 1;
@@ -551,7 +560,7 @@ final class _SchemaLiteral {
 final class ParallelSchemaDefinitionRule extends SelfContainedRule {
   /// Creates the repeated cross-file schema rule.
   ParallelSchemaDefinitionRule()
-    : super(generatedCodeRiskMetadata['parallel-schema-definition']!);
+    : super(_generatedMetadata('parallel-schema-definition'));
 
   static final RegExp _literal = RegExp(r'\{([^{}]{0,4000})\}', dotAll: true);
   static final RegExp _key = RegExp(
@@ -565,8 +574,8 @@ final class ParallelSchemaDefinitionRule extends SelfContainedRule {
       if (_excludedSchemaPath(source.key)) continue;
       for (final RegExpMatch literal in _literal.allMatches(source.value)) {
         final Set<String> keys = _key
-            .allMatches(literal.group(1)!)
-            .map((RegExpMatch match) => match.group(1)!)
+            .allMatches(literal.requiredGroup(1))
+            .map((RegExpMatch match) => match.requiredGroup(1))
             .toSet();
         if (keys.length < 5) continue;
         final List<String> sorted = keys.toList()..sort();

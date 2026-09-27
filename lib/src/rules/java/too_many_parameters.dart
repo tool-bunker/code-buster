@@ -1,6 +1,7 @@
 // Long parameter lists are easy to call incorrectly and often signal mixed responsibilities.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../engine/analysis.dart';
 import '../../languages/java/java_adapter.dart';
@@ -87,7 +88,7 @@ bool _hasExternallyDefinedSignature(String source, int declarationLine) {
   ) {
     final String line = lines[index].trim();
     if (line.isEmpty) continue;
-    final RegExpMatch? annotation = RegExp(
+    final RegExpMatch? annotation = cachedRegExp(
       r'^@(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)\b',
     ).firstMatch(line);
     if (annotation != null) {
@@ -103,7 +104,7 @@ bool _hasExternallyDefinedSignature(String source, int declarationLine) {
   return false;
 }
 
-bool _isForwardingConstructor(String source) => RegExp(
+bool _isForwardingConstructor(String source) => cachedRegExp(
   r'\{\s*super\s*\([^;]*\);\s*\}\s*$',
   multiLine: true,
 ).hasMatch(source);

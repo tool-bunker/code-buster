@@ -1,4 +1,5 @@
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'oop_rules.dart';
 
 const ids = <String>[
@@ -9,29 +10,38 @@ const ids = <String>[
   'oop-repeated-adapter-mapping',
   'oop-template-workflow-candidate',
 ];
+
+List<Finding> _bucket(Map<String, List<Finding>> findings, String id) {
+  final List<Finding>? result = findings[id];
+  if (result == null) throw StateError('Missing finding bucket for $id');
+  return result;
+}
+
+// code-buster-ignore complex-function: one coordinated project pass shares class-role, mapping, and inheritance evidence across boundary rules.
 Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
   final r = {for (final id in ids) id: <Finding>[]};
   for (final role in ['Factory', 'Facade', 'Repository', 'Proxy']) {
     for (final a in p.classes.where((c) => c.name.endsWith(role))) {
       final covered = <String>{};
-      final src = p.sources[a.path]!;
+      final String? src = p.sources[a.path];
+      if (src == null) continue;
       if (role == 'Factory') {
         covered.addAll(
-          RegExp(
+          cachedRegExp(
             r'\bnew\s+([A-Z]\w*)\s*\(',
-          ).allMatches(src).map((m) => m.group(1)!),
+          ).allMatches(src).map((m) => m.requiredGroup(1)),
         );
       } else {
         covered.addAll(
-          RegExp(
+          cachedRegExp(
             r'\b(?:private|protected)\s+(?:(?:readonly|final)\s+)?([A-Z]\w*(?:Client|Dao|Database|DataSource|Store|Service|Gateway))\s+_?\w+\s*[;=]',
-          ).allMatches(src).map((m) => m.group(1)!),
+          ).allMatches(src).map((m) => m.requiredGroup(1)),
         );
         if (a.path.endsWith('.ts') || a.path.endsWith('.tsx')) {
           covered.addAll(
-            RegExp(
+            cachedRegExp(
               r'\b(?:private|protected)\s+(?:readonly\s+)?[A-Za-z_$][\w$]*\s*:\s*([A-Z]\w*(?:Client|Dao|Database|DataSource|Store|Service|Gateway))\b',
-            ).allMatches(src).map((m) => m.group(1)!),
+            ).allMatches(src).map((m) => m.requiredGroup(1)),
           );
         }
       }
@@ -40,15 +50,17 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
       final bypass = <String>[];
       for (final e in p.sources.entries) {
         if (e.key == a.path) continue;
-        if (RegExp('\\b${a.name}\\b').hasMatch(e.value)) uses.add(e.key);
+        if (cachedRegExp('\\b${a.name}\\b').hasMatch(e.value)) uses.add(e.key);
         final direct = covered
-            .where((t) => RegExp('\\b(?:new\\s+)?$t\\b').hasMatch(e.value))
+            .where(
+              (t) => cachedRegExp('\\b(?:new\\s+)?$t\\b').hasMatch(e.value),
+            )
             .length;
         if (direct >= (role == 'Facade' ? 2 : 1)) bypass.add(e.key);
       }
       if (uses.length >= 3 && uses.length > bypass.length) {
         for (final path in bypass) {
-          r['oop-${role.toLowerCase()}-bypass']!.add(
+          _bucket(r, 'oop-${role.toLowerCase()}-bypass').add(
             Finding(
               code: 'oop-${role.toLowerCase()}-bypass',
               severity: RuleSeverity.info,
@@ -64,13 +76,13 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
     }
   }
   final maps = <String, List<OopClass>>{};
-  final init = RegExp(r'\bnew\s+([A-Z]\w*)\s*\{([^{}]+)\}', dotAll: true);
+  final init = cachedRegExp(r'\bnew\s+([A-Z]\w*)\s*\{([^{}]+)\}', dotAll: true);
   for (final c in p.classes) {
     for (final m in c.methods) {
       for (final x in init.allMatches(m.body)) {
         final pairs =
-            RegExp(r'([A-Z]\w*)\s*=\s*([a-z_]\w*)\.([A-Z]\w*)')
-                .allMatches(x.group(2)!)
+            cachedRegExp(r'([A-Z]\w*)\s*=\s*([a-z_]\w*)\.([A-Z]\w*)')
+                .allMatches(x.requiredGroup(2))
                 .map((v) => '${v.group(1)}=${v.group(3)}')
                 .toList()
               ..sort();
@@ -79,14 +91,16 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
         }
       }
       if (!c.path.endsWith('.java')) continue;
-      final RegExp constructor = RegExp(
+      final RegExp constructor = cachedRegExp(
         r'\bnew\s+([A-Z]\w*)\s*\(\s*((?:[a-z_]\w*\s*\.\s*get[A-Z]\w*\s*\(\s*\)\s*,?\s*){3,})\)',
         dotAll: true,
       );
       for (final RegExpMatch x in constructor.allMatches(m.body)) {
-        final List<String> members = RegExp(
-          r'\b[a-z_]\w*\s*\.\s*get([A-Z]\w*)\s*\(\s*\)',
-        ).allMatches(x.group(2)!).map((v) => v.group(1)!).toList();
+        final List<String> members =
+            cachedRegExp(r'\b[a-z_]\w*\s*\.\s*get([A-Z]\w*)\s*\(\s*\)')
+                .allMatches(x.requiredGroup(2))
+                .map((v) => v.requiredGroup(1))
+                .toList();
         if (members.length >= 3) {
           maps
               .putIfAbsent(
@@ -99,15 +113,20 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
     }
   }
   final Map<String, List<OopClass>> objectMaps = <String, List<OopClass>>{};
-  final RegExp objectLiteral = RegExp(r'\breturn\s*\{([^{}]+)\}', dotAll: true);
+  final RegExp objectLiteral = cachedRegExp(
+    r'\breturn\s*\{([^{}]+)\}',
+    dotAll: true,
+  );
   for (final OopClass owner in p.classes.where(
     (type) => type.path.endsWith('.ts') || type.path.endsWith('.tsx'),
   )) {
     for (final OopMethod method in owner.methods) {
       for (final RegExpMatch object in objectLiteral.allMatches(method.body)) {
         final List<String> pairs =
-            RegExp(r'\b([a-z_$][\w$]*)\s*:\s*([a-z_$][\w$]*)\.([a-z_$][\w$]*)')
-                .allMatches(object.group(1)!)
+            cachedRegExp(
+                  r'\b([a-z_$][\w$]*)\s*:\s*([a-z_$][\w$]*)\.([a-z_$][\w$]*)',
+                )
+                .allMatches(object.requiredGroup(1))
                 .map((match) => '${match.group(1)}=${match.group(3)}')
                 .toList()
               ..sort();
@@ -121,7 +140,7 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
     final Set<String> paths = entry.value.map((owner) => owner.path).toSet();
     if (entry.value.length < 3 || paths.length < 2) continue;
     final OopClass first = entry.value.first;
-    r['oop-repeated-adapter-mapping']!.add(
+    _bucket(r, 'oop-repeated-adapter-mapping').add(
       Finding(
         code: 'oop-repeated-adapter-mapping',
         severity: RuleSeverity.info,
@@ -139,7 +158,7 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
     final paths = e.value.map((c) => c.path).toSet();
     if (e.value.length >= 3 && paths.length >= 2) {
       final c = e.value.first;
-      r['oop-repeated-adapter-mapping']!.add(
+      _bucket(r, 'oop-repeated-adapter-mapping').add(
         Finding(
           code: 'oop-repeated-adapter-mapping',
           severity: RuleSeverity.info,
@@ -179,12 +198,12 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
                   b.path.endsWith('.tsx')) &&
               m.name == am.name,
         )) {
-          final ac = RegExp(
+          final ac = cachedRegExp(
                 r'\b([A-Za-z_]\w*)\s*\(',
-              ).allMatches(am.body).map((x) => x.group(1)!).toList(),
-              bc = RegExp(
+              ).allMatches(am.body).map((x) => x.requiredGroup(1)).toList(),
+              bc = cachedRegExp(
                 r'\b([A-Za-z_]\w*)\s*\(',
-              ).allMatches(bm.body).map((x) => x.group(1)!).toList();
+              ).allMatches(bm.body).map((x) => x.requiredGroup(1)).toList();
           if (ac.length >= 4 &&
               ac.length == bc.length &&
               [
@@ -192,7 +211,7 @@ Map<String, List<Finding>> analyzeBoundaries(CSharpOopProject p) {
                       if (ac[k] != bc[k]) k,
                   ].length ==
                   1) {
-            r['oop-template-workflow-candidate']!.add(
+            _bucket(r, 'oop-template-workflow-candidate').add(
               Finding(
                 code: 'oop-template-workflow-candidate',
                 severity: RuleSeverity.info,

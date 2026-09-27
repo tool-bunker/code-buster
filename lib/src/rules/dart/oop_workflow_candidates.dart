@@ -4,6 +4,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../oop/metadata.dart';
 
@@ -27,16 +28,18 @@ final class DartOopWorkflowCandidateRule extends SelfContainedRule {
         .requireLanguageAnalysis<Map<String, CompilationUnit>>();
     final Map<String, List<Finding>> findingsByCode =
         _findingsByUnits[units] ??= _analyze(units);
-    return findingsByCode[metadata.id]!.map(
-      (Finding finding) => context.report(
-        metadata: metadata,
-        path: finding.path,
-        line: finding.line,
-        message: finding.message,
-        confidence: finding.confidence,
-        relatedFiles: finding.relatedFiles,
-      ),
-    );
+    return findingsByCode
+        .requiredValue(metadata.id)
+        .map(
+          (Finding finding) => context.report(
+            metadata: metadata,
+            path: finding.path,
+            line: finding.line,
+            message: finding.message,
+            confidence: finding.confidence,
+            relatedFiles: finding.relatedFiles,
+          ),
+        );
   }
 }
 
@@ -63,6 +66,10 @@ Map<String, List<Finding>> _analyze(Map<String, CompilationUnit> units) {
       if (parent == null) continue;
       for (final MethodDeclaration method
           in declaration.body.members.whereType<MethodDeclaration>()) {
+        if (method.name.lexeme == 'analyze' ||
+            method.name.lexeme.startsWith('visit')) {
+          continue;
+        }
         if (!method.metadata.any(
           (Annotation annotation) => annotation.toSource() == '@override',
         )) {
@@ -275,7 +282,7 @@ String? _explicitParameterType(FormalParameter parameter, String name) {
         r'(?:\s*=.*)?\s*$',
     dotAll: true,
   ).firstMatch(parameter.toSource());
-  return typed == null ? null : _baseType(typed.group(1)!);
+  return typed == null ? null : _baseType(typed.requiredGroup(1));
 }
 
 final class _TargetMappingVisitor extends RecursiveAstVisitor<void> {

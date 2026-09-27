@@ -89,7 +89,11 @@ int run(List<String> arguments) {
     final CodeBusterCliOptions options = CodeBusterCliContract.parse(
       arguments.contains('--version') ? const <String>['version'] : arguments,
     );
-    return _commandHandlers[options.command]!.execute(options);
+    final CliCommandHandler? handler = _commandHandlers[options.command];
+    if (handler == null) {
+      throw StateError('No handler registered for ${options.command.name}');
+    }
+    return handler.execute(options);
   } on UsageException catch (error) {
     stderr.writeln(error.message);
     stderr.writeln(error.usage);

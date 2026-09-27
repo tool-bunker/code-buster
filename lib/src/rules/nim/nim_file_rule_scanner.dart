@@ -1,6 +1,7 @@
 // All Nim line packs need identical traversal, masking, and finding assembly; this scanner supplies that shared control flow.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'canonical_nim_evidence.dart';
 import 'nim_advanced_line_rule_pack.dart';
 import 'nim_aggregate_rule_pack.dart';
@@ -56,10 +57,12 @@ final class NimFileRuleScanner {
         );
       }
 
-      final RegExpMatch? variable = RegExp(
+      final RegExpMatch? variable = cachedRegExp(
         r'^var\s+([A-Za-z_]\w*)',
       ).firstMatch(line);
-      if (variable != null) mutableDeclarations[variable.group(1)!] = index;
+      if (variable != null) {
+        mutableDeclarations[variable.requiredGroup(1)] = index;
+      }
       final String lower = line.toLowerCase();
       if (line.startsWith('import ') || line.startsWith('from ')) {
         importCount++;
@@ -81,14 +84,14 @@ final class NimFileRuleScanner {
         }
       }
       if (line.contains('*') &&
-          RegExp(
+          cachedRegExp(
             r'^(?:proc|func|method|template|iterator|type|[A-Za-z_]\w*\*\s*(?::|=))',
           ).hasMatch(line)) {
         exportCount++;
       }
       final bool exportedType =
           line.contains('*') &&
-          RegExp(
+          cachedRegExp(
             r'=\s*(?:ref\s+)?object|=\s*tuple|=\s*enum|=\s*distinct',
           ).hasMatch(line);
       if (exportedType &&
@@ -158,14 +161,16 @@ final class NimFileRuleScanner {
             'exported API exposes cstring',
           );
         }
-        if (RegExp(r'(?:\bptr\s+|:\s*ptr\b|\bpointer\b)').hasMatch(line)) {
+        if (cachedRegExp(
+          r'(?:\bptr\s+|:\s*ptr\b|\bpointer\b)',
+        ).hasMatch(line)) {
           add(
             'nim-pointer-public-api',
             RuleSeverity.info,
             'exported API exposes a raw pointer',
           );
         }
-        if (RegExp(
+        if (cachedRegExp(
           r'\)\s*:\s*var\s+(?:int|bool|float|string|char)\b',
         ).hasMatch(line)) {
           add(
@@ -174,12 +179,12 @@ final class NimFileRuleScanner {
             'exported API returns mutable scalar access',
           );
         }
-        final RegExpMatch? constructor = RegExp(
+        final RegExpMatch? constructor = cachedRegExp(
           r'^(?:proc|func)\s+(?:init|new)([A-Z][A-Za-z0-9_]*)\*?\s*\(',
         ).firstMatch(line);
         if (constructor != null &&
-            !RegExp(
-              ':\\s*(?:ref\\s+)?${RegExp.escape(constructor.group(1)!)}\\b',
+            !cachedRegExp(
+              ':\\s*(?:ref\\s+)?${RegExp.escape(constructor.requiredGroup(1))}\\b',
             ).hasMatch(line)) {
           add(
             'nim-constructor-name',

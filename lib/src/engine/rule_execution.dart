@@ -7,6 +7,7 @@ import 'package:path/path.dart' as path;
 import '../cli/cli_contract.dart';
 import '../controls/finding_controls.dart';
 import '../core/models.dart';
+import '../core/regexp_cache.dart';
 import '../core/rule.dart';
 import '../discovery/discovery.dart';
 import '../graph/graph.dart';
@@ -34,14 +35,14 @@ final class RuleExecutionStage {
   final RuleRegistry _repositoryRules;
 
   static final RuleRegistry _standardRepositoryRules = repositoryRuleRegistry;
-  static final RegExp _runtimeDiscoveredTestDirectory = RegExp(
+  static final RegExp _runtimeDiscoveredTestDirectory = cachedRegExp(
     r'(^|/)(?:__tests__|test|tests|spec|specs)(?:/|$)',
   );
 
   static bool _isRuntimeDiscoveredTestSource(String path) =>
       _runtimeDiscoveredTestDirectory.hasMatch(path.replaceAll(r'\', '/'));
 
-  static final RegExp _auxiliaryDirectory = RegExp(
+  static final RegExp _auxiliaryDirectory = cachedRegExp(
     r'(^|/)(?:example|examples|fixture|fixtures|bench|benchmark|benchmarks)(?:/|$)',
   );
 
@@ -60,7 +61,7 @@ final class RuleExecutionStage {
     return workspace.isPublicRoot(path) ||
         (segments.length == 2 &&
             (segments.first == 'lib' || segments.first == 'bin')) ||
-        RegExp(
+        cachedRegExp(
           r'\b(?:FutureOr<\s*void\s*>|Future<\s*void\s*>|void)\s+main\s*\(',
         ).hasMatch(source);
   }
@@ -85,7 +86,7 @@ final class RuleExecutionStage {
         path.joinAll(<String>[root, ...packageRoot.split('/'), 'build.yaml']),
       );
       if (!buildConfig.existsSync()) continue;
-      final RegExp imports = RegExp(
+      final RegExp imports = cachedRegExp(
         r'''^\s*import:\s*["']package:([^/]+)/([^"']+)["']\s*$''',
         multiLine: true,
       );
@@ -157,7 +158,7 @@ final class RuleExecutionStage {
     final List<String> segments = path.replaceAll(r'\', '/').split('/');
     return segments.last == '__main__.py' ||
         segments.last == 'main.py' ||
-        RegExp(
+        cachedRegExp(
           r'''^\s*if\s+__name__\s*==\s*["']__main__["']\s*:''',
           multiLine: true,
         ).hasMatch(source);
@@ -201,6 +202,7 @@ final class RuleExecutionStage {
       _standardRepositoryRules.rules;
 
   /// Executes rules selected by [command] over [prepared].
+  // code-buster-ignore complex-function: command dispatch keeps shared graph preparation and mutually exclusive result views in one ordered pipeline.
   List<Finding> execute(
     CodeBusterCommand command,
     IndexedAnalysis indexed,
@@ -285,9 +287,12 @@ final class RuleExecutionStage {
         .map(_pythonPublicPackagePrefix)
         .nonNulls
         .toSet();
-    final Set<String> pythonExecutableRoots = pythonDeadFileCandidates
-        .where((String path) => _isPythonExecutableRoot(path, sources[path]!))
-        .toSet();
+    final Set<String> pythonExecutableRoots = pythonDeadFileCandidates.where((
+      String path,
+    ) {
+      final String? source = sources[path];
+      return source != null && _isPythonExecutableRoot(path, source);
+    }).toSet();
     final Set<String> pythonAppPrefixes = pythonExecutableRoots
         .where(
           (String path) =>

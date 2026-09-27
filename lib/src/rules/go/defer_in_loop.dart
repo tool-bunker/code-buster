@@ -2,6 +2,7 @@
 // unless a nested function scopes that defer to one iteration.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 
 /// Reports Go `defer` statements lexically nested in loops.
@@ -31,9 +32,9 @@ final class GoDeferInLoopRule extends SelfContainedRule {
       final List<String> lines = _goStructure(source.value).split('\n');
       for (var index = 0; index < lines.length; index++) {
         final String line = lines[index];
-        final int firstCode = line.indexOf(RegExp(r'\S'));
+        final int firstCode = line.indexOf(cachedRegExp(r'\S'));
         final int deferOffset =
-            RegExp(r'\bdefer\b').firstMatch(line)?.start ?? -1;
+            cachedRegExp(r'\bdefer\b').firstMatch(line)?.start ?? -1;
         if (deferOffset >= 0 && deferOffset == firstCode) {
           final int loop = scopes.lastIndexOf(_GoScope.loop);
           final int function = scopes.lastIndexOf(_GoScope.function);
@@ -59,9 +60,9 @@ final class GoDeferInLoopRule extends SelfContainedRule {
             case '{':
               final String prefix = line.substring(segmentStart, offset);
               scopes.add(
-                RegExp(r'(?:^|\W)for(?:\s|$)').hasMatch(prefix)
+                cachedRegExp(r'(?:^|\W)for(?:\s|$)').hasMatch(prefix)
                     ? _GoScope.loop
-                    : RegExp(r'\bfunc\s*\(').hasMatch(prefix)
+                    : cachedRegExp(r'\bfunc\s*\(').hasMatch(prefix)
                     ? _GoScope.function
                     : _GoScope.block,
               );
@@ -80,10 +81,12 @@ bool _exitsLoopAfter(List<String> lines, int deferLine, int nestedBlockDepth) {
   for (var index = deferLine; index < lines.length; index++) {
     final String line = lines[index];
     final int start = index == deferLine
-        ? (RegExp(r'\bdefer\b').firstMatch(line)?.end ?? 0)
+        ? (cachedRegExp(r'\bdefer\b').firstMatch(line)?.end ?? 0)
         : 0;
     if (depth <= nestedBlockDepth &&
-        RegExp(r'^\s*(?:return\b|break\b|continue\b|goto\b)').hasMatch(line)) {
+        cachedRegExp(
+          r'^\s*(?:return\b|break\b|continue\b|goto\b)',
+        ).hasMatch(line)) {
       return true;
     }
     for (var offset = start; offset < line.length; offset++) {

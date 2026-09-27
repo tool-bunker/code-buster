@@ -1,6 +1,7 @@
 // C and C++ hazards such as casts, unsafe strings, macros, and namespace misuse are detected together because they share lexical masking rules.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 
 RuleMetadata _metadata(String id, RuleSeverity severity, String title) =>
@@ -34,7 +35,7 @@ final SourcePatternRule cppUsingNamespaceStdRule = _pattern(
   id: 'cpp-using-namespace-std',
   severity: RuleSeverity.info,
   title: 'Avoid broad namespace imports',
-  pattern: RegExp(r'^\s*using namespace std;\s*$'),
+  pattern: cachedRegExp(r'^\s*using namespace std;\s*$'),
   message: 'using namespace std used',
 );
 
@@ -60,14 +61,14 @@ final class CppRawOwningNewRule extends SelfContainedRule {
         ),
       );
 
-  static final RegExp _allocation = RegExp(r'(?:=\s*new\s|^\s*new\s)');
-  static final RegExp _construction = RegExp(
+  static final RegExp _allocation = cachedRegExp(r'(?:=\s*new\s|^\s*new\s)');
+  static final RegExp _construction = cachedRegExp(
     r'\bnew\s+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)(?:\s*<[^;{}()]*>)?\s*\(([^;{}]*)\)',
   );
-  static final RegExp _parentArgument = RegExp(
+  static final RegExp _parentArgument = cachedRegExp(
     r'(?:^|,)\s*(?:this|parent\w*)\s*(?:,|$)',
   );
-  static final RegExp _assignedName = RegExp(
+  static final RegExp _assignedName = cachedRegExp(
     r'\b([A-Za-z_]\w*)\s*=\s*new\s+Q[A-Z]\w*',
   );
   static const Set<String> _owningSetters = <String>{
@@ -79,7 +80,7 @@ final class CppRawOwningNewRule extends SelfContainedRule {
     'setViewport',
     'setWidget',
   };
-  static final RegExp _emscriptenMacro = RegExp(
+  static final RegExp _emscriptenMacro = cachedRegExp(
     r'\b(?:[A-Z_]*EM_ASM[A-Z_]*|EM_JS)\s*\(',
   );
 
@@ -122,11 +123,12 @@ final class CppRawOwningNewRule extends SelfContainedRule {
   static bool _hasExplicitQtParent(String line, Set<String> qtOwnedTypes) {
     final RegExpMatch? construction = _construction.firstMatch(line);
     if (construction == null ||
-        !_parentArgument.hasMatch(construction.group(2)!)) {
+        !_parentArgument.hasMatch(construction.requiredGroup(2))) {
       return false;
     }
-    final String type = construction.group(1)!.split('::').last;
-    return RegExp(r'^Q[A-Z]').hasMatch(type) || qtOwnedTypes.contains(type);
+    final String type = construction.requiredGroup(1).split('::').last;
+    return cachedRegExp(r'^Q[A-Z]').hasMatch(type) ||
+        qtOwnedTypes.contains(type);
   }
 
   static Set<String> _qtOwnedTypes(RuleContext context) {
@@ -145,11 +147,11 @@ final class CppRawOwningNewRule extends SelfContainedRule {
           if (candidate.contains('{') || candidate.contains(';')) break;
         }
         final String text = declaration.toString().trim();
-        final RegExpMatch? named = RegExp(
+        final RegExpMatch? named = cachedRegExp(
           r'^(?:class|struct)\s+([A-Za-z_]\w*)',
         ).firstMatch(text);
         if (named == null) continue;
-        final String name = named.group(1)!;
+        final String name = named.requiredGroup(1);
         final int colon = text.indexOf(':');
         final int brace = text.indexOf('{');
         final Set<String> bases = colon < 0 || brace < colon
@@ -160,7 +162,9 @@ final class CppRawOwningNewRule extends SelfContainedRule {
                   .map(
                     (String base) => base
                         .replaceAll(
-                          RegExp(r'\b(?:public|protected|private|virtual)\b'),
+                          cachedRegExp(
+                            r'\b(?:public|protected|private|virtual)\b',
+                          ),
                           '',
                         )
                         .trim(),
@@ -168,12 +172,14 @@ final class CppRawOwningNewRule extends SelfContainedRule {
                   .map((String base) => base.split('::').last)
                   .map(
                     (String base) =>
-                        base.replaceFirst(RegExp(r'<.*$'), '').trim(),
+                        base.replaceFirst(cachedRegExp(r'<.*$'), '').trim(),
                   )
                   .where((String base) => base.isNotEmpty)
                   .toSet();
         basesByClass[name] = bases;
-        if (bases.any((String base) => RegExp(r'^Q[A-Z]').hasMatch(base)) ||
+        if (bases.any(
+              (String base) => cachedRegExp(r'^Q[A-Z]').hasMatch(base),
+            ) ||
             _classContainsQObjectMacro(lines, index)) {
           result.add(name);
         }
@@ -210,8 +216,8 @@ final class CppRawOwningNewRule extends SelfContainedRule {
   static bool _isImmediatelyTransferred(List<String> lines, int index) {
     final RegExpMatch? assignment = _assignedName.firstMatch(lines[index]);
     if (assignment == null) return false;
-    final String name = RegExp.escape(assignment.group(1)!);
-    final RegExp transfer = RegExp(
+    final String name = RegExp.escape(assignment.requiredGroup(1));
+    final RegExp transfer = cachedRegExp(
       '\\b(?:${_owningSetters.join('|')})\\s*\\(\\s*$name\\s*\\)',
     );
     for (
@@ -265,7 +271,7 @@ final SourcePatternRule cppManualDeleteRule = _pattern(
   id: 'cpp-manual-delete',
   severity: RuleSeverity.warn,
   title: 'Avoid manual deletion',
-  pattern: RegExp(r'\bdelete(?:\[\])?\s+'),
+  pattern: cachedRegExp(r'\bdelete(?:\[\])?\s+'),
   message: 'manual delete used',
 );
 
@@ -274,10 +280,10 @@ final SourcePatternRule cppCastRule = _pattern(
   id: 'cpp-cast',
   severity: RuleSeverity.info,
   title: 'Use explicit C++ casts',
-  pattern: RegExp(
+  pattern: cachedRegExp(
     r'\((?:int|float|double|char\s*\*|void\s*\*)\)\s*(?!(?:const|override|noexcept|final)\b)(?=[A-Za-z_0-9(])',
   ),
-  exclusion: RegExp(
+  exclusion: cachedRegExp(
     r':\s*\((?:int|float|double|char\s*\*|void\s*\*)\)\s*[A-Za-z_]\w*\b',
   ),
   message: 'C-style cast used',
@@ -288,7 +294,7 @@ final SourcePatternRule cppNullRule = _pattern(
   id: 'cpp-null',
   severity: RuleSeverity.info,
   title: 'Use nullptr',
-  pattern: RegExp(r'\bNULL\b'),
+  pattern: cachedRegExp(r'\bNULL\b'),
   message: 'NULL used instead of nullptr',
 );
 
@@ -297,7 +303,7 @@ final SourcePatternRule cppGotoRule = _pattern(
   id: 'cpp-goto',
   severity: RuleSeverity.warn,
   title: 'Use structured control flow',
-  pattern: RegExp(r'(^|\s)goto\s+'),
+  pattern: cachedRegExp(r'(^|\s)goto\s+'),
   message: 'goto statement used',
 );
 
@@ -308,10 +314,10 @@ final SourcePatternRule cppNonConstRefParamRule = SourcePatternRule(
     RuleSeverity.info,
     'Make mutation explicit',
   ),
-  pattern: RegExp(
+  pattern: cachedRegExp(
     r'^\s*(?:void|int|bool|auto)\b[^=;{}]*\([^;{}]*&\s+[A-Za-z_]\w*',
   ),
-  exclusion: RegExp(r'\bconst(?:\s|(?=&))|&&'),
+  exclusion: cachedRegExp(r'\bconst(?:\s|(?=&))|&&'),
   message: 'non-const reference parameter may hide mutation',
   confidence: 'medium',
 );
@@ -321,7 +327,7 @@ final SourcePatternRule cppMallocFreeRule = _pattern(
   id: 'cpp-malloc-free',
   severity: RuleSeverity.warn,
   title: 'Use C++ lifetime management',
-  pattern: RegExp(r'\b(?:malloc|calloc|realloc|free)\s*\('),
+  pattern: cachedRegExp(r'\b(?:malloc|calloc|realloc|free)\s*\('),
   message: 'C allocation API used in C++ code',
 );
 
@@ -330,7 +336,7 @@ final SourcePatternRule cppUnsafeCStringRule = _pattern(
   id: 'cpp-unsafe-c-string',
   severity: RuleSeverity.warn,
   title: 'Use bounded string APIs',
-  pattern: RegExp(
+  pattern: cachedRegExp(
     r'(?:^|[^.\s>])\s*\b(?:strcpy|strcat|sprintf|vsprintf)\s*\(|'
     r'^(?!.*(?:\.|->|::)\s*gets\s*\().*\bgets\s*\(\s*[^,)]*\)',
   ),
@@ -342,7 +348,7 @@ final SourcePatternRule cppRandRule = _pattern(
   id: 'cpp-rand',
   severity: RuleSeverity.info,
   title: 'Use a suitable random engine',
-  pattern: RegExp(r'\b(?:srand\s*\(|rand\s*\(\s*\))'),
+  pattern: cachedRegExp(r'\b(?:srand\s*\(|rand\s*\(\s*\))'),
   message: 'C rand/srand used',
 );
 
@@ -351,7 +357,7 @@ final SourcePatternRule cppConstCastRule = _pattern(
   id: 'cpp-const-cast',
   severity: RuleSeverity.warn,
   title: 'Preserve const correctness',
-  pattern: RegExp(r'\bconst_cast\s*<'),
+  pattern: cachedRegExp(r'\bconst_cast\s*<'),
   message: 'const_cast used',
 );
 
@@ -360,7 +366,7 @@ final SourcePatternRule cppReinterpretCastRule = _pattern(
   id: 'cpp-reinterpret-cast',
   severity: RuleSeverity.warn,
   title: 'Preserve type safety',
-  pattern: RegExp(r'\breinterpret_cast\s*<'),
+  pattern: cachedRegExp(r'\breinterpret_cast\s*<'),
   message: 'reinterpret_cast used',
 );
 
@@ -369,7 +375,7 @@ final SourcePatternRule cppMemsetZeroRule = _pattern(
   id: 'cpp-memset-zero',
   severity: RuleSeverity.info,
   title: 'Use typed initialization',
-  pattern: RegExp(r'\bmemset\s*\([^,]+,\s*0\s*,'),
+  pattern: cachedRegExp(r'\bmemset\s*\([^,]+,\s*0\s*,'),
   message: 'memset used for zero-initialization',
 );
 
@@ -395,9 +401,12 @@ final class CppMacroConstantRule extends SelfContainedRule {
   Iterable<Finding> analyze(RuleContext context) sync* {
     for (final MapEntry<String, String> source in context.sources.entries) {
       final Set<String> conditionalMacros =
-          RegExp(r'^\s*#\s*if(?:n?def)?\s+([A-Za-z_]\w*)', multiLine: true)
+          cachedRegExp(
+                r'^\s*#\s*if(?:n?def)?\s+([A-Za-z_]\w*)',
+                multiLine: true,
+              )
               .allMatches(source.value)
-              .map((RegExpMatch match) => match.group(1)!)
+              .map((RegExpMatch match) => match.requiredGroup(1))
               .toSet();
       final List<String> lines = context.linesFor(source.key);
       for (var index = 0; index < lines.length; index++) {
@@ -423,9 +432,11 @@ final class CppMacroConstantRule extends SelfContainedRule {
     }
   }
 
-  static final RegExp _define = RegExp(r'^#define\s+([A-Za-z_]\w*)\s+(.*)$');
+  static final RegExp _define = cachedRegExp(
+    r'^#define\s+([A-Za-z_]\w*)\s+(.*)$',
+  );
 
-  static final RegExp _constantReplacement = RegExp(
+  static final RegExp _constantReplacement = cachedRegExp(
     r'''^(?:[-+]?(?:0[xX][0-9A-Fa-f']+|0[bB][01']+|\d[\d']*(?:\.\d[\d']*)?)|true\b|false\b|nullptr\b|NULL\b|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')''',
   );
 }
@@ -521,11 +532,14 @@ final class CppVirtualNoDestructorRule extends SelfContainedRule {
 
   static String? _className(List<String> lines, int start) {
     final String declaration = _classDeclaration(lines, start);
-    final RegExpMatch? match = RegExp(
+    final RegExpMatch? match = cachedRegExp(
       r'^(?:class|struct)\s+(.+?)(?:\s*:\s*|\s*\{)',
     ).firstMatch(declaration);
     if (match == null) return null;
-    final List<String> tokens = match.group(1)!.trim().split(RegExp(r'\s+'));
+    final List<String> tokens = match
+        .group(1)!
+        .trim()
+        .split(cachedRegExp(r'\s+'));
     if (tokens.isEmpty) return null;
     final int nameIndex = tokens.last == 'final'
         ? tokens.length - 2
@@ -544,13 +558,15 @@ final class CppVirtualNoDestructorRule extends SelfContainedRule {
         .map(
           (String base) => base
               .replaceAll(
-                RegExp(r'\b(?:public|protected|private|virtual)\b'),
+                cachedRegExp(r'\b(?:public|protected|private|virtual)\b'),
                 '',
               )
               .trim(),
         )
         .map((String base) => base.split('::').last)
-        .map((String base) => base.replaceFirst(RegExp(r'<.*$'), '').trim())
+        .map(
+          (String base) => base.replaceFirst(cachedRegExp(r'<.*$'), '').trim(),
+        )
         .where((String base) => base.isNotEmpty)
         .toSet();
   }

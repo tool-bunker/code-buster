@@ -2,6 +2,7 @@
 
 import 'package:path/path.dart' as path;
 
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -21,7 +22,7 @@ final class OdinAdapter {
       final Set<String> dependencies = <String>{};
       final String structure = _odinStructure(entry.value, maskStrings: false);
       for (final RegExpMatch match in _import.allMatches(structure)) {
-        final String imported = match.group(1)!;
+        final String imported = match.requiredGroup(1);
         if (imported.contains(':')) continue;
         final String directory = path.posix.normalize(
           path.posix.join(path.posix.dirname(entry.key), imported),

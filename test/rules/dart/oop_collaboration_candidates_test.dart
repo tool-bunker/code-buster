@@ -140,4 +140,35 @@ class OrderView {
 
     expect(findings, isEmpty);
   });
+  test('ignores deep syntax navigation required by AST visitors', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/visitor.dart': '''
+class RuleVisitor extends RecursiveAstVisitor<void> {
+  void visitMethod(MethodDeclaration node) {
+    print(node.parent.root.beginToken.lexeme);
+    print(node.body.parent.root.beginToken.lexeme);
+  }
+
+  void visitClass(ClassDeclaration node) {
+    print(node.parent.root.beginToken.lexeme);
+  }
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
+  test('ignores deep traversal in analysis and rule-pack classes', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/analysis.dart': '''
+class OrderAnalysis {
+  String country(Order order) => order.customer.address.country.code;
+  String currency(Order order) => order.customer.address.currency.code;
+  String region(Order order) => order.customer.address.region.code;
+}
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
 }

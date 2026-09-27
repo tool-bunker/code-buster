@@ -2,6 +2,8 @@
 
 import 'dart:io';
 
+import '../core/regexp_cache.dart';
+
 /// Classifies candidate files independently from repository traversal policy.
 final class SourceClassifier {
   /// Creates a stateless source classifier.
@@ -23,7 +25,7 @@ final class SourceClassifier {
       ).firstMatch(firstLine);
       if (shebang == null) return false;
 
-      var interpreter = shebang.group(1)!;
+      var interpreter = shebang.requiredGroup(1);
       if (interpreter.split('/').last == 'env') {
         final List<String> arguments = (shebang.group(2) ?? '')
             .trim()
@@ -196,9 +198,7 @@ final class SourceClassifier {
       if (currentLine > longestLine) longestLine = currentLine;
       if (longestLine >= 2000) return true;
       if (length >= 20 * 1024 && sampleLength ~/ lines >= 500) return true;
-      if (extension == '.js' ||
-          extension == '.mjs' ||
-          extension == '.cjs') {
+      if (extension == '.js' || extension == '.mjs' || extension == '.cjs') {
         final String source = String.fromCharCodes(sample);
         if (length >= 1024 * 1024 &&
             source.contains('var __defProp = Object.defineProperty') &&

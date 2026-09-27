@@ -1,7 +1,9 @@
 // Python imports and indentation-defined functions are converted into repository edges and callable regions without executing the code.
 
 import 'package:path/path.dart' as path;
+import '../../core/models.dart';
 
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -15,14 +17,14 @@ final class PythonGraphAdapter {
     for (final String sourcePath in files) {
       final Set<String> dependencies = <String>{};
       for (final RegExpMatch match in _importPattern.allMatches(
-        _runtimeImportSource(sources[sourcePath]!),
+        _runtimeImportSource(sources.requiredValue(sourcePath)),
       )) {
         final String? fromModule = match.group(1);
         final List<String> modules;
         if (fromModule == null) {
-          modules = <String>[match.group(3)!];
+          modules = <String>[match.requiredGroup(3)];
         } else {
-          final String importedName = match.group(2)!;
+          final String importedName = match.requiredGroup(2);
           final String baseModule = fromModule == '.'
               ? '.$importedName'
               : fromModule;
@@ -45,7 +47,7 @@ final class PythonGraphAdapter {
     return DependencyGraph(edges);
   }
 
-  static final RegExp _importPattern = RegExp(
+  static final RegExp _importPattern = cachedRegExp(
     r'^\s*(?:from\s+([.\w]+)\s+import\s+([A-Za-z_]\w*|\*)|import\s+([\w.]+))',
     multiLine: true,
   );
@@ -63,8 +65,10 @@ final class PythonGraphAdapter {
         excludedBlockIndent = null;
       }
       final bool startsExcludedBlock =
-          RegExp(r'^(?:async\s+def|def|class)\s+').hasMatch(trimmed) ||
-          RegExp(r'^if\s+(?:typing\.)?TYPE_CHECKING\s*:').hasMatch(trimmed);
+          cachedRegExp(r'^(?:async\s+def|def|class)\s+').hasMatch(trimmed) ||
+          cachedRegExp(
+            r'^if\s+(?:typing\.)?TYPE_CHECKING\s*:',
+          ).hasMatch(trimmed);
       if (startsExcludedBlock) {
         excludedBlockIndent = indent;
         result.add('');
@@ -140,7 +144,7 @@ final class PythonGraphAdapter {
     final String relative;
     if (module.startsWith('.')) {
       final int dots =
-          module.length - module.replaceFirst(RegExp(r'^\.+'), '').length;
+          module.length - module.replaceFirst(cachedRegExp(r'^\.+'), '').length;
       final List<String> base = path.posix.dirname(sourcePath).split('/');
       final int keep = (base.length - dots + 1).clamp(0, base.length);
       final String suffix = module.substring(dots).replaceAll('.', '/');
@@ -169,7 +173,7 @@ final class PythonFunctionParser {
     final List<FunctionSource> result = <FunctionSource>[];
     final List<String> paths = sources.keys.toList()..sort();
     for (final String sourcePath in paths) {
-      final List<String> lines = sources[sourcePath]!.split('\n');
+      final List<String> lines = sources.requiredValue(sourcePath).split('\n');
       for (var index = 0; index < lines.length; index++) {
         final RegExpMatch? match = _declaration.firstMatch(lines[index]);
         if (match == null) {
@@ -195,7 +199,7 @@ final class PythonFunctionParser {
     return List<FunctionSource>.unmodifiable(result);
   }
 
-  static final RegExp _declaration = RegExp(
+  static final RegExp _declaration = cachedRegExp(
     r'^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*(?:\[[^\]]+\])?\s*\(',
   );
 }

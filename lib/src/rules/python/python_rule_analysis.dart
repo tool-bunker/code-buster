@@ -1,10 +1,12 @@
 // Python diagnostics share indentation, import, exception, and call-context facts, making a coordinated pass both faster and more consistent.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 /// Shared scan used by independently registered Python rules.
 final class PythonRuleAnalysis {
   /// Emits findings for [ruleId] in source order.
+  // code-buster-ignore complex-function: rule-ID dispatch shares indentation and import state while executing independent checks in one source pass.
   List<Finding> findings(Map<String, String> sources, String ruleId) {
     final List<Finding> result = <Finding>[];
     for (final MapEntry<String, String> entry in sources.entries) {
@@ -89,16 +91,18 @@ final class PythonRuleAnalysis {
         final int suiteColon = line.lastIndexOf(':');
         final bool compoundHeader =
             suiteColon >= 0 &&
-            RegExp(r'^(?:if|for|while|try|except|finally)\b').hasMatch(line) &&
+            cachedRegExp(
+              r'^(?:if|for|while|try|except|finally)\b',
+            ).hasMatch(line) &&
             line.substring(suiteColon + 1).trim().isNotEmpty;
-        if (compoundHeader || RegExp(r';\s*\S').hasMatch(line)) {
+        if (compoundHeader || cachedRegExp(r';\s*\S').hasMatch(line)) {
           add(
             'py-compound-statement',
             RuleSeverity.info,
             'compound statement on one line',
           );
         }
-        if (RegExp(
+        if (cachedRegExp(
           r'\(\s|\s[,;]|\s[)\]}]',
         ).hasMatch(_maskStrings(code.trim()))) {
           add(
@@ -114,16 +118,16 @@ final class PythonRuleAnalysis {
             'backslash line continuation used',
           );
         }
-        final RegExpMatch? function = RegExp(
+        final RegExpMatch? function = cachedRegExp(
           r'^(?:async\s+)?def\s+([A-Za-z_]\w*)',
         ).firstMatch(line);
         if (function != null &&
-            !_httpRequestHandlerMethod.hasMatch(function.group(1)!) &&
-            !_pythonTestLifecycleMethod.hasMatch(function.group(1)!) &&
+            !_httpRequestHandlerMethod.hasMatch(function.requiredGroup(1)) &&
+            !_pythonTestLifecycleMethod.hasMatch(function.requiredGroup(1)) &&
             !_isComInterfaceMethod(lines, index, indent) &&
-            !_isMonkeyPatchReplacement(lines, function.group(1)!) &&
-            (function.group(1)!.contains('-') ||
-                RegExp(r'[A-Z]').hasMatch(function.group(1)!))) {
+            !_isMonkeyPatchReplacement(lines, function.requiredGroup(1)) &&
+            (function.requiredGroup(1).contains('-') ||
+                cachedRegExp(r'[A-Z]').hasMatch(function.requiredGroup(1)))) {
           add(
             'py-function-naming',
             RuleSeverity.info,
@@ -131,7 +135,9 @@ final class PythonRuleAnalysis {
           );
         }
         if (function != null &&
-            RegExp(r'=\s*(?:\[\]|\{}|set\(|dict\(|list\()').hasMatch(line)) {
+            cachedRegExp(
+              r'=\s*(?:\[\]|\{}|set\(|dict\(|list\()',
+            ).hasMatch(line)) {
           add(
             'py-mutable-default',
             RuleSeverity.warn,
@@ -150,8 +156,10 @@ final class PythonRuleAnalysis {
           add('py-broad-except', RuleSeverity.info, 'broad exception handler');
         }
         if (function == null &&
-            (RegExp(r'(?:^|[^\w.])(?:eval|exec)\s*\(').hasMatch(line) ||
-                RegExp(r'\bbuiltins\.(?:eval|exec)\s*\(').hasMatch(line))) {
+            (cachedRegExp(r'(?:^|[^\w.])(?:eval|exec)\s*\(').hasMatch(line) ||
+                cachedRegExp(
+                  r'\bbuiltins\.(?:eval|exec)\s*\(',
+                ).hasMatch(line))) {
           add(
             'py-eval-exec',
             RuleSeverity.error,
@@ -174,20 +182,22 @@ final class PythonRuleAnalysis {
             'assert used outside tests',
           );
         }
-        if (RegExp(
+        if (cachedRegExp(
               r'requests\.(?:get|post|put|patch|delete|request)\(',
             ).hasMatch(line) &&
-            !RegExp(r'\btimeout\s*=').hasMatch(_continuedCall(lines, index))) {
+            !cachedRegExp(
+              r'\btimeout\s*=',
+            ).hasMatch(_continuedCall(lines, index))) {
           add(
             'py-requests-timeout',
             RuleSeverity.warn,
             'requests call has no timeout',
           );
         }
-        if (RegExp(
+        if (cachedRegExp(
               r'requests\.(?:get|post|put|patch|delete|request)\(',
             ).hasMatch(line) &&
-            RegExp(
+            cachedRegExp(
               r'\bverify\s*=\s*False\b',
             ).hasMatch(_continuedCall(lines, index))) {
           add(
@@ -206,7 +216,7 @@ final class PythonRuleAnalysis {
             'yaml.load without SafeLoader',
           );
         }
-        if (RegExp(
+        if (cachedRegExp(
           r'\bpickle\.loads?\s*\(|\bfrom\s+pickle\s+import\b[^#]*\bloads?\b',
         ).hasMatch(line)) {
           add(
@@ -238,11 +248,11 @@ final class PythonRuleAnalysis {
             'possible hardcoded secret',
           );
         }
-        if (RegExp(
+        if (cachedRegExp(
               r'''hashlib\.(?:md5|sha1)\(|\.new\(["'](?:md5|sha1)["']''',
               caseSensitive: false,
             ).hasMatch(code) &&
-            !RegExp(
+            !cachedRegExp(
               r'\busedforsecurity\s*=\s*False\b',
             ).hasMatch(_continuedCall(lines, index))) {
           add('py-weak-hash', RuleSeverity.warn, 'weak hash algorithm used');
@@ -254,7 +264,7 @@ final class PythonRuleAnalysis {
             'tempfile.mktemp is race-prone',
           );
         }
-        if (RegExp(
+        if (cachedRegExp(
           r'\bdebug\s*=\s*true',
           caseSensitive: false,
         ).hasMatch(line)) {
@@ -264,11 +274,11 @@ final class PythonRuleAnalysis {
             'debug mode appears enabled',
           );
         }
-        if (RegExp(r'(?:^|[^\w.])open\s*\(').hasMatch(line) &&
+        if (cachedRegExp(r'(?:^|[^\w.])open\s*\(').hasMatch(line) &&
             !_expectsOpenFailure(lines, index)) {
           final String call = _continuedCall(lines, index);
           if (!call.contains('encoding=') &&
-              !RegExp(
+              !cachedRegExp(
                 r'''["'][rwa+x]*b[rwa+x]*["']''',
                 caseSensitive: false,
               ).hasMatch(call)) {
@@ -294,7 +304,7 @@ final class PythonRuleAnalysis {
           }
         }
         if (asyncIndent >= 0 &&
-            RegExp(
+            cachedRegExp(
               r'\b(?:time\.sleep|requests\.(?:get|post)|subprocess\.run)\(',
             ).hasMatch(line)) {
           add(
@@ -369,7 +379,9 @@ final class PythonRuleAnalysis {
       if (indent <= handlerIndent) break;
       bodyIndent ??= indent;
       if (indent != bodyIndent) continue;
-      if (RegExp(r'^(?:return\b|raise\b|(?:sys\.)?exit\s*\()').hasMatch(line)) {
+      if (cachedRegExp(
+        r'^(?:return\b|raise\b|(?:sys\.)?exit\s*\()',
+      ).hasMatch(line)) {
         return true;
       }
     }
@@ -377,7 +389,7 @@ final class PythonRuleAnalysis {
   }
 
   static int _leadingIndent(String line) {
-    final RegExpMatch? match = RegExp(r'^[ \t]*').firstMatch(line);
+    final RegExpMatch? match = cachedRegExp(r'^[ \t]*').firstMatch(line);
     return match?.group(0)!.length ?? 0;
   }
 
@@ -405,8 +417,10 @@ final class PythonRuleAnalysis {
   static bool _usesSafeRuamelYaml(List<String> lines, int index) {
     for (var lineIndex = index - 1; lineIndex >= 0; lineIndex--) {
       final String candidate = _codeBeforeComment(lines[lineIndex]).trim();
-      if (!RegExp(r'\byaml\s*=\s*YAML\s*\(').hasMatch(candidate)) continue;
-      return RegExp(
+      if (!cachedRegExp(r'\byaml\s*=\s*YAML\s*\(').hasMatch(candidate)) {
+        continue;
+      }
+      return cachedRegExp(
         r'''\btyp\s*=\s*["']safe["']''',
         caseSensitive: false,
       ).hasMatch(_continuedCall(lines, lineIndex));
@@ -433,17 +447,17 @@ final class PythonRuleAnalysis {
     return false;
   }
 
-  static final RegExp _pythonFStringPrefix = RegExp(
+  static final RegExp _pythonFStringPrefix = cachedRegExp(
     r'(?:^|[^\w])(?:f[r]?|r[f])$',
     caseSensitive: false,
   );
-  static final RegExp _pythonFStringField = RegExp(
+  static final RegExp _pythonFStringField = cachedRegExp(
     r'(?<!\{)\{[^{}\n]+\}(?!\})',
   );
-  static final RegExp _dynamicSqlLiteralSuffix = RegExp(
+  static final RegExp _dynamicSqlLiteralSuffix = cachedRegExp(
     r'''^\s*(?:\.format\s*\(|%\s*(?=[A-Za-z_(\[])|\+\s*(?!["']))''',
   );
-  static final RegExp _dynamicSqlLiteralPrefix = RegExp(
+  static final RegExp _dynamicSqlLiteralPrefix = cachedRegExp(
     r'''(?:[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?:\([^)]*\))?|\)|\])\s*\+\s*$''',
   );
 
@@ -458,7 +472,7 @@ final class PythonRuleAnalysis {
       final int candidateIndent =
           lines[index].length - lines[index].trimLeft().length;
       if (candidateIndent >= methodIndent) continue;
-      if (!RegExp(
+      if (!cachedRegExp(
         r'^class\s+\w+\s*\([^)]*\bcomtypes\.COMObject\b[^)]*\)\s*:',
       ).hasMatch(candidate)) {
         return false;
@@ -473,10 +487,10 @@ final class PythonRuleAnalysis {
 
   static bool _isMonkeyPatchReplacement(List<String> lines, String name) {
     final String escaped = RegExp.escape(name);
-    final RegExp directAssignment = RegExp(
+    final RegExp directAssignment = cachedRegExp(
       '\\.[A-Za-z_]\\w*\\s*=\\s*$escaped\\b',
     );
-    final RegExp patchCall = RegExp(
+    final RegExp patchCall = cachedRegExp(
       '\\bpatch(?:es)?\\.patch\\s*\\([^#\\n]*\\b$escaped\\b',
     );
     return lines
@@ -495,12 +509,12 @@ final class PythonRuleAnalysis {
         name.endsWith('_test.py');
   }
 
-  static final RegExp _pythonTestDirectory = RegExp(
+  static final RegExp _pythonTestDirectory = cachedRegExp(
     r'(?:^|/)(?:test|tests|__tests__)(?:/|$)',
   );
 
   static bool _hasNoqaFor(String comment, String code) {
-    final RegExpMatch? directive = RegExp(
+    final RegExpMatch? directive = cachedRegExp(
       r'#\s*noqa\b(?:\s*:\s*([A-Z0-9_,\s]+))?',
       caseSensitive: false,
     ).firstMatch(comment);
@@ -508,7 +522,7 @@ final class PythonRuleAnalysis {
     final String? listedCodes = directive.group(1);
     if (listedCodes == null) return true;
     return listedCodes
-        .split(RegExp(r'[\s,]+'))
+        .split(cachedRegExp(r'[\s,]+'))
         .any((String listed) => listed.toUpperCase() == code);
   }
 
@@ -578,14 +592,15 @@ final class PythonRuleAnalysis {
       if (line.codeUnitAt(cursor) == 35) break;
       final Match? stringStart = _pythonStringStart.matchAsPrefix(line, cursor);
       final bool atTokenBoundary =
-          cursor == 0 || !RegExp(r'[A-Za-z0-9_]').hasMatch(line[cursor - 1]);
+          cursor == 0 ||
+          !cachedRegExp(r'[A-Za-z0-9_]').hasMatch(line[cursor - 1]);
       if (stringStart == null || !atTokenBoundary) {
         code.writeCharCode(line.codeUnitAt(cursor));
         cursor++;
         continue;
       }
 
-      final String quote = stringStart.group(1)!;
+      final String quote = stringStart.requiredGroup(1);
       if (quote.length == 3) {
         delimiter = quote;
         cursor = stringStart.end;
@@ -622,53 +637,53 @@ final class PythonRuleAnalysis {
     return backslashes.isOdd;
   }
 
-  static final RegExp _httpRequestHandlerMethod = RegExp(
+  static final RegExp _httpRequestHandlerMethod = cachedRegExp(
     r'^do_(?:GET|HEAD|POST|PUT|DELETE|PATCH|OPTIONS|CONNECT|TRACE)$',
   );
-  static final RegExp _pythonTestLifecycleMethod = RegExp(
+  static final RegExp _pythonTestLifecycleMethod = cachedRegExp(
     r'^(?:setUp|tearDown)(?:Class|Module)?$',
   );
 
-  static final RegExp _pythonStringStart = RegExp(
+  static final RegExp _pythonStringStart = cachedRegExp(
     "[rRuUbBfF]{0,2}(\"{3}|'{3}|\"|')",
   );
 
   static bool _expectsOpenFailure(List<String> lines, int index) {
     if (index == 0) return false;
-    return RegExp(
+    return cachedRegExp(
       r'^(?:with\s+)?(?:(?:self\.)?assertRaises|pytest\.raises)\(\s*(?:FileNotFoundError|PermissionError|IsADirectoryError)\s*\)\s*:\s*$',
     ).hasMatch(lines[index - 1].trim());
   }
 
-  static final RegExp _stderrPrintTarget = RegExp(
+  static final RegExp _stderrPrintTarget = cachedRegExp(
     r'\bfile\s*=\s*sys\.stderr\b',
   );
 
-  static final RegExp _sqlStatement = RegExp(
+  static final RegExp _sqlStatement = cachedRegExp(
     r'\b(?:select\b[^\n]*\bfrom\b|insert\s+into\b|update\s+[A-Za-z_][\w.]*\s+set\b|delete\s+from\b)',
     caseSensitive: false,
   );
 
-  static final RegExp _quotedString = RegExp(
+  static final RegExp _quotedString = cachedRegExp(
     r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`''',
   );
   static const String _quotedLiteral =
       r'''[rRuUbBfF]{0,2}(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')''';
-  static final RegExp _hardcodedSecretAssignment = RegExp(
+  static final RegExp _hardcodedSecretAssignment = cachedRegExp(
     '''\\b(?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)\\s*=\\s*$_quotedLiteral\\s*(?:[,}\\])]|\$)''',
     caseSensitive: false,
   );
-  static final RegExp _hardcodedSecretMapEntry = RegExp(
+  static final RegExp _hardcodedSecretMapEntry = cachedRegExp(
     '''["'](?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)["']\\s*:\\s*$_quotedLiteral\\s*(?:[,}\\])]|\$)''',
     caseSensitive: false,
   );
-  static final RegExp _emptyHardcodedSecret = RegExp(
+  static final RegExp _emptyHardcodedSecret = cachedRegExp(
     r'''(?:(?:\b(?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)\s*=)|(?:["'](?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)["']\s*:))\s*[rRuUbBfF]{0,2}(?:"\s*"|'\s*')''',
     caseSensitive: false,
   );
 
   static bool _isSymbolicSecretValue(String match) {
-    final RegExpMatch? name = RegExp(
+    final RegExpMatch? name = cachedRegExp(
       r'''(?:^|\b|["'])(password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)(?:\b|["'])''',
       caseSensitive: false,
     ).firstMatch(match);
@@ -679,8 +694,8 @@ final class PythonRuleAnalysis {
     final RegExpMatch literal = literals.last;
     final String value = literal.group(1) ?? literal.group(2) ?? '';
     String normalize(String source) =>
-        source.replaceAll(RegExp('[^A-Za-z0-9]'), '').toLowerCase();
-    return normalize(name.group(1)!) == normalize(value);
+        source.replaceAll(cachedRegExp('[^A-Za-z0-9]'), '').toLowerCase();
+    return normalize(name.requiredGroup(1)) == normalize(value);
   }
 
   static bool _isPlaceholderSecret(String match, String path) {
@@ -695,19 +710,19 @@ final class PythonRuleAnalysis {
     return _isTestPath(path) && _testSecretPlaceholder.hasMatch(value);
   }
 
-  static final RegExp _secretStringLiteral = RegExp(
+  static final RegExp _secretStringLiteral = cachedRegExp(
     r'''[rRuUbBfF]{0,2}(?:"([^"]*)"|'([^']*)')''',
   );
-  static final RegExp _documentationSecretPlaceholder = RegExp(
+  static final RegExp _documentationSecretPlaceholder = cachedRegExp(
     r'^(?:none|null|undefined)$|(?:^|[-_])your(?:[-_])(?:[a-z0-9]+[-_])*(?:key|token|secret|password|credential)(?:$|[-_])|(?:^|[-_])replace[-_]?me(?:$|[-_])',
     caseSensitive: false,
   );
-  static final RegExp _testSecretPlaceholder = RegExp(
+  static final RegExp _testSecretPlaceholder = cachedRegExp(
     r'^(?:test|test[-_](?:api[-_]?key|key|token|secret|password)|fc[-_]test)$',
     caseSensitive: false,
   );
 
-  static final RegExp _repeatedFillerSecretAssignment = RegExp(
+  static final RegExp _repeatedFillerSecretAssignment = cachedRegExp(
     r'''\b(?:password|passwd|secret|api_key|apikey|token)\w*\s*=\s*[rRuUbBfF]{0,2}["'][^"'\\]["']\s*\*\s*\(?\s*\d+''',
     caseSensitive: false,
   );

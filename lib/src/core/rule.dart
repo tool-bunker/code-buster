@@ -2,6 +2,7 @@
 
 import '../graph/graph.dart';
 import 'models.dart';
+import 'regexp_cache.dart';
 
 /// Immutable inputs made available to an executable Code Buster rule.
 ///
@@ -41,8 +42,15 @@ final class RuleContext {
   /// Non-source project inputs needed by repository and framework rules.
   final Map<String, String> auxiliaryFiles;
 
-  List<String> linesFor(String path) =>
-      sourceLines[path] ?? sources[path]!.split('\n');
+  List<String> linesFor(String path) {
+    final List<String>? prepared = sourceLines[path];
+    if (prepared != null) return prepared;
+    final String? source = sources[path];
+    if (source == null) {
+      throw StateError('No source is available for $path');
+    }
+    return source.split('\n');
+  }
 
   T requireLanguageAnalysis<T extends Object>() {
     final Object? analysis = languageAnalysis;
@@ -98,13 +106,13 @@ List<String> maskDefinitelyInactivePreprocessorBranches(List<String> lines) {
       continue;
     }
 
-    final String name = directive.group(1)!;
+    final String name = directive.requiredGroup(1);
     switch (name) {
       case 'if':
         parentDisabled.add(disabled);
         disabled =
             disabled ||
-            _falsePreprocessorExpression.hasMatch(directive.group(2)!);
+            _falsePreprocessorExpression.hasMatch(directive.requiredGroup(2));
       case 'ifdef':
       case 'ifndef':
         parentDisabled.add(disabled);
@@ -112,7 +120,7 @@ List<String> maskDefinitelyInactivePreprocessorBranches(List<String> lines) {
         if (parentDisabled.isNotEmpty) {
           disabled =
               parentDisabled.last ||
-              _falsePreprocessorExpression.hasMatch(directive.group(2)!);
+              _falsePreprocessorExpression.hasMatch(directive.requiredGroup(2));
         }
       case 'else':
         if (parentDisabled.isNotEmpty) {

@@ -8,6 +8,7 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:crypto/crypto.dart';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../languages/rust/rust_adapter.dart';
 
@@ -67,7 +68,7 @@ final class DuplicationAnalysis {
 
   /// Returns normalized source text suitable for exact-block comparison.
   static String normalizedLine(String line) {
-    final String normalized = line.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final String normalized = line.trim().replaceAll(cachedRegExp(r'\s+'), ' ');
     if (normalized.isEmpty ||
         normalized.startsWith('--') ||
         normalized.startsWith('//') ||
@@ -165,14 +166,16 @@ final class DuplicationAnalysis {
       if (locations.length == 2 &&
           _mutuallyExclusiveGoBuilds(
             locations[0].path,
-            sources[locations[0].path]!,
+            sources.requiredValue(locations[0].path),
             locations[1].path,
-            sources[locations[1].path]!,
+            sources.requiredValue(locations[1].path),
           )) {
         continue;
       }
       if (locations.any((_Location location) {
-        final List<_NormalizedLine> lines = normalizedByPath[location.path]!;
+        final List<_NormalizedLine> lines = normalizedByPath.requiredValue(
+          location.path,
+        );
         return _overlaps(
           occupied[location.path] ?? const <_LineRange>[],
           _LineRange(
@@ -189,11 +192,9 @@ final class DuplicationAnalysis {
       )) {
         final Set<String> previous = locations
             .map(
-              (_Location location) =>
-                  normalizedByPath[location.path]![location.index -
-                          backward -
-                          1]
-                      .text,
+              (_Location location) => normalizedByPath
+                  .requiredValue(location.path)[location.index - backward - 1]
+                  .text,
             )
             .toSet();
         if (previous.length != 1) break;
@@ -203,15 +204,15 @@ final class DuplicationAnalysis {
       while (locations.every(
         (_Location location) =>
             location.index + window + forward <
-            normalizedByPath[location.path]!.length,
+            normalizedByPath.requiredValue(location.path).length,
       )) {
         final Set<String> next = locations
             .map(
-              (_Location location) =>
-                  normalizedByPath[location.path]![location.index +
-                          window +
-                          forward]
-                      .text,
+              (_Location location) => normalizedByPath
+                  .requiredValue(location.path)[location.index +
+                      window +
+                      forward]
+                  .text,
             )
             .toSet();
         if (next.length != 1) break;
@@ -219,8 +220,9 @@ final class DuplicationAnalysis {
       }
       final List<_DuplicateSpan> spans = locations
           .map((_Location location) {
-            final List<_NormalizedLine> lines =
-                normalizedByPath[location.path]!;
+            final List<_NormalizedLine> lines = normalizedByPath.requiredValue(
+              location.path,
+            );
             final int startIndex = location.index - backward;
             final int endIndex = location.index + window + forward - 1;
             return _DuplicateSpan(
@@ -312,19 +314,19 @@ final class DuplicationAnalysis {
   /// Normalizes identifiers and literals while retaining operations and control flow.
   static List<String> structuralTokens(String source) {
     final String noStrings = source.replaceAll(
-      RegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*' '''.trim()),
+      cachedRegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*' '''.trim()),
       ' STR ',
     );
-    final List<String> raw = RegExp(
+    final List<String> raw = cachedRegExp(
       r'[A-Za-z_]\w*|\d+(?:\.\d+)?|==|!=|<=|>=|&&|\|\||[-+*/%<>{}()[\].,:=]',
     ).allMatches(noStrings).map((RegExpMatch match) => match.group(0)!).toList();
     return List<String>.unmodifiable(
       List<String>.generate(raw.length, (int index) {
         final String token = raw[index];
-        if (RegExp(r'^\d').hasMatch(token)) {
+        if (cachedRegExp(r'^\d').hasMatch(token)) {
           return 'NUM';
         }
-        if (RegExp(r'^[A-Za-z_]').hasMatch(token)) {
+        if (cachedRegExp(r'^[A-Za-z_]').hasMatch(token)) {
           final String lower = token.toLowerCase();
           final bool call = index + 1 < raw.length && raw[index + 1] == '(';
           final bool member = index > 0 && raw[index - 1] == '.';
@@ -378,7 +380,7 @@ final class DuplicationAnalysis {
               fragment.tokens.length >= 20 &&
               fragment.tokens.length <= 400 &&
               fragment.fragment.source.split('\n').length >= 7 &&
-              !RegExp(
+              !cachedRegExp(
                 r'^accept[A-Z].*Visitor$',
               ).hasMatch(fragment.fragment.name),
         )
@@ -450,7 +452,7 @@ final class DuplicationAnalysis {
               token != 'ID' &&
               token != 'NUM' &&
               token != 'STR' &&
-              (!RegExp(r'^[A-Za-z_]').hasMatch(token) ||
+              (!cachedRegExp(r'^[A-Za-z_]').hasMatch(token) ||
                   _structuralKeywords.contains(token)),
         )
         .take(12)
@@ -531,12 +533,12 @@ final class DuplicationAnalysis {
     final String source = fragment.source;
     final Map<String, _ContractSignature> signatures =
         <String, _ContractSignature>{};
-    for (final RegExpMatch match in RegExp(
+    for (final RegExpMatch match in cachedRegExp(
       r'''\b(get|post|put|patch|delete)\s*\(\s*(?:Uri\.parse\(\s*)?['"]([^'"]+)['"]''',
       caseSensitive: false,
     ).allMatches(source)) {
-      final String method = match.group(1)!.toUpperCase();
-      final String endpoint = _normalizeEndpoint(match.group(2)!);
+      final String method = match.requiredGroup(1).toUpperCase();
+      final String endpoint = _normalizeEndpoint(match.requiredGroup(2));
       if (!endpoint.startsWith('/')) continue;
       final String id = 'http:$method:$endpoint';
       signatures[id] = _ContractSignature(
@@ -547,12 +549,12 @@ final class DuplicationAnalysis {
       );
     }
 
-    final List<RegExpMatch> jsonKeys = RegExp(
+    final List<RegExpMatch> jsonKeys = cachedRegExp(
       r'''(?:json|map|data|body|payload)\s*\[\s*['"]([^'"]+)['"]\s*\]''',
       caseSensitive: false,
     ).allMatches(source).toList(growable: false);
     final Set<String> keys = jsonKeys
-        .map((RegExpMatch match) => match.group(1)!)
+        .map((RegExpMatch match) => match.requiredGroup(1))
         .toSet();
     if (keys.length >= 3) {
       final List<String> orderedKeys = keys.toList()..sort();
@@ -565,23 +567,23 @@ final class DuplicationAnalysis {
       );
     }
 
-    for (final RegExpMatch match in RegExp(
+    for (final RegExpMatch match in cachedRegExp(
       r'\b(select\s+[^;\n]{1,200}?\s+from|insert\s+into|update|delete\s+from)\s+([a-z_][\w.]*)',
       caseSensitive: false,
     ).allMatches(source)) {
       final String operation = match
-          .group(1)!
+          .requiredGroup(1)
           .toLowerCase()
-          .split(RegExp(r'\s+'))
+          .split(cachedRegExp(r'\s+'))
           .first;
       if (operation == 'update' &&
-          !RegExp(
+          !cachedRegExp(
             r'^\s+set\b',
             caseSensitive: false,
           ).hasMatch(source.substring(match.end))) {
         continue;
       }
-      final String table = match.group(2)!.toLowerCase();
+      final String table = match.requiredGroup(2).toLowerCase();
       final String id = 'sql:$operation:$table';
       signatures[id] = _ContractSignature(
         id,
@@ -591,13 +593,13 @@ final class DuplicationAnalysis {
       );
     }
 
-    final List<RegExpMatch> configKeys = RegExp(
+    final List<RegExpMatch> configKeys = cachedRegExp(
       r'''(?:Platform\.environment|process\.env)\s*(?:\[\s*['"]([^'"]+)['"]\s*\]|\.\s*([A-Za-z_]\w*))|getenv\s*\(\s*['"]([^'"]+)['"]''',
     ).allMatches(source).toList(growable: false);
     final Set<String> environmentKeys = configKeys
         .map(
           (RegExpMatch match) =>
-              match.group(1) ?? match.group(2) ?? match.group(3)!,
+              match.group(1) ?? match.group(2) ?? match.requiredGroup(3),
         )
         .toSet();
     if (environmentKeys.length >= 2) {
@@ -616,8 +618,8 @@ final class DuplicationAnalysis {
   static String _normalizeEndpoint(String endpoint) => endpoint
       .split('?')
       .first
-      .replaceAll(RegExp(r'\$\{?[A-Za-z_]\w*\}?'), '{value}')
-      .replaceAll(RegExp(r'(?<=/)\d+(?=/|$)'), '{number}');
+      .replaceAll(cachedRegExp(r'\$\{?[A-Za-z_]\w*\}?'), '{value}')
+      .replaceAll(cachedRegExp(r'(?<=/)\d+(?=/|$)'), '{number}');
 
   /// Finds complex conditions repeated in at least three locations.
   List<Finding> repeatedConditions(Map<String, String> sources) {
@@ -627,7 +629,9 @@ final class DuplicationAnalysis {
       final List<String> lines = source.split('\n');
       for (var index = 0; index < lines.length; index++) {
         final String raw = lines[index].trim();
-        if (!RegExp(r'^(?:if|elif|elseif|else if|while)\s+').hasMatch(raw)) {
+        if (!cachedRegExp(
+          r'^(?:if|elif|elseif|else if|while)\s+',
+        ).hasMatch(raw)) {
           continue;
         }
         final String condition = _conditionSource(raw);
@@ -642,7 +646,7 @@ final class DuplicationAnalysis {
           continue;
         }
         final String normalizedCondition = condition
-            .replaceAll(RegExp(r'\s+'), ' ')
+            .replaceAll(cachedRegExp(r'\s+'), ' ')
             .trim();
         occurrences
             .putIfAbsent('$path | $normalizedCondition', () => <_Condition>[])
@@ -653,7 +657,7 @@ final class DuplicationAnalysis {
     var groups = 0;
     final List<String> keys = occurrences.keys.toList()..sort();
     for (final String key in keys) {
-      final List<_Condition> locations = occurrences[key]!;
+      final List<_Condition> locations = occurrences.requiredValue(key);
       if (locations.length < 3 || groups >= 20) {
         continue;
       }
@@ -686,15 +690,15 @@ final class DuplicationAnalysis {
 
   static bool _mostlyLiteralData(List<String> lines) {
     if (lines.length < 10) return false;
-    final RegExp literal = RegExp(
+    final RegExp literal = cachedRegExp(
       r'''^(?:(?:r)?["'].*["'],?|(?:(?:null|nullptr|nil|none|true|false)\s*,?|(?:[\{\[]\s*)?(?:[-+]?(?:0x[0-9a-f]+|0b[01]+|\d+(?:\.\d*)?(?:e[-+]?\d+)?)[ulf]*)(?:\s*,\s*[-+]?(?:0x[0-9a-f]+|0b[01]+|\d+(?:\.\d*)?(?:e[-+]?\d+)?)[ulf]*)*(?:\s*[\}\]])?,?))\s*(?://.*|/\*.*\*/)?$''',
       caseSensitive: false,
     );
-    final RegExp sqlTuple = RegExp(
+    final RegExp sqlTuple = cachedRegExp(
       r"""^\(\s*(?:(?:N)?'(?:''|[^'])*'|null|[-+]?\d+(?:\.\d*)?(?:e[-+]?\d+)?)(?:\s*,\s*(?:(?:N)?'(?:''|[^'])*'|null|[-+]?\d+(?:\.\d*)?(?:e[-+]?\d+)?))*\s*\)[,;]?$""",
       caseSensitive: false,
     );
-    final RegExp sqlInsert = RegExp(
+    final RegExp sqlInsert = cachedRegExp(
       r'^insert\s+into\s+.+\s+values\s*$',
       caseSensitive: false,
     );
@@ -711,7 +715,7 @@ final class DuplicationAnalysis {
 
   static bool _mostlyCaseLabels(List<String> lines) {
     if (lines.length < 10) return false;
-    final RegExp label = RegExp(r'^(?:case\s+.+|default):$');
+    final RegExp label = cachedRegExp(r'^(?:case\s+.+|default):$');
     final int labelLines = lines.where(label.hasMatch).length;
     return labelLines * 5 >= lines.length * 4;
   }
@@ -719,7 +723,7 @@ final class DuplicationAnalysis {
   static bool _historicalSql(String sourcePath) {
     final String normalized = sourcePath.replaceAll('\\', '/').toLowerCase();
     return normalized.endsWith('.sql') &&
-        RegExp(r'(^|/)(?:migrations?|archive)(/|$)').hasMatch(normalized);
+        cachedRegExp(r'(^|/)(?:migrations?|archive)(/|$)').hasMatch(normalized);
   }
 
   static List<_NormalizedLine> _normalizedLines(
@@ -733,11 +737,11 @@ final class DuplicationAnalysis {
     final Set<int> rustTestLines = sourcePath.endsWith('.rs')
         ? rustCfgTestLines(lines)
         : const <int>{};
-    final bool hasHashLineComments = RegExp(
+    final bool hasHashLineComments = cachedRegExp(
       r'\.pyw?$',
       caseSensitive: false,
     ).hasMatch(sourcePath);
-    final bool hasLuaLongComments = RegExp(
+    final bool hasLuaLongComments = cachedRegExp(
       r'\.lua(?:u)?$',
       caseSensitive: false,
     ).hasMatch(sourcePath);
@@ -833,7 +837,7 @@ final class DuplicationAnalysis {
   static bool _isForwardingFormalParameter(FormalParameter parameter) =>
       parameter is FieldFormalParameter || parameter is SuperFormalParameter;
 
-  static final RegExp _luaLongCommentStart = RegExp(r'--\[(=*)\[');
+  static final RegExp _luaLongCommentStart = cachedRegExp(r'--\[(=*)\[');
 
   static String _withoutLuaLongComments(
     String line,
@@ -1082,7 +1086,7 @@ bool _mutuallyExclusiveGoBuilds(
 
   String? constraint(String source) {
     for (final String line in source.split('\n').take(20)) {
-      final RegExpMatch? match = RegExp(
+      final RegExpMatch? match = cachedRegExp(
         r'^\s*//go:build\s+(!?)([A-Za-z_]\w*)\s*$',
       ).firstMatch(line);
       if (match != null) return '${match.group(1)}${match.group(2)}';

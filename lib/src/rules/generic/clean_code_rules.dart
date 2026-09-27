@@ -3,6 +3,7 @@
 import 'package:path/path.dart' as path;
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import 'generic_rules.dart';
 
@@ -41,6 +42,7 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'Publicly writable state lets callers bypass invariants and couples them to representation details.',
     'Make the field private and expose behavior or a deliberately constrained immutable view.',
     maturity: RuleSemanticMaturity.token,
+    version: 2,
   ),
   'commented-out-code': _metadata(
     'commented-out-code',
@@ -69,6 +71,10 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'A repeated threshold, duration, or capacity literal can drift because its purpose is not named.',
     'Define one purpose-named constant near the behavior that owns this policy.',
     maturity: RuleSemanticMaturity.project,
+    version: 7,
+    limitations: <String>[
+      'Collection length comparisons and bare `count` identifiers are excluded because generic receiver names do not establish a shared policy concept across files.',
+    ],
   ),
   'inconsistent-peer-file-naming': _metadata(
     'inconsistent-peer-file-naming',
@@ -76,6 +82,7 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'A lone naming-style outlier makes related files harder to scan and discover.',
     'Rename the file to the dominant convention used by its peers.',
     maturity: RuleSemanticMaturity.project,
+    version: 2,
   ),
   'changed-public-api-without-test': _metadata(
     'changed-public-api-without-test',
@@ -107,10 +114,11 @@ RuleMetadata _metadata(
   String why,
   String suggestion, {
   required RuleSemanticMaturity maturity,
+  int version = 1,
   List<String> limitations = const <String>[],
 }) => RuleMetadata(
   id: id,
-  version: 1,
+  version: version,
   defaultSeverity: RuleSeverity.info,
   group: 'maintainability',
   title: title,
@@ -122,7 +130,11 @@ RuleMetadata _metadata(
 );
 
 abstract base class _CleanCodeRule extends SelfContainedRule {
-  _CleanCodeRule(String id) : super(cleanCodeRuleMetadata[id]!);
+  _CleanCodeRule(String id)
+    : super(switch (cleanCodeRuleMetadata[id]) {
+        final RuleMetadata metadata => metadata,
+        null => throw StateError('Unknown clean-code rule `$id`'),
+      });
 
   Finding finding(
     RuleContext context,
@@ -154,17 +166,23 @@ final class PublicMutableStateRule extends _CleanCodeRule {
       );
       var depth = 0;
       int? classDepth;
+      var privateClass = false;
       for (var index = 0; index < lines.length; index++) {
         final String line = lines[index];
-        if (RegExp(r'\b(?:class|struct)\s+[A-Za-z_$]\w*').hasMatch(line)) {
+        final RegExpMatch? classDeclaration = cachedRegExp(
+          r'\b(?:class|struct)\s+([A-Za-z_$]\w*)',
+        ).firstMatch(line);
+        if (classDeclaration != null) {
           classDepth = depth + '{'.allMatches(line).length;
+          privateClass = classDeclaration.requiredGroup(1).startsWith('_');
         }
         final bool directMember = classDepth != null && depth == classDepth;
-        final RegExpMatch? explicit = RegExp(
+        final RegExpMatch? explicit = cachedRegExp(
           r'^\s*public\s+(?!(?:static\s+)?(?:final|readonly|const)\b)(?:static\s+)?(?:[A-Za-z_$][\w$<>,?\[\].]*\s+)+(\w+)\s*(?:=|;)',
         ).firstMatch(line);
-        final RegExpMatch? dart = directMember && entry.key.endsWith('.dart')
-            ? RegExp(
+        final RegExpMatch? dart =
+            directMember && !privateClass && entry.key.endsWith('.dart')
+            ? cachedRegExp(
                 r'^\s*(?!(?:final|const|late\s+final)\b)(?:late\s+)?(?:var|[A-Za-z_$][\w$<>,?\[\].]*)\s+([A-Za-z$][\w$]*)\s*(?:=|;)',
               ).firstMatch(line)
             : null;
@@ -176,7 +194,7 @@ final class PublicMutableStateRule extends _CleanCodeRule {
                   '.ts',
                   '.tsx',
                 }.contains(path.extension(entry.key).toLowerCase())
-            ? RegExp(
+            ? cachedRegExp(
                 r'^\s*(?!(?:private|protected|readonly|static|declare|#)\b)(?:public\s+)?([A-Za-z_$][\w$]*)\s*(?::\s*[^=;]+)?(?:=|;)',
               ).firstMatch(line)
             : null;
@@ -200,7 +218,7 @@ final class PublicMutableStateRule extends _CleanCodeRule {
 final class CommentedOutCodeRule extends _CleanCodeRule {
   CommentedOutCodeRule() : super('commented-out-code');
 
-  static final RegExp _code = RegExp(
+  static final RegExp _code = cachedRegExp(
     r'^(?:\s*(?:public|private|protected|internal|static|final|const|var|let|def|class|interface|return|throw|if\s*\(|for\s*\(|while\s*\(|[A-Za-z_$]\w*\s*[.(\[]).*(?:[;{}]|=>)\s*)$',
   );
 
@@ -210,11 +228,11 @@ final class CommentedOutCodeRule extends _CleanCodeRule {
       if (!_isSource(entry.key) || _isTest(entry.key)) continue;
       final List<String> lines = entry.value.split('\n');
       for (var index = 0; index < lines.length; index++) {
-        final RegExpMatch? comment = RegExp(
+        final RegExpMatch? comment = cachedRegExp(
           r'^\s*(?://|#)\s?(.*)$',
         ).firstMatch(lines[index]);
         if (comment == null) continue;
-        final String body = comment.group(1)!.trim();
+        final String body = comment.requiredGroup(1).trim();
         if (body.length >= 8 &&
             _code.hasMatch(body) &&
             !_looksLikeDirective(body)) {
@@ -255,19 +273,19 @@ final class PlaceholderIdentifierRule extends _CleanCodeRule {
       );
       final String source = lines.join('\n');
       for (var index = 0; index < lines.length; index++) {
-        for (final RegExpMatch match in RegExp(
+        for (final RegExpMatch match in cachedRegExp(
           r'\b(?:export\s+|public\s+)?(?:class|interface|enum|struct|def|function|fn|proc|func|void|var|let|const|final|[A-Z][\w$<>,?\[\].]*)\s+([A-Za-z_$][\w$]*)',
         ).allMatches(lines[index])) {
-          final String name = match.group(1)!;
+          final String name = match.requiredGroup(1);
           final String normalized = name.toLowerCase().replaceAll(
-            RegExp(r'\d+$'),
+            cachedRegExp(r'\d+$'),
             '',
           );
           if (!_names.contains(normalized)) continue;
-          final bool exposed = RegExp(
+          final bool exposed = cachedRegExp(
             r'\b(?:export|public)\b',
           ).hasMatch(lines[index]);
-          final int uses = RegExp(
+          final int uses = cachedRegExp(
             '\\b${RegExp.escape(name)}\\b',
           ).allMatches(source).length;
           if (exposed || uses >= 3) {
@@ -304,7 +322,7 @@ final class MixedBoundaryResponsibilityRule extends _CleanCodeRule {
       if (!_isSource(entry.key) || _isTest(entry.key)) continue;
       for (final _FunctionBlock function in _functionBlocks(entry.value)) {
         if (function.lines < 8 ||
-            RegExp(
+            cachedRegExp(
               r'\b(?:main|bootstrap|migrate|transaction)\b',
               caseSensitive: false,
             ).hasMatch(function.name)) {
@@ -312,7 +330,7 @@ final class MixedBoundaryResponsibilityRule extends _CleanCodeRule {
         }
         final List<String> boundaries = <String>[
           for (final MapEntry<String, String> boundary in _boundaries.entries)
-            if (RegExp(
+            if (cachedRegExp(
               boundary.value,
               caseSensitive: false,
             ).hasMatch(function.body))
@@ -337,8 +355,20 @@ final class RepeatedPolicyLiteralRule extends _CleanCodeRule {
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
-    final Map<String, List<({String path, int line})>> uses =
-        <String, List<({String path, int line})>>{};
+    final Map<
+      ({String concept, String literal}),
+      List<({String path, int line})>
+    >
+    uses =
+        <({String concept, String literal}), List<({String path, int line})>>{};
+    final RegExp comparison = cachedRegExp(
+      r'\b((?:attempts?|capacity|complexity|count|depth|files?|height|limit|lines?|max|min|retries|retry|score|size|threshold|timeout|width)\w*)\s*(?:[<>]=?|==|!=)\s*(-?\d+(?:\.\d+)?)',
+      caseSensitive: false,
+    );
+    final RegExp namedPolicy = cachedRegExp(
+      r'\b(Duration|capacity|limit|max|min|retries|retry|threshold|timeout)\b[^\n;]{0,40}?(-?\d+(?:\.\d+)?)',
+      caseSensitive: false,
+    );
     for (final MapEntry<String, String> entry in context.sources.entries) {
       if (!_isSource(entry.key) || _isTest(entry.key)) continue;
       final List<String> lines = maskGenericRuleStrings(
@@ -347,16 +377,18 @@ final class RepeatedPolicyLiteralRule extends _CleanCodeRule {
       );
       for (var index = 0; index < lines.length; index++) {
         final String line = lines[index];
-        if (!RegExp(
-          r'(?:[<>]=?|==|!=)\s*\d|\b(?:Duration|timeout|retry|limit|capacity|max|min|threshold)\b',
-          caseSensitive: false,
-        ).hasMatch(line)) {
-          continue;
-        }
-        for (final RegExpMatch match in RegExp(
-          r'(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])',
-        ).allMatches(line)) {
-          final String literal = match.group(0)!;
+        final Iterable<RegExpMatch> matches = <RegExpMatch>[
+          ...comparison.allMatches(line),
+          ...namedPolicy.allMatches(line),
+        ];
+        final Set<({String concept, String literal})> linePolicies =
+            <({String concept, String literal})>{};
+        for (final RegExpMatch match in matches) {
+          final String concept = match.requiredGroup(1).toLowerCase();
+          if (concept == 'count') continue;
+          final String literal = match.requiredGroup(2);
+          final key = (concept: concept, literal: literal);
+          if (!linePolicies.add(key)) continue;
           if (const <String>{
             '-1',
             '0',
@@ -367,23 +399,27 @@ final class RepeatedPolicyLiteralRule extends _CleanCodeRule {
           }.contains(literal)) {
             continue;
           }
-          uses.putIfAbsent(literal, () => <({String path, int line})>[]).add((
+          uses.putIfAbsent(key, () => <({String path, int line})>[]).add((
             path: entry.key,
             line: index + 1,
           ));
         }
       }
     }
-    for (final MapEntry<String, List<({String path, int line})>> entry
+    for (final MapEntry<
+          ({String concept, String literal}),
+          List<({String path, int line})>
+        >
+        entry
         in uses.entries) {
       final Set<String> paths = entry.value.map((use) => use.path).toSet();
-      if (entry.value.length < 3 && paths.length < 2) continue;
+      if (paths.length < 2) continue;
       final first = entry.value.first;
       yield finding(
         context,
         first.path,
         first.line,
-        'policy literal `${entry.key}` appears ${entry.value.length} times without a shared name',
+        'policy literal `${entry.key.literal}` for `${entry.key.concept}` appears ${entry.value.length} times without a shared name',
         confidence: 'medium',
         relatedFiles:
             paths.where((candidate) => candidate != first.path).toList()
@@ -404,6 +440,14 @@ final class InconsistentPeerFileNamingRule extends _CleanCodeRule {
           .putIfAbsent(path.posix.dirname(sourcePath), () => <String>[])
           .add(sourcePath);
     }
+    const Set<String> roleNames = <String>{
+      'index',
+      'main',
+      'benchmark',
+      'mod',
+      'rules',
+      'types',
+    };
     for (final List<String> peers in byDirectory.values) {
       if (peers.length < 6) continue;
       final Map<String, List<String>> styles = <String, List<String>>{};
@@ -422,6 +466,11 @@ final class InconsistentPeerFileNamingRule extends _CleanCodeRule {
       if (ordered.first.value.length < 5) continue;
       for (final MapEntry<String, List<String>> style in ordered.skip(1)) {
         if (style.value.length != 1) continue;
+        if (roleNames.contains(
+          path.posix.basenameWithoutExtension(style.value.single),
+        )) {
+          continue;
+        }
         yield finding(
           context,
           style.value.single,
@@ -455,7 +504,7 @@ final class ChangedPublicApiWithoutTestRule extends _CleanCodeRule {
         sourcePath: entry.key,
       );
       final int index = lines.indexWhere(
-        (line) => RegExp(
+        (line) => cachedRegExp(
           r'^\s*(?:export\s+|public\s+|abstract\s+interface\s+class\s+|class\s+[A-Z])',
         ).hasMatch(line),
       );
@@ -512,11 +561,11 @@ final class ChangedComplexityRegressionRule extends _CleanCodeRule {
 
 bool _isSource(String sourcePath) =>
     _sourceExtensions.contains(path.extension(sourcePath).toLowerCase());
-bool _isTest(String sourcePath) => RegExp(
+bool _isTest(String sourcePath) => cachedRegExp(
   r'(^|/)(?:test|tests|spec|specs|__tests__)(/|$)|(?:_test|\.test|\.spec)\.',
   caseSensitive: false,
 ).hasMatch(sourcePath.replaceAll('\\', '/'));
-bool _looksLikeDirective(String body) => RegExp(
+bool _looksLikeDirective(String body) => cachedRegExp(
   r'^(?:include|define|pragma|region|ifn?def)\b',
   caseSensitive: false,
 ).hasMatch(body);
@@ -524,8 +573,8 @@ bool _looksLikeDirective(String body) => RegExp(
 String _fileStyle(String name) {
   if (name.contains('_')) return 'snake_case';
   if (name.contains('-')) return 'kebab-case';
-  if (RegExp(r'^[A-Z]').hasMatch(name)) return 'PascalCase';
-  if (RegExp(r'[A-Z]').hasMatch(name)) return 'camelCase';
+  if (cachedRegExp(r'^[A-Z]').hasMatch(name)) return 'PascalCase';
+  if (cachedRegExp(r'[A-Z]').hasMatch(name)) return 'camelCase';
   return 'lowercase';
 }
 
@@ -542,7 +591,7 @@ Set<String> _pathConcepts(String sourcePath) {
   return path.posix
       .basenameWithoutExtension(sourcePath)
       .toLowerCase()
-      .split(RegExp(r'[_\-.]|(?=[A-Z])'))
+      .split(cachedRegExp(r'[_\-.]|(?=[A-Z])'))
       .where((part) => part.length >= 3 && !ignored.contains(part))
       .toSet();
 }
@@ -561,7 +610,7 @@ List<_FunctionBlock> _functionBlocks(String source) {
     sourcePath: '',
   );
   final List<_FunctionBlock> result = <_FunctionBlock>[];
-  final RegExp declaration = RegExp(
+  final RegExp declaration = cachedRegExp(
     r'^\s*(?:(?:public|private|protected|internal|static|final|async|export)\s+)*(?:[A-Za-z_$][\w$<>,?\[\].]*\s+)?([A-Za-z_$][\w$]*)\s*\([^;]*\)\s*(?:async\s*)?(?:=>|\{)',
   );
   for (var index = 0; index < lines.length; index++) {
@@ -597,6 +646,6 @@ List<_FunctionBlock> _functionBlocks(String source) {
 
 int _complexity(String body) =>
     1 +
-    RegExp(
+    cachedRegExp(
       r'\b(?:if|for|while|case|catch)\b|&&|\|\||\?',
     ).allMatches(body).length;

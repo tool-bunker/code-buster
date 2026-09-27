@@ -27,6 +27,11 @@ class Account {
   int _cached = 0;
 }
 ''',
+            'lib/scanner.dart': '''
+class _Scanner {
+  int offset = 0;
+}
+''',
             'src/User.java': '''
 class User {
   public String name;
@@ -114,7 +119,7 @@ void registerUser() {
         .analyze(
           context(const <String, String>{
             'lib/upload.dart': 'if (size > 30) reject();',
-            'lib/download.dart': 'if (attempts >= 30) stop();',
+            'lib/download.dart': 'if (size >= 30) stop();',
             'test/upload_test.dart': 'expect(limit, 30);',
           }),
         )
@@ -123,6 +128,66 @@ void registerUser() {
     expect(findings, hasLength(1));
     expect(findings.single.message, contains('`30`'));
     expect(findings.single.relatedFiles, <String>['lib/download.dart']);
+  });
+
+  test('ignores coincidental collection-length thresholds', () {
+    final List<Finding> findings = RepeatedPolicyLiteralRule()
+        .analyze(
+          context(const <String, String>{
+            'lib/parser.dart': '''
+if (fields.length >= 4) parseHeader();
+if (fields.length >= 4) parseRecord();
+if (fields.length >= 4) parseFooter();
+''',
+            'lib/schema.dart': 'if (fields.length >= 4) validateSchema();',
+          }),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+  test('ignores bare count thresholds across unrelated domains', () {
+    final List<Finding> findings = RepeatedPolicyLiteralRule()
+        .analyze(
+          context(const <String, String>{
+            'lib/parser.dart': 'if (count >= 3) parseHeader();',
+            'lib/schema.dart': 'if (count >= 3) validateSchema();',
+          }),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+
+  test(
+    'ignores parser character codes and unrelated numbers on comparisons',
+    () {
+      final List<Finding> findings = RepeatedPolicyLiteralRule()
+          .analyze(
+            context(const <String, String>{
+              'lib/a.dart':
+                  'if (codeUnit == 123) parse(47); if (token == 123) parse(47);',
+              'lib/b.dart': 'if (character == 123) parse(47);',
+            }),
+          )
+          .toList();
+
+      expect(findings, isEmpty);
+    },
+  );
+
+  test('does not merge unrelated policy concepts sharing a number', () {
+    final List<Finding> findings = RepeatedPolicyLiteralRule()
+        .analyze(
+          context(const <String, String>{
+            'lib/size.dart': 'if (size > 30) reject();',
+            'lib/retries.dart': 'if (attempts >= 30) stop();',
+            'lib/layout.dart': 'if (width > 30) wrap();',
+          }),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
   });
 
   test('reports a lone file naming outlier among peers', () {
@@ -143,6 +208,21 @@ void registerUser() {
         .toList();
     expect(findings, hasLength(1));
     expect(findings.single.path, 'lib/services/PaymentService.dart');
+  });
+  test('accepts conventional role-based peer file names', () {
+    final Map<String, String> sources = <String, String>{
+      for (final String name in <String>[
+        'user_service.dart',
+        'order_service.dart',
+        'mail_service.dart',
+        'audit_service.dart',
+        'cache_service.dart',
+      ])
+        'lib/services/$name': '',
+      'lib/services/rules.dart': '',
+    };
+
+    expect(InconsistentPeerFileNamingRule().analyze(context(sources)), isEmpty);
   });
 
   test('requires a concept-related changed test for a changed public API', () {

@@ -1,6 +1,7 @@
 // Parallel UI implementations quietly diverge because each local copy evolves without the shared component or token.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 
 /// Reports CSS selectors that independently declare the same substantial style.
@@ -86,9 +87,9 @@ final class CssDesignTokenDriftRule extends SelfContainedRule {
       for (final RegExpMatch match in _cssDeclaration.allMatches(
         _withoutCssComments(entry.value),
       )) {
-        final String property = match.group(1)!.trim();
+        final String property = match.requiredGroup(1).trim();
         if (!property.startsWith('--')) continue;
-        final String value = _normalizeCssValue(match.group(2)!);
+        final String value = _normalizeCssValue(match.requiredGroup(2));
         if (_usefulTokenValue(value)) {
           tokens.putIfAbsent(
             value,
@@ -214,10 +215,10 @@ final class FlutterThemeBypassRule extends SelfContainedRule {
         ),
       );
 
-  static final RegExp _tokenDeclaration = RegExp(
+  static final RegExp _tokenDeclaration = cachedRegExp(
     r'\b(?:static\s+)?const\s+(?:Color\s+)?([A-Za-z_]\w*)\s*=\s*(Color\s*\(\s*0x[0-9A-Fa-f]+\s*\)|Colors\.[A-Za-z_]\w*)\s*;',
   );
-  static final RegExp _colorExpression = RegExp(
+  static final RegExp _colorExpression = cachedRegExp(
     r'Color\s*\(\s*0x[0-9A-Fa-f]+\s*\)|Colors\.[A-Za-z_]\w*',
   );
 
@@ -230,15 +231,15 @@ final class FlutterThemeBypassRule extends SelfContainedRule {
       for (final RegExpMatch match in _tokenDeclaration.allMatches(
         entry.value,
       )) {
-        final String expression = _normalizeDart(match.group(2)!);
+        final String expression = _normalizeDart(match.requiredGroup(2));
         if (expression == 'Colors.transparent') continue;
         final int line = _lineAt(entry.value, match.start);
         tokens.putIfAbsent(
           expression,
-          () => _FlutterToken(match.group(1)!, entry.key, line),
+          () => _FlutterToken(match.requiredGroup(1), entry.key, line),
         );
         declarationLocations.add(
-          '${entry.key}:${match.start + match.group(0)!.indexOf(match.group(2)!)}',
+          '${entry.key}:${match.start + match.requiredGroup(0).indexOf(match.requiredGroup(2))}',
         );
       }
     }
@@ -293,10 +294,10 @@ final class FlutterParallelControlComponentRule extends SelfContainedRule {
         ),
       );
 
-  static final RegExp _semanticButton = RegExp(
+  static final RegExp _semanticButton = cachedRegExp(
     r'\b(?:ElevatedButton|FilledButton|TextButton|OutlinedButton|IconButton)\s*\(',
   );
-  static final RegExp _pointerControl = RegExp(
+  static final RegExp _pointerControl = cachedRegExp(
     r'\b(?:GestureDetector|InkWell)\s*\(',
   );
 
@@ -316,8 +317,8 @@ final class FlutterParallelControlComponentRule extends SelfContainedRule {
         );
         if (close == -1) continue;
         final String tree = entry.value.substring(match.start, close + 1);
-        if (RegExp(r'\bContainer\s*\(').hasMatch(tree) &&
-            RegExp(r'\bText\s*\(').hasMatch(tree)) {
+        if (cachedRegExp(r'\bContainer\s*\(').hasMatch(tree) &&
+            cachedRegExp(r'\bText\s*\(').hasMatch(tree)) {
           pointerControls.add(
             _Location(entry.key, _lineAt(entry.value, match.start)),
           );
@@ -365,10 +366,10 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
         ),
       );
 
-  static final RegExp _widgetClass = RegExp(
+  static final RegExp _widgetClass = cachedRegExp(
     r'\bclass\s+([A-Za-z_]\w*)\s+extends\s+(?:StatelessWidget|StatefulWidget)\b[^{]*\{',
   );
-  static final RegExp _frameworkControl = RegExp(
+  static final RegExp _frameworkControl = cachedRegExp(
     r'\b(ElevatedButton|FilledButton|TextButton|OutlinedButton|IconButton|TextField|TextFormField|AlertDialog|Card|Scaffold|Checkbox)\s*\(',
   );
 
@@ -405,7 +406,9 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
     final List<_EstablishedWidget> established = <_EstablishedWidget>[];
     for (final _SharedWidget wrapper in wrappers) {
       final List<_Location> usages = <_Location>[];
-      final RegExp use = RegExp('\\b${RegExp.escape(wrapper.name)}\\s*\\(');
+      final RegExp use = cachedRegExp(
+        '\\b${RegExp.escape(wrapper.name)}\\s*\\(',
+      );
       for (final MapEntry<String, String> entry in context.sources.entries) {
         if (!entry.key.endsWith('.dart') || _isUiAuxiliaryPath(entry.key)) {
           continue;
@@ -448,7 +451,9 @@ final class FlutterSharedComponentBypassRule extends SelfContainedRule {
         continue;
       }
       final _EstablishedWidget convention = conventions.first;
-      final RegExp direct = RegExp('\\b${RegExp.escape(group.key)}\\s*\\(');
+      final RegExp direct = cachedRegExp(
+        '\\b${RegExp.escape(group.key)}\\s*\\(',
+      );
       final List<_Location> directUsages = <_Location>[];
       for (final MapEntry<String, String> entry in context.sources.entries) {
         if (!entry.key.endsWith('.dart') || _isUiAuxiliaryPath(entry.key)) {
@@ -512,11 +517,11 @@ final class HtmlParallelControlPatternRule extends SelfContainedRule {
         ),
       );
 
-  static final RegExp _nativeButton = RegExp(
+  static final RegExp _nativeButton = cachedRegExp(
     r'<button\b',
     caseSensitive: false,
   );
-  static final RegExp _alternative = RegExp(
+  static final RegExp _alternative = cachedRegExp(
     r'''<(?:a|div|span)\b[^>]*(?:role\s*=\s*["']button["']|on(?:click|keydown)\s*=)[^>]*>''',
     caseSensitive: false,
   );
@@ -549,8 +554,8 @@ final class HtmlParallelControlPatternRule extends SelfContainedRule {
   }
 }
 
-final RegExp _cssBlock = RegExp(r'([^{}]+)\{([^{}]+)\}', multiLine: true);
-final RegExp _cssDeclaration = RegExp(r'([\w-]+)\s*:\s*([^;{}]+)\s*;');
+final RegExp _cssBlock = cachedRegExp(r'([^{}]+)\{([^{}]+)\}', multiLine: true);
+final RegExp _cssDeclaration = cachedRegExp(r'([\w-]+)\s*:\s*([^;{}]+)\s*;');
 
 List<_CssBlock> _cssBlocks(Map<String, String> sources) {
   final List<_CssBlock> result = <_CssBlock>[];
@@ -558,21 +563,23 @@ List<_CssBlock> _cssBlocks(Map<String, String> sources) {
     if (!entry.key.endsWith('.css')) continue;
     final String source = _withoutCssComments(entry.value);
     for (final RegExpMatch block in _cssBlock.allMatches(source)) {
-      final String selector = block.group(1)!.trim();
+      final String selector = block.requiredGroup(1).trim();
       if (selector.startsWith('@') || selector.isEmpty) continue;
       final Map<String, String> declarations = <String, String>{};
       for (final RegExpMatch declaration in _cssDeclaration.allMatches(
-        block.group(2)!,
+        block.requiredGroup(2),
       )) {
-        declarations[declaration.group(1)!.toLowerCase()] = _normalizeCssValue(
-          declaration.group(2)!,
-        );
+        declarations[declaration.requiredGroup(1).toLowerCase()] =
+            _normalizeCssValue(declaration.requiredGroup(2));
       }
       if (declarations.isNotEmpty) {
         result.add(
           _CssBlock(
             entry.key,
-            _lineAt(source, block.start + block.group(0)!.indexOf(selector)),
+            _lineAt(
+              source,
+              block.start + block.requiredGroup(0).indexOf(selector),
+            ),
             selector,
             declarations,
           ),
@@ -593,18 +600,18 @@ String _declarationSignature(Map<String, String> declarations) {
 }
 
 String _withoutCssComments(String source) => source.replaceAllMapped(
-  RegExp(r'/\*.*?\*/', dotAll: true),
+  cachedRegExp(r'/\*.*?\*/', dotAll: true),
   (Match match) => ' ' * match.group(0)!.length,
 );
 
 String _normalizeCssValue(String value) => value
     .trim()
     .toLowerCase()
-    .replaceAll(RegExp(r'\s+'), ' ')
-    .replaceAll(RegExp(r'\s*([,()/])\s*'), r'$1')
-    .replaceAll(RegExp(r'\b0(?:px|em|rem|%|s|ms)\b'), '0')
+    .replaceAll(cachedRegExp(r'\s+'), ' ')
+    .replaceAll(cachedRegExp(r'\s*([,()/])\s*'), r'$1')
+    .replaceAll(cachedRegExp(r'\b0(?:px|em|rem|%|s|ms)\b'), '0')
     .replaceAllMapped(
-      RegExp(r'#([0-9a-f])\1([0-9a-f])\2([0-9a-f])\3\b'),
+      cachedRegExp(r'#([0-9a-f])\1([0-9a-f])\2([0-9a-f])\3\b'),
       (Match match) => '#${match.group(1)}${match.group(2)}${match.group(3)}',
     );
 
@@ -620,7 +627,7 @@ bool _usefulTokenValue(String value) =>
       'transparent',
     }.contains(value);
 
-final RegExp _styleConstructor = RegExp(
+final RegExp _styleConstructor = cachedRegExp(
   r'\b(TextStyle|ButtonStyle|BoxDecoration|InputDecoration|ElevatedButton\.styleFrom)\s*\(',
 );
 
@@ -630,7 +637,9 @@ Iterable<_StyleOccurrence> _flutterStyles(String path, String source) sync* {
     final int close = _matchingDelimiter(source, open, '(', ')');
     if (close == -1) continue;
     final String body = source.substring(open + 1, close);
-    if (RegExp(r'\b[A-Za-z_]\w*\s*:').allMatches(body).length < 3) continue;
+    if (cachedRegExp(r'\b[A-Za-z_]\w*\s*:').allMatches(body).length < 3) {
+      continue;
+    }
     yield _StyleOccurrence(
       path,
       _lineAt(source, match.start),
@@ -670,8 +679,11 @@ int _matchingDelimiter(
 }
 
 String _normalizeDart(String source) => source
-    .replaceAll(RegExp(r'//.*?$|/\*.*?\*/', multiLine: true, dotAll: true), '')
-    .replaceAll(RegExp(r'\s+'), '');
+    .replaceAll(
+      cachedRegExp(r'//.*?$|/\*.*?\*/', multiLine: true, dotAll: true),
+      '',
+    )
+    .replaceAll(cachedRegExp(r'\s+'), '');
 
 int _lineAt(String source, int offset) =>
     1 + '\n'.allMatches(source.substring(0, offset)).length;
@@ -684,7 +696,7 @@ _Location? _firstLocation(String path, String source, RegExp pattern) {
 bool _isUiAuxiliaryPath(String path) {
   final String normalized = path.replaceAll(r'\', '/');
   return normalized.endsWith('.g.dart') ||
-      RegExp(
+      cachedRegExp(
         r'(^|/)(?:test|tests|example|examples|fixture|fixtures|generated)(?:/|$)',
       ).hasMatch(normalized);
 }

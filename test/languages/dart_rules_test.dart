@@ -143,6 +143,47 @@ String capture(Match match) => match.group(1)!;
     expect(assertions.single.line, 2);
   });
 
+  test('accepts map lookups while iterating sorted keys', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/config.dart': '''
+class Config {
+  Config(this.settings);
+  final Map<String, String> settings;
+}
+List<String> values(Config config) => <String>[
+  for (final String key in config.settings.keys.toList()..sort())
+    config.settings[key]!,
+];
+''',
+    });
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'dart-null-assertion',
+      ),
+      isEmpty,
+    );
+  });
+
+  test('accepts map lookups dominated by matching presence guards', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/config.dart': '''
+String? guarded(Map<String, String> values, String key, String other) {
+  if (!values.containsKey(key)) return null;
+  final String found = values[key]!;
+  if (values.containsKey(other)) return found + values[key]!;
+  return found + values[other]!;
+}
+''',
+    });
+
+    final List<Finding> assertions = findings
+        .where((Finding finding) => finding.code == 'dart-null-assertion')
+        .toList();
+    expect(assertions, hasLength(1));
+    expect(assertions.single.line, 5);
+  });
+
   test('recognizes null assertions proven by local control flow', () {
     final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
       'lib/null_assertions.dart': sourceFixture(
@@ -1230,6 +1271,31 @@ File lateGuard(String root, String relativePath) {
 
     final List<Finding> findings = DartRuleAnalysis().findings(
       sources,
+      config: const AnalysisConfig(
+        root: '.',
+        duplicationMode: DuplicationMode.semantic,
+      ),
+    );
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'dart-overlapping-data-model',
+      ),
+      isEmpty,
+    );
+  });
+  test('ignores overlapping private implementation shapes', () {
+    const String shape = '''
+  final String id;
+  final String name;
+  final String email;
+  final String avatarUrl;
+''';
+    final List<Finding> findings = DartRuleAnalysis().findings(
+      <String, String>{
+        'lib/first.dart': 'class _First {$shape}',
+        'lib/second.dart': 'class _Second {$shape}',
+      },
       config: const AnalysisConfig(
         root: '.',
         duplicationMode: DuplicationMode.semantic,

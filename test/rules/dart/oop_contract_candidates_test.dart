@@ -123,6 +123,7 @@ bool processUser(String email) {
     );
     expect(finding.path, 'lib/user_validator.dart');
     expect(finding.message, contains('StandardUserValidator'));
+    expect(finding.message, contains('speculative extension point'));
   });
 
   test('keeps Dart abstractions with variation, state, or reuse', () {

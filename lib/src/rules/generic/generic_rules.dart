@@ -1,6 +1,7 @@
 // Language-neutral source risks—comments, conditions, commands, numbers, and suspicious literals—are evaluated here with shared masking.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../languages/rust/rust_adapter.dart';
 
@@ -43,19 +44,27 @@ genericExecutableRuleMetadata = <String, RuleMetadata>{
     ),
 };
 
+RuleMetadata _genericMetadata(String id) {
+  final RuleMetadata? metadata = genericExecutableRuleMetadata[id];
+  if (metadata == null) {
+    throw StateError('Missing generic rule metadata for $id');
+  }
+  return metadata;
+}
+
 /// Executable rule for TODO markers in source comments.
 final class TodoCommentRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const TodoCommentRule();
 
-  static final RegExp _leadingMarker = RegExp(
+  static final RegExp _leadingMarker = cachedRegExp(
     r'^\s*\*?\s*todo(?=$|[\s:(])',
     caseSensitive: false,
     multiLine: true,
   );
 
   @override
-  RuleMetadata get metadata => genericExecutableRuleMetadata['todo-comment']!;
+  RuleMetadata get metadata => _genericMetadata('todo-comment');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -93,14 +102,14 @@ final class FixmeCommentRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const FixmeCommentRule();
 
-  static final RegExp _leadingMarker = RegExp(
+  static final RegExp _leadingMarker = cachedRegExp(
     r'^\s*\*?\s*fixme(?=$|[\s:(])',
     caseSensitive: false,
     multiLine: true,
   );
 
   @override
-  RuleMetadata get metadata => genericExecutableRuleMetadata['fixme-comment']!;
+  RuleMetadata get metadata => _genericMetadata('fixme-comment');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -138,13 +147,16 @@ final class OperationOnSameValueRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const OperationOnSameValueRule();
 
-  static final RegExp _comparison = RegExp(
+  static final RegExp _comparison = cachedRegExp(
     r'(?<!\.)\b([A-Za-z_]\w*)\s+(==|!=|<=|>=|<|>)\s+\1\b(?!\s*(?:[.\[]|->))',
   );
-  static final RegExp _leadingCast = RegExp(
+  static final RegExp _leadingCast = cachedRegExp(
     r'(?:\(\s*(?:(?:const|volatile|signed|unsigned|struct)\s+)*[A-Za-z_]\w*(?:\s*[*&]\s*)*\s*\)\s*)+$',
   );
-  static final RegExp _nanContext = RegExp(r'\bnan\b', caseSensitive: false);
+  static final RegExp _nanContext = cachedRegExp(
+    r'\bnan\b',
+    caseSensitive: false,
+  );
 
   static bool _insideAssertionInvocation(String source, int offset) {
     var nestedClosers = 0;
@@ -196,14 +208,16 @@ final class OperationOnSameValueRule implements CodeBusterRule {
     int lineIndex,
     String identifier,
   ) {
-    final RegExp declaration = RegExp(
+    final RegExp declaration = cachedRegExp(
       '\\b(?:float|double)\\s+(?:[*&]\\s*)?${RegExp.escape(identifier)}\\b',
     );
     final int firstLine = lineIndex > 20 ? lineIndex - 20 : 0;
     for (var index = lineIndex; index >= firstLine; index--) {
       final String code = stripGenericRuleStrings(lines[index]);
       if (declaration.hasMatch(code)) return true;
-      if (index != lineIndex && RegExp(r'^\s*}\s*$').hasMatch(code)) break;
+      if (index != lineIndex && cachedRegExp(r'^\s*}\s*$').hasMatch(code)) {
+        break;
+      }
     }
     return false;
   }
@@ -214,7 +228,8 @@ final class OperationOnSameValueRule implements CodeBusterRule {
       if (_nanContext.hasMatch(stripGenericRuleStrings(lines[index]))) {
         return true;
       }
-      if (index != lineIndex && RegExp(r'^\s*}\s*$').hasMatch(lines[index])) {
+      if (index != lineIndex &&
+          cachedRegExp(r'^\s*}\s*$').hasMatch(lines[index])) {
         break;
       }
     }
@@ -224,7 +239,7 @@ final class OperationOnSameValueRule implements CodeBusterRule {
   static bool _hasFollowingNaNGuard(List<String> lines, int lineIndex) {
     final int lastLine = (lineIndex + 4).clamp(0, lines.length - 1);
     for (var index = lineIndex + 1; index <= lastLine; index++) {
-      if (RegExp(
+      if (cachedRegExp(
         r'\b(?:unexpected\s+nan|nan\s+cannot\s+equal)\b',
         caseSensitive: false,
       ).hasMatch(lines[index])) {
@@ -240,8 +255,10 @@ final class OperationOnSameValueRule implements CodeBusterRule {
     String operator,
   ) {
     final String code = stripGenericRuleStrings(lines[lineIndex]).trim();
-    final RegExp notEqual = RegExp(r'\b([A-Za-z_]\w*)\s*!=\s*\1\s*$');
-    final RegExp equalTernary = RegExp(r'^\?\s*([A-Za-z_]\w*)\s*==\s*\1\b');
+    final RegExp notEqual = cachedRegExp(r'\b([A-Za-z_]\w*)\s*!=\s*\1\s*$');
+    final RegExp equalTernary = cachedRegExp(
+      r'^\?\s*([A-Za-z_]\w*)\s*==\s*\1\b',
+    );
     if (operator == '!=' && lineIndex + 1 < lines.length) {
       final RegExpMatch? notEqualMatch = notEqual.firstMatch(code);
       final RegExpMatch? equalMatch = equalTernary.firstMatch(
@@ -265,14 +282,13 @@ final class OperationOnSameValueRule implements CodeBusterRule {
 
   static bool _hasNoSelfCompareDirective(List<String> lines, int lineIndex) =>
       lineIndex > 0 &&
-      RegExp(
+      cachedRegExp(
         r'\bno-self-compare\b',
         caseSensitive: false,
       ).hasMatch(lines[lineIndex - 1]);
 
   @override
-  RuleMetadata get metadata =>
-      genericExecutableRuleMetadata['operation-on-same-value']!;
+  RuleMetadata get metadata => _genericMetadata('operation-on-same-value');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -290,9 +306,13 @@ final class OperationOnSameValueRule implements CodeBusterRule {
         inBlockComment = scanned.inBlockComment;
         final RegExpMatch? match = _comparison.firstMatch(scanned.code);
         if (match == null) continue;
-        final String operator = match.group(2)!;
+        final String operator = match.requiredGroup(2);
         if ((operator == '==' || operator == '!=') &&
-            (_hasFloatingPointDeclaration(lines, index, match.group(1)!) ||
+            (_hasFloatingPointDeclaration(
+                  lines,
+                  index,
+                  match.requiredGroup(1),
+                ) ||
                 _hasNaNContext(lines, index) ||
                 _hasFollowingNaNGuard(lines, index) ||
                 _hasNoSelfCompareDirective(lines, index) ||
@@ -326,7 +346,7 @@ final class LargeNumberUngroupedRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const LargeNumberUngroupedRule();
 
-  static final RegExp _number = RegExp(r'(?<![\d.])\d{7,}(?![\d.])');
+  static final RegExp _number = cachedRegExp(r'(?<![\d.])\d{7,}(?![\d.])');
   static bool _isLegacyOctalInteger(String literal) {
     if (literal.length < 2 || literal.codeUnitAt(0) != 0x30) return false;
     for (var index = 1; index < literal.length; index++) {
@@ -335,11 +355,11 @@ final class LargeNumberUngroupedRule implements CodeBusterRule {
     return true;
   }
 
-  static final RegExp _url = RegExp(
+  static final RegExp _url = cachedRegExp(
     r'''(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<>"']+''',
     caseSensitive: false,
   );
-  static final RegExp _commitLink = RegExp(
+  static final RegExp _commitLink = cachedRegExp(
     r'''<a\b[^>]*\bhref\s*=\s*["'][^"']*/commit/([0-9a-f]{7,40})(?:[/?#][^"']*)?["'][^>]*>\s*([0-9a-f]{7,40})\s*</a>''',
     caseSensitive: false,
   );
@@ -350,8 +370,8 @@ final class LargeNumberUngroupedRule implements CodeBusterRule {
 
   static bool _isCommitHashLinkLabel(String line, String literal) {
     for (final RegExpMatch link in _commitLink.allMatches(line)) {
-      final String hash = link.group(1)!.toLowerCase();
-      final String label = link.group(2)!.toLowerCase();
+      final String hash = link.requiredGroup(1).toLowerCase();
+      final String label = link.requiredGroup(2).toLowerCase();
       if (literal.toLowerCase() == label && hash.startsWith(label)) {
         return true;
       }
@@ -365,14 +385,13 @@ final class LargeNumberUngroupedRule implements CodeBusterRule {
     String literal,
   ) {
     if (!path.endsWith('.java')) return false;
-    return RegExp(
+    return cachedRegExp(
       '\\bserialVersionUID\\s*=\\s*[+-]?$literal[Ll]?\\b',
     ).hasMatch(code);
   }
 
   @override
-  RuleMetadata get metadata =>
-      genericExecutableRuleMetadata['large-number-ungrouped']!;
+  RuleMetadata get metadata => _genericMetadata('large-number-ungrouped');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -416,7 +435,7 @@ final class LargeNumberUngroupedRule implements CodeBusterRule {
             _stripGenericComments(lines[index], inBlockComment: inBlockComment);
         inBlockComment = scanned.inBlockComment;
         for (final RegExpMatch number in _number.allMatches(scanned.code)) {
-          final String literal = number.group(0)!;
+          final String literal = number.requiredGroup(0);
           if (literal.contains('_') ||
               _isLegacyOctalInteger(literal) ||
               _isInsideUrl(rawLines[index], number.start, number.end) ||
@@ -472,8 +491,8 @@ final class LargeInlineListRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const LargeInlineListRule();
 
-  static final RegExp _collection = RegExp(r'[\[\{]([^\]\}]+)[\]\}]');
-  static final RegExp _generatedHeader = RegExp(
+  static final RegExp _collection = cachedRegExp(r'[\[\{]([^\]\}]+)[\]\}]');
+  static final RegExp _generatedHeader = cachedRegExp(
     r'\bcode generated\b.*\bdo not edit\b',
     caseSensitive: false,
   );
@@ -489,8 +508,7 @@ final class LargeInlineListRule implements CodeBusterRule {
   }
 
   @override
-  RuleMetadata get metadata =>
-      genericExecutableRuleMetadata['large-inline-list']!;
+  RuleMetadata get metadata => _genericMetadata('large-inline-list');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -512,7 +530,7 @@ final class LargeInlineListRule implements CodeBusterRule {
         inBlockComment = scanned.inBlockComment;
         final RegExpMatch? collection = _collection.firstMatch(scanned.code);
         if (collection != null &&
-            ','.allMatches(collection.group(1)!).length >= 12) {
+            ','.allMatches(collection.requiredGroup(1)).length >= 12) {
           yield _genericFinding(
             metadata: metadata,
             path: source.key,
@@ -531,17 +549,16 @@ final class SuspiciousCommandArgumentRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const SuspiciousCommandArgumentRule();
 
-  static final RegExp _commandCall = RegExp(
+  static final RegExp _commandCall = cachedRegExp(
     r'(?:Process\.(?:run|start)|subprocess\.(?:run|Popen))\s*\(',
   );
-  static final RegExp _argumentLiteral = RegExp(
+  static final RegExp _argumentLiteral = cachedRegExp(
     r'''(?:^|[\[(,])\s*[rRuUbBfF]{0,2}(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')''',
   );
-  static final RegExp _whitespace = RegExp(r'\s');
+  static final RegExp _whitespace = cachedRegExp(r'\s');
 
   @override
-  RuleMetadata get metadata =>
-      genericExecutableRuleMetadata['suspicious-command-arg-space']!;
+  RuleMetadata get metadata => _genericMetadata('suspicious-command-arg-space');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -559,7 +576,7 @@ final class SuspiciousCommandArgumentRule implements CodeBusterRule {
         final bool hasEmbeddedSpace = _argumentLiteral
             .allMatches(arguments)
             .any((RegExpMatch match) {
-              final String literal = match.group(1) ?? match.group(2)!;
+              final String literal = match.group(1) ?? match.requiredGroup(2);
               if (!_whitespace.hasMatch(literal)) return false;
               final String preceding = arguments
                   .substring(0, match.start)
@@ -589,19 +606,18 @@ final class NeedlessBoolBranchRule implements CodeBusterRule {
   /// Creates the stateless rule.
   const NeedlessBoolBranchRule();
 
-  static final RegExp _trueBranch = RegExp(
+  static final RegExp _trueBranch = cachedRegExp(
     r'^\s*if\s*\([^)]*\)\s*(?:return\s+true|\{\s*return\s+true)',
   );
-  static final RegExp _falseReturn = RegExp(
+  static final RegExp _falseReturn = cachedRegExp(
     r'^(?:}\s*)*(?:else\s+)?return\s+false\b',
   );
-  static final RegExp _conditionalBooleanReturn = RegExp(
+  static final RegExp _conditionalBooleanReturn = cachedRegExp(
     r'^(?:}\s*)*(?:else\s+)?if\b.*\breturn\s+(?:true|false)\b',
   );
 
   @override
-  RuleMetadata get metadata =>
-      genericExecutableRuleMetadata['needless-bool-branch']!;
+  RuleMetadata get metadata => _genericMetadata('needless-bool-branch');
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
@@ -908,7 +924,7 @@ Finding _genericFinding({
 
 /// Removes ordinary quoted literals before generic textual checks.
 String stripGenericRuleStrings(String line) => line.replaceAll(
-  RegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''),
+  cachedRegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''),
   '',
 );
 

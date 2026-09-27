@@ -142,15 +142,15 @@ final class FindingReporter {
       'total': report.advisoryFindingCount,
       'groups': <String, int>{
         for (final String group in report.advisorySummary.keys.toList()..sort())
-          group: report.advisorySummary[group]!,
+          group: report.advisorySummary.requiredValue(group),
       },
     },
     if (report.diagnostics.isNotEmpty)
       'processingDiagnostics': report.diagnostics
           .map((ProcessingDiagnostic diagnostic) => diagnostic.toJson())
           .toList(growable: false),
-    if (report.manifest != null)
-      'manifest': report.manifest!.toJson(
+    if (report.manifest case final RunManifest manifest)
+      'manifest': manifest.toJson(
         includeFiles: report.verbose,
         includeOperational: report.verbose,
       ),
@@ -329,13 +329,16 @@ final class FindingReporter {
       '<testsuite name="code-buster" tests="${findings.length}" failures="${findings.length}">',
     );
     for (final Finding finding in findings) {
+      final String location = finding.endLine > finding.line
+          ? '${finding.path}:${finding.line}-${finding.endLine}'
+          : '${finding.path}:${finding.line}';
       output.write(
         '\n<testcase classname="${_xml(finding.path)}" name="${_xml(finding.code)}">',
       );
       output.write('\n<failure message="${_xml(finding.message)}">');
       output.write(
         _xml(
-          '${finding.severity.configValue} ${_location(finding)} ${finding.message}',
+          '${finding.severity.configValue} $location ${finding.message}',
         ),
       );
       output.write('</failure>\n</testcase>');
@@ -378,9 +381,6 @@ final class FindingReporter {
     _ => 'Review the finding and update code or configuration as appropriate.',
   };
 
-  String _location(Finding finding) => finding.endLine > finding.line
-      ? '${finding.path}:${finding.line}-${finding.endLine}'
-      : '${finding.path}:${finding.line}';
 
   String _xml(String value) => value
       .replaceAll('&', '&amp;')

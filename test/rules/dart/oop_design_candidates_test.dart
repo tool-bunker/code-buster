@@ -116,4 +116,28 @@ void different(PaymentType type) {
 
     expect(findings, isEmpty);
   });
+  test('ignores local finding emitters and rule registration signatures', () {
+    final List<Finding> findings = analyze(<String, String>{
+      'lib/one.dart': '''
+void scan() {
+  void add(String id, RuleSeverity severity, String message) {}
+}
+Rule build(String id, RuleSeverity severity, String group) => Rule();
+''',
+      'lib/two.dart': '''
+void inspect() {
+  void add(String id, RuleSeverity severity, String message) {}
+}
+Rule create(String id, RuleSeverity severity, String group) => Rule();
+''',
+      'lib/three.dart': '''
+void check() {
+  void add(String id, RuleSeverity severity, String message) {}
+}
+Rule register(String id, RuleSeverity severity, String group) => Rule();
+''',
+    });
+
+    expect(findings, isEmpty);
+  });
 }

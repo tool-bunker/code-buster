@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_buster/src/internal.dart';
+import '../core/regexp_cache.dart';
 
 import 'cli_command.dart';
 
@@ -199,8 +200,8 @@ int _quality(CodeBusterCliOptions options) {
       'processingDiagnostics': run.diagnostics
           .map((ProcessingDiagnostic diagnostic) => diagnostic.toJson())
           .toList(growable: false),
-    if (run.manifest != null)
-      'manifest': run.manifest!.toJson(
+    if (run.manifest case final manifest?)
+      'manifest': manifest.toJson(
         includeFiles: options.verbose,
         includeOperational: options.verbose,
       ),
@@ -257,17 +258,24 @@ Map<String, Object> _evaluateGate(String condition, Map<String, num> measures) {
   final RegExpMatch? match = RegExp(
     r'^\s*([a-z][a-z0-9_.]*)\s*(==|!=|<=|>=|<|>)\s*(\d+(?:\.\d+)?)\s*$',
   ).firstMatch(condition);
-  if (match == null || !measures.containsKey(match.group(1))) {
+  if (match == null) {
     return <String, Object>{
       'condition': condition,
       'passed': false,
       'error': 'unknown or invalid measure condition',
     };
   }
-  final String metric = match.group(1)!;
-  final String operator = match.group(2)!;
-  final num expected = num.parse(match.group(3)!);
-  final num actual = measures[metric]!;
+  final String metric = match.requiredGroup(1);
+  final num? actual = measures[metric];
+  if (actual == null) {
+    return <String, Object>{
+      'condition': condition,
+      'passed': false,
+      'error': 'unknown or invalid measure condition',
+    };
+  }
+  final String operator = match.requiredGroup(2);
+  final num expected = num.parse(match.requiredGroup(3));
   final bool passed = switch (operator) {
     '==' => actual == expected,
     '!=' => actual != expected,
@@ -297,23 +305,27 @@ int _plan(CodeBusterCliOptions options) {
     for (final Finding finding in run.findings) {
       groups.putIfAbsent(finding.code, () => <Finding>[]).add(finding);
     }
-    final List<String> codes = groups.keys.toList()
-      ..sort((String left, String right) {
-        final int priority = _priorityRank(
-          left,
-        ).compareTo(_priorityRank(right));
-        return priority != 0
-            ? priority
-            : groups[right]!.length.compareTo(groups[left]!.length);
-      });
+    final List<MapEntry<String, List<Finding>>> groupsByPriority =
+        groups.entries.toList()..sort((
+          MapEntry<String, List<Finding>> left,
+          MapEntry<String, List<Finding>> right,
+        ) {
+          final int priority = _priorityRank(
+            left.key,
+          ).compareTo(_priorityRank(right.key));
+          return priority != 0
+              ? priority
+              : right.value.length.compareTo(left.value.length);
+        });
     stdout.writeln('Code Buster plan');
-    if (codes.isEmpty) {
+    if (groupsByPriority.isEmpty) {
       stdout.writeln('No findings to plan from.');
       return 0;
     }
-    for (var index = 0; index < codes.length; index++) {
-      final String code = codes[index];
-      final List<Finding> group = groups[code]!;
+    for (var index = 0; index < groupsByPriority.length; index++) {
+      final MapEntry<String, List<Finding>> entry = groupsByPriority[index];
+      final String code = entry.key;
+      final List<Finding> group = entry.value;
       final RuleSeverity worst =
           group.any((Finding finding) => finding.severity == RuleSeverity.error)
           ? RuleSeverity.error

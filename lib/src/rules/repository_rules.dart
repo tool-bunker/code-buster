@@ -2,6 +2,7 @@
 
 import '../core/rule.dart';
 import 'generic/clean_code_rules.dart';
+import 'generic/diff_quality_rules.dart';
 import 'generic/generated_code_risks.dart';
 import 'generic/generic_rules.dart';
 import 'generic/layout_rules.dart';
@@ -26,6 +27,15 @@ final RuleRegistry repositoryRuleRegistry = RuleRegistry(<CodeBusterRule>[
   InconsistentPeerFileNamingRule(),
   ChangedPublicApiWithoutTestRule(),
   ChangedComplexityRegressionRule(),
+  BroadRefactorInFocusedChangeRule(),
+  StyleDriftInDiffRule(),
+  ChangedBehaviorWithoutTestRule(),
+  OptionalFeatureBundleRule(),
+  AbstractionCostExceedsUseRule(),
+  NewUnusedDeclarationRule(),
+  SingleCallerWrapperRule(),
+  UnrelatedSymbolChurnRule(),
+  BooleanOptionExplosionRule(),
   ExcessiveCommentDensityRule(),
   NarratingImplementationCommentRule(),
   TrivialCommentRestatementRule(),

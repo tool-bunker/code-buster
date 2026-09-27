@@ -1,6 +1,7 @@
 // FastAPI framework checks use conservative route and project evidence without imposing one architecture.
 
 import '../core/models.dart';
+import '../core/regexp_cache.dart';
 import '../core/rule.dart';
 
 const List<String> fastApiQualityRuleIds = <String>[
@@ -38,7 +39,10 @@ fastApiQualityRuleMetadata = <String, RuleMetadata>{
       id: id,
       version: 1,
       defaultSeverity: RuleSeverity.info,
-      group: id.contains(RegExp(r'auth|password|jwt|cors|security|sensitive'))
+      group:
+          id.contains(
+            cachedRegExp(r'auth|password|jwt|cors|security|sensitive'),
+          )
           ? 'security'
           : 'maintainability',
       title: _title(id),
@@ -46,7 +50,9 @@ fastApiQualityRuleMetadata = <String, RuleMetadata>{
       suggestion: _suggestion(id),
       semanticMaturity: RuleSemanticMaturity.project,
       taxonomy: <FindingTaxonomy>{
-        if (id.contains(RegExp(r'auth|password|jwt|cors|security|sensitive')))
+        if (id.contains(
+          cachedRegExp(r'auth|password|jwt|cors|security|sensitive'),
+        ))
           FindingTaxonomy.security
         else
           FindingTaxonomy.maintainability,
@@ -151,7 +157,8 @@ String _suggestion(String id) => switch (id) {
 };
 
 final class FastApiQualityRule extends SelfContainedRule {
-  FastApiQualityRule(String id) : super(fastApiQualityRuleMetadata[id]!);
+  FastApiQualityRule(String id)
+    : super(fastApiQualityRuleMetadata.requiredValue(id));
 
   @override
   Iterable<Finding> analyze(RuleContext context) {
@@ -217,15 +224,16 @@ final class _Project {
   final List<_Route> routes = <_Route>[];
   late final String joined;
 
+  // code-buster-ignore complex-function: rule-ID dispatch keeps one parsed FastAPI project model and executes only the selected independent case.
   Iterable<_Finding> findings(String id) sync* {
     switch (id) {
       case 'fastapi-route-missing-response-model':
         for (final _Route route in routes) {
           if (!route.decorator.contains('response_model=') &&
-              !RegExp(
+              !cachedRegExp(
                 r'->\s*(?:[A-Z][\w.\[\], ]+|list\[|dict\[)',
               ).hasMatch(route.signature) &&
-              RegExp(
+              cachedRegExp(
                 r'\breturn\s+(?:\{|dict\s*\(|JSONResponse\s*\()',
               ).hasMatch(route.body)) {
             yield _Finding(
@@ -237,10 +245,10 @@ final class _Project {
         }
       case 'fastapi-route-status-code-mismatch':
         for (final _Route route in routes) {
-          if (RegExp(
+          if (cachedRegExp(
                 r'status_code\s*=\s*(?:204|status\.HTTP_204_NO_CONTENT)',
               ).hasMatch(route.decorator) &&
-              RegExp(r'\breturn\s+(?!None\b)').hasMatch(route.body)) {
+              cachedRegExp(r'\breturn\s+(?!None\b)').hasMatch(route.body)) {
             yield _Finding(
               route.path,
               route.line,
@@ -252,7 +260,7 @@ final class _Project {
         for (final _Route route in routes.where(
           (route) => route.method == 'get',
         )) {
-          if (RegExp(r'\bBody\s*\(').hasMatch(route.signature)) {
+          if (cachedRegExp(r'\bBody\s*\(').hasMatch(route.signature)) {
             yield _Finding(
               route.path,
               route.line,
@@ -262,7 +270,7 @@ final class _Project {
         }
       case 'fastapi-unvalidated-dict-body':
         for (final _Route route in routes) {
-          if (RegExp(
+          if (cachedRegExp(
             r'\b\w+\s*:\s*(?:dict|Dict)(?:\[[^]]+\])?\s*(?:=\s*Body\s*\([^)]*\))?',
           ).hasMatch(route.signature)) {
             yield _Finding(
@@ -275,7 +283,7 @@ final class _Project {
       case 'fastapi-sync-blocking-route':
         for (final _Route route in routes) {
           if (route.signature.trimLeft().startsWith('async def ') &&
-              RegExp(
+              cachedRegExp(
                 r'\b(?:requests\.(?:get|post|put|delete)|time\.sleep|subprocess\.(?:run|call)|open)\s*\(',
               ).hasMatch(route.body)) {
             yield _Finding(
@@ -287,7 +295,7 @@ final class _Project {
         }
       case 'fastapi-broad-http-exception':
         for (final _Route route in routes) {
-          if (RegExp(
+          if (cachedRegExp(
                 r'except\s+(?:Exception|BaseException)(?:\s+as\s+\w+)?\s*:',
               ).hasMatch(route.body) &&
               route.body.contains('HTTPException(')) {
@@ -300,7 +308,7 @@ final class _Project {
         }
       case 'fastapi-sensitive-error-detail':
         for (final _Route route in routes) {
-          if (RegExp(
+          if (cachedRegExp(
             r'detail\s*=\s*(?:str|repr)\s*\(|detail\s*=\s*f["'
             '].*{s*(?:exc|error|e)s*}',
           ).hasMatch(route.body)) {
@@ -312,7 +320,7 @@ final class _Project {
           }
         }
       case 'fastapi-missing-auth-dependency':
-        final bool authEstablished = RegExp(
+        final bool authEstablished = cachedRegExp(
           r'\b(?:OAuth2PasswordBearer|get_current_(?:user|principal)|HTTPBearer|SecurityScopes)\b',
         ).hasMatch(joined);
         if (authEstablished) {
@@ -324,7 +332,7 @@ final class _Project {
               'delete',
             }.contains(route.method),
           )) {
-            if (!RegExp(
+            if (!cachedRegExp(
               r'\b(?:Depends|Security)\s*\(',
             ).hasMatch('${route.decorator}${route.signature}')) {
               yield _Finding(
@@ -339,10 +347,10 @@ final class _Project {
       case 'fastapi-role-check-after-resource-access':
         for (final _Route route in routes) {
           final int access = route.body.indexOf(
-            RegExp(r'\b(?:session|db)\.(?:execute|query|get)\s*\('),
+            cachedRegExp(r'\b(?:session|db)\.(?:execute|query|get)\s*\('),
           );
           final int role = route.body.indexOf(
-            RegExp(
+            cachedRegExp(
               r'\b(?:has_role|require_role|current_user\.(?:role|roles|is_admin))\b',
             ),
           );
@@ -356,12 +364,12 @@ final class _Project {
         }
       case 'fastapi-plaintext-password':
         for (final _PySource source in sources) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'\bpassword\s*=\s*(?:payload|request|user_in|data)\.password\b',
             caseSensitive: false,
           ).allMatches(source.code)) {
             final String nearby = source.around(match.start);
-            if (!RegExp(
+            if (!cachedRegExp(
               r'\b(?:hash|bcrypt|argon|password_hasher)\b',
               caseSensitive: false,
             ).hasMatch(nearby)) {
@@ -375,12 +383,12 @@ final class _Project {
         }
       case 'fastapi-insecure-jwt-decode':
         for (final _PySource source in sources) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'\b(?:jwt|jose\.jwt)\.decode\s*\(([^\n]*)',
           ).allMatches(source.code)) {
-            final String call = match.group(1)!;
+            final String call = match.requiredGroup(1);
             if (!call.contains('algorithms=') ||
-                RegExp(
+                cachedRegExp(
                   r'verify_signature["'
                   ']?s*:s*False',
                 ).hasMatch(call)) {
@@ -394,7 +402,7 @@ final class _Project {
         }
       case 'fastapi-permissive-cors':
         for (final _PySource source in sources) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'''allow_origins\s*=\s*\[\s*["'][*]["']''',
           ).allMatches(source.code)) {
             yield _Finding(
@@ -406,7 +414,7 @@ final class _Project {
         }
       case 'fastapi-missing-rate-limit':
         if (routes.length >= 5 &&
-            !RegExp(
+            !cachedRegExp(
               r'\b(?:Limiter|RateLimiter|slowapi|rate_limit|throttle)\b',
               caseSensitive: false,
             ).hasMatch(joined)) {
@@ -420,7 +428,7 @@ final class _Project {
         }
       case 'fastapi-missing-security-headers':
         if (routes.length >= 3 &&
-            !RegExp(
+            !cachedRegExp(
               r'\b(?:SecurityHeadersMiddleware|TrustedHostMiddleware|X-Content-Type-Options|Content-Security-Policy|Strict-Transport-Security)\b',
             ).hasMatch(joined)) {
           final _Route first = routes.first;
@@ -433,7 +441,7 @@ final class _Project {
         }
       case 'fastapi-request-data-logging':
         for (final _Route route in routes) {
-          if (RegExp(
+          if (cachedRegExp(
             r'\b(?:log|logger)\.(?:debug|info|warning|error)\s*\([^\n]*(?:request\.(?:body|json|headers|query_params)|password|token)',
           ).hasMatch(route.body)) {
             yield _Finding(
@@ -446,10 +454,10 @@ final class _Project {
       case 'fastapi-db-session-not-closed':
         for (final _PySource source in sources) {
           for (final _Function function in source.functions) {
-            if (RegExp(
+            if (cachedRegExp(
                   r'\b\w+\s*=\s*(?:Session|SessionLocal|AsyncSession)\s*\(',
                 ).hasMatch(function.body) &&
-                !RegExp(
+                !cachedRegExp(
                   r'\b(?:with|async with)\b|\.close\s*\(|finally\s*:',
                 ).hasMatch(function.body)) {
               yield _Finding(
@@ -464,7 +472,7 @@ final class _Project {
         for (final _PySource source in sources) {
           for (final _Function function in source.functions) {
             if (function.body.contains('.commit(') &&
-                RegExp(r'\bexcept\b').hasMatch(function.body) &&
+                cachedRegExp(r'\bexcept\b').hasMatch(function.body) &&
                 !function.body.contains('.rollback(')) {
               yield _Finding(
                 source.path,
@@ -476,7 +484,7 @@ final class _Project {
         }
       case 'fastapi-query-in-loop':
         for (final _PySource source in sources) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'for\s+[^:]+:\s*\n(?:[ \t]+.*\n){0,8}?[ \t]+(?:\w+\.)?(?:execute|query|get)\s*\(',
             multiLine: true,
           ).allMatches(source.code)) {
@@ -489,11 +497,11 @@ final class _Project {
         }
       case 'fastapi-unbounded-query':
         for (final _PySource source in sources) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'\.(?:query\([^\n]+\)|execute\(\s*select\([^\n]+\))[^\n]*(?:\.all\s*\(\)|\.scalars\s*\(\)\.all\s*\(\))',
           ).allMatches(source.code)) {
             final String call = match.group(0)!;
-            if (!RegExp(r'\.(?:limit|offset)\s*\(').hasMatch(call)) {
+            if (!cachedRegExp(r'\.(?:limit|offset)\s*\(').hasMatch(call)) {
               yield _Finding(
                 source.path,
                 source.lineAt(match.start),
@@ -504,17 +512,17 @@ final class _Project {
         }
       case 'fastapi-background-task-heavy-work':
         for (final _Route route in routes) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'background_tasks\.add_task\s*\(\s*([A-Za-z_]\w*)',
           ).allMatches(route.body)) {
-            if (RegExp(
+            if (cachedRegExp(
               r'(?:generate|render|resize|convert|train|export|process_(?:video|image|report)|rebuild)',
               caseSensitive: false,
-            ).hasMatch(match.group(1)!)) {
+            ).hasMatch(match.requiredGroup(1))) {
               yield _Finding(
                 route.path,
                 route.line,
-                'BackgroundTasks schedules likely heavy work `${match.group(1)}`',
+                'BackgroundTasks schedules likely heavy work `${match.requiredGroup(1)}`',
                 confidence: 'medium',
               );
             }
@@ -522,7 +530,7 @@ final class _Project {
         }
       case 'fastapi-global-mutable-cache':
         for (final _PySource source in sources) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'^(\w*(?:cache|store)\w*)\s*(?::[^=]+)?=\s*(?:\{\}|dict\s*\(\)|\[\])',
             caseSensitive: false,
             multiLine: true,
@@ -563,12 +571,12 @@ final class _Project {
           }
         }
       case 'fastapi-settings-bypass':
-        final bool settingsEstablished = RegExp(
+        final bool settingsEstablished = cachedRegExp(
           r'\b(?:BaseSettings|SettingsConfigDict|class\s+Settings)\b',
         ).hasMatch(joined);
         if (settingsEstablished) {
           for (final _Route route in routes) {
-            if (RegExp(
+            if (cachedRegExp(
               r'\b(?:os\.getenv|os\.environ\[)',
             ).hasMatch(route.body)) {
               yield _Finding(
@@ -598,8 +606,8 @@ final class _Project {
         final List<String> changedTests = context.changedPaths
             .where(
               (path) =>
-                  RegExp(r'(^|/)(?:test|tests)(/|$)').hasMatch(path) &&
-                  RegExp(
+                  cachedRegExp(r'(^|/)(?:test|tests)(/|$)').hasMatch(path) &&
+                  cachedRegExp(
                     r'(?:api|integration|route|endpoint|client)',
                   ).hasMatch(path.toLowerCase()),
             )
@@ -653,7 +661,7 @@ final class _Function {
 
 List<_Function> _functions(_PySource source) {
   final List<_Function> result = <_Function>[];
-  final RegExp declaration = RegExp(
+  final RegExp declaration = cachedRegExp(
     r'^(async\s+)?def\s+([A-Za-z_]\w*)\s*\([^\n]*\)(?:\s*->\s*[^:]+)?\s*:',
     multiLine: true,
   );
@@ -689,7 +697,7 @@ List<_Function> _functions(_PySource source) {
 }
 
 Iterable<_Route> _routes(_PySource source) sync* {
-  final RegExp decorator = RegExp(
+  final RegExp decorator = cachedRegExp(
     r'''^\s*@(?:\w+\.)?(get|post|put|patch|delete)\s*\(\s*(["'])([^"']+)\2([^\n]*)\)\s*$''',
     multiLine: true,
   );
