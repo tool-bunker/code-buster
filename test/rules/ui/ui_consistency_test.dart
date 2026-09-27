@@ -85,6 +85,21 @@ void main() {
       expect(findings.single.message, contains('primary'));
     });
 
+    test('ignores transparent colors because they express visual absence', () {
+      final List<Finding> findings = const FlutterThemeBypassRule()
+          .analyze(
+            _context(<String, String>{
+              'lib/theme.dart':
+                  'abstract final class AppColors { static const clear = Colors.transparent; }',
+              'lib/button.dart':
+                  'final ring = isFocused ? Colors.blue : Colors.transparent;',
+            }),
+          )
+          .toList();
+
+      expect(findings, isEmpty);
+    });
+
     test('reports button-like Flutter pointer trees beside buttons', () {
       final List<Finding> findings = const FlutterParallelControlComponentRule()
           .analyze(
@@ -132,6 +147,35 @@ class AppButton extends StatelessWidget {
       expect(findings.single.message, contains('AppButton'));
       expect(findings.single.message, contains('used 3 times'));
       expect(findings.single.relatedFiles.first, 'lib/app_button.dart:1');
+    });
+
+    test('requires a shared widget to dominate direct controls', () {
+      final List<Finding> findings = const FlutterSharedComponentBypassRule()
+          .analyze(
+            _context(<String, String>{
+              'lib/search.dart': '''
+class SearchField extends StatelessWidget {
+  Widget build(BuildContext context) {
+    return TextFormField(
+      decoration: InputDecoration(
+        suffixIcon: IconButton(onPressed: clear, icon: Icon(Icons.clear)),
+      ),
+    );
+  }
+}
+''',
+              'lib/a.dart': 'final a = SearchField(); final b = SearchField();',
+              'lib/b.dart': 'final c = SearchField();',
+              'lib/actions.dart': '''
+final one = IconButton(onPressed: save, icon: Icon(Icons.save));
+final two = IconButton(onPressed: close, icon: Icon(Icons.close));
+final three = IconButton(onPressed: add, icon: Icon(Icons.add));
+''',
+            }),
+          )
+          .toList();
+
+      expect(findings, isEmpty);
     });
 
     test('reports button-like HTML elements beside native buttons', () {

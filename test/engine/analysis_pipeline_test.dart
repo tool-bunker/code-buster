@@ -64,6 +64,11 @@ void main() {
     File(path.join(root.path, 'test', 'ignored.dart'))
       ..createSync(recursive: true)
       ..writeAsStringSync('void ignored() {}\n');
+    File(path.join(root.path, 'pubspec.yaml')).writeAsStringSync('''
+dependencies:
+  flutter:
+    sdk: flutter
+''');
     File(path.join(root.path, 'code-buster.toml')).writeAsStringSync('''
 languages = ["auto"]
 [files]
@@ -78,6 +83,7 @@ exclude = ["test"]
       prepared.config.languages,
       containsAll(<String>['dart', 'javascript']),
     );
+    expect(prepared.config.frameworks, <String>{'flutter'});
     expect(prepared.sources.keys, <String>[
       'lib/main.dart',
       'tool/helper.py',
@@ -149,6 +155,7 @@ exclude = ["test"]
       'lib/main.dart',
       'test/main_test.dart',
       'example/demo.dart',
+      'src/xdocs-examples/resources/Example.dart',
     ]) {
       File(path.join(root.path, relative))
         ..createSync(recursive: true)
@@ -171,7 +178,7 @@ exclude = ["test"]
     final PreparedAnalysis production = prepare(const <String>[]);
     expect(production.sources.keys, <String>['lib/main.dart']);
     expect(production.coverage, <String, int>{
-      'example': 1,
+      'example': 2,
       'selected': 1,
       'test': 1,
     });
@@ -182,10 +189,12 @@ exclude = ["test"]
     expect(prepare(const <String>['--include-examples']).sources.keys, <String>[
       'example/demo.dart',
       'lib/main.dart',
+      'src/xdocs-examples/resources/Example.dart',
     ]);
     expect(prepare(const <String>['--all']).sources.keys, <String>[
       'example/demo.dart',
       'lib/main.dart',
+      'src/xdocs-examples/resources/Example.dart',
       'test/main_test.dart',
     ]);
   });

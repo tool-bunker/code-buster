@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:code_buster/src/internal.dart';
 import 'package:code_buster/src/rules/architecture/architecture.dart';
 
+import '../core/regexp_cache.dart';
 import 'cli_command.dart';
 
 /// Renders dependency graphs and architecture diagrams.
@@ -69,11 +70,13 @@ List<Map<String, String>> _displayGraphEdges(AnalysisRun run) {
   final List<Map<String, String>> edges = <Map<String, String>>[];
   for (final SourceFile file in run.files) {
     final String source = file.relativePath;
+    final String? sourceText = run.sources[source];
+    if (sourceText == null) continue;
     if (file.language == 'dart') {
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'''^\s*(?:import|export)\s+["']([^"']+)["']\s*;''',
         multiLine: true,
-      ).allMatches(run.sources[source]!)) {
+      ).allMatches(sourceText)) {
         edges.add(<String, String>{'source': source, 'target': ';'});
         edges.add(<String, String>{
           'source': source,
@@ -81,17 +84,17 @@ List<Map<String, String>> _displayGraphEdges(AnalysisRun run) {
         });
       }
     } else if (file.language == 'cpp') {
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'''^\s*#\s*include\s*[<"]([^>"]+)[>"]''',
         multiLine: true,
-      ).allMatches(run.sources[source]!)) {
+      ).allMatches(sourceText)) {
         edges.add(<String, String>{
           'source': source,
           'target': match.group(1)!,
         });
       }
     } else if (file.language == 'python') {
-      for (final String raw in run.sources[source]!.split('\n')) {
+      for (final String raw in sourceText.split('\n')) {
         final String line = raw.trim();
         if (line.startsWith('import ')) {
           for (final String module in line.substring(7).split(',')) {
@@ -108,7 +111,7 @@ List<Map<String, String>> _displayGraphEdges(AnalysisRun run) {
         }
       }
     } else if (file.language == 'nim') {
-      for (final String raw in run.sources[source]!.split('\n')) {
+      for (final String raw in sourceText.split('\n')) {
         final String line = raw.trim();
         if (line.startsWith('import ')) {
           final String body = line.substring(7);
@@ -139,15 +142,15 @@ List<Map<String, String>> _displayGraphEdges(AnalysisRun run) {
         }
       }
     } else if (file.language == 'javascript' || file.language == 'typescript') {
-      for (final String raw in run.sources[source]!.split('\n')) {
+      for (final String raw in sourceText.split('\n')) {
         final String line = raw.trim();
         if (line.startsWith('import ') || line.startsWith('export ')) {
-          for (final RegExpMatch match in RegExp(
+          for (final RegExpMatch match in cachedRegExp(
             r'''["']([^"']+)["']''',
           ).allMatches(line)) {
             edges.add(<String, String>{
               'source': source,
-              'target': match.group(1)!,
+              'target': match.requiredGroup(1),
             });
           }
         }
@@ -159,8 +162,12 @@ List<Map<String, String>> _displayGraphEdges(AnalysisRun run) {
     }
   }
   edges.sort((Map<String, String> left, Map<String, String> right) {
-    final int source = left['source']!.compareTo(right['source']!);
-    return source != 0 ? source : left['target']!.compareTo(right['target']!);
+    final int source = left
+        .requiredValue('source')
+        .compareTo(right.requiredValue('source'));
+    return source != 0
+        ? source
+        : left.requiredValue('target').compareTo(right.requiredValue('target'));
   });
   return edges;
 }

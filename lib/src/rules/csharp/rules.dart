@@ -2,6 +2,7 @@
 
 import '../../core/models.dart';
 import '../../core/rule.dart';
+import 'oop_rules.dart';
 import 'source_rules.dart';
 
 const Set<String> _informationalRules = <String>{
@@ -16,6 +17,7 @@ const Set<String> _informationalRules = <String>{
 };
 const Set<String> _securityRules = <String>{
   'cs-aptca-attribute',
+  'cs-archive-path-traversal',
   'cs-binaryformatter',
   'cs-cas-api',
   'cs-dcom-api',
@@ -30,7 +32,9 @@ const Set<String> _securityRules = <String>{
 
 /// Self-contained C# rules in deterministic execution order.
 final RuleRegistry csharpRuleRegistry = RuleRegistry(<CodeBusterRule>[
+  for (final String id in csharpOopRuleIds) CSharpOopRule(id),
   for (final String id in const <String>[
+    'cs-archive-path-traversal',
     'cs-aptca-attribute',
     'cs-async-void',
     'cs-binaryformatter',

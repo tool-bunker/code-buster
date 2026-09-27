@@ -2,6 +2,7 @@
 
 import '../graph/graph.dart';
 import 'models.dart';
+import 'regexp_cache.dart';
 
 /// Immutable inputs made available to an executable Code Buster rule.
 ///
@@ -15,6 +16,9 @@ final class RuleContext {
     this.graph,
     this.sourceLines = const <String, List<String>>{},
     this.languageAnalysis,
+    this.changedPaths = const <String>{},
+    this.baseSources = const <String, String>{},
+    this.auxiliaryFiles = const <String, String>{},
   });
 
   final AnalysisConfig config;
@@ -29,8 +33,24 @@ final class RuleContext {
 
   final Object? languageAnalysis;
 
-  List<String> linesFor(String path) =>
-      sourceLines[path] ?? sources[path]!.split('\n');
+  /// All repository paths changed relative to the configured base, including tests.
+  final Set<String> changedPaths;
+
+  /// Production source snapshots loaded from the configured base revision.
+  final Map<String, String> baseSources;
+
+  /// Non-source project inputs needed by repository and framework rules.
+  final Map<String, String> auxiliaryFiles;
+
+  List<String> linesFor(String path) {
+    final List<String>? prepared = sourceLines[path];
+    if (prepared != null) return prepared;
+    final String? source = sources[path];
+    if (source == null) {
+      throw StateError('No source is available for $path');
+    }
+    return source.split('\n');
+  }
 
   T requireLanguageAnalysis<T extends Object>() {
     final Object? analysis = languageAnalysis;
@@ -68,6 +88,10 @@ final class RuleContext {
   );
 }
 
+/// Whether every framework required by [metadata] is active for this run.
+bool ruleFrameworksAreActive(RuleMetadata metadata, AnalysisConfig config) =>
+    config.frameworks.containsAll(metadata.frameworks);
+
 /// Blanks C-family preprocessor directives and branches that are provably
 /// inactive while preserving source line numbers.
 List<String> maskDefinitelyInactivePreprocessorBranches(List<String> lines) {
@@ -82,13 +106,13 @@ List<String> maskDefinitelyInactivePreprocessorBranches(List<String> lines) {
       continue;
     }
 
-    final String name = directive.group(1)!;
+    final String name = directive.requiredGroup(1);
     switch (name) {
       case 'if':
         parentDisabled.add(disabled);
         disabled =
             disabled ||
-            _falsePreprocessorExpression.hasMatch(directive.group(2)!);
+            _falsePreprocessorExpression.hasMatch(directive.requiredGroup(2));
       case 'ifdef':
       case 'ifndef':
         parentDisabled.add(disabled);
@@ -96,7 +120,7 @@ List<String> maskDefinitelyInactivePreprocessorBranches(List<String> lines) {
         if (parentDisabled.isNotEmpty) {
           disabled =
               parentDisabled.last ||
-              _falsePreprocessorExpression.hasMatch(directive.group(2)!);
+              _falsePreprocessorExpression.hasMatch(directive.requiredGroup(2));
         }
       case 'else':
         if (parentDisabled.isNotEmpty) {

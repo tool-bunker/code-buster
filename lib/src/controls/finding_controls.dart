@@ -27,11 +27,8 @@ final class FindingFilter {
           _isSuppressed(finding, sources[finding.path])) {
         continue;
       }
-      result.add(
-        config.severityOverrides.containsKey(finding.code)
-            ? finding.withSeverity(config.severityOverrides[finding.code]!)
-            : finding,
-      );
+      final RuleSeverity? override = config.severityOverrides[finding.code];
+      result.add(override == null ? finding : finding.withSeverity(override));
     }
     return List<Finding>.unmodifiable(result);
   }
@@ -286,7 +283,9 @@ final class PatternRuleAnalysis {
     final List<Finding> result = <Finding>[];
     final List<String> paths = sources.keys.toList()..sort();
     for (final String path in paths) {
-      final List<String> lines = sources[path]!.split('\n');
+      final String? source = sources[path];
+      if (source == null) continue;
+      final List<String> lines = source.split('\n');
       for (var index = 0; index < lines.length; index++) {
         final String code = _codeText(lines[index]);
         for (final PatternRule rule in rules) {

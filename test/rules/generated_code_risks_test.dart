@@ -51,6 +51,101 @@ void main() {
     expect(findings, isEmpty);
   });
 
+  test('excludes Go declaration documentation from implementation density', () {
+    final String documentedGo = <String>[
+      'package api',
+      '',
+      'type API interface {',
+      for (var method = 0; method < 8; method++) ...<String>[
+        '  // Method$method performs an API operation.',
+        '  Method$method() error',
+      ],
+      '}',
+      '',
+      for (var declaration = 0; declaration < 10; declaration++) ...<String>[
+        '// Value$declaration describes the exported value.',
+        'var Value$declaration = $declaration',
+      ],
+      for (var line = 0; line < 10; line++) 'var private$line = $line',
+    ].join('\n');
+    final Map<String, String> sources = <String, String>{
+      for (var file = 0; file < 4; file++)
+        'ordinary_$file.go': List<String>.generate(
+          24,
+          (int line) => 'var value$line = $line',
+        ).join('\n'),
+      'documented.go': documentedGo,
+    };
+
+    final List<Finding> findings = ExcessiveCommentDensityRule()
+        .analyze(
+          RuleContext(config: config, sources: sources, language: 'repository'),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+
+  test('excludes leading license headers from implementation density', () {
+    const String license = '''
+// Copyright 2026 The Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+''';
+    final Map<String, String> sources = <String, String>{
+      for (var file = 0; file < 4; file++)
+        'ordinary_$file.go': List<String>.generate(
+          24,
+          (int line) => 'var value$line = $line',
+        ).join('\n'),
+      'licensed.go': <String>[
+        license,
+        'package licensed',
+        for (var line = 0; line < 10; line++) 'var value$line = $line',
+      ].join('\n'),
+    };
+
+    final List<Finding> findings = ExcessiveCommentDensityRule()
+        .analyze(
+          RuleContext(config: config, sources: sources, language: 'repository'),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+
+  test('excludes dependency manifests from implementation density', () {
+    final Map<String, String> sources = <String, String>{
+      for (var file = 0; file < 4; file++)
+        'ordinary_$file.go': List<String>.generate(
+          24,
+          (int line) => 'var value$line = $line',
+        ).join('\n'),
+      'go.mod': <String>[
+        'module example.com/project',
+        for (var line = 0; line < 12; line++)
+          'require example.com/dependency$line v1.0.0 // indirect',
+      ].join('\n'),
+    };
+
+    final List<Finding> findings = ExcessiveCommentDensityRule()
+        .analyze(
+          RuleContext(config: config, sources: sources, language: 'repository'),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
+  });
   test('reports first-person implementation narration but not rationale', () {
     const RuleContext context = RuleContext(
       config: config,

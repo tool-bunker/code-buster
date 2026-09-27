@@ -36,7 +36,7 @@ jobs:
       - name: Smoke-test Code Buster
         run: |
           build/cb-test version
-          python3 tool/precision_benchmark.py
+          python3 tool/precision_benchmark.py --executable build/cb-test
 
   minimum-sdk:
     runs-on: ubuntu-latest

@@ -99,7 +99,8 @@ int _inspect(CodeBusterCliOptions options) {
     options,
     command: CodeBusterCommand.summary,
   );
-  if (!run.sources.containsKey(normalized)) {
+  final String? source = run.sources[normalized];
+  if (source == null) {
     stderr.writeln('target is not a discovered source file: $target');
     return 1;
   }
@@ -110,13 +111,16 @@ int _inspect(CodeBusterCliOptions options) {
     final SourceFile file = run.files.firstWhere(
       (SourceFile item) => item.relativePath == normalized,
     );
-    final String source = run.sources[normalized]!;
+    final String selectedSource = source;
     final List<String> imports = <String>[];
     final List<String> exports = <String>[];
     final List<Object> functions = <Object>[];
     if (file.language == 'dart') {
       final DartSourceParser adapter = DartSourceParser();
-      final unit = adapter.parseCompilationUnit(source, sourcePath: normalized);
+      final unit = adapter.parseCompilationUnit(
+        selectedSource,
+        sourcePath: normalized,
+      );
       final units = {normalized: unit};
       final DartUnit summary = adapter.summarize(unit);
       imports.addAll(<String>[...summary.imports, ...summary.exports]);

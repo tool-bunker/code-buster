@@ -1,7 +1,9 @@
 // C and C++ share much syntax but not every convention; this adapter extracts their imports and callable regions without pretending to compile them.
 
 import 'package:path/path.dart' as path;
+import '../../core/models.dart';
 
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
@@ -15,9 +17,9 @@ final class CppAdapter {
     for (final String sourcePath in sources.keys.toList()..sort()) {
       final Set<String> dependencies = <String>{};
       for (final RegExpMatch match in _include.allMatches(
-        sources[sourcePath]!,
+        sources.requiredValue(sourcePath),
       )) {
-        final String include = match.group(1)!;
+        final String include = match.requiredGroup(1);
         final String relative = path.posix.normalize(
           path.posix.join(path.posix.dirname(sourcePath), include),
         );
@@ -82,7 +84,7 @@ final class CppAdapter {
               _function.firstMatch(multiline);
         }
         if (declaration == null ||
-            _controlName.hasMatch(declaration.group(1)!)) {
+            _controlName.hasMatch(declaration.requiredGroup(1))) {
           continue;
         }
         var depth = 0;
@@ -257,7 +259,7 @@ final class CppAdapter {
     return String.fromCharCodes(result);
   }
 
-  static final RegExp _lambda = RegExp(
+  static final RegExp _lambda = cachedRegExp(
     r'\[[^\]\r\n]*\]\s*(?:\([^;{}]*\))?\s*(?:(?:mutable|constexpr|consteval)\s+)*(?:noexcept(?:\s*\([^)]*\))?\s*)?(?:->\s*[^{}]+)?\{',
     multiLine: true,
   );
@@ -269,9 +271,9 @@ final class CppAdapter {
       for (final RegExpMatch definition in _functionMacroDefinition.allMatches(
         source,
       )) {
-        definitions[definition.group(1)!] = (
-          parameter: definition.group(2)!,
-          replacement: definition.group(3)!,
+        definitions[definition.requiredGroup(1)] = (
+          parameter: definition.requiredGroup(2),
+          replacement: definition.requiredGroup(3),
         );
       }
     }
@@ -281,7 +283,7 @@ final class CppAdapter {
         definition
         in definitions.entries) {
       final String parameter = RegExp.escape(definition.value.parameter);
-      if (RegExp(
+      if (cachedRegExp(
         '(^|[^#])#\\s*$parameter\\b',
       ).hasMatch(definition.value.replacement)) {
         result.add(definition.key);
@@ -297,7 +299,7 @@ final class CppAdapter {
         if (result.contains(definition.key)) continue;
         final String parameter = RegExp.escape(definition.value.parameter);
         if (result.any(
-          (String stringifier) => RegExp(
+          (String stringifier) => cachedRegExp(
             '\\b${RegExp.escape(stringifier)}\\s*\\(\\s*$parameter\\s*\\)',
           ).hasMatch(definition.value.replacement),
         )) {
@@ -316,12 +318,12 @@ final class CppAdapter {
     if (macroNames.isEmpty) return lines;
     final String source = lines.join('\n');
     final List<int> masked = source.codeUnits.toList();
-    final RegExp invocation = RegExp(
+    final RegExp invocation = cachedRegExp(
       '\\b(?:${macroNames.map(RegExp.escape).join('|')})\\s*\\(',
     );
     for (final RegExpMatch match in invocation.allMatches(source)) {
       final int lineStart = source.lastIndexOf('\n', match.start) + 1;
-      if (RegExp(
+      if (cachedRegExp(
         r'^\s*#\s*define\b',
       ).hasMatch(source.substring(lineStart, match.start))) {
         continue;
@@ -384,29 +386,33 @@ final class CppAdapter {
     return -1;
   }
 
-  static final RegExp _functionMacroDefinition = RegExp(
+  static final RegExp _functionMacroDefinition = cachedRegExp(
     r'^\s*#\s*define\s+([A-Za-z_]\w*)\s*\(\s*([A-Za-z_]\w*)\s*\)\s+([^\r\n]+)$',
     multiLine: true,
   );
-  static final RegExp _include = RegExp(
+  static final RegExp _include = cachedRegExp(
     r'^\s*#\s*(?:include|import)\s*"([^"]+)"',
     multiLine: true,
   );
-  static final RegExp _function = RegExp(
+  static final RegExp _function = cachedRegExp(
     r'(?:^|[\s*&])(?:[A-Za-z_]\w*::)*([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:const\s*)?\{',
   );
-  static final RegExp _unqualifiedSignature = RegExp(
+  static final RegExp _unqualifiedSignature = cachedRegExp(
     r'^\s*(?!if\b|for\b|while\b|switch\b|catch\b)(?:[A-Za-z_]\w*[\s*&]+)+[A-Za-z_]\w*\s*\(',
   );
-  static final RegExp _objectiveCSignature = RegExp(r'^\s*[-+]\s*\(');
-  static final RegExp _qualifiedSignature = RegExp(
+  static final RegExp _objectiveCSignature = cachedRegExp(r'^\s*[-+]\s*\(');
+  static final RegExp _qualifiedSignature = cachedRegExp(
     r'^\s*(?:[A-Za-z_]\w*::)+(?:~?[A-Za-z_]\w*)\s*\(',
   );
-  static final RegExp _controlName = RegExp(r'^(?:if|for|while|switch|catch)$');
-  static final RegExp _objectiveCMethod = RegExp(
+  static final RegExp _controlName = cachedRegExp(
+    r'^(?:if|for|while|switch|catch)$',
+  );
+  static final RegExp _objectiveCMethod = cachedRegExp(
     r'^\s*[-+]\s*\([^)]*\)\s*([A-Za-z_]\w*)[^;{}]*\{',
   );
-  static final RegExp _control = RegExp(r'^(?:if|for|while|switch|catch)\b');
+  static final RegExp _control = cachedRegExp(
+    r'^(?:if|for|while|switch|catch)\b',
+  );
   static const List<String> _extensions = <String>[
     '.h',
     '.hh',

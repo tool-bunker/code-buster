@@ -11,7 +11,7 @@ import '../core/schema_versions.dart';
 import '../graph/graph.dart';
 
 final class PersistentAnalysisCache {
-  const PersistentAnalysisCache({this.version = 'code-buster-cache-v3'});
+  const PersistentAnalysisCache({this.version = 'code-buster-cache-v4'});
 
   final String version;
 
@@ -27,6 +27,7 @@ final class PersistentAnalysisCache {
       ..writeln(kind)
       ..writeln(config.language)
       ..writeln(config.languages.join(','))
+      ..writeln(config.frameworks.toList()..sort())
       ..writeln(config.includes)
       ..writeln(config.excludes)
       ..writeln(config.changedBase)

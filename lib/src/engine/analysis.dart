@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:path/path.dart' as path;
 
 import '../core/models.dart';
+import '../core/regexp_cache.dart';
 import '../discovery/discovery.dart';
 
 /// A language adapter-provided function body for complexity analysis.
@@ -87,13 +88,19 @@ final class RepositoryAnalysis {
       final (source: String code, endsInBlockComment: bool endsInBlockComment) =
           _stripComments(stringStripped, inBlockComment: inBlockComment);
       inBlockComment = endsInBlockComment;
-      final int signals = RegExp(
-        r'(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|switch|case|catch)([^A-Za-z0-9_]|$)|&&|\|\|',
+      final int cyclomaticSignals = cachedRegExp(
+        r'(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|case|catch)([^A-Za-z0-9_]|$)|&&|\|\|',
       ).allMatches(code).length;
-      cyclomatic += signals;
+      final int cognitiveSignals = cachedRegExp(
+        r'(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|switch|catch)([^A-Za-z0-9_]|$)|&&|\|\|',
+      ).allMatches(code).length;
+      // A switch contributes one cognitive structural break, while its cases
+      // contribute the alternative paths counted by cyclomatic complexity.
+      // Counting both switch and case in both metrics overstates flat dispatch.
+      cyclomatic += cyclomaticSignals;
       // Adapter function bodies include their own outer braces. That lexical
       // wrapper is not control-flow nesting and must not inflate every signal.
-      cognitive += signals * (1 + math.max(0, depth - 1));
+      cognitive += cognitiveSignals * (1 + math.max(0, depth - 1));
       depth += '{'.allMatches(code).length - '}'.allMatches(code).length;
       if (depth < 0) {
         depth = 0;
@@ -170,7 +177,7 @@ final class RepositoryAnalysis {
           ),
         );
       }
-      final bool supportsGoto = RegExp(
+      final bool supportsGoto = cachedRegExp(
         r'\.(?:c|cs|h)$',
         caseSensitive: false,
       ).hasMatch(entry.key);
@@ -185,7 +192,7 @@ final class RepositoryAnalysis {
         inBlockComment = commentStripped.endsInBlockComment;
         final String line = commentStripped.source.trim();
         if (supportsGoto &&
-            RegExp(r'^goto\s+[A-Za-z_]\w*\s*;').hasMatch(line)) {
+            cachedRegExp(r'^goto\s+[A-Za-z_]\w*\s*;').hasMatch(line)) {
           gotoLines.add(index + 1);
         }
       }
@@ -234,7 +241,7 @@ final class RepositoryAnalysis {
     for (final String root in roots) {
       final String normalizedRoot = root
           .replaceAll('\\', '/')
-          .replaceAll(RegExp(r'^/+|/+$'), '');
+          .replaceAll(cachedRegExp(r'^/+|/+$'), '');
       final Directory rootDirectory = Directory(
         path.join(config.root, normalizedRoot),
       );
@@ -329,7 +336,7 @@ final class RepositoryAnalysis {
 final class FeatureFlagAnalysis {
   /// Finds unique flag references in every source file.
   List<Finding> findings(Map<String, String> sources) {
-    final RegExp pattern = RegExp(
+    final RegExp pattern = cachedRegExp(
       r'(^|[^A-Za-z0-9_.])(flags|Flags|Config)(?:\.|::)([A-Za-z_]\w*)',
       multiLine: true,
     );
@@ -365,13 +372,13 @@ final class FeatureFlagAnalysis {
     final List<String> paths = sources.keys.toList()..sort();
     for (final String sourcePath in paths) {
       final Set<String> seen = <String>{};
-      final List<String> lines = sources[sourcePath]!.split('\n');
+      final List<String> lines = sources.requiredValue(sourcePath).split('\n');
       for (var index = 0; index < lines.length; index++) {
         final String line = _stripStringLiterals(lines[index]);
         for (final RegExpMatch match in pattern.allMatches(line)) {
-          final String receiver = match.group(2)!;
-          final String flag = match.group(3)!;
-          final bool hasFeatureSemantics = RegExp(
+          final String receiver = match.requiredGroup(2);
+          final String flag = match.requiredGroup(3);
+          final bool hasFeatureSemantics = cachedRegExp(
             r'feature|experiment|rollout|beta|treatment|variant',
             caseSensitive: false,
           ).hasMatch(flag);
@@ -445,7 +452,7 @@ final class YagniAnalysis {
     final List<Finding> result = <Finding>[];
     for (final GenericDeclaration declaration in declarations) {
       for (final String parameter in declaration.parameters) {
-        if (RegExp(
+        if (cachedRegExp(
           '\\b${RegExp.escape(parameter)}\\b',
         ).hasMatch(declaration.usageSource)) {
           continue;
@@ -630,7 +637,7 @@ final class _HotspotTotals {
 }
 
 String _stripStringLiterals(String source) => source.replaceAll(
-  RegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*' '''.trim()),
+  cachedRegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*' '''.trim()),
   ' ',
 );
 
@@ -703,7 +710,8 @@ _StringMaskResult _stripDartAwareStringLiterals(
     final bool raw =
         cursor > 0 &&
         (source[cursor - 1] == 'r' || source[cursor - 1] == 'R') &&
-        (cursor == 1 || !RegExp(r'[A-Za-z0-9_]').hasMatch(source[cursor - 2]));
+        (cursor == 1 ||
+            !cachedRegExp(r'[A-Za-z0-9_]').hasMatch(source[cursor - 2]));
     final String delimiter = character + character + character;
     if (source.startsWith(delimiter, cursor)) {
       final _DartMultilineStringState state = (delimiter: delimiter, raw: raw);

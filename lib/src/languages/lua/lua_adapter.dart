@@ -1,6 +1,8 @@
 // Lua dependencies often hide in require and dofile calls; this adapter resolves the literal forms that can be trusted statically.
 
 import 'package:path/path.dart' as path;
+import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 import '../../graph/graph.dart';
 
@@ -16,7 +18,7 @@ final class LuaGraphAdapter {
     for (final String sourcePath in files) {
       final Set<String> dependencies = <String>{};
       final Set<String> loadTimeDependencies = <String>{};
-      final String source = sources[sourcePath]!;
+      final String source = sources.requiredValue(sourcePath);
       final String code = _maskNonCode(source);
       final Map<String, String> robloxAliases = _robloxAliases(
         sourcePath,
@@ -147,8 +149,11 @@ final class LuaGraphAdapter {
         callIndex++;
         continue;
       }
+      if (keyword == null) {
+        throw StateError('Lua block scan exhausted keywords before calls');
+      }
 
-      switch (keyword!.group(1)) {
+      switch (keyword.requiredGroup(1)) {
         case 'function':
           blocks.add(true);
           functionDepth++;
@@ -283,11 +288,11 @@ final class LuaGraphAdapter {
     for (final RegExpMatch match in _robloxAliasPattern.allMatches(code)) {
       final String? base = _robloxExpressionBase(
         sourcePath,
-        match.group(2)!,
+        match.requiredGroup(2),
         const <String, String>{},
       );
       if (base != null) {
-        aliases[match.group(1)!] = base;
+        aliases[match.requiredGroup(1)] = base;
       }
     }
     return aliases;

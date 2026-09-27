@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 
 import '../config/repository_defaults.dart';
 import '../core/models.dart';
+import '../core/regexp_cache.dart';
 import '../plugins/languages.dart';
 import 'source_classifier.dart';
 
@@ -19,6 +20,10 @@ const Set<String> _defaultIgnoredDirectories = <String>{
   '.idea',
   '.vscode',
 };
+
+bool _isSourceBuildDirectory(String relative) => cachedRegExp(
+  r'(^|/)(?:command|commands|cmd|cmds)/build/?$',
+).hasMatch(relative.replaceAll(r'\', '/').toLowerCase());
 
 bool _isCompiledBundleDirectory(String name) =>
     name.toLowerCase().endsWith('.framework');
@@ -65,6 +70,7 @@ final class GitIgnoreRule {
     required this.pattern,
     required this.negated,
     required this.directoryOnly,
+    required this.anchored,
   });
 
   /// Project-relative directory that contains the `.gitignore` file.
@@ -78,6 +84,9 @@ final class GitIgnoreRule {
 
   /// Whether the rule applies only to directories.
   final bool directoryOnly;
+
+  /// Whether the pattern is anchored to the directory containing `.gitignore`.
+  final bool anchored;
 }
 
 /// Evidence explaining why one source was classified as generated.
@@ -160,7 +169,8 @@ final class SourceDiscovery {
         final String name = path.basename(entry.path);
         final String relative = _relative(entry.path);
         if (entry is Directory) {
-          if (_defaultIgnoredDirectories.contains(name) ||
+          if ((_defaultIgnoredDirectories.contains(name) &&
+                  !_isSourceBuildDirectory(relative)) ||
               name.startsWith('.')) {
             continue;
           }
@@ -404,7 +414,9 @@ final class SourceDiscovery {
       return _immutableRanges(result);
     }
     String current = '';
-    final RegExp hunk = RegExp(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@');
+    final RegExp hunk = cachedRegExp(
+      r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@',
+    );
     for (final String line in (diff.stdout as String).split('\n')) {
       if (line.startsWith('+++ b/')) {
         current = _normalizeRelative(line.substring(6).trim());
@@ -414,7 +426,7 @@ final class SourceDiscovery {
       if (match == null || current.isEmpty) {
         continue;
       }
-      final int start = int.parse(match.group(1)!);
+      final int start = int.parse(match.requiredGroup(1));
       final int count = int.parse(match.group(2) ?? '1');
       if (count > 0) {
         result
@@ -452,7 +464,7 @@ final class SourceDiscovery {
     for (final String rawPattern in patterns) {
       final String pattern = _normalizeRelative(
         rawPattern.trim(),
-      ).replaceAll(RegExp(r'^/+|/+$'), '');
+      ).replaceAll(cachedRegExp(r'^/+|/+$'), '');
       final bool wildcard = pattern.contains('*');
       if (pattern.isNotEmpty &&
           ((wildcard && _globMatches(normalized, pattern)) ||
@@ -474,7 +486,8 @@ final class SourceDiscovery {
       )) {
         final String name = path.basename(entry.path);
         if (entry is Directory) {
-          if (!_defaultIgnoredDirectories.contains(name)) {
+          if (!_defaultIgnoredDirectories.contains(name) ||
+              _isSourceBuildDirectory(_relative(entry.path))) {
             collect(entry);
           }
         } else if (entry is File && name == '.gitignore') {
@@ -498,9 +511,10 @@ final class SourceDiscovery {
         rules.add(
           GitIgnoreRule(
             base: base == '.' ? '' : base,
-            pattern: withoutNegation.replaceAll(RegExp(r'^/+|/+$'), ''),
+            pattern: withoutNegation.replaceAll(cachedRegExp(r'^/+|/+$'), ''),
             negated: negated,
             directoryOnly: withoutNegation.endsWith('/'),
+            anchored: withoutNegation.startsWith('/'),
           ),
         );
       }
@@ -515,7 +529,7 @@ final class SourceDiscovery {
   ) {
     final String normalized = _normalizeRelative(
       relative,
-    ).replaceAll(RegExp(r'/$'), '');
+    ).replaceAll(cachedRegExp(r'/$'), '');
     var ignored = false;
     for (final GitIgnoreRule rule in rules) {
       if (rule.base.isNotEmpty &&
@@ -528,16 +542,20 @@ final class SourceDiscovery {
           : normalized == rule.base
           ? ''
           : normalized.substring(rule.base.length + 1);
-      final bool matches = rule.pattern.contains('*')
-          ? _globMatches(local, rule.pattern) ||
-                local
-                    .split('/')
-                    .any(
-                      (String segment) => _globMatches(segment, rule.pattern),
-                    )
-          : local == rule.pattern ||
-                local.startsWith('${rule.pattern}/') ||
-                local.split('/').contains(rule.pattern);
+      final bool directMatch = rule.pattern.contains('*')
+          ? _globMatches(local, rule.pattern)
+          : local == rule.pattern || local.startsWith('${rule.pattern}/');
+      final bool matches =
+          directMatch ||
+          (!rule.anchored &&
+              (rule.pattern.contains('*')
+                  ? local
+                        .split('/')
+                        .any(
+                          (String segment) =>
+                              _globMatches(segment, rule.pattern),
+                        )
+                  : local.split('/').contains(rule.pattern)));
       if (matches &&
           (!rule.directoryOnly ||
               isDirectory ||
@@ -568,7 +586,7 @@ final class SourceDiscovery {
       }
     }
     expression.write(r'$');
-    return RegExp(expression.toString()).hasMatch(text);
+    return cachedRegExp(expression.toString()).hasMatch(text);
   }
 
   void _addExistingChangedPaths(Set<String> paths, String output) {
@@ -579,6 +597,22 @@ final class SourceDiscovery {
         paths.add(relative);
       }
     }
+  }
+
+  /// Loads source content from the configured comparison revision.
+  Map<String, String> baseSources(Iterable<String> relativePaths) {
+    if (config.changedBase.isEmpty || config.changedBase.startsWith('-')) {
+      return const <String, String>{};
+    }
+    final Map<String, String> result = <String, String>{};
+    for (final String relative in relativePaths) {
+      final ProcessResult show = _git(<String>[
+        'show',
+        '${config.changedBase}:$relative',
+      ]);
+      if (show.exitCode == 0) result[relative] = show.stdout as String;
+    }
+    return Map<String, String>.unmodifiable(result);
   }
 
   ProcessResult _git(List<String> arguments) => Process.runSync(

@@ -17,6 +17,88 @@ void main() {
     );
   });
 
+  test('resolves imported package submodules before package initializers', () {
+    final DependencyGraph graph = PythonGraphAdapter().build(<String, String>{
+      'fastapi/__init__.py': 'from fastapi import routing\n',
+      'fastapi/routing.py': '''
+"""
+Example:
+    from fastapi import FastAPI
+"""
+''',
+    });
+
+    expect(graph.dependenciesOf('fastapi/__init__.py'), <String>[
+      'fastapi/routing.py',
+    ]);
+    expect(
+      graph.dependenciesOf('fastapi/routing.py'),
+      isEmpty,
+      reason: 'imports in docstrings are documentation, not graph edges',
+    );
+  });
+
+  test('excludes TYPE_CHECKING-only imports from runtime graph edges', () {
+    final DependencyGraph graph = PythonGraphAdapter().build(<String, String>{
+      'app/models.py': '''
+from typing import TYPE_CHECKING
+import app.runtime
+
+if TYPE_CHECKING:
+    from app import controller
+
+if typing.TYPE_CHECKING:
+    import app.views
+
+def load_lazily():
+    import app.lazy
+''',
+      'app/runtime.py': '',
+      'app/controller.py': '',
+      'app/views.py': '',
+      'app/lazy.py': '',
+    });
+
+    expect(graph.dependenciesOf('app/models.py'), <String>['app/runtime.py']);
+  });
+
+  test('treats public packages and executable scripts as Python roots', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'code-buster-python-library-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final Directory package = Directory(
+      '${root.path}${Platform.pathSeparator}src${Platform.pathSeparator}library',
+    )..createSync(recursive: true);
+    File(
+      '${package.path}${Platform.pathSeparator}__init__.py',
+    ).writeAsStringSync('from . import api\n');
+    File(
+      '${package.path}${Platform.pathSeparator}api.py',
+    ).writeAsStringSync('def load():\n    return 1\n');
+    final Directory tools = Directory(
+      '${root.path}${Platform.pathSeparator}tools',
+    )..createSync();
+    File(
+      '${tools.path}${Platform.pathSeparator}generate.py',
+    ).writeAsStringSync('if __name__ == "__main__":\n    print("generate")\n');
+
+    final AnalysisRun run = AnalysisRunner().run(
+      CodeBusterCliContract.parse(<String>[
+        'dead',
+        '--root',
+        root.path,
+        '--lang',
+        'python',
+      ]),
+    );
+
+    expect(
+      run.findings.where((Finding finding) => finding.code == 'dead-file'),
+      isEmpty,
+    );
+  });
+
   test('extracts indentation-scoped Python functions', () {
     final List<FunctionSource> functions = PythonFunctionParser()
         .parse(<String, String>{
@@ -50,6 +132,9 @@ void main() {
     File(
       '${app.path}${Platform.pathSeparator}worker.py',
     ).writeAsStringSync('def work():\n    return 1\n');
+    File(
+      '${app.path}${Platform.pathSeparator}dormant.py',
+    ).writeAsStringSync('def unused():\n    return 1\n');
 
     final AnalysisRun run = AnalysisRunner().run(
       CodeBusterCliContract.parse(<String>[
@@ -66,8 +151,10 @@ void main() {
     );
     expect(run.graph.dependenciesOf('app/main.py'), <String>['app/worker.py']);
     expect(
-      run.findings.where((Finding finding) => finding.code == 'dead-file'),
-      isEmpty,
+      run.findings
+          .where((Finding finding) => finding.code == 'dead-file')
+          .map((Finding finding) => finding.path),
+      <String>['app/dormant.py'],
     );
   });
 }

@@ -22,7 +22,7 @@ import 'repository_view_command.dart';
 import 'rules_command.dart';
 
 /// Current Code Buster command-line version.
-const String version = '0.3.0';
+const String version = '0.7.1';
 
 final Map<CodeBusterCommand, CliCommandHandler> _commandHandlers =
     _buildCommandHandlers(const <CliCommandHandler>[
@@ -89,7 +89,11 @@ int run(List<String> arguments) {
     final CodeBusterCliOptions options = CodeBusterCliContract.parse(
       arguments.contains('--version') ? const <String>['version'] : arguments,
     );
-    return _commandHandlers[options.command]!.execute(options);
+    final CliCommandHandler? handler = _commandHandlers[options.command];
+    if (handler == null) {
+      throw StateError('No handler registered for ${options.command.name}');
+    }
+    return handler.execute(options);
   } on UsageException catch (error) {
     stderr.writeln(error.message);
     stderr.writeln(error.usage);

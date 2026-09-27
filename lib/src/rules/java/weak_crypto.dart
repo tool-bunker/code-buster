@@ -1,6 +1,7 @@
 // Known-obsolete Java digest and cipher algorithms are identifiable at their API boundary and require security-specific remediation.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import 'java_lexical.dart';
 
@@ -55,23 +56,23 @@ final class JavaWeakCryptoRule extends SelfContainedRule {
     final int first = index > 12 ? index - 12 : 0;
     for (var previous = index - 1; previous >= first; previous--) {
       final String candidate = lines[previous];
-      if (RegExp(
+      if (cachedRegExp(
         r'\b[A-Za-z_$][\w$]*\s*\([^;]*\)\s*(?:\{|$)',
       ).hasMatch(candidate)) {
         context.write(' ${candidate.toLowerCase()}');
         break;
       }
     }
-    return RegExp(
+    return cachedRegExp(
       r'\b(?:auth|credential|password|passwd|secret|token|signature|signing|certificate|encryption|encrypt|decrypt|keyderivation|key derivation)',
     ).hasMatch(context.toString());
   }
 
-  static final RegExp _legacyDigest = RegExp(
+  static final RegExp _legacyDigest = cachedRegExp(
     r'\bMessageDigest\s*\.\s*getInstance\s*\(\s*"[^"]*\b(?:MD5|SHA-?1)\b',
     caseSensitive: false,
   );
-  static final RegExp _obsoleteCipher = RegExp(
+  static final RegExp _obsoleteCipher = cachedRegExp(
     r'\b(?:Cipher|Mac|SecretKeyFactory|KeyGenerator)\s*\.\s*getInstance\s*\(\s*"[^"]*\b(?:HmacSHA1|DES|RC4)\b',
     caseSensitive: false,
   );

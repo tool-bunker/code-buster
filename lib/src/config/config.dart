@@ -27,28 +27,28 @@ final class CodeBusterConfigLoader {
     required String root,
     required String source,
   }) {
-    final Map<String, dynamic> values = TomlDocument.parse(
-      _normalizeLegacyPipeEscapes(source),
-    ).toMap();
-    final Map<String, dynamic> analysis = _table(values, 'analysis');
-    final Map<String, dynamic> files = _table(values, 'files');
-    final Map<String, dynamic> rules = _table(values, 'rules');
-    final Map<String, dynamic> classification = _table(
+    final Map<String, Object?> values = Map<String, Object?>.from(
+      TomlDocument.parse(_normalizeLegacyPipeEscapes(source)).toMap(),
+    );
+    final Map<String, Object?> analysis = _table(values, 'analysis');
+    final Map<String, Object?> files = _table(values, 'files');
+    final Map<String, Object?> rules = _table(values, 'rules');
+    final Map<String, Object?> classification = _table(
       values,
       'classification',
     );
-    final Map<String, dynamic> review = _table(values, 'review');
-    final Map<String, dynamic> quality = _table(values, 'quality');
+    final Map<String, Object?> review = _table(values, 'review');
+    final Map<String, Object?> quality = _table(values, 'quality');
     final String qualityProfile = _string(
       quality,
       'profile',
       fallback: 'standard',
     );
-    final Map<String, dynamic> architecture = _table(values, 'architecture');
-    final Map<String, dynamic> mvvm = _table(architecture, 'mvvm');
-    final Map<String, dynamic> structure = _table(values, 'structure');
-    final Map<String, dynamic> severity = _table(values, 'severity');
-    final Map<String, dynamic> ruleSeverity = _table(rules, 'severity');
+    final Map<String, Object?> architecture = _table(values, 'architecture');
+    final Map<String, Object?> mvvm = _table(architecture, 'mvvm');
+    final Map<String, Object?> structure = _table(values, 'structure');
+    final Map<String, Object?> severity = _table(values, 'severity');
+    final Map<String, Object?> ruleSeverity = _table(rules, 'severity');
     final _SeveritySettings severitySettings = _severitySettings(
       ruleSeverity.isEmpty ? severity : ruleSeverity,
     );
@@ -249,14 +249,16 @@ final class CodeBusterConfigLoader {
 
   /// Returns actionable schema diagnostics without running analysis.
   static List<String> validate(String source) {
-    final Map<String, dynamic> values;
+    final Map<String, Object?> values;
     try {
-      values = TomlDocument.parse(_normalizeLegacyPipeEscapes(source)).toMap();
+      values = Map<String, Object?>.from(
+        TomlDocument.parse(_normalizeLegacyPipeEscapes(source)).toMap(),
+      );
     } on Object catch (error) {
       return <String>['invalid TOML: $error'];
     }
     return CodeBusterConfigValidator.validate(
-      values,
+      Map<String, Object?>.from(values),
       verifyLoad: () => loadFromString(root: '.', source: source),
     );
   }
@@ -327,10 +329,10 @@ final class _SeveritySettings {
   final Map<String, RuleSeverity> overrides;
 }
 
-_SeveritySettings _severitySettings(Map<String, dynamic> values) {
+_SeveritySettings _severitySettings(Map<String, Object?> values) {
   final Set<String> disabledRules = <String>{};
   final Map<String, RuleSeverity> overrides = <String, RuleSeverity>{};
-  values.forEach((String rule, dynamic rawSeverity) {
+  values.forEach((String rule, Object? rawSeverity) {
     if (rawSeverity is! String) {
       throw FormatException('Invalid code-buster.toml severity for $rule');
     }
@@ -344,11 +346,11 @@ _SeveritySettings _severitySettings(Map<String, dynamic> values) {
 }
 
 Map<String, RuleMode> _ruleModes(
-  Map<String, dynamic> values, {
+  Map<String, Object?> values, {
   required String scope,
 }) {
   final Map<String, RuleMode> modes = <String, RuleMode>{};
-  values.forEach((String name, dynamic rawMode) {
+  values.forEach((String name, Object? rawMode) {
     if (scope == 'group' && !_semanticRuleGroups.contains(name)) {
       throw FormatException('Unknown Code Buster semantic rule group: $name');
     }
@@ -397,13 +399,13 @@ Set<String> _semanticGroupsForLegacy(String group) => switch (group) {
   _ => const <String>{},
 };
 
-Map<String, dynamic> _table(Map<String, dynamic> values, String key) {
-  final dynamic value = values[key];
+Map<String, Object?> _table(Map<String, Object?> values, String key) {
+  final Object? value = values[key];
   if (value == null) {
-    return const <String, dynamic>{};
+    return const <String, Object?>{};
   }
-  if (value is Map<String, dynamic>) {
-    return value;
+  if (value is Map) {
+    return Map<String, Object?>.from(value);
   }
   throw FormatException('Invalid code-buster.toml table: $key');
 }
@@ -432,11 +434,11 @@ String _normalizeLegacyPipeEscapes(String source) {
 }
 
 String _string(
-  Map<String, dynamic> values,
+  Map<String, Object?> values,
   String key, {
   required String fallback,
 }) {
-  final dynamic value = values[key];
+  final Object? value = values[key];
   if (value == null) {
     return fallback;
   }
@@ -447,18 +449,18 @@ String _string(
 }
 
 List<String> _preferredStringList(
-  Map<String, dynamic> preferred,
+  Map<String, Object?> preferred,
   String preferredKey,
-  Map<String, dynamic> legacy,
+  Map<String, Object?> legacy,
   String legacyKey,
 ) => preferred.containsKey(preferredKey)
     ? _stringList(preferred, preferredKey)
     : _stringList(legacy, legacyKey);
 
 int _preferredInteger(
-  Map<String, dynamic> preferred,
+  Map<String, Object?> preferred,
   String preferredKey,
-  Map<String, dynamic> legacy,
+  Map<String, Object?> legacy,
   String legacyKey, {
   required int fallback,
 }) => preferred.containsKey(preferredKey)
@@ -466,17 +468,17 @@ int _preferredInteger(
     : _integer(legacy, legacyKey, fallback: fallback);
 
 bool _preferredBoolean(
-  Map<String, dynamic> preferred,
+  Map<String, Object?> preferred,
   String preferredKey,
-  Map<String, dynamic> legacy,
+  Map<String, Object?> legacy,
   String legacyKey, {
   required bool fallback,
 }) => preferred.containsKey(preferredKey)
     ? _boolean(preferred, preferredKey, fallback: fallback)
     : _boolean(legacy, legacyKey, fallback: fallback);
 
-int _integer(Map<String, dynamic> values, String key, {required int fallback}) {
-  final dynamic value = values[key];
+int _integer(Map<String, Object?> values, String key, {required int fallback}) {
+  final Object? value = values[key];
   if (value == null) {
     return fallback;
   }
@@ -487,11 +489,11 @@ int _integer(Map<String, dynamic> values, String key, {required int fallback}) {
 }
 
 bool _boolean(
-  Map<String, dynamic> values,
+  Map<String, Object?> values,
   String key, {
   required bool fallback,
 }) {
-  final dynamic value = values[key];
+  final Object? value = values[key];
   if (value == null) {
     return fallback;
   }
@@ -501,12 +503,12 @@ bool _boolean(
   throw FormatException('Invalid code-buster.toml boolean: $key');
 }
 
-List<String> _stringList(Map<String, dynamic> values, String key) {
-  final dynamic value = values[key];
+List<String> _stringList(Map<String, Object?> values, String key) {
+  final Object? value = values[key];
   if (value == null) {
     return const <String>[];
   }
-  if (value is! List || value.any((dynamic item) => item is! String)) {
+  if (value is! List || value.any((Object? item) => item is! String)) {
     throw FormatException('Invalid code-buster.toml string list: $key');
   }
   return List<String>.unmodifiable(value.cast<String>());

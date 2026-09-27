@@ -9,10 +9,10 @@ extension _DartFlutterBuildRules on _AdvancedDartVisitor {
         continue;
       }
       final String text = member.body.toSource();
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'future\s*:\s*([A-Za-z_]\w*)\s*\(',
       ).allMatches(text)) {
-        final String call = match.group(1)!;
+        final String call = match.requiredGroup(1);
         if (call == 'Future') continue;
         _add(
           member,
@@ -24,8 +24,10 @@ extension _DartFlutterBuildRules on _AdvancedDartVisitor {
               'Create and retain the Future in initState or a state-management layer.',
         );
       }
-      if (RegExp(r'\bStream(?:Controller)?(?:<[^>]+>)?\s*\(').hasMatch(text) ||
-          RegExp(r'\bstream\s*:\s*[A-Za-z_]\w*\s*\(').hasMatch(text)) {
+      if (cachedRegExp(
+            r'\bStream(?:Controller)?(?:<[^>]+>)?\s*\(',
+          ).hasMatch(text) ||
+          cachedRegExp(r'\bstream\s*:\s*[A-Za-z_]\w*\s*\(').hasMatch(text)) {
         _add(
           member,
           code: 'flutter-stream-created-in-build',
@@ -87,10 +89,14 @@ extension _DartFlutterBuildRules on _AdvancedDartVisitor {
           suggestion: 'Place Expanded directly under a Flex, Row, or Column.',
         );
       }
-      for (final RegExpMatch match in RegExp(
+      for (final RegExpMatch match in cachedRegExp(
         r'\bImage\.network\s*\(([^;]+)\)',
       ).allMatches(text)) {
-        if (match.group(1)!.contains(RegExp(r'\berrorBuilder\s*:'))) continue;
+        if (match
+            .requiredGroup(1)
+            .contains(cachedRegExp(r'\berrorBuilder\s*:'))) {
+          continue;
+        }
         _add(
           member,
           code: 'flutter-image-network-no-error-builder',
@@ -114,7 +120,7 @@ final class _GlobalKeyCreationVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitInstanceCreationExpression(InstanceCreationExpression node) {
     final String type = node.constructorName.type.toSource();
-    if (RegExp(r'^GlobalKey(?:<.*>)?$').hasMatch(type) &&
+    if (cachedRegExp(r'^GlobalKey(?:<.*>)?$').hasMatch(type) &&
         !_isDeferredCreation(node)) {
       hasUnmemoizedCreation = true;
     }
@@ -188,12 +194,12 @@ final class _FlutterBuildContractVisitor extends RecursiveAstVisitor<void> {
     final String? parent = _nearestWidgetParent(node);
     if (const <String>{'ListView', 'GridView'}.contains(type) &&
         const <String>{'Column', 'Row', 'Flex'}.contains(parent) &&
-        !RegExp(r'\bshrinkWrap\s*:\s*true\b').hasMatch(source)) {
+        !cachedRegExp(r'\bshrinkWrap\s*:\s*true\b').hasMatch(source)) {
       unboundedScrollables.add(node);
     }
     if (type == 'Listener' &&
-        RegExp(r'\bonPointer(?:Down|Up)\s*:').hasMatch(source) &&
-        !RegExp(r'\bonPointerMove\s*:').hasMatch(source) &&
+        cachedRegExp(r'\bonPointer(?:Down|Up)\s*:').hasMatch(source) &&
+        !cachedRegExp(r'\bonPointerMove\s*:').hasMatch(source) &&
         !_hasSemanticAncestor(node)) {
       pointerControlsWithoutSemantics.add(node);
     }

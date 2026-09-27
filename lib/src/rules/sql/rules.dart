@@ -15,9 +15,10 @@ final RuleRegistry sqlRuleRegistry = RuleRegistry(<CodeBusterRule>[
   SqlStatementRule(
     id: 'sql-create-index-nonconcurrent',
     severity: RuleSeverity.info,
-    version: 2,
+    version: 3,
     limitations: const <String>[
       'Opt-in because transactional migration runners cannot use CONCURRENTLY.',
+      'Dialect inference recognizes explicit PostgreSQL paths and repeated sibling MySQL syntax.',
     ],
   ),
   SqlStatementRule(id: 'sql-delete-without-where', severity: RuleSeverity.warn),

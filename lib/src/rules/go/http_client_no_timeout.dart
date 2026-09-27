@@ -15,6 +15,7 @@ final SourcePatternRule goHttpClientNoTimeoutRule = SourcePatternRule(
     suggestion:
         'Set http.Client.Timeout or enforce a request context deadline.',
     languages: <String>['go'],
+    version: 2,
   ),
   pattern: RegExp(r'http\.Client\s*\{\s*\}'),
   message: 'HTTP client has no timeout',

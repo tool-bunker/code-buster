@@ -47,6 +47,25 @@ void main() {
     ]);
   });
 
+  test('does not recommend unsupported grouping in SQL literals', () {
+    final List<Finding> findings = const LargeNumberUngroupedRule()
+        .analyze(
+          const RuleContext(
+            config: AnalysisConfig(root: '.'),
+            sources: <String, String>{
+              'db/mysql.sql': 'INSERT INTO places VALUES (5623479);',
+              'db/postgres.sql': 'INSERT INTO places VALUES (5623479);',
+              'server/Config.java': 'long population = 5623479;',
+            },
+            language: 'repository',
+          ),
+        )
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.path), <String>[
+      'server/Config.java',
+    ]);
+  });
   test('does not treat fractional digits as a large integer', () {
     final List<Finding> findings = const LargeNumberUngroupedRule()
         .analyze(
@@ -87,6 +106,35 @@ constexpr auto invalidOctalNine = 0000009;
         .toList();
 
     expect(findings.map((Finding finding) => finding.line), <int>[4, 5, 6]);
+  });
+
+  test('ignores Java serialization identifiers but checks ordinary values', () {
+    final List<Finding> findings = const LargeNumberUngroupedRule()
+        .analyze(
+          const RuleContext(
+            config: AnalysisConfig(root: '.'),
+            sources: <String, String>{
+              'Server.java': '''
+private static final long serialVersionUID = 2459603L;
+@Serial private static final long serialVersionUID = -7149851;
+private static final long timeoutMillis = 10000000L;
+''',
+              'server.dart': 'const serialVersionUID = 2459603;',
+            },
+            language: 'repository',
+          ),
+        )
+        .toList();
+
+    expect(
+      findings.map(
+        (Finding finding) => (path: finding.path, line: finding.line),
+      ),
+      <({String path, int line})>[
+        (path: 'Server.java', line: 3),
+        (path: 'server.dart', line: 1),
+      ],
+    );
   });
 
   test('ignores numeric examples in Python docstrings', () {

@@ -82,7 +82,9 @@ int _baseline(CodeBusterCliOptions options) {
 Iterable<Finding> _nimBaselineGenericFindings(AnalysisRun run) sync* {
   for (final SourceFile file in run.files) {
     if (file.language != 'nim') continue;
-    final List<String> lines = run.sources[file.relativePath]!.split('\n');
+    final String? source = run.sources[file.relativePath];
+    if (source == null) continue;
+    final List<String> lines = source.split('\n');
     for (var index = 0; index < lines.length; index++) {
       final String declaration = lines[index].trim();
       if (declaration.startsWith('import ') ||

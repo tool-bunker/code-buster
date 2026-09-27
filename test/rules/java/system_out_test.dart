@@ -42,4 +42,26 @@ String example = "System.err.println(value)";
     expect(findings, hasLength(1));
     expect(findings.single.path, 'src/main/java/App.java');
   });
+
+  test('allows standard output in command-line modules', () {
+    final List<Finding> findings = javaSystemOutRule
+        .analyze(
+          const RuleContext(
+            config: AnalysisConfig(root: '.'),
+            sources: <String, String>{
+              'app-cli/src/main/java/example/Command.java':
+                  'System.out.println(result);',
+              'cli/src/main/java/example/Main.java':
+                  'System.err.println(error);',
+              'service/src/main/java/example/Worker.java':
+                  'System.out.println(debugValue);',
+            },
+            language: 'java',
+          ),
+        )
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.path, 'service/src/main/java/example/Worker.java');
+  });
 }

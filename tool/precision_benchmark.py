@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -15,12 +16,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("fixture", nargs="?", type=Path, default=ROOT / "test/fixtures/mixed_realistic")
     parser.add_argument("--output", type=Path, default=ROOT / "build/precision-benchmark.json")
+    parser.add_argument(
+        "--executable",
+        type=Path,
+        default=Path(os.environ.get("CODE_BUSTER_TEST_EXECUTABLE", ROOT / "build/cb")),
+    )
     args = parser.parse_args()
     fixture = args.fixture.resolve()
+    executable = args.executable.resolve()
+    if not executable.is_file():
+        raise SystemExit(f"Code Buster executable not found: {executable}")
     labels = json.loads((fixture / "precision_expectations.json").read_text())
     started = time.monotonic()
     process = subprocess.run(
-        [str(ROOT / "build/cb"), "summary", "--root", str(fixture), "--format", "json", "--verbose"],
+        [str(executable), "summary", "--root", str(fixture), "--format", "json", "--verbose"],
         capture_output=True,
         text=True,
         check=False,

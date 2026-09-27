@@ -2,6 +2,7 @@
 
 import 'package:path/path.dart' as path;
 
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -26,7 +27,7 @@ final class GoAdapter {
       if (!entry.key.endsWith('.go')) continue;
       final Set<String> dependencies = <String>{};
       for (final RegExpMatch match in _import.allMatches(entry.value)) {
-        final String imported = match.group(1)!;
+        final String imported = match.requiredGroup(1);
         if (module.isEmpty ||
             (imported != module && !imported.startsWith('$module/'))) {
           continue;

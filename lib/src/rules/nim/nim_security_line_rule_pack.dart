@@ -1,6 +1,7 @@
 // Security-sensitive Nim calls and literals deserve stricter evidence and wording than general style diagnostics.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'canonical_nim_evidence.dart';
 
 /// Executes stateful taint, capture, and deterministic-output security checks.
@@ -64,12 +65,14 @@ final class NimSecurityLineRulePack {
       r'^(?:let|var)\s+([A-Za-z_]\w*)\s*=.*(?:readLine|paramStr|getEnv)',
       caseSensitive: false,
     ).firstMatch(line);
-    if (assignedInput != null) _taintedValues.add(assignedInput.group(1)!);
+    if (assignedInput != null) {
+      _taintedValues.add(assignedInput.requiredGroup(1));
+    }
     final RegExpMatch? tableDeclaration = RegExp(
       r'^(?:let|var)\s+([A-Za-z_]\w*)\s*=.*initTable\[',
     ).firstMatch(line);
     if (tableDeclaration != null && !line.contains('initOrderedTable[')) {
-      _unorderedTables.add(tableDeclaration.group(1)!);
+      _unorderedTables.add(tableDeclaration.requiredGroup(1));
     }
     if (RegExp(r'execCmd|execShellCmd|startProcess').hasMatch(line) &&
         (line.contains('&') || line.contains(r'$')) &&
