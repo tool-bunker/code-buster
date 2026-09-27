@@ -419,6 +419,23 @@ void main() {
     expect(findings.single.line, 10);
   });
 
+  test('accepts a universal border-box reset', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('css')
+        .analyze(<String, String>{
+          'style.css': '''
+* {
+  box-sizing: border-box;
+}
+''',
+        }, config)
+        .findings
+        .where((Finding finding) => finding.code == 'css-universal-selector')
+        .toList();
+
+    expect(findings, isEmpty);
+  });
+
   test('measures selector depth outside pseudo arguments and at-rules', () {
     final List<Finding>
     findings = LanguagePluginRegistry.standard().require('css').analyze(<

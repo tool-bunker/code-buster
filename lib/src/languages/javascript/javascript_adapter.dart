@@ -1,6 +1,7 @@
 // JavaScript and TypeScript module forms vary widely, so this adapter normalizes their imports and function boundaries for shared analysis.
 
 import 'package:path/path.dart' as path;
+import '../../core/models.dart';
 
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
@@ -12,7 +13,7 @@ final class JavaScriptFunctionAnalysis {
     final List<FunctionSource> result = <FunctionSource>[];
     final List<String> paths = sources.keys.toList()..sort();
     for (final String sourcePath in paths) {
-      final String source = sources[sourcePath]!;
+      final String source = sources.requiredValue(sourcePath);
       final String masked = _maskStringsAndComments(source);
       final Map<int, ({int start, String name})> candidates =
           <int, ({int start, String name})>{};
@@ -46,7 +47,9 @@ final class JavaScriptFunctionAnalysis {
       for (final int brace in braces) {
         final int? end = ends[brace];
         if (end == null) continue;
-        final ({int start, String name}) candidate = candidates[brace]!;
+        final ({int start, String name}) candidate = candidates.requiredValue(
+          brace,
+        );
         result.add(
           FunctionSource(
             path: sourcePath,

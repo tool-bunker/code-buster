@@ -43,6 +43,36 @@ void main() {
     );
   });
 
+  test('executes project-wide C# OOP rules through the plugin', () {
+    final LanguageAnalysis analysis = LanguagePluginRegistry.standard()
+        .require('csharp')
+        .analyze(
+          <String, String>{
+            'Gateway.cs': '''
+class Gateway {
+  private readonly Client _client;
+  public Result Load(Id id) => _client.Load(id);
+  public Result Save(Id id) => _client.Save(id);
+  public Result Delete(Id id) => _client.Delete(id);
+  public Result Refresh(Id id) => _client.Refresh(id);
+  public Result Inspect(Id id) => _client.Inspect(id);
+}
+''',
+          },
+          const AnalysisConfig(
+            root: '.',
+            severityOverrides: <String, RuleSeverity>{
+              'oop-middle-man-delegation': RuleSeverity.warn,
+            },
+          ),
+        );
+
+    expect(
+      analysis.findings.map((Finding finding) => finding.code),
+      contains('oop-middle-man-delegation'),
+    );
+  });
+
   test('allows async void handlers and overrides but reports other methods', () {
     final LanguageAnalysis
     analysis = LanguagePluginRegistry.standard().require('csharp').analyze(
@@ -282,6 +312,29 @@ void main() {
     );
   });
 
+  test('reports archive extraction paths without containment checks', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('csharp')
+        .analyze(
+          <String, String>{
+            'Archives.cs': sourceFixture(
+              'csharp/reports_archive_entry_path_traversal/Archives.cs',
+            ),
+          },
+          const AnalysisConfig(
+            root: '.',
+            severityOverrides: <String, RuleSeverity>{
+              'cs-archive-path-traversal': RuleSeverity.warn,
+            },
+          ),
+        )
+        .findings
+        .where((Finding finding) => finding.code == 'cs-archive-path-traversal')
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.line), <int>[11, 17]);
+  });
+
   test('cs-sql-string-build ignores literal-only query composition', () {
     final List<Finding> findings = LanguagePluginRegistry.standard()
         .require('csharp')
@@ -426,7 +479,7 @@ void main() {
   test('catalogues the complete current C# rule pack', () {
     expect(
       RuleCatalog.all.where((RuleMetadata rule) => rule.id.startsWith('cs-')),
-      hasLength(24),
+      hasLength(25),
     );
   });
   test('recommends file-scoped namespaces only when configured', () {

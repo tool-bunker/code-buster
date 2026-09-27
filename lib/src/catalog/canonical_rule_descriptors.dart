@@ -103,6 +103,11 @@ canonicalRuleDescriptors =
         group: 'security',
         title: 'Cs cas api',
       ),
+      'cs-archive-path-traversal': (
+        language: 'csharp',
+        group: 'security',
+        title: 'Cs archive path traversal',
+      ),
       'cs-catch-system-exception': (
         language: 'csharp',
         group: 'nim-style',
@@ -1120,6 +1125,11 @@ canonicalRuleDescriptors =
         language: 'python',
         group: 'security',
         title: 'Py hardcoded secret',
+      ),
+      'py-insecure-tls': (
+        language: 'python',
+        group: 'security',
+        title: 'Py insecure tls',
       ),
       'py-import-not-top': (
         language: 'python',

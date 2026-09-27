@@ -10,6 +10,8 @@ void main() {
             config: AnalysisConfig(root: '.'),
             sources: <String, String>{
               'main.go': '''exec.Command("sh", "-c", input)
+exec.CommandContext(ctx, "/bin/bash", "-c", input)
+exec.Command("python", "-c", "import pygments")
 exec.Command("tool", input)
 ''',
             },
@@ -17,10 +19,12 @@ exec.Command("tool", input)
           ),
         )
         .toList();
-    expect(findings, hasLength(1));
+    expect(findings, hasLength(2));
     expect(
-      findings.single.codeFlow.single.message,
-      'shell command execution sink',
+      findings
+          .expand((Finding finding) => finding.codeFlow)
+          .map((CodeFlowStep step) => step.message),
+      everyElement('shell command execution sink'),
     );
   });
 }

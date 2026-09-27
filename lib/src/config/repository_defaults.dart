@@ -1,16 +1,24 @@
 // Repositories advertise their shape through manifests and directories, allowing sensible exclusions without a mandatory config file.
 
 import 'dart:convert';
-
 import 'dart:io';
+
+import '../core/regexp_cache.dart';
 
 /// Built-in repository classification inferred without project configuration.
 final class RepositoryDefaults {
   /// Creates inferred defaults with provenance labels.
-  const RepositoryDefaults({required this.profiles, required this.ignores});
+  const RepositoryDefaults({
+    required this.profiles,
+    required this.frameworks,
+    required this.ignores,
+  });
 
   /// Detected language/framework profiles, including nested projects.
   final List<String> profiles;
+
+  /// Detected application frameworks that activate framework rule overlays.
+  final Set<String> frameworks;
 
   /// Production-scope ignore globs.
   final List<String> ignores;
@@ -32,7 +40,7 @@ final class RepositoryDefaults {
         final String relative = file.path
             .substring(directory.absolute.path.length)
             .replaceAll('\\', '/')
-            .replaceFirst(RegExp(r'^/'), '');
+            .replaceFirst(cachedRegExp(r'^/'), '');
         if (_manifestExcluded(relative)) continue;
         final String name = file.uri.pathSegments.last.toLowerCase();
         if (name == 'pubspec.yaml') {
@@ -41,10 +49,25 @@ final class RepositoryDefaults {
         } else if (name == 'package.json') {
           final String source = _readManifest(file);
           profiles.add(
-            source.contains(RegExp(r'''["'](?:react|react-dom)["']\s*:'''))
+            source.contains(
+                  cachedRegExp(r'''["'](?:react|react-dom)["']\s*:'''),
+                )
                 ? 'react'
                 : 'javascript/node',
           );
+        } else if (const <String>{
+          'requirements.txt',
+          'pyproject.toml',
+          'poetry.lock',
+          'pdm.lock',
+        }.contains(name)) {
+          final String source = _readManifest(file);
+          if (cachedRegExp(
+            r'''(^|[\s"'=])fastapi(?:[\s"'<>=~^]|$)''',
+            caseSensitive: false,
+          ).hasMatch(source)) {
+            profiles.add('fastapi');
+          }
         } else if (name.endsWith('.sln') ||
             name.endsWith('.slnx') ||
             name.endsWith('.csproj')) {
@@ -73,6 +96,14 @@ final class RepositoryDefaults {
       '**/*.pb.go',
       '**/*.pb.cc',
       '**/*.pb.h',
+      '**/*.backup.js',
+      '**/*.backup.jsx',
+      '**/*.backup.mjs',
+      '**/*.backup.cjs',
+      '**/*.backup.ts',
+      '**/*.backup.tsx',
+      '**/*.backup.mts',
+      '**/*.backup.cts',
       '**/migrations/**/definition.sql',
     ]);
     if (profiles.contains('flutter') && !includeTests) {
@@ -101,6 +132,12 @@ final class RepositoryDefaults {
     }
     return RepositoryDefaults(
       profiles: List<String>.unmodifiable(profiles.toList()..sort()),
+      frameworks: Set<String>.unmodifiable(<String>{
+        if (profiles.contains('flutter') || profiles.contains('flutter-sdk'))
+          'flutter',
+        if (profiles.contains('react')) 'react',
+        if (profiles.contains('fastapi')) 'fastapi',
+      }),
       ignores: List<String>.unmodifiable(ignores),
     );
   }
@@ -112,7 +149,9 @@ final class RepositoryDefaults {
         .replaceAll(r'\*\*', r'.*')
         .replaceAll(r'\*', r'[^/]*')
         .replaceAll(r'\?', r'[^/]');
-    return RegExp('^$expression\$').hasMatch(relative.replaceAll('\\', '/'));
+    return cachedRegExp(
+      '^$expression\$',
+    ).hasMatch(relative.replaceAll('\\', '/'));
   }
 
   /// Classifies a project-relative path for diagnostics and inspection.
@@ -120,21 +159,51 @@ final class RepositoryDefaults {
     final String normalized = relative.replaceAll('\\', '/').toLowerCase();
     final List<String> segments = normalized.split('/');
     final String name = segments.last;
-    bool has(Set<String> names) => segments.any(names.contains);
-    if (RegExp(
-      r'(?:_test\.(?:go|py|rs)|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$',
+    final Set<String> segmentSet = segments.toSet();
+    var hasUnderscoreTestSuffix = false;
+    var hasTestFlavor = false;
+    var hasExampleFlavor = false;
+    for (final String segment in segments) {
+      hasUnderscoreTestSuffix |= segment.endsWith('_test');
+      hasTestFlavor |=
+          segment.endsWith('.test') ||
+          segment.endsWith('.tests') ||
+          segment.endsWith('.unittest') ||
+          segment.endsWith('.unittests') ||
+          segment.endsWith('.integrationtest') ||
+          segment.endsWith('.integrationtests') ||
+          segment.contains('.tests.') ||
+          segment == 'test-unit' ||
+          segment == 'tests-unit' ||
+          segment == 'unit-tests';
+      hasExampleFlavor |=
+          segment.startsWith('example_') ||
+          segment.endsWith('_examples') ||
+          segment.endsWith('-examples') ||
+          segment.endsWith('.benchmark') ||
+          segment.endsWith('.benchmarks');
+    }
+    bool has(Set<String> names) => segmentSet.any(names.contains);
+    if (hasUnderscoreTestSuffix) {
+      return 'test';
+    }
+    if (cachedRegExp(
+      r'(?:_test\.(?:dart|go|py|rs)|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$',
     ).hasMatch(name)) {
       return 'test';
     }
     if (name.contains('.generated.') ||
         name.contains('_generated.') ||
+        cachedRegExp(
+          r'\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$',
+        ).hasMatch(name) ||
         name.endsWith('.gen.go') ||
         name.endsWith('.pb.go') ||
         name.endsWith('.pb.cc') ||
         name.endsWith('.pb.h')) {
       return 'generated';
     }
-    if (RegExp(
+    if (cachedRegExp(
       r'(?:^|/)src/[^/]*test(?:fixtures)?(?:/|$)',
     ).hasMatch(normalized)) {
       return 'test';
@@ -152,6 +221,7 @@ final class RepositoryDefaults {
           'tests',
           '__tests__',
           'testassets',
+          'testenv',
           'test_assets',
           'integration_test',
           'integration_tests',
@@ -170,16 +240,7 @@ final class RepositoryDefaults {
           'fixture',
           'fixtures',
         }) ||
-        segments.any(
-          (String segment) =>
-              segment.endsWith('.test') ||
-              segment.endsWith('.tests') ||
-              segment.endsWith('.unittest') ||
-              segment.endsWith('.unittests') ||
-              segment.endsWith('.integrationtest') ||
-              segment.endsWith('.integrationtests') ||
-              segment.contains('.tests.'),
-        )) {
+        hasTestFlavor) {
       return 'test';
     }
     if (has(const <String>{
@@ -196,18 +257,23 @@ final class RepositoryDefaults {
           'storybook',
           'evals',
         }) ||
-        segments.any(
-          (String segment) =>
-              segment.startsWith('example_') ||
-              segment.endsWith('.benchmark') ||
-              segment.endsWith('.benchmarks'),
-        )) {
+        hasExampleFlavor) {
       return 'example';
     }
-    if (has(const <String>{'vendor', 'third_party', 'compiled'})) {
+    if (has(const <String>{'vendor', 'third_party', 'compiled', 'cargokit'})) {
       return 'vendored';
     }
-    if (has(const <String>{'build', 'dist', 'obj', '.dart_tool'})) {
+    final int buildIndex = segments.indexOf('build');
+    final bool sourceBuildDirectory =
+        buildIndex > 0 &&
+        const <String>{
+          'command',
+          'commands',
+          'cmd',
+          'cmds',
+        }.contains(segments[buildIndex - 1]);
+    if ((!sourceBuildDirectory && buildIndex >= 0) ||
+        has(const <String>{'dist', 'obj', '.dart_tool'})) {
       return 'generated';
     }
     return 'production';
@@ -229,7 +295,9 @@ final class RepositoryDefaults {
 
   static const List<String> _testIgnores = <String>[
     '**/test/**',
+    '**/*_test/**',
     '**/tests/**',
+    '**/testenv/**',
     '**/test.ts',
     '**/test.tsx',
     '**/test.js',
@@ -275,6 +343,7 @@ final class RepositoryDefaults {
     '**/*_unittests.cpp',
     '**/*_spec.rb',
     '**/*Test.java',
+    '**/*_test.dart',
     '**/*Tests.java',
     '**/*.test.js',
     '**/*.test.jsx',
@@ -299,6 +368,7 @@ final class RepositoryDefaults {
     '**/docs_src/**',
     '**/evals/**',
     '**/example_*/**',
+    '**/*-examples/**',
     '**/sample/**',
     '**/samples/**',
     '**/Samples/**',
@@ -320,6 +390,7 @@ final class RepositoryDefaults {
     '**/vendor/**',
     '**/third_party/**',
     '**/compiled/**',
+    '**/cargokit/**',
   ];
   static String _readManifest(File file) =>
       utf8.decode(file.readAsBytesSync(), allowMalformed: true);

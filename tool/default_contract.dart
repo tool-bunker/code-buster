@@ -50,6 +50,7 @@ Map<String, Object?> _currentContract() {
     'schemaVersion': 1,
     'analysisDefaults': <String, Object?>{
       'languages': <String>[defaults.language],
+      'frameworks': defaults.frameworks.toList()..sort(),
       'ruleGroups': defaults.ruleGroups.toList()..sort(),
       'minDuplicationLines': defaults.minDuplicationLines,
       'complexityThreshold': defaults.complexityThreshold,
@@ -80,6 +81,7 @@ Map<String, Object?> _currentContract() {
                   .toList()
                 ..sort(),
           'languages': rule.languages,
+          'frameworks': rule.frameworks.toList()..sort(),
           'languageVersions': rule.languageVersions,
           'limitations': rule.limitations,
           'enabledByDefault': defaults.ruleGroups.contains(rule.group),

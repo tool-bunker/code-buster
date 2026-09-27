@@ -214,6 +214,14 @@ final class GraphAnalysis {
     final Set<String> onStack = <String>{};
     final List<Set<String>> result = <Set<String>>[];
 
+    int requiredValue(Map<String, int> values, String key) {
+      final int? value = values[key];
+      if (value == null) {
+        throw StateError('Missing traversal value for $key');
+      }
+      return value;
+    }
+
     void connect(String node) {
       indices[node] = nextIndex;
       lowLinks[node] = nextIndex;
@@ -224,13 +232,17 @@ final class GraphAnalysis {
           in graph.cycleDependenciesOf(node).toList()..sort()) {
         if (!indices.containsKey(target)) {
           connect(target);
-          lowLinks[node] = lowLinks[node]!.compareTo(lowLinks[target]!) <= 0
-              ? lowLinks[node]!
-              : lowLinks[target]!;
+          final int nodeLowLink = requiredValue(lowLinks, node);
+          final int targetLowLink = requiredValue(lowLinks, target);
+          lowLinks[node] = nodeLowLink.compareTo(targetLowLink) <= 0
+              ? nodeLowLink
+              : targetLowLink;
         } else if (onStack.contains(target)) {
-          lowLinks[node] = lowLinks[node]!.compareTo(indices[target]!) <= 0
-              ? lowLinks[node]!
-              : indices[target]!;
+          final int nodeLowLink = requiredValue(lowLinks, node);
+          final int targetIndex = requiredValue(indices, target);
+          lowLinks[node] = nodeLowLink.compareTo(targetIndex) <= 0
+              ? nodeLowLink
+              : targetIndex;
         }
       }
       if (lowLinks[node] != indices[node]) return;
@@ -281,7 +293,13 @@ final class GraphAnalysis {
     for (final String node in component.toList()..sort()) {
       stack.clear();
       visiting.clear();
-      if (visit(node)) return found!;
+      if (visit(node)) {
+        final List<String>? cycle = found;
+        if (cycle == null) {
+          throw StateError('Cycle traversal completed without a cycle');
+        }
+        return cycle;
+      }
     }
     return <String>[component.first, component.first];
   }

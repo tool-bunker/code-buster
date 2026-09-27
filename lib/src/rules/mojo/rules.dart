@@ -1,6 +1,7 @@
 // Mojo evolves quickly, so these rules identify removed syntax and correctness risks that commonly survive copied examples.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../engine/analysis.dart';
 import '../../languages/mojo/mojo_adapter.dart';
@@ -86,8 +87,8 @@ final class MojoMissingRaisesRule extends SelfContainedRule {
       context.sources,
     )) {
       final String declaration = function.source.split('\n').first;
-      if (!RegExp(r'\braise\b').hasMatch(_mojoCode(function.source)) ||
-          RegExp(r'\braises\b').hasMatch(declaration)) {
+      if (!cachedRegExp(r'\braise\b').hasMatch(_mojoCode(function.source)) ||
+          cachedRegExp(r'\braises\b').hasMatch(declaration)) {
         continue;
       }
       yield report(
@@ -110,7 +111,7 @@ final RuleRegistry mojoRuleRegistry = RuleRegistry(<CodeBusterRule>[
     why: 'The fn keyword is deprecated and removed from current Mojo syntax.',
     suggestion:
         'Replace fn with def and declare raises explicitly when needed.',
-    pattern: RegExp(r'^\s*fn\s+[A-Za-z_]\w*'),
+    pattern: cachedRegExp(r'^\s*fn\s+[A-Za-z_]\w*'),
     message: 'deprecated fn declaration; current Mojo uses def',
   ),
   MojoSourceRule(
@@ -119,7 +120,7 @@ final RuleRegistry mojoRuleRegistry = RuleRegistry(<CodeBusterRule>[
     title: 'Use var for Mojo bindings',
     why: 'The let keyword was removed from current Mojo syntax.',
     suggestion: 'Replace let with var.',
-    pattern: RegExp(r'^\s*let\s+[A-Za-z_]\w*'),
+    pattern: cachedRegExp(r'^\s*let\s+[A-Za-z_]\w*'),
     message: 'deprecated let binding; current Mojo uses var',
   ),
   MojoSourceRule(
@@ -129,7 +130,7 @@ final RuleRegistry mojoRuleRegistry = RuleRegistry(<CodeBusterRule>[
     why:
         'Alias declarations were replaced by comptime values and type aliases.',
     suggestion: 'Replace alias with a comptime declaration.',
-    pattern: RegExp(r'^\s*alias\s+[A-Za-z_]\w*\s*='),
+    pattern: cachedRegExp(r'^\s*alias\s+[A-Za-z_]\w*\s*='),
     message: 'deprecated alias declaration; use comptime',
   ),
   MojoSourceRule(
@@ -139,7 +140,7 @@ final RuleRegistry mojoRuleRegistry = RuleRegistry(<CodeBusterRule>[
     why:
         'The @parameter decorator was replaced by comptime if and comptime for.',
     suggestion: 'Replace @parameter control flow with comptime syntax.',
-    pattern: RegExp(r'@parameter\b'),
+    pattern: cachedRegExp(r'@parameter\b'),
     message: 'deprecated @parameter decorator; use comptime',
   ),
   MojoSourceRule(
@@ -150,7 +151,7 @@ final RuleRegistry mojoRuleRegistry = RuleRegistry(<CodeBusterRule>[
         'borrowed, inout, and owned were replaced by read, mut, and var conventions.',
     suggestion:
         'Use read/default borrowing, mut references, or var ownership as appropriate.',
-    pattern: RegExp(r'\b(?:borrowed|inout|owned)\b'),
+    pattern: cachedRegExp(r'\b(?:borrowed|inout|owned)\b'),
     message: 'legacy Mojo argument convention',
   ),
   MojoSourceRule(
@@ -160,7 +161,7 @@ final RuleRegistry mojoRuleRegistry = RuleRegistry(<CodeBusterRule>[
     why: 'Current Mojo standard-library imports use the std package prefix.',
     suggestion:
         'Import the module from std, for example from std.pathlib import Path.',
-    pattern: RegExp(
+    pattern: cachedRegExp(
       r'^\s*from\s+(?:collections|memory|sys|os|pathlib)\s+import\b',
     ),
     message: 'standard-library import is missing the std prefix',
@@ -172,7 +173,7 @@ final RuleRegistry mojoRuleRegistry = RuleRegistry(<CodeBusterRule>[
     why: 'Current Mojo strings require byte= indexing or codepoint iteration.',
     suggestion:
         'Use value[byte=index] for bytes or codepoint_slices() for Unicode text.',
-    pattern: RegExp(
+    pattern: cachedRegExp(
       r'\b(?:str|string|text|name|message)\w*\s*\[\s*\d+\s*\]',
       caseSensitive: false,
     ),

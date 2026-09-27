@@ -1,6 +1,7 @@
 // HTTP response bodies hold resources in Go, so this check follows request results to evidence of a corresponding Close.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import '../../engine/analysis.dart';
 import '../../languages/go/go_adapter.dart';
@@ -26,6 +27,7 @@ final class GoResponseBodyNotClosedRule extends SelfContainedRule {
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.reliability},
           languages: <String>['go'],
           languageVersions: <String, String>{'go': '>=1.13'},
+          version: 5,
         ),
       );
 
@@ -34,16 +36,23 @@ final class GoResponseBodyNotClosedRule extends SelfContainedRule {
     final GoAdapter adapter = GoAdapter();
     for (final MapEntry<String, String> source in context.sources.entries) {
       if (!source.key.endsWith('.go')) continue;
-      for (final FunctionSource function in adapter.functions(<String, String>{
+      final List<FunctionSource> functions = adapter.functions(<String, String>{
         source.key: source.value,
-      })) {
+      });
+      for (final FunctionSource function in functions) {
         for (final RegExpMatch request in _httpResponse.allMatches(
           function.source,
         )) {
-          final String response = request.group(1)!;
+          final String response = request.requiredNamedGroup('response');
+          final String? receiver = request.namedGroup('receiver');
+          if (receiver != null &&
+              !_isHttpClientReceiver(receiver, function.source, source.value)) {
+            continue;
+          }
           if (RegExp(
-            '\\b${RegExp.escape(response)}\\.Body\\.Close\\s*\\(',
-          ).hasMatch(function.source)) {
+                '\\b${RegExp.escape(response)}\\.Body\\.Close\\s*\\(',
+              ).hasMatch(function.source) ||
+              _closedByLocalHelper(response, function.source, functions)) {
             continue;
           }
           yield report(
@@ -63,6 +72,52 @@ final class GoResponseBodyNotClosedRule extends SelfContainedRule {
   }
 
   static final RegExp _httpResponse = RegExp(
-    r'\b([A-Za-z_]\w*)\s*,\s*(?:err|_)\s*:=\s*(?:http\.(?:Get|Post|PostForm)|[A-Za-z_]\w*\.Do)\s*\(',
+    r'\b(?<response>[A-Za-z_]\w*)\s*,\s*(?:err|_)\s*:=\s*(?:http\.(?:Get|Post|PostForm)|(?<receiver>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.Do)\s*\(',
   );
+
+  static bool _closedByLocalHelper(
+    String response,
+    String caller,
+    List<FunctionSource> functions,
+  ) {
+    final RegExp call = RegExp(
+      '\\b(?:[A-Za-z_]\\w*\\.)?(?<name>[A-Za-z_]\\w*)'
+      '\\s*\\(\\s*${RegExp.escape(response)}\\s*\\)',
+    );
+    for (final RegExpMatch match in call.allMatches(caller)) {
+      final String name = match.requiredNamedGroup('name');
+      for (final FunctionSource helper in functions) {
+        if (helper.name != name) continue;
+        final RegExpMatch? parameter = RegExp(
+          '\\b${RegExp.escape(name)}\\s*\\(\\s*'
+          '(?<parameter>[A-Za-z_]\\w*)\\s+\\*http\\.Response\\b',
+        ).firstMatch(helper.source);
+        if (parameter == null) continue;
+        final String escaped = RegExp.escape(
+          parameter.requiredNamedGroup('parameter'),
+        );
+        if (RegExp(
+          '\\b$escaped\\.Body\\.Close\\s*\\(',
+        ).hasMatch(helper.source)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static bool _isHttpClientReceiver(
+    String receiver,
+    String functionSource,
+    String source,
+  ) {
+    if (receiver == 'http.DefaultClient') return true;
+    final String name = receiver.split('.').last;
+    final String escaped = RegExp.escape(name);
+    final String evidence = receiver.contains('.') ? source : functionSource;
+    return RegExp(
+      '(?:\\b$escaped\\s+\\*http\\.Client\\b|'
+      '\\b$escaped\\s*:?=\\s*(?:&\\s*)?http\\.Client\\s*\\{)',
+    ).hasMatch(evidence);
+  }
 }

@@ -21,6 +21,10 @@ class Loader {
     } catch (IOException ignored) {
     }
     try {
+      bestEffort();
+    } catch (IOException _) {
+    }
+    try {
       third();
     } catch (IOException error) {
       throw new IllegalStateException(error);

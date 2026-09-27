@@ -7,6 +7,7 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../../catalog/rule_catalog.dart';
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'dart_advanced_rules.dart';
 import 'dart_mvvm_rules.dart';
 
@@ -42,10 +43,11 @@ final class DartRuleAnalysis {
     final List<Finding> result = <Finding>[];
     final List<String> paths = sources.keys.toList()..sort();
     for (final String path in paths) {
-      final String source = sources[path]!;
+      final String? source = sources[path];
+      final CompilationUnit? unit = units[path];
+      if (source == null || unit == null) continue;
       result.addAll(_layoutFindings(path, source, maxLineLength));
       result.addAll(_currentDartStyleFindings(path, source));
-      final CompilationUnit unit = units[path]!;
       final _DartRuleVisitor visitor = _DartRuleVisitor(path, source);
       unit.accept(visitor);
       result.addAll(
@@ -110,7 +112,7 @@ final class DartRuleAnalysis {
         asyncDepth += '{'.allMatches(raw).length - '}'.allMatches(raw).length;
       }
       if (asyncDepth > 0 &&
-          RegExp(
+          cachedRegExp(
             r'\b(?:sleep|readAsStringSync|writeAsStringSync|readAsBytesSync)\s*\(',
           ).hasMatch(line)) {
         result.add(
@@ -203,7 +205,7 @@ final class DartRuleAnalysis {
       if (!insideTripleString &&
           tripleQuote == null &&
           line.isNotEmpty &&
-          RegExp(r'[ \t]$').hasMatch(line)) {
+          cachedRegExp(r'[ \t]$').hasMatch(line)) {
         result.add(
           Finding(
             code: 'trailing-whitespace',
@@ -309,6 +311,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
       final String? literal = _stringLiteralValue(initializer);
       if (literal != null &&
           _looksLikeSecret(literal) &&
+          !_isPublicProtocolIdentifier(name, literal) &&
           !_looksLikeGraphQlDocument(literal) &&
           !_isDeterministicTestFixtureSecret(literal)) {
         _add(
@@ -323,7 +326,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
               'Load the value from a secret manager or environment configuration.',
         );
       }
-      if (RegExp(r'\bRandom\s*\(').hasMatch(initializer.toSource())) {
+      if (cachedRegExp(r'\bRandom\s*\(').hasMatch(initializer.toSource())) {
         _add(
           node,
           code: 'dart-insecure-random',
@@ -360,7 +363,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
     if (target == 'Process' &&
         const <String>{'run', 'start'}.contains(method) &&
         node.argumentList.toSource().contains(
-          RegExp(r'runInShell\s*:\s*true'),
+          cachedRegExp(r'runInShell\s*:\s*true'),
         )) {
       _add(
         node,
@@ -390,6 +393,7 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
         _isReportedNullAssertionSyntax(node) &&
         !_isGuaranteedWholeMatch(node) &&
         !_isKeyProvenPresent(node) &&
+        !_isProvenNonNullByControlFlow(node) &&
         _nullAssertionLines.add(line)) {
       _add(
         node,
@@ -429,24 +433,348 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
 
   bool _isKeyProvenPresent(PostfixExpression node) {
     final String lookup = node.operand.toSource();
-    final RegExpMatch? indexed = RegExp(
-      r'^([A-Za-z_]\w*)\[([A-Za-z_]\w*)\]$',
+    final RegExpMatch? indexed = cachedRegExp(
+      r'^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\[([A-Za-z_]\w*)\]$',
     ).firstMatch(lookup);
     if (indexed == null) return false;
-    final String map = indexed.group(1)!;
-    final String key = indexed.group(2)!;
+    final String map = indexed.requiredGroup(1);
+    final String key = indexed.requiredGroup(2);
     AstNode? current = node.parent;
     while (current != null) {
       if (current is ForStatement || current is ForElement) {
-        return RegExp(
-          'for\\s*\\([^)]*\\b${RegExp.escape(key)}\\s+in\\s+'
-          '${RegExp.escape(map)}\\.keys\\b',
+        return cachedRegExp(
+          'for\\s*\\([^;{}]*\\b${RegExp.escape(key)}\\s+in\\s+'
+          '${RegExp.escape(map)}\\.keys'
+          '(?:\\.toList\\(\\)\\.\\.sort\\(\\))?\\s*\\)',
         ).hasMatch(current.toSource());
       }
       if (current is FunctionBody) return false;
       current = current.parent;
     }
     return false;
+  }
+
+  bool _isProvenNonNullByControlFlow(PostfixExpression node) {
+    final String target = node.operand.toSource();
+    if (!cachedRegExp(
+      r'^(?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*|\[[^\]]+\])*$',
+    ).hasMatch(target)) {
+      return false;
+    }
+    final List<({Expression expression, bool expected})> constraints =
+        <({Expression expression, bool expected})>[];
+    AstNode child = node;
+    AstNode? current = node.parent;
+    while (current != null && current is! FunctionBody) {
+      if (current case final IfStatement statement) {
+        if (_containsNode(statement.thenStatement, child)) {
+          constraints.add((expression: statement.expression, expected: true));
+        } else if (statement.elseStatement case final Statement otherwise
+            when _containsNode(otherwise, child)) {
+          constraints.add((expression: statement.expression, expected: false));
+        }
+      } else if (current case final ConditionalExpression conditional) {
+        if (_containsNode(conditional.thenExpression, child)) {
+          constraints.add((expression: conditional.condition, expected: true));
+        } else if (_containsNode(conditional.elseExpression, child)) {
+          constraints.add((expression: conditional.condition, expected: false));
+        }
+      } else if (current case final BinaryExpression binary) {
+        if (_containsNode(binary.rightOperand, child)) {
+          if (binary.operator.lexeme == '&&') {
+            constraints.add((expression: binary.leftOperand, expected: true));
+          } else if (binary.operator.lexeme == '||') {
+            constraints.add((expression: binary.leftOperand, expected: false));
+          }
+        }
+      } else if (current case final Block block) {
+        final int statementIndex = block.statements.indexWhere(
+          (Statement statement) => _containsNode(statement, child),
+        );
+        if (statementIndex >= 0) {
+          for (var index = statementIndex - 1; index >= 0; index--) {
+            final Statement previous = block.statements[index];
+            if (_writesExpression(previous, target)) break;
+            if (previous case final IfStatement guard) {
+              final bool thenExits = _alwaysExits(guard.thenStatement);
+              final bool elseExits =
+                  guard.elseStatement != null &&
+                  _alwaysExits(guard.elseStatement!);
+              if (thenExits && !elseExits) {
+                constraints.add((
+                  expression: guard.expression,
+                  expected: false,
+                ));
+              } else if (elseExits && !thenExits) {
+                constraints.add((expression: guard.expression, expected: true));
+              }
+            }
+          }
+        }
+      }
+      child = current;
+      current = current.parent;
+    }
+    if (constraints.isEmpty) return false;
+
+    final Map<String, Expression> getterConditions = _getterConditions(node);
+    final Set<String> atoms = <String>{};
+    for (final ({Expression expression, bool expected}) constraint
+        in constraints) {
+      _collectConditionAtoms(
+        constraint.expression,
+        target,
+        getterConditions,
+        atoms,
+        <String>{},
+      );
+    }
+    if (atoms.length > 12) return false;
+    final List<String> atomList = atoms.toList(growable: false);
+    final int assignmentCount = 1 << atomList.length;
+    for (var mask = 0; mask < assignmentCount; mask++) {
+      final Map<String, bool> assignment = <String, bool>{
+        for (var index = 0; index < atomList.length; index++)
+          atomList[index]: mask & (1 << index) != 0,
+      };
+      final bool reachable = constraints.every(
+        (({Expression expression, bool expected}) constraint) =>
+            _evaluateCondition(
+              constraint.expression,
+              target,
+              getterConditions,
+              assignment,
+              <String>{},
+            ) ==
+            constraint.expected,
+      );
+      if (reachable) return false;
+    }
+    return true;
+  }
+
+  bool _containsNode(AstNode container, AstNode node) =>
+      container.offset <= node.offset && node.end <= container.end;
+
+  bool _writesExpression(Statement statement, String target) {
+    final String escaped = RegExp.escape(target);
+    return cachedRegExp(
+      '(?:^|[^=!<>])\\b$escaped\\s*(?:=(?!=)|\\+\\+|--|\\?\\?=)',
+    ).hasMatch(statement.toSource());
+  }
+
+  bool _alwaysExits(Statement statement) {
+    if (statement is ReturnStatement ||
+        statement is BreakStatement ||
+        statement is ContinueStatement) {
+      return true;
+    }
+    if (statement case final ExpressionStatement expressionStatement) {
+      return expressionStatement.expression is ThrowExpression;
+    }
+    if (statement case final Block block when block.statements.isNotEmpty) {
+      return _alwaysExits(block.statements.last);
+    }
+    return false;
+  }
+
+  Map<String, Expression> _getterConditions(AstNode node) {
+    AstNode? current = node.parent;
+    while (current != null && current is! ClassDeclaration) {
+      current = current.parent;
+    }
+    if (current is! ClassDeclaration) return const <String, Expression>{};
+    final Map<String, Expression> result = <String, Expression>{};
+    for (final MethodDeclaration method
+        in current.body.members.whereType<MethodDeclaration>()) {
+      if (!method.isGetter) continue;
+      final FunctionBody body = method.body;
+      if (body case final ExpressionFunctionBody expressionBody) {
+        result[method.name.lexeme] = expressionBody.expression;
+      } else if (body case final BlockFunctionBody blockBody) {
+        final List<Statement> statements = blockBody.block.statements;
+        if (statements.length == 1) {
+          final Statement statement = statements.single;
+          if (statement is ReturnStatement && statement.expression != null) {
+            result[method.name.lexeme] = statement.expression!;
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  void _collectConditionAtoms(
+    Expression expression,
+    String target,
+    Map<String, Expression> getterConditions,
+    Set<String> atoms,
+    Set<String> expandingGetters,
+  ) {
+    if (expression case final ParenthesizedExpression parenthesized) {
+      _collectConditionAtoms(
+        parenthesized.expression,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      return;
+    }
+    if (expression case final PrefixExpression prefix
+        when prefix.operator.lexeme == '!') {
+      _collectConditionAtoms(
+        prefix.operand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      return;
+    }
+    if (expression case final BinaryExpression binary
+        when binary.operator.lexeme == '&&' || binary.operator.lexeme == '||') {
+      _collectConditionAtoms(
+        binary.leftOperand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      _collectConditionAtoms(
+        binary.rightOperand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      return;
+    }
+    if (_nullComparisonValue(expression, target) != null ||
+        _mapPresenceValue(expression, target) != null ||
+        expression is BooleanLiteral) {
+      return;
+    }
+    final String source = expression.toSource();
+    final Expression? getter = getterConditions[source];
+    if (getter != null && expandingGetters.add(source)) {
+      _collectConditionAtoms(
+        getter,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      expandingGetters.remove(source);
+      return;
+    }
+    atoms.add(source);
+  }
+
+  bool _evaluateCondition(
+    Expression expression,
+    String target,
+    Map<String, Expression> getterConditions,
+    Map<String, bool> atoms,
+    Set<String> expandingGetters,
+  ) {
+    if (expression case final ParenthesizedExpression parenthesized) {
+      return _evaluateCondition(
+        parenthesized.expression,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+    }
+    if (expression case final PrefixExpression prefix
+        when prefix.operator.lexeme == '!') {
+      return !_evaluateCondition(
+        prefix.operand,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+    }
+    if (expression case final BinaryExpression binary) {
+      if (binary.operator.lexeme == '&&') {
+        return _evaluateCondition(
+              binary.leftOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            ) &&
+            _evaluateCondition(
+              binary.rightOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            );
+      }
+      if (binary.operator.lexeme == '||') {
+        return _evaluateCondition(
+              binary.leftOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            ) ||
+            _evaluateCondition(
+              binary.rightOperand,
+              target,
+              getterConditions,
+              atoms,
+              expandingGetters,
+            );
+      }
+    }
+    final bool? comparison = _nullComparisonValue(expression, target);
+    if (comparison != null) return comparison;
+    final bool? presence = _mapPresenceValue(expression, target);
+    if (presence != null) return presence;
+    if (expression case final BooleanLiteral literal) return literal.value;
+    final String source = expression.toSource();
+    final Expression? getter = getterConditions[source];
+    if (getter != null && expandingGetters.add(source)) {
+      final bool value = _evaluateCondition(
+        getter,
+        target,
+        getterConditions,
+        atoms,
+        expandingGetters,
+      );
+      expandingGetters.remove(source);
+      return value;
+    }
+    return atoms.requiredValue(source);
+  }
+
+  bool? _nullComparisonValue(Expression expression, String target) {
+    if (expression is! BinaryExpression ||
+        expression.operator.lexeme != '==' &&
+            expression.operator.lexeme != '!=') {
+      return null;
+    }
+    final bool comparesTarget =
+        expression.leftOperand.toSource() == target &&
+            expression.rightOperand is NullLiteral ||
+        expression.rightOperand.toSource() == target &&
+            expression.leftOperand is NullLiteral;
+    if (!comparesTarget) return null;
+    return expression.operator.lexeme == '==';
+  }
+
+  bool? _mapPresenceValue(Expression expression, String target) {
+    final RegExpMatch? lookup = cachedRegExp(
+      r'^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\[([A-Za-z_]\w*)\]$',
+    ).firstMatch(target);
+    if (lookup == null) return null;
+    final String map = lookup.requiredGroup(1);
+    final String key = lookup.requiredGroup(2);
+    return expression.toSource() == '$map.containsKey($key)' ? false : null;
   }
 
   @override
@@ -467,29 +795,29 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
 
   bool _forwardsCaughtFailure(CatchClause node) {
     final String body = node.body.toSource();
-    if (RegExp(r'\brethrow\b').hasMatch(body)) return true;
+    if (cachedRegExp(r'\brethrow\b').hasMatch(body)) return true;
     final String? error = node.exceptionParameter?.name.lexeme;
     final String? stack = node.stackTraceParameter?.name.lexeme;
     if (error == null || stack == null) return false;
-    return RegExp(
+    return cachedRegExp(
       '\\bcompleteError\\s*\\(\\s*${RegExp.escape(error)}\\s*,\\s*'
       '${RegExp.escape(stack)}\\s*\\)',
     ).hasMatch(body);
   }
 
-  static final RegExp _sensitiveName = RegExp(
+  static final RegExp _sensitiveName = cachedRegExp(
     r'password|secret|api_?key|access_?token|auth_?token|token|nonce|private_?key',
     caseSensitive: false,
   );
-  static final RegExp _testSourcePath = RegExp(
+  static final RegExp _testSourcePath = cachedRegExp(
     r'(?:^|/)(?:test|tests)(?:/|$)|_test\.dart$',
     caseSensitive: false,
   );
-  static final RegExp _numberedFixtureCredential = RegExp(
+  static final RegExp _numberedFixtureCredential = cachedRegExp(
     r'^[a-z]+(?:[-_][a-z]+)+[-_]\d{1,6}$',
     caseSensitive: false,
   );
-  static final RegExp _graphQlOperation = RegExp(
+  static final RegExp _graphQlOperation = cachedRegExp(
     r'^(?:query|mutation|subscription|fragment)\b',
   );
 
@@ -516,14 +844,21 @@ final class _DartRuleVisitor extends RecursiveAstVisitor<void> {
         }.contains(lower)) {
       return false;
     }
-    if (RegExp(r'^[A-Za-z][A-Za-z0-9]*$').hasMatch(normalized) &&
-        !RegExp(r'\d').hasMatch(normalized)) {
+    if (cachedRegExp(r'^[A-Za-z][A-Za-z0-9]*$').hasMatch(normalized) &&
+        !cachedRegExp(r'\d').hasMatch(normalized)) {
       return false;
     }
-    final bool hasLower = RegExp('[a-z]').hasMatch(normalized);
-    final bool hasUpper = RegExp('[A-Z]').hasMatch(normalized);
-    final bool hasDigit = RegExp(r'\d').hasMatch(normalized);
+    final bool hasLower = cachedRegExp('[a-z]').hasMatch(normalized);
+    final bool hasUpper = cachedRegExp('[A-Z]').hasMatch(normalized);
+    final bool hasDigit = cachedRegExp(r'\d').hasMatch(normalized);
     return hasLower && (hasUpper || hasDigit);
+  }
+
+  bool _isPublicProtocolIdentifier(String name, String value) {
+    final String lowerName = name.toLowerCase();
+    return Uri.tryParse(value)?.hasScheme == true ||
+        lowerName.contains('useragent') ||
+        lowerName.contains('user_agent');
   }
 
   bool _looksLikeGraphQlDocument(String value) =>

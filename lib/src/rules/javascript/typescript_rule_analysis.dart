@@ -1,13 +1,17 @@
 // TypeScript-only findings share type-shaped syntax and module context, so one analysis pass supplies their evidence.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 /// Shared scan used by independently registered JavaScript/TypeScript rules.
 final class TypeScriptRuleAnalysis {
   /// Emits findings for [ruleId] in source order.
+  // code-buster-ignore complex-function: rule-ID dispatch shares one lexical pass and executes independent checks without reparsing each source.
   List<Finding> findings(Map<String, String> sources, String ruleId) {
     final List<Finding> result = <Finding>[];
     for (final MapEntry<String, String> entry in sources.entries) {
+      final bool isToolingSource = _isToolingSource(entry.key);
+      final bool isCommandLineSource = _isNodeCommandLineSource(entry.value);
       final List<String> lines = entry.value.split('\n');
       final String uncommentedSource = _withoutComments(entry.value);
       final List<String> uncommentedLines = uncommentedSource.split('\n');
@@ -20,6 +24,7 @@ final class TypeScriptRuleAnalysis {
       for (var index = 0; index < lines.length; index++) {
         final String raw = lines[index];
         final String line = _strip(codeLines[index]).trim();
+        final String sinkLine = _strip(sinkCodeLines[index]).trim();
         final String lower = raw.toLowerCase();
         void add(String id, RuleSeverity severity, String message) {
           if (id != ruleId) return;
@@ -47,7 +52,7 @@ final class TypeScriptRuleAnalysis {
             line.contains(' as any')) {
           add('ts-any', RuleSeverity.info, 'explicit any type used');
         }
-        if (RegExp(r'!\s*(?:\.|\)|;|,|\])').hasMatch(line) &&
+        if (cachedRegExp(r'!\s*(?:\.|\)|;|,|\])').hasMatch(line) &&
             !line.startsWith('if ')) {
           add(
             'ts-non-null-assertion',
@@ -55,7 +60,10 @@ final class TypeScriptRuleAnalysis {
             'non-null assertion used',
           );
         }
-        if (line.contains('console.log(') || line.contains('console.debug(')) {
+        if (!isToolingSource &&
+            !isCommandLineSource &&
+            (line.contains('console.log(') ||
+                line.contains('console.debug('))) {
           add('ts-console', RuleSeverity.info, 'console logging left in code');
         }
         if (line == 'debugger;') {
@@ -65,11 +73,12 @@ final class TypeScriptRuleAnalysis {
             'debugger statement left in code',
           );
         }
-        if ((_directEvalCall.hasMatch(line) ||
-                    _globalEvalCall.hasMatch(line)) &&
-                !_evalFunctionDeclaration.hasMatch(line) &&
-                !_evalMethodDeclaration.hasMatch(line) ||
-            RegExp(r'\bnew\s+Function\s*\(').hasMatch(line)) {
+        if (((_directEvalCall.hasMatch(sinkLine) ||
+                    _globalEvalCall.hasMatch(sinkLine)) &&
+                !_evalFunctionDeclaration.hasMatch(sinkLine) &&
+                !_evalMethodDeclaration.hasMatch(sinkLine)) ||
+            (cachedRegExp(r'\bnew\s+Function\s*\(').hasMatch(sinkLine) &&
+                !_isStaticFunctionConstructor(uncommentedLines, index))) {
           add(
             'ts-eval',
             RuleSeverity.error,
@@ -92,7 +101,7 @@ final class TypeScriptRuleAnalysis {
             !_functionBindCall.hasMatch(line) &&
             !_isInsideAwaitedWrapper(codeLines, index) &&
             !_isImplicitArrowReturn(codeLines, index) &&
-            !RegExp(
+            !cachedRegExp(
               r'\b(?:await|return|void)\b|\.(?:then|catch|subscribe)\s*\(',
             ).hasMatch(continuedExpression)) {
           add(
@@ -109,15 +118,15 @@ final class TypeScriptRuleAnalysis {
           codeLines[index],
         );
         if (secretAssignment != null &&
-            _secretIdentifier.hasMatch(secretAssignment.group(1)!) &&
-            secretAssignment.group(2)!.trim().isNotEmpty &&
+            _secretIdentifier.hasMatch(secretAssignment.requiredGroup(1)) &&
+            secretAssignment.requiredGroup(2).trim().isNotEmpty &&
             !_isExplicitEmptySentinel(
-              secretAssignment.group(1)!,
-              secretAssignment.group(2)!,
+              secretAssignment.requiredGroup(1),
+              secretAssignment.requiredGroup(2),
             ) &&
             !_isPlaceholderSecret(
-              secretAssignment.group(1)!,
-              secretAssignment.group(2)!,
+              secretAssignment.requiredGroup(1),
+              secretAssignment.requiredGroup(2),
             ) &&
             !_isEnumMember(codeLines, index, secretAssignment.start + 1) &&
             !lower.contains('process.env') &&
@@ -128,12 +137,13 @@ final class TypeScriptRuleAnalysis {
             'possible hardcoded secret',
           );
         }
-        if (line.contains('JSON.parse(') &&
+        if (!isToolingSource &&
+            line.contains('JSON.parse(') &&
             !_embeddedJsonElementParse.hasMatch(line) &&
             !_jsonRoundTripParse.hasMatch(line) &&
             !_isParseOfImmediatelyStringifiedValue(codeLines, index) &&
             !_isInsideHandledTry(codeLines, index) &&
-            !RegExp(
+            !cachedRegExp(
               r'\b(?:safe|schema|zod|validate)\b',
               caseSensitive: false,
             ).hasMatch(line)) {
@@ -152,7 +162,96 @@ final class TypeScriptRuleAnalysis {
         }
       }
     }
+    if (ruleId == 'oop-data-clump') result.addAll(_dataClumps(sources));
     return result;
+  }
+
+  bool _isToolingSource(String path) {
+    final String normalized = path.replaceAll('\\', '/').toLowerCase();
+    return normalized == 'gulpfile.js' ||
+        cachedRegExp(
+          r'(^|/)(?:extra|scripts|tasks|bin|sandbox|playgrounds?|benchmarks?|benchmarking|dev)/',
+        ).hasMatch(normalized);
+  }
+
+  bool _isNodeCommandLineSource(String source) {
+    final String firstLine = source.split('\n').first.trim();
+    return cachedRegExp(
+      r'^#!\s*(?:/usr/bin/env(?:\s+-S)?\s+|/(?:usr/)?bin/)(?:node|nodejs)(?:\s|$)',
+    ).hasMatch(firstLine);
+  }
+
+  static List<Finding> _dataClumps(Map<String, String> sources) {
+    final declarations =
+        <String, List<({String path, int line, List<String> names})>>{};
+    final RegExp callable = cachedRegExp(
+      r'^\s*(?:(?:export|default|declare|public|private|protected|static|async|abstract|override)\s+)*(?:function\s+)?([A-Za-z_$][\w$]*)(?:\s*<[^>{}]+>)?\s*\(([^()]*)\)\s*(?::\s*[^={;\n]+)?\s*(?:\{|=>|;)',
+      multiLine: true,
+    );
+    final RegExp parameter = cachedRegExp(
+      r'^(?:(?:public|private|protected|readonly)\s+)*([A-Za-z_$][\w$]*)\??\s*:\s*(.+)$',
+    );
+    for (final entry in sources.entries) {
+      if (!entry.key.endsWith('.ts') && !entry.key.endsWith('.tsx')) continue;
+      final String code = _withoutStringLiteralText(
+        _withoutTemplateLiterals(_withoutComments(entry.value)),
+      );
+      for (final RegExpMatch match in callable.allMatches(code)) {
+        if (const <String>{
+          'return',
+          'if',
+          'for',
+          'while',
+          'switch',
+          'catch',
+        }.contains(match.group(1))) {
+          continue;
+        }
+        final values = <({String type, String name})>[];
+        for (final String raw in match.requiredGroup(2).split(',')) {
+          final String value = raw.split('=').first.trim();
+          if (value.isEmpty) continue;
+          final RegExpMatch? parsed = parameter.firstMatch(value);
+          if (parsed == null) {
+            values.clear();
+            break;
+          }
+          values.add((
+            type: parsed.requiredGroup(2).replaceAll(cachedRegExp(r'\s+'), ''),
+            name: parsed.requiredGroup(1),
+          ));
+        }
+        if (values.length < 3) continue;
+        final String key = values
+            .map((value) => '${value.type}:${value.name}')
+            .join(',');
+        declarations.putIfAbsent(key, () => []).add((
+          path: entry.key,
+          line: 1 + '\n'.allMatches(code.substring(0, match.start)).length,
+          names: values.map((value) => value.name).toList(),
+        ));
+      }
+    }
+    final findings = <Finding>[];
+    for (final group in declarations.values) {
+      final Set<String> paths = group.map((value) => value.path).toSet();
+      if (group.length < 3 || paths.length < 2) continue;
+      final first = group.first;
+      findings.add(
+        Finding(
+          code: 'oop-data-clump',
+          severity: RuleSeverity.info,
+          path: first.path,
+          line: first.line,
+          message:
+              'Parameters ${first.names.join(', ')} recur together in ${group.length} declarations across ${paths.length} files',
+          confidence: 'high',
+          relatedFiles: paths.where((path) => path != first.path).toList()
+            ..sort(),
+        ),
+      );
+    }
+    return findings;
   }
 
   static RegExpMatch? _hardcodedSecretAssignment(
@@ -165,7 +264,8 @@ final class TypeScriptRuleAnalysis {
     final RegExpMatch? template = _templateLiteralAssignment.firstMatch(
       uncommentedLine,
     );
-    if (template == null || _hasTemplateInterpolation(template.group(2)!)) {
+    if (template == null ||
+        _hasTemplateInterpolation(template.requiredGroup(2))) {
       return null;
     }
     final RegExpMatch? masked = _maskedTemplateAssignment.firstMatch(codeLine);
@@ -203,7 +303,7 @@ final class TypeScriptRuleAnalysis {
       final String previous = _strip(lines[lineIndex]).trim();
       if (previous.isEmpty) continue;
       if (previous.endsWith(';') || previous == '}') return false;
-      if (RegExp(r'\bawait\b.*(?:\(|\[|\{)\s*$').hasMatch(previous)) {
+      if (cachedRegExp(r'\bawait\b.*(?:\(|\[|\{)\s*$').hasMatch(previous)) {
         return true;
       }
     }
@@ -232,7 +332,9 @@ final class TypeScriptRuleAnalysis {
           prefix = _strip(lines[lineIndex - 1]).trimRight();
         }
         openBlocks.add(
-          RegExp(r'(?:^|\s)(?:const\s+)?enum\s+[\w$]+\s*$').hasMatch(prefix),
+          cachedRegExp(
+            r'(?:^|\s)(?:const\s+)?enum\s+[\w$]+\s*$',
+          ).hasMatch(prefix),
         );
       }
     }
@@ -282,14 +384,14 @@ final class TypeScriptRuleAnalysis {
           prefix = _strip(lines[lineIndex - 1]).trimRight();
         }
         openBlocks.add((
-          function: RegExp(
+          function: cachedRegExp(
             r'(?:=>|\bfunction(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^)]*\))\s*$',
           ).hasMatch(prefix),
           loop:
-              RegExp(
+              cachedRegExp(
                 r'\b(?:for\s*(?:await\s*)?|while\s*)\(',
               ).hasMatch(prefix) ||
-              RegExp(r'\bdo\s*$').hasMatch(prefix),
+              cachedRegExp(r'\bdo\s*$').hasMatch(prefix),
         ));
       }
     }
@@ -323,10 +425,12 @@ final class TypeScriptRuleAnalysis {
     }
 
     for (final int open in openBlocks.reversed) {
-      if (!RegExp(r'\btry\s*$').hasMatch(source.substring(0, open))) continue;
+      if (!cachedRegExp(r'\btry\s*$').hasMatch(source.substring(0, open))) {
+        continue;
+      }
       final int close = _matchingBlockClose(source, open);
       if (close < 0) continue;
-      if (RegExp(
+      if (cachedRegExp(
         r'^(?:(?:\s|//[^\n]*(?:\n|$)|/\*[\s\S]*?\*/))*catch\b',
       ).hasMatch(source.substring(close + 1))) {
         return true;
@@ -513,21 +617,21 @@ final class TypeScriptRuleAnalysis {
   }
 
   static String _strip(String line) => line.replaceAll(
-    RegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''),
+    cachedRegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''),
     '',
   );
 
-  static final RegExp _embeddedJsonElementParse = RegExp(
+  static final RegExp _embeddedJsonElementParse = cachedRegExp(
     r'JSON\.parse\(\s*document\.(?:querySelector|getElementById)\([^)]*\)\.(?:innerText|textContent)\s*\)',
   );
-  static final RegExp _jsonRoundTripParse = RegExp(
+  static final RegExp _jsonRoundTripParse = cachedRegExp(
     r'JSON\.parse\s*\(\s*JSON\.stringify\s*\(',
   );
   static bool _isParseOfImmediatelyStringifiedValue(
     List<String> lines,
     int index,
   ) {
-    final RegExpMatch? parse = RegExp(
+    final RegExpMatch? parse = cachedRegExp(
       r'\bJSON\.parse\s*\(\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\)',
     ).firstMatch(lines[index]);
     if (parse == null) return false;
@@ -535,22 +639,93 @@ final class TypeScriptRuleAnalysis {
     for (var previous = index - 1; previous >= 0; previous--) {
       final String candidate = lines[previous].trim();
       if (candidate.isEmpty) continue;
-      final String target = RegExp.escape(parse.group(1)!);
-      return RegExp(
+      final String target = RegExp.escape(parse.requiredGroup(1));
+      return cachedRegExp(
         '(?:^|[;{])\\s*$target\\s*=\\s*JSON\\.stringify\\s*\\(',
       ).hasMatch(candidate);
     }
     return false;
   }
 
-  static final RegExp _startsPromiseCall = RegExp(
+  static bool _isStaticFunctionConstructor(List<String> lines, int index) {
+    final String source = lines.skip(index).take(20).join('\n');
+    final RegExpMatch? start = cachedRegExp(
+      r'\bnew\s+Function\s*\(',
+    ).firstMatch(source);
+    if (start == null) return false;
+
+    final StringBuffer arguments = StringBuffer();
+    String? quote;
+    var escaped = false;
+    var depth = 1;
+    for (var offset = start.end; offset < source.length; offset++) {
+      final String character = source[offset];
+      if (quote != null) {
+        arguments.write(character);
+        if (escaped) {
+          escaped = false;
+        } else if (character == r'\') {
+          escaped = true;
+        } else if (character == quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (character == '"' || character == "'" || character == '`') {
+        quote = character;
+        arguments.write(character);
+      } else if (character == '(' || character == '[' || character == '{') {
+        depth++;
+        arguments.write(character);
+      } else if (character == ')' || character == ']' || character == '}') {
+        depth--;
+        if (depth == 0) {
+          final String value = arguments.toString().trim();
+          if (value.isEmpty) return true;
+          return _splitStaticArguments(value).every(_isStaticStringLiteral);
+        }
+        arguments.write(character);
+      } else {
+        arguments.write(character);
+      }
+    }
+    return false;
+  }
+
+  static List<String> _splitStaticArguments(String source) {
+    final List<String> result = <String>[];
+    String? quote;
+    var escaped = false;
+    var start = 0;
+    for (var index = 0; index < source.length; index++) {
+      final String character = source[index];
+      if (quote != null) {
+        if (escaped) {
+          escaped = false;
+        } else if (character == r'\') {
+          escaped = true;
+        } else if (character == quote) {
+          quote = null;
+        }
+      } else if (character == '"' || character == "'" || character == '`') {
+        quote = character;
+      } else if (character == ',') {
+        result.add(source.substring(start, index).trim());
+        start = index + 1;
+      }
+    }
+    result.add(source.substring(start).trim());
+    return result;
+  }
+
+  static final RegExp _startsPromiseCall = cachedRegExp(
     r'^(?:fetch\s*\(|axios(?:\.[A-Za-z_$][\w$]*)*\s*\()',
   );
-  static final RegExp _functionBindCall = RegExp(r'\.bind\s*\(');
-  static final RegExp _innerHtmlAssignment = RegExp(
+  static final RegExp _functionBindCall = cachedRegExp(r'\.bind\s*\(');
+  static final RegExp _innerHtmlAssignment = cachedRegExp(
     r'\binnerHTML\s*(?:\?\?=|&&=|\|\|=|\*\*=|>>>=|<<=|>>=|[+\-*/%&|^]=|=(?!=|>))',
   );
-  static final RegExp _innerHtmlUpdate = RegExp(
+  static final RegExp _innerHtmlUpdate = cachedRegExp(
     r'(?:\+\+|--)\s*[\w$.[\]]*\.innerHTML\b|\binnerHTML\s*(?:\+\+|--)',
   );
   static bool _hasUnsafeInnerHtmlSink(
@@ -639,7 +814,7 @@ final class TypeScriptRuleAnalysis {
           braces == 0 &&
           ternaries == 0 &&
           collected.isNotEmpty &&
-          !RegExp(r'(?:\+|&&|\|\||\?\?|[?:])\s*$').hasMatch(collected)) {
+          !cachedRegExp(r'(?:\+|&&|\|\||\?\?|[?:])\s*$').hasMatch(collected)) {
         return collected;
       }
       result.writeln();
@@ -654,17 +829,24 @@ final class TypeScriptRuleAnalysis {
     }
     if (expression.isEmpty) return false;
     if (_isStaticStringLiteral(expression) ||
-        RegExp(
+        cachedRegExp(
           r'^(?:true|false|null|-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)$',
         ).hasMatch(expression)) {
       return true;
     }
-    if (RegExp(
-      r'''^[A-Za-z_$][\w$.[\]]*\s*\?\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*:\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')$''',
+    if (cachedRegExp(
+      r'''^[A-Za-z_$][\w$.[\]]*\s*\?\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$]|\$(?!\{))*`)\s*:\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$]|\$(?!\{))*`)$''',
     ).hasMatch(expression)) {
       return true;
     }
 
+    final RegExpMatch? trustedHtml = cachedRegExp(
+      r'^(?:create_trusted_html|createTrustedHTML|[A-Za-z_$][\w$.[\]]*\.createHTML)\s*\(([\s\S]*)\)$',
+    ).firstMatch(expression);
+    if (trustedHtml != null &&
+        _isStaticInnerHtmlExpression(trustedHtml.requiredGroup(1))) {
+      return true;
+    }
     final List<int> operators = _topLevelStaticOperators(expression);
     final int question = operators.indexWhere(
       (int offset) => expression[offset] == '?',
@@ -802,36 +984,38 @@ final class TypeScriptRuleAnalysis {
   }
 }
 
-final RegExp _directEvalCall = RegExp(r'(?:^|[^\w$?.])eval\s*\(');
-final RegExp _globalEvalCall = RegExp(
+final RegExp _directEvalCall = cachedRegExp(r'(?:^|[^\w$?.])eval\s*\(');
+final RegExp _globalEvalCall = cachedRegExp(
   r'\b(?:globalThis|window)\s*\.\s*eval\s*\(',
 );
-final RegExp _evalFunctionDeclaration = RegExp(r'\bfunction\s*\*?\s+eval\s*\(');
-final RegExp _evalMethodDeclaration = RegExp(
-  r'^(?:(?:public|private|protected|static|abstract|async|override)\s+)*eval\s*\([^)]*\)\s*(?::[^{]+)?\{',
+final RegExp _evalFunctionDeclaration = cachedRegExp(
+  r'\bfunction\s*\*?\s+eval\s*\(',
+);
+final RegExp _evalMethodDeclaration = cachedRegExp(
+  r'^(?:(?:public|private|protected|static|abstract|async|override)\s+)*eval\s*\([^)]*\)\s*(?:(?::[^{]+)?\{|:[^;]+;)',
 );
 
-final RegExp _literalAssignment = RegExp(
+final RegExp _literalAssignment = cachedRegExp(
   r'''(?:^|[;{])\s*(?:(?:const|let|var)\s+)?(?:[A-Za-z_$][\w$]*\.)*([A-Za-z_$][\w$]*)\s*=\s*["']([^"']*)["'](?=\s*(?:[;,]|$))''',
 );
-final RegExp _templateLiteralAssignment = RegExp(
+final RegExp _templateLiteralAssignment = cachedRegExp(
   r'''(?:^|[;{])\s*(?:(?:const|let|var)\s+)?(?:[A-Za-z_$][\w$]*\.)*([A-Za-z_$][\w$]*)\s*=\s*`((?:\\.|[^`])*)`(?=\s*(?:[;,]|$))''',
 );
-final RegExp _maskedTemplateAssignment = RegExp(
+final RegExp _maskedTemplateAssignment = cachedRegExp(
   r'''(?:^|[;{])\s*(?:(?:const|let|var)\s+)?(?:[A-Za-z_$][\w$]*\.)*([A-Za-z_$][\w$]*)\s*=\s+(?=[;,]|$)''',
 );
-final RegExp _secretIdentifier = RegExp(
+final RegExp _secretIdentifier = cachedRegExp(
   r'(?:^|_)(?:token|secret|password|passwd|api_?key|nonce|salt)$|(?:Token|Secret|Password|Passwd|ApiKey|Nonce|Salt)$',
 );
 
-final RegExp _emptySentinelLiteral = RegExp(
+final RegExp _emptySentinelLiteral = cachedRegExp(
   r'^_?empty_?$',
   caseSensitive: false,
 );
 
 bool _isPlaceholderSecret(String identifier, String literal) {
   final String normalized = literal
-      .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
+      .replaceAll(cachedRegExp(r'[^A-Za-z0-9]'), '')
       .toLowerCase();
   return const <String>{
         'test',
@@ -839,7 +1023,7 @@ bool _isPlaceholderSecret(String identifier, String literal) {
         'placeholder',
         'changeme',
       }.contains(normalized) ||
-      RegExp(
+      cachedRegExp(
         r'^(?:(?:fake|mock|dummy|test)[a-z0-9]*(?:key|token|secret|password|passwd)|(?:asdf){2,})$',
       ).hasMatch(normalized) ||
       (identifier.toLowerCase().startsWith('test') && normalized == 'test');

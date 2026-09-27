@@ -1,6 +1,8 @@
 // Automated edits are intentionally narrow; this code limits fixes to transformations that can preserve source bytes and user intent.
 
 import 'dart:io';
+
+import '../core/regexp_cache.dart';
 import '../discovery/discovery.dart';
 
 /// Describes one source file changed by the safe fixer.
@@ -35,7 +37,7 @@ final class SafeFixer {
         final int indentation = _indentationEnd(line);
         line =
             '${line.substring(0, indentation).replaceAll('\t', '  ')}${line.substring(indentation)}';
-        line = line.replaceFirst(RegExp(r'[ \t]+$'), '');
+        line = line.replaceFirst(cachedRegExp(r'[ \t]+$'), '');
         if (path.endsWith('.nim') || path.endsWith('.nims')) {
           line = _fixNimStdImport(line);
         }
@@ -43,7 +45,7 @@ final class SafeFixer {
       } else if (_closesDelimiter(line, multilineDelimiter)) {
         // The literal ends before this line's trailing whitespace, which is
         // outside the string and therefore safe to remove.
-        line = line.replaceFirst(RegExp(r'[ \t]+$'), '');
+        line = line.replaceFirst(cachedRegExp(r'[ \t]+$'), '');
         multilineDelimiter = null;
       }
       output.add(line);

@@ -4,107 +4,137 @@
   <br>Code Buster
 </h1>
   <p align="center">
-    Multi-language repository architecture and static-analysis CLI
+    The AI Improver for code
     <br />
     <br />
-    <a href="#about">About</a>
+    <a href="https://toolbunker.dev/code-buster/">Overview</a>
     ·
-    <a href="#install">Installation</a>
+    <a href="https://toolbunker.dev/code-buster/docs/getting-started/installation">Installation</a>
     ·
-    <a href="#currentstatus">Current Status</a>
-    ·
-    <a href="docs/README.md">Documentation</a>
+    <a href="https://toolbunker.dev/code-buster/docs/">Documentation</a>
     ·
     <a href="CONTRIBUTING.md">Contributing</a>
   </p>
 </p>
 
-## About
+## Find what your AI agent missed
 
-Code Buster reports dependency wiring, dead code, cycles, duplication,
-complexity, architecture-policy violations, feature flags, security and style
-heuristics, quality scores, and remediation plans.
+Code Buster is a deterministic, offline repository-analysis CLI. It examines
+individual files and relationships across a repository, then reports potential
+issues for you or your AI agent to evaluate and fix.
 
-This directory contains the canonical Dart implementation. Its executable is
-`cb`, its configuration file is `code-buster.toml`, and the workspace installer
-builds it from local source. 
+It does not upload source code, call an AI provider, or make semantic changes on
+its own. The executable is `cb`; optional repository configuration lives in
+`code-buster.toml`.
 
-## One command. A clearer codebase.
+- 18 recognized source languages
+- 450 registered rules
+- 7 report formats
+- 0 required cloud services
 
-Run Code Buster from the root of any repository:
+## Quickstart
 
-```sh
-cb
-```
-
-That is enough to get a repository-wide summary. Code Buster points out
-dependencies, duplication, complexity, hotspots, and possible drift so you and
-your coding agents can reuse what already exists and keep the codebase easier to
-understand as it grows.
-
-<p align="center">
-  <img src="website/assets/repository-overview.gif" width="612" alt="Code Buster summarizes a repository and identifies hotspots with one command">
-</p>
-
-## Installation
-
-Building Code Buster from source requires Dart 3.11 or newer. Native packages do not require Dart.
-
-### Homebrew (macOS)
-
-Install the native Apple Silicon build from the Tool Bunker tap:
+Install the native Apple Silicon macOS build with Homebrew:
 
 ```sh
 brew install tool-bunker/tap/code-buster
 cb version
 ```
 
-### Install script (macOS and Linux)
-
-Install the native Apple Silicon macOS or x86-64 Linux build:
+Install a native Apple Silicon macOS or x86-64 Linux build with the verified
+installer:
 
 ```sh
 curl -fsSL https://codebuster.toolbunker.dev/install | sh
 ```
 
-### Windows
-
-Install the native x86-64 build from PowerShell:
+On x86-64 Windows PowerShell:
 
 ```powershell
 irm https://codebuster.toolbunker.dev/install.ps1 | iex
 ```
 
-Both scripts verify the release archive against the published SHA-256 checksum
-and install under the current user's `~/.local/bin` directory.
-
-### Dart and Flutter
-
-Install the published package when Dart 3.11 or newer is already available:
+When Dart 3.11 or newer is already installed:
 
 ```sh
 dart pub global activate code_buster
 cb version
 ```
 
-Ensure `$HOME/.pub-cache/bin` is on `PATH` when using Dart global activation.
-
-### Updating
-
-Update an existing installation through its original package channel:
+Then run Code Buster from a repository root:
 
 ```sh
-cb update
+cb summary
 ```
 
-Homebrew installations use `brew upgrade`; pub.dev installations use
-`dart pub global activate`; native macOS and Linux installations download the
-published installer and retain checksum verification. Use `cb update --dry-run`
-to inspect the selected update path. Source builds are never overwritten.
-Native Windows installations print the safe PowerShell installer command
-because a running Windows executable cannot replace itself.
+Configuration is optional. Start with coverage in the summary, then use focused
+commands such as `review`, `duplication`, `graph`, `dead`, `hotspots`, or
+`inspect` for the question you need to answer.
 
-### Local source build
+See the [installation guide](https://toolbunker.dev/code-buster/docs/getting-started/installation)
+and [quickstart](https://toolbunker.dev/code-buster/docs/getting-started/quickstart)
+for every supported path.
+
+## What Code Buster finds
+
+Code Buster combines file-level rules with repository-wide analysis. It reports:
+
+- dependency cycles and architecture-policy violations;
+- duplicated blocks, near-duplicate functions, and repeated patterns;
+- unreachable production files and declarations;
+- complexity growth, hotspots, and maintainability risks;
+- correctness, reliability, security, accessibility, performance, and style findings;
+- repository structure, source classification, framework, and design-system drift.
+
+Findings can include a stable rule ID, severity, confidence, location,
+rationale, remediation guidance, related files, and fingerprint. A finding is
+evidence for review, not proof that the code is wrong.
+
+## Use it with an AI coding agent
+
+Code Buster can give an agent focused repository evidence without placing the
+whole codebase in the model's context:
+
+```sh
+cb review --format json
+```
+
+Pass relevant findings to the agent, ask it to evaluate each one against the
+intended behavior, review the proposed change, then run the project's own tests
+and exercise the changed path. Code Buster finds issues; the developer or agent
+decides what matters and makes the fix.
+
+## Language and framework support
+
+Code Buster recognizes C and C++, Objective-C, C#, Dart, Rust, Mojo, Odin, Nim,
+Python, JavaScript, TypeScript, Go, HTML, CSS, Java, Wren, SQL, and Lua/Luau.
+Analysis depth and real-world validation vary by language. Flutter and React are
+detected as framework profiles rather than separate source languages.
+
+See the current [language support matrix](https://toolbunker.dev/code-buster/docs/reference/languages).
+
+## Reports and integrations
+
+Available formats are text, JSON, NDJSON, Markdown, SARIF 2.1.0, Mermaid, and
+JUnit XML. The repository also includes starting integrations for GitHub Actions,
+Gradle, Maven, VS Code, and Code Climate conversion.
+
+See the [command reference](https://toolbunker.dev/code-buster/docs/reference/commands),
+[report reference](https://toolbunker.dev/code-buster/docs/reference/reports), and
+[integration guide](https://toolbunker.dev/code-buster/docs/guides/integrations).
+
+## Current status
+
+Current release: **0.7.1**.
+
+Code Buster is pre-1.0 and under active development. Use it for local repository
+exploration, focused AI context, and reviewing changes before handoff. Do not yet
+rely on it as a blocking production quality gate; evaluate CI and report
+integrations with explicit policy and preserved coverage.
+
+## Development and contributing
+
+Build the canonical Dart implementation from source:
 
 ```sh
 dart pub get
@@ -112,67 +142,6 @@ dart compile exe bin/cb.dart -o build/cb
 ./build/cb version
 ```
 
-Install the local checkout with `../install-code-buster.sh`.
-
-## Is Code Buster a linter?
-
-Not quite. A linter usually focuses on one language and local code issues. Code
-Buster steps back and looks at the repository as a whole.
-
-It can report lint-like issues, but it is mainly built to show:
-
-- how files and modules are connected;
-- what a change might affect;
-- where code is duplicated or starting to drift;
-- which parts of the repository need attention;
-- when code bypasses an existing boundary, component, or design token.
-
-Code Buster works alongside tools such as `dart analyze`, ESLint, Clang-Tidy,
-and compiler diagnostics. It does not replace them.
-
-<p align="center">
-  <img src="website/assets/quality-workflow.gif" width="612" alt="Code Buster finds duplicated implementation blocks for review">
-</p>
-
-## Current Status
-
-**Overall status: 0.3.0.** The Dart implementation is the
-canonical runtime and passes strict analysis, the complete test suite, native
-compilation, documentation validation, self-analysis, and multi-repository
-precision checks. 
-
-The circles show current implementation depth and real-world validation. They
-are a guide, not a guarantee.
-
-| Language | Depth | Real-world validation |
-| --- | :---: | :---: |
-| Dart | ●●●●● | ●●●●● |
-| C# | ●●●●○ | ●●●●● |
-| Java | ●●●●○ | ●●●●● |
-| Nim | ●●●●○ | ●○○○○ |
-| Python | ●●●●○ | ●○○○○ |
-| C/C++ and Objective-C | ●●●○○ | ●○○○○ |
-| Go | ●●●○○ | ●○○○○ |
-| JavaScript and TypeScript | ●●●○○ | ●●●●● |
-| Lua and Luau | ●●●○○ | ●○○○○ |
-| SQL, PostgreSQL, and MySQL | ●●●○○ | ●○○○○ |
-| Wren | ●●●○○ | ●○○○○ |
-| CSS | ●●○○○ | ●○○○○ |
-| HTML | ●●○○○ | ●○○○○ |
-| Rust | ●●●○○ | ○○○○○ |
-| Mojo | ●●●○○ | ○○○○○ |
-
-**Depth** measures how much useful analysis is implemented. **Real-world
-validation** measures testing against external repositories, including review
-of false positives, missed findings, and the rule improvements that follow.
-
-Help develop Code Buster by running it on real repositories and
-[reporting what you find](https://github.com/tool-bunker/code-buster/issues/new/choose).
-Even languages with high depth still need much more real-world testing. Reports
-of false positives, missed problems, and confusing results are especially useful.
-
-## Contributing
-
-Open pull requests against `develop`. The `main` branch is reserved for
-reviewed release changes and coordinated hotfixes. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution contract.
+Open pull requests against `develop`. The `main` branch is reserved for reviewed
+release changes and coordinated hotfixes. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+for the complete contribution and verification contract.

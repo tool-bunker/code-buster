@@ -1,6 +1,7 @@
 // Nim type declarations carry ownership, serialization, and API clues that line-oriented call checks cannot infer reliably.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 /// Detects Nim type-section organization hazards.
 final class NimTypeRulePack {
@@ -48,8 +49,9 @@ final class NimTypeRulePack {
     return const <Finding>[];
   }
 
-  Set<String> _typeNames(String source) => RegExp(
-    r'^\s+([A-Za-z_]\w*)\*?\s*=',
-    multiLine: true,
-  ).allMatches(source).map((RegExpMatch match) => match.group(1)!).toSet();
+  Set<String> _typeNames(String source) =>
+      RegExp(r'^\s+([A-Za-z_]\w*)\*?\s*=', multiLine: true)
+          .allMatches(source)
+          .map((RegExpMatch match) => match.requiredGroup(1))
+          .toSet();
 }

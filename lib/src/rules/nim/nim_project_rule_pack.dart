@@ -35,7 +35,7 @@ final class NimProjectRulePack {
       );
     }
     final String combinedTests = testFiles
-        .map((String path) => sources[path]!)
+        .map((String path) => sources.requiredValue(path))
         .join('\n')
         .toLowerCase();
     final Set<String> namedTestModules = testFiles

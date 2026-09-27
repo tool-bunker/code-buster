@@ -35,6 +35,80 @@ void second() {
     },
   );
 
+  test('ignores duplicate Dart forwarding constructor declarations', () {
+    final List<Finding> findings = analysis.exactBlocks(const <String, String>{
+      'lib/app.dart': '''
+class AppRoot extends Widget {
+  const AppRoot({
+    super.key,
+    this.initialTool = Tool.brush,
+    this.initialFile = EditorFile.map,
+    this.initialDocuments,
+    this.initialProjectPath,
+    this.activateInitialProject = true,
+    this.recentProjectStore =
+        const SharedPreferencesRecentProjectStore(),
+  });
+  final Tool initialTool;
+  final EditorFile initialFile;
+  final Documents? initialDocuments;
+  final String? initialProjectPath;
+  final bool activateInitialProject;
+  final RecentProjectStore recentProjectStore;
+}
+''',
+      'lib/editor_shell.dart': '''
+class EditorShell extends Widget {
+  const EditorShell({
+    super.key,
+    this.initialTool = Tool.brush,
+    this.initialFile = EditorFile.map,
+    this.initialDocuments,
+    this.initialProjectPath,
+    this.activateInitialProject = true,
+    this.recentProjectStore =
+        const SharedPreferencesRecentProjectStore(),
+  });
+  final Tool initialTool;
+  final EditorFile initialFile;
+  final Documents? initialDocuments;
+  final String? initialProjectPath;
+  final bool activateInitialProject;
+  final RecentProjectStore recentProjectStore;
+}
+''',
+    }, minLines: 15);
+
+    expect(findings, isEmpty);
+  });
+
+  test('still reports duplicate executable constructor bodies', () {
+    final List<Finding> findings = analysis.exactBlocks(const <String, String>{
+      'lib/first.dart': '''
+class First {
+  First() {
+    final model = load();
+    configure(model);
+    save(model);
+  }
+}
+''',
+      'lib/second.dart': '''
+class Second {
+  Second() {
+    final model = load();
+    configure(model);
+    save(model);
+  }
+}
+''',
+    }, minLines: 3);
+
+    expect(findings, hasLength(1));
+    expect(findings.single.line, 3);
+    expect(findings.single.relatedFiles, <String>['lib/second.dart:3-5']);
+  });
+
   test('does not report duplicated block-comment license headers', () {
     final String license = <String>[
       '/*',
@@ -156,6 +230,28 @@ return value
     expect(findings, isEmpty);
   });
 
+  test('does not report repeated SQL value rows as duplicate code', () {
+    final String values = <String>[
+      'INSERT INTO places (code, name, population) VALUES',
+      for (var index = 0; index < 24; index++)
+        "('11.01.$index', 'District $index', 5623479),",
+      "('11.99', 'Final District', NULL);",
+    ].join('\n');
+    final String repeatedInserts = <String>[
+      for (var index = 0; index < 12; index++) ...<String>[
+        'INSERT INTO places (code, name, population) VALUES',
+        "('11.01.$index', 'District $index', 5623479);",
+      ],
+    ].join('\n');
+    final List<Finding> findings = analysis.exactBlocks(<String, String>{
+      'db/current.sql': values,
+      'db/archive.sql': values,
+      'db/repeated-inserts.sql': repeatedInserts,
+      'db/repeated-inserts-archive.sql': repeatedInserts,
+    }, minLines: 15);
+
+    expect(findings, isEmpty);
+  });
   test('does not compare overlapping windows in one repeated table run', () {
     final String vtable = <String>[
       'static void* handlers[] = {',
@@ -198,14 +294,16 @@ $labels
     expect(findings, isEmpty);
   });
 
-  test('does not treat migration history snapshots as source duplication', () {
-    final List<Finding> findings = const DuplicationAnalysis()
-        .exactBlocks(const <String, String>{
-          'a/migrations/001/migration.sql':
-              'CREATE TABLE a;\nCREATE INDEX b;\nCOMMIT;',
-          'b/migrations/002/migration.sql':
-              'CREATE TABLE a;\nCREATE INDEX b;\nCOMMIT;',
-        }, minLines: 3);
+  test('does not treat historical SQL snapshots as source duplication', () {
+    final List<Finding>
+    findings = const DuplicationAnalysis().exactBlocks(const <String, String>{
+      'a/migrations/001/migration.sql':
+          'CREATE TABLE a;\nCREATE INDEX b;\nCOMMIT;',
+      'b/migrations/002/migration.sql':
+          'CREATE TABLE a;\nCREATE INDEX b;\nCOMMIT;',
+      'db/archive/schema-2024.sql': 'CREATE TABLE a;\nCREATE INDEX b;\nCOMMIT;',
+      'db/archive/schema-2025.sql': 'CREATE TABLE a;\nCREATE INDEX b;\nCOMMIT;',
+    }, minLines: 3);
 
     expect(findings, isEmpty);
   });
@@ -471,6 +569,46 @@ if (quote == doubleQuote || quote == singleQuote) {}
 
     expect(findings, isEmpty);
   });
+  test('ignores duplicate Go blocks in mutually exclusive build flavors', () {
+    const String shared = '''
+func choose(kind string) Binder {
+  if kind == "json" {
+    return jsonBinder{}
+  }
+  if kind == "xml" {
+    return xmlBinder{}
+  }
+  return formBinder{}
+}
+''';
+    final List<Finding> findings = analysis.exactBlocks(<String, String>{
+      'binding/default.go': '//go:build !minimal\n\n$shared',
+      'binding/minimal.go': '//go:build minimal\n\n$shared',
+    }, minLines: 6);
+
+    expect(findings, isEmpty);
+  });
+
+  test('reports duplicate Go blocks in compatible build flavors', () {
+    const String shared = '''
+func choose(kind string) Binder {
+  if kind == "json" {
+    return jsonBinder{}
+  }
+  if kind == "xml" {
+    return xmlBinder{}
+  }
+  return formBinder{}
+}
+''';
+    final List<Finding> findings = analysis.exactBlocks(<String, String>{
+      'binding/linux.go': '//go:build linux\n\n$shared',
+      'binding/amd64.go': '//go:build amd64\n\n$shared',
+    }, minLines: 6);
+
+    expect(findings, hasLength(1));
+  });
+
   test('ignores duplicate blocks inside cfg-test Rust modules', () {
     final List<Finding> findings = analysis.exactBlocks(<String, String>{
       'src/a.rs': '''

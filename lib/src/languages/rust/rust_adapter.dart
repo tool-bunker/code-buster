@@ -2,6 +2,7 @@
 
 import 'package:path/path.dart' as path;
 
+import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
 
@@ -20,7 +21,7 @@ final class RustAdapter {
       final String code = _rustStructure(entry.value);
       final Set<String> dependencies = <String>{};
       for (final RegExpMatch declaration in _module.allMatches(code)) {
-        final String module = declaration.group(1)!;
+        final String module = declaration.requiredGroup(1);
         final String directory = path.posix.dirname(entry.key);
         for (final String candidate in <String>[
           path.posix.join(directory, '$module.rs'),
@@ -30,7 +31,7 @@ final class RustAdapter {
         }
       }
       for (final RegExpMatch import in _use.allMatches(code)) {
-        final String module = import.group(1)!;
+        final String module = import.requiredGroup(1);
         final List<String> owners = byStem[module] ?? const <String>[];
         if (owners.length == 1 && owners.single != entry.key) {
           dependencies.add(owners.single);
@@ -48,8 +49,13 @@ final class RustAdapter {
       final String code = _rustStructure(entry.value);
       final Set<int> testLines = rustCfgTestLines(code.split('\n'));
       for (final RegExpMatch match in _function.allMatches(code)) {
-        final int declarationStart =
-            match.start + RegExp(r'\bfn\s+').firstMatch(match.group(0)!)!.start;
+        final RegExpMatch? functionName = cachedRegExp(
+          r'\bfn\s+',
+        ).firstMatch(match.requiredGroup(0));
+        if (functionName == null) {
+          throw StateError('Rust function pattern omitted its `fn` keyword');
+        }
+        final int declarationStart = match.start + functionName.start;
         final int open = code.indexOf('{', match.start);
         final int close = _matchingBrace(code, open);
         if (testLines.contains(_lineAt(code, declarationStart) - 1)) continue;
@@ -57,7 +63,7 @@ final class RustAdapter {
         result.add(
           FunctionSource(
             path: entry.key,
-            name: match.group(1)!,
+            name: match.requiredGroup(1),
             line: _lineAt(entry.value, declarationStart),
             source: entry.value.substring(declarationStart, close + 1),
           ),
@@ -74,15 +80,15 @@ final class RustAdapter {
         : name;
   }
 
-  static final RegExp _module = RegExp(
+  static final RegExp _module = cachedRegExp(
     r'^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;',
     multiLine: true,
   );
-  static final RegExp _use = RegExp(
+  static final RegExp _use = cachedRegExp(
     r'^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+(?:(?:crate|self|super)::)*([A-Za-z_]\w*)',
     multiLine: true,
   );
-  static final RegExp _function = RegExp(
+  static final RegExp _function = cachedRegExp(
     r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]+"\s+)?fn\s+([A-Za-z_]\w*)\s*(?:<[^>{}]*>)?\s*\([^;{}]*\)[^{;]*\{',
     multiLine: true,
   );
@@ -92,7 +98,7 @@ final class RustAdapter {
 Set<int> rustCfgTestLines(List<String> lines) => _rustAttributedLines(
   lines,
   (String line) =>
-      RegExp(r'#\s*\[\s*cfg\s*\([^\n]*test[^\n]*\)\s*\]').hasMatch(line),
+      cachedRegExp(r'#\s*\[\s*cfg\s*\([^\n]*test[^\n]*\)\s*\]').hasMatch(line),
 );
 
 Set<int> _rustAttributedLines(

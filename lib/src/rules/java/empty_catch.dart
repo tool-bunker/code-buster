@@ -1,6 +1,7 @@
 // A failure caught and ignored becomes much harder to diagnose when it reaches production.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 import 'java_lexical.dart';
 
@@ -18,7 +19,7 @@ final class JavaEmptyCatchRule extends SelfContainedRule {
               'An empty catch block silently loses failures and the context needed to diagnose them.',
           suggestion:
               'Recover, rethrow, or record the exception instead of discarding it.',
-          version: 3,
+          version: 4,
           semanticMaturity: RuleSemanticMaturity.token,
           taxonomy: <FindingTaxonomy>{FindingTaxonomy.reliability},
           languages: <String>['java'],
@@ -28,7 +29,7 @@ final class JavaEmptyCatchRule extends SelfContainedRule {
         ),
       );
 
-  static final RegExp _emptyCatch = RegExp(
+  static final RegExp _emptyCatch = cachedRegExp(
     r'\bcatch\s*\([^()]*\)\s*\{\s*\}',
     multiLine: true,
   );
@@ -40,8 +41,8 @@ final class JavaEmptyCatchRule extends SelfContainedRule {
       for (final RegExpMatch match in _emptyCatch.allMatches(source)) {
         final String original = entry.value.substring(match.start, match.end);
         if (original.contains('//') || original.contains('/*')) continue;
-        if (RegExp(
-          r'\bcatch\s*\([^()]*\b(?:ignored?|unused)\s*\)',
+        if (cachedRegExp(
+          r'\bcatch\s*\([^()]*(?:\b(?:ignored?|unused)|_)\s*\)',
           caseSensitive: false,
         ).hasMatch(original)) {
           continue;

@@ -3,12 +3,33 @@
 import '../../core/models.dart';
 import '../../core/rule.dart';
 
+import '../csharp/oop_rules.dart';
 import 'node_fs_constant_import.dart';
 import 'typescript_source_rule.dart';
 
 /// Self-contained JavaScript and TypeScript rules in deterministic order.
 final RuleRegistry javascriptRuleRegistry = RuleRegistry(<CodeBusterRule>[
   const JavaScriptNodeFsConstantImportRule(),
+  TypeScriptOopRule('oop-data-clump'),
+  for (final String id in <String>[
+    'oop-interface-segregation-pressure',
+    'oop-refused-bequest',
+    'oop-middle-man-delegation',
+    'oop-single-use-abstraction',
+    'oop-repeated-strategy-dispatch',
+    'oop-state-behavior-candidate',
+    'oop-feature-envy',
+    'oop-service-locator-dependency',
+    'oop-repeated-observer-notification',
+    'oop-message-chain',
+    'oop-factory-bypass',
+    'oop-facade-bypass',
+    'oop-repository-bypass',
+    'oop-proxy-bypass',
+    'oop-repeated-adapter-mapping',
+    'oop-template-workflow-candidate',
+  ])
+    CSharpOopRule(id),
   TypeScriptSourceRule(
     id: 'ts-any',
     severity: RuleSeverity.info,

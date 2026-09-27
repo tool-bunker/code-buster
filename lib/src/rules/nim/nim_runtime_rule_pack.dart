@@ -1,6 +1,7 @@
 // Nim APIs with runtime cost or lifecycle implications need stateful checks that follow calls beyond a single token pattern.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import 'canonical_nim_evidence.dart';
 import 'nim_security_line_rule_pack.dart';
 
@@ -8,7 +9,7 @@ part 'nim_runtime_simulation_rules.dart';
 
 /// Executes stateful runtime, performance, security, and game-engine rules.
 final class NimRuntimeRulePack {
-  static final RegExp _entityLifecycleMutation = RegExp(
+  static final RegExp _entityLifecycleMutation = cachedRegExp(
     r'\.(?:alive\s*=\s*false|dead\s*=\s*true|destroyed\s*=\s*true|active\s*=\s*false)',
   );
 
@@ -33,34 +34,42 @@ final class NimRuntimeRulePack {
       <({String name, int indent})>[];
 
   /// Mutable state retained across lines in this file.
-  int renderBeginCount = 0;
+  int _renderBeginCount = 0;
 
   /// Mutable state retained across lines in this file.
-  int renderEndCount = 0;
+  int _renderEndCount = 0;
 
   /// Mutable state retained across lines in this file.
-  int renderProcLine = 1;
+  int _renderProcLine = 1;
 
   /// Mutable state retained across lines in this file.
   final Set<String> destroyedEntities = <String>{};
 
   /// Mutable state retained across lines in this file.
-  bool cameraModified = false;
+  bool _cameraModified = false;
 
   /// Mutable state retained across lines in this file.
-  bool cameraRestored = false;
+  bool _cameraRestored = false;
 
   /// Mutable state retained across lines in this file.
-  int cameraProcLine = 1;
+  int _cameraProcLine = 1;
 
   /// Mutable state retained across lines in this file.
-  int assetLoadCount = 0;
+  int _assetLoadCount = 0;
 
   /// Mutable state retained across lines in this file.
-  int assetFreeCount = 0;
+  int _assetFreeCount = 0;
 
   /// Mutable state retained across lines in this file.
-  bool floatEdgeFindingAdded = false;
+  bool _floatEdgeFindingAdded = false;
+  int get renderBeginCount => _renderBeginCount;
+  int get renderEndCount => _renderEndCount;
+  int get renderProcLine => _renderProcLine;
+  bool get cameraModified => _cameraModified;
+  bool get cameraRestored => _cameraRestored;
+  int get cameraProcLine => _cameraProcLine;
+  int get assetLoadCount => _assetLoadCount;
+  int get assetFreeCount => _assetFreeCount;
 
   /// Mutable state retained across lines in this file.
   final List<({int line, Set<String> params})> procParameters =
@@ -149,8 +158,10 @@ final class NimRuntimeRulePack {
           !lower.contains('_dt:') &&
           !lower.contains('_delta');
       if (hasDt &&
-          RegExp(r'update|render|draw|tick|fixedupdate').hasMatch(lower) &&
-          !RegExp(r'\bdt\b|delta').hasMatch(procBody)) {
+          cachedRegExp(
+            r'update|render|draw|tick|fixedupdate',
+          ).hasMatch(lower) &&
+          !cachedRegExp(r'\bdt\b|delta').hasMatch(procBody)) {
         context.add(
           'nim-dt-not-used',
           RuleSeverity.info,
@@ -158,10 +169,10 @@ final class NimRuntimeRulePack {
           confidence: 'low',
         );
       }
-      if (!floatEdgeFindingAdded &&
+      if (!_floatEdgeFindingAdded &&
           line.contains('*') &&
-          RegExp(r'float|pow|sqrt|ln\(|exp\(').hasMatch(lower) &&
-          !RegExp(
+          cachedRegExp(r'float|pow|sqrt|ln\(|exp\(').hasMatch(lower) &&
+          !cachedRegExp(
             r'nan|inf|epsilon|-0\.0|underflow|overflow',
           ).hasMatch(fileLower)) {
         result.add(
@@ -180,31 +191,35 @@ final class NimRuntimeRulePack {
                 'Add tests/docs for NaN, ±Inf, ±0.0, extremes, and precision tolerance.',
           ),
         );
-        floatEdgeFindingAdded = true;
+        _floatEdgeFindingAdded = true;
       }
     }
     final bool hotProc =
         procDeclaration &&
-        RegExp(
+        cachedRegExp(
           r'forward|backward|infer|predict|update|render|draw|tick|process',
         ).hasMatch(lower);
     if (hotProc) {
       hotProcIndents.add(indent);
-      if (RegExp(r'draw|render').hasMatch(lower)) {
+      if (cachedRegExp(r'draw|render').hasMatch(lower)) {
         drawProcIndents.add(indent);
-        renderBeginCount = 0;
-        renderEndCount = 0;
-        renderProcLine = index + 1;
+        _renderBeginCount = 0;
+        _renderEndCount = 0;
+        _renderProcLine = index + 1;
       }
       final bool layoutSensitive =
-          RegExp(r'tensor|matrix|ndarray').hasMatch(lower) ||
-          (RegExp(r'layout|stride|batch|channel|feature').hasMatch(lower) &&
-              RegExp(r'shape|dims').hasMatch(lower));
+          cachedRegExp(r'tensor|matrix|ndarray').hasMatch(lower) ||
+          (cachedRegExp(
+                r'layout|stride|batch|channel|feature',
+              ).hasMatch(lower) &&
+              cachedRegExp(r'shape|dims').hasMatch(lower));
       final String previous = index > 0
           ? lines[index - 1].trim().toLowerCase()
           : '';
       if (layoutSensitive &&
-          !RegExp(r'shape|layout|stride|batch|channel').hasMatch(previous) &&
+          !cachedRegExp(
+            r'shape|layout|stride|batch|channel',
+          ).hasMatch(previous) &&
           !line.contains('##')) {
         context.add(
           'nim-layout-assumption-undocumented',
@@ -224,7 +239,7 @@ final class NimRuntimeRulePack {
     final String lower = context.lower;
     if (line.startsWith('for ') || line.startsWith('while ')) {
       loopIndents.add(indent);
-      final RegExpMatch? collection = RegExp(
+      final RegExpMatch? collection = cachedRegExp(
         r'\bin\s+([A-Za-z_]\w*)',
       ).firstMatch(line);
       if (collection != null) {
@@ -243,7 +258,7 @@ final class NimRuntimeRulePack {
     }
     if (loopIndents.isNotEmpty &&
         hotProcIndents.isNotEmpty &&
-        RegExp(
+        cachedRegExp(
           r'newseq|newstring|newtensor|zeros\(|ones\(|inittable|initorderedtable|=\s*@\[\]|\.clone',
         ).hasMatch(lower)) {
       context.add(
@@ -254,7 +269,7 @@ final class NimRuntimeRulePack {
       );
     }
     if (hotProcIndents.isNotEmpty &&
-        RegExp(
+        cachedRegExp(
           r'newseq|newstring|inittable|initorderedtable|parsejson|=\s*@\[\]',
         ).hasMatch(lower)) {
       context.add(
@@ -265,7 +280,7 @@ final class NimRuntimeRulePack {
       );
     }
     if (hotProcIndents.isNotEmpty &&
-        RegExp(
+        cachedRegExp(
           r'readfile|writefile|execprocess|execcmd|request\(|downloadfile',
         ).hasMatch(lower)) {
       context.add(
@@ -275,11 +290,11 @@ final class NimRuntimeRulePack {
       );
     }
     if (hotProcIndents.isNotEmpty &&
-        RegExp(
+        cachedRegExp(
           r'entity|entities|particle|projectile|sprite|object',
         ).hasMatch(lower) &&
         (lower.contains('.add(') || lower.contains('.add ')) &&
-        !RegExp(r'setlen|delete|del\(|remove|max|limit|cap').hasMatch(
+        !cachedRegExp(r'setlen|delete|del\(|remove|max|limit|cap').hasMatch(
           lines
               .skip(index > 5 ? index - 5 : 0)
               .take(11)
@@ -294,7 +309,7 @@ final class NimRuntimeRulePack {
       );
     }
     if (drawProcIndents.isNotEmpty &&
-        RegExp(
+        cachedRegExp(
           r'loadtexture|loadimage|loadsound|loadmusic|loadfont|loadasset',
         ).hasMatch(lower)) {
       context.add(
@@ -304,7 +319,7 @@ final class NimRuntimeRulePack {
       );
     }
     if (drawProcIndents.isNotEmpty &&
-        RegExp(r'\brand(?:om)?\s*\(').hasMatch(lower)) {
+        cachedRegExp(r'\brand(?:om)?\s*\(').hasMatch(lower)) {
       context.add(
         'nim-random-in-render',
         RuleSeverity.info,
@@ -325,7 +340,7 @@ final class NimRuntimeRulePack {
     final bool procDeclaration = context.procDeclaration;
     final bool inUpdate = hotProcIndents.isNotEmpty && drawProcIndents.isEmpty;
     if (procDeclaration &&
-        RegExp(
+        cachedRegExp(
           r'save|serialize|persist|writestate|writedata',
         ).hasMatch(lower)) {
       final int procIndent = raw.length - raw.trimLeft().length;
@@ -338,7 +353,7 @@ final class NimRuntimeRulePack {
           )
           .join('\n')
           .toLowerCase();
-      if (RegExp(
+      if (cachedRegExp(
             r'writefile\(|encode\(|marshal\(|tojson|dump\(',
           ).hasMatch(body) &&
           !body.contains('version')) {
@@ -360,14 +375,18 @@ final class NimRuntimeRulePack {
       }
     }
     if (inUpdate && _entityLifecycleMutation.hasMatch(lower)) {
-      final RegExpMatch? entity = RegExp(r'([A-Za-z_]\w*)\.').firstMatch(line);
-      if (entity != null && entity.group(1)!.length > 2) {
-        destroyedEntities.add(entity.group(1)!.toLowerCase());
+      final RegExpMatch? entity = cachedRegExp(
+        r'([A-Za-z_]\w*)\.',
+      ).firstMatch(line);
+      if (entity != null && entity.requiredGroup(1).length > 2) {
+        destroyedEntities.add(entity.requiredGroup(1).toLowerCase());
       }
     } else if (inUpdate) {
       for (final String entity in destroyedEntities) {
         if (lower.contains('$entity.') &&
-            !RegExp('$entity\\.(?:alive|dead|destroyed)').hasMatch(lower)) {
+            !cachedRegExp(
+              '$entity\\.(?:alive|dead|destroyed)',
+            ).hasMatch(lower)) {
           context.add(
             'nim-entity-access-after-destroy',
             RuleSeverity.warn,
@@ -379,14 +398,14 @@ final class NimRuntimeRulePack {
       }
     }
     if (inUpdate &&
-        RegExp(
+        cachedRegExp(
           r'obtain\(|getcomponent\(|findcomponent\(|lookup\(|getentity\(|findentity\(|getbyid\(|acquire\(',
         ).hasMatch(lower)) {
-      final RegExpMatch? assigned = RegExp(
+      final RegExpMatch? assigned = cachedRegExp(
         r'(?:let|var)\s+([A-Za-z_]\w*)\s*=',
       ).firstMatch(line);
       if (assigned != null) {
-        final String name = assigned.group(1)!.toLowerCase();
+        final String name = assigned.requiredGroup(1).toLowerCase();
         final String nearby = lines
             .skip(index + 1)
             .take(5)
@@ -407,10 +426,10 @@ final class NimRuntimeRulePack {
     }
     if (inUpdate &&
         loopIndents.length >= 2 &&
-        RegExp(
+        cachedRegExp(
           r'dist\(|distance\(|intersect\(|collide\(|overlap\(|aabb\(|hitbox\(',
         ).hasMatch(lower) &&
-        !RegExp(
+        !cachedRegExp(
           r'grid|spatial|hash|quadtree|broad|bvh|partition|bucket',
         ).hasMatch(
           lines
@@ -434,35 +453,37 @@ final class NimRuntimeRulePack {
     final String lower = context.lower;
     final bool inDraw = drawProcIndents.isNotEmpty;
     if (inDraw &&
-        RegExp(
+        cachedRegExp(
           r'(?:cam|camera)\.(?:x|y|zoom)\s*(?:\+?=)|(?:cam|camera)\.(?:translate|rotate|scale|setpos|move)\(',
         ).hasMatch(lower)) {
-      cameraModified = true;
-      cameraProcLine = renderProcLine;
+      _cameraModified = true;
+      _cameraProcLine = _renderProcLine;
     }
     if (inDraw &&
-        RegExp(
+        cachedRegExp(
           r'(?:cam|camera)\.(?:reset|restore|identity|pop)\(|resettransform',
         ).hasMatch(lower)) {
-      cameraRestored = true;
+      _cameraRestored = true;
     }
     final bool assetLoad =
         lower.contains('load') &&
-        RegExp(
+        cachedRegExp(
           r'texture|image|sound|audio|font|mesh|model|shader|sprite|music|asset',
         ).hasMatch(lower);
     final bool assetFree =
-        RegExp(r'unload|free|release\(|destroy\(|dispose\(').hasMatch(lower) &&
-        RegExp(
+        cachedRegExp(
+          r'unload|free|release\(|destroy\(|dispose\(',
+        ).hasMatch(lower) &&
+        cachedRegExp(
           r'texture|image|sound|audio|font|mesh|model|shader|sprite|music|asset|all',
         ).hasMatch(lower);
-    if (assetLoad) assetLoadCount++;
-    if (assetFree) assetFreeCount++;
+    if (assetLoad) _assetLoadCount++;
+    if (assetFree) _assetFreeCount++;
     if (inDraw &&
-        RegExp(
+        cachedRegExp(
           r'drawtext\(|drawrect\(|drawcircle\(|drawline\(|drawtexture\(',
         ).hasMatch(lower) &&
-        RegExp(
+        cachedRegExp(
           r'fps|debug|trace|prof|memory|alloc',
         ).hasMatch(raw.toLowerCase()) &&
         !lines
@@ -487,20 +508,20 @@ final class NimRuntimeRulePack {
     final bool procDeclaration = context.procDeclaration;
     final bool inDraw = drawProcIndents.isNotEmpty;
     if (inDraw) {
-      if (RegExp(
+      if (cachedRegExp(
         r'beginscissor|beginclip|begincanvas|beginblend',
       ).hasMatch(lower)) {
-        renderBeginCount++;
+        _renderBeginCount++;
       }
-      if (RegExp(
+      if (cachedRegExp(
         r'endscissor|endclip|endcanvas|finishcanvas',
       ).hasMatch(lower)) {
-        renderEndCount++;
+        _renderEndCount++;
       }
     }
     if (loopCollections.isNotEmpty && !line.startsWith('for ')) {
       for (final collection in loopCollections) {
-        if (RegExp(
+        if (cachedRegExp(
           '${RegExp.escape(collection.name)}\\.(?:add|delete|del|remove|pop)\\(',
         ).hasMatch(lower)) {
           context.add(
@@ -520,7 +541,7 @@ final class NimRuntimeRulePack {
         for (final String segment
             in line.substring(open + 1, close).split(',')) {
           final String candidate = segment.split(':').first.trim();
-          if (RegExp(r'^[A-Za-z_]\w*$').hasMatch(candidate)) {
+          if (cachedRegExp(r'^[A-Za-z_]\w*$').hasMatch(candidate)) {
             names.add(candidate.toLowerCase());
           }
         }

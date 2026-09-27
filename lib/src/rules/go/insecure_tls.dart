@@ -15,6 +15,7 @@ final SourcePatternRule goInsecureTlsRule = SourcePatternRule(
     suggestion: 'Use trusted roots or explicit certificate pinning instead.',
     securityKind: SecurityFindingKind.vulnerability,
     languages: <String>['go'],
+    version: 2,
   ),
   pattern: RegExp(r'InsecureSkipVerify\s*:\s*true'),
   message: 'TLS certificate verification is disabled',

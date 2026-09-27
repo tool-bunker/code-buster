@@ -1,7 +1,9 @@
 // Nim module names can expand into grouped and relative imports, so dependency resolution is kept separate from procedure extraction.
 
 import 'package:path/path.dart' as path;
+import '../../core/models.dart';
 
+import '../../core/regexp_cache.dart';
 import '../../graph/graph.dart';
 
 /// Resolves project-local Nim import, include, and from-import dependencies.
@@ -12,7 +14,7 @@ final class NimDependencyAnalyzer {
     final Map<String, Iterable<String>> edges = <String, Iterable<String>>{};
     for (final String sourcePath in sources.keys.toList()..sort()) {
       final Set<String> dependencies = <String>{};
-      for (final String raw in sources[sourcePath]!.split('\n')) {
+      for (final String raw in sources.requiredValue(sourcePath).split('\n')) {
         final String line = _withoutComment(raw).trim();
         for (final String module in _modules(line)) {
           if (module.startsWith('std/') || module.startsWith('pkg/')) continue;
@@ -34,18 +36,18 @@ final class NimDependencyAnalyzer {
     } else {
       return;
     }
-    final RegExpMatch? bracket = RegExp(
+    final RegExpMatch? bracket = cachedRegExp(
       r'^([^\[]*)\[([^]]+)\]',
     ).firstMatch(body);
     if (bracket != null) {
-      final String prefix = bracket.group(1)!.trim();
-      for (final String item in bracket.group(2)!.split(',')) {
+      final String prefix = bracket.requiredGroup(1).trim();
+      for (final String item in bracket.requiredGroup(2).split(',')) {
         yield '$prefix${item.trim()}'.replaceAll('.', '/');
       }
       return;
     }
     for (final String item in body.split(',')) {
-      final String module = item.trim().split(RegExp(r'\s+as\s+')).first;
+      final String module = item.trim().split(cachedRegExp(r'\s+as\s+')).first;
       if (module.isNotEmpty) {
         yield module.startsWith('.') || module.contains('/')
             ? module

@@ -9,7 +9,8 @@ void main() {
           const RuleContext(
             config: AnalysisConfig(root: '.'),
             sources: <String, String>{
-              'Main.java': '''ObjectInputStream input = open();
+              'Main.java': '''import java.io.ObjectInputStream;
+ObjectInputStream input = open();
 String example = "ObjectInputStream input";
 ObjectInputStream second = reopen();
 ''',
@@ -19,6 +20,6 @@ ObjectInputStream second = reopen();
         )
         .toList();
     expect(findings, hasLength(1));
-    expect(findings.single.line, 1);
+    expect(findings.single.line, 2);
   });
 }

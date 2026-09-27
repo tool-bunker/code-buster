@@ -1,6 +1,7 @@
 // HTML and CSS checks share lightweight document and selector facts, collected once before their individual findings are reported.
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 
 /// Shared scans used by independently registered HTML and CSS rules.
 final class FrontendRuleAnalysis {
@@ -38,7 +39,7 @@ final class FrontendRuleAnalysis {
       final bool hasTemplatedTitle =
           hasTemplatedHead || _hasJekyllSeoTagInHead(entry.value);
       final List<Set<String>> doxygenConditions = _doxygenConditions(lines);
-      final bool hasLang = RegExp(
+      final bool hasLang = cachedRegExp(
         r'<html\b[^>]*\blang\s*=',
         caseSensitive: false,
         dotAll: true,
@@ -49,7 +50,7 @@ final class FrontendRuleAnalysis {
         'name',
         'viewport',
       );
-      final bool hasTitle = RegExp(
+      final bool hasTitle = cachedRegExp(
         r'<title(?:\s[^>]*)?>\s*[^<\s]',
       ).hasMatch(document);
       for (var index = 0; index < lines.length; index++) {
@@ -65,7 +66,7 @@ final class FrontendRuleAnalysis {
         if (executableInlineScripts.contains(index + 1)) {
           add('html-inline-script', RuleSeverity.warn, 'inline script block');
         }
-        if (RegExp(
+        if (cachedRegExp(
           r'\son(?:click|load|change|submit|error)\s*=',
         ).hasMatch(lower)) {
           add('html-inline-event', RuleSeverity.warn, 'inline event handler');
@@ -199,7 +200,8 @@ final class FrontendRuleAnalysis {
             ).any((String part) => _selectorDepth(part) > 4)) {
               add('css-selector-depth', 'deep CSS selector');
             }
-            if (_hasUniversalSelectorToken(selector)) {
+            if (_hasUniversalSelectorToken(selector) &&
+                !_isUniversalBoxSizingReset(selector, lines, index)) {
               add('css-universal-selector', 'universal selector used');
             }
           }
@@ -207,33 +209,33 @@ final class FrontendRuleAnalysis {
         if (lower.contains('!important')) {
           add('css-important', '!important used');
         }
-        final RegExpMatch? zIndex = RegExp(
+        final RegExpMatch? zIndex = cachedRegExp(
           r'z-index\s*:\s*(\d+)',
         ).firstMatch(lower);
-        if (zIndex != null && int.parse(zIndex.group(1)!) > 1000) {
+        if (zIndex != null && int.parse(zIndex.requiredGroup(1)) > 1000) {
           add('css-high-z-index', 'very high z-index');
         }
-        if (RegExp(r'font-size\s*:[^;]*\dpx').hasMatch(lower)) {
+        if (cachedRegExp(r'font-size\s*:[^;]*\dpx').hasMatch(lower)) {
           add('css-fixed-font-px', 'font size uses px');
         }
-        final RegExpMatch? prefixedProperty = RegExp(
+        final RegExpMatch? prefixedProperty = cachedRegExp(
           r'^-(?:webkit|moz|ms|o)-([a-z-]+)\s*:',
         ).firstMatch(lower);
         if (prefixedProperty != null) {
-          final String standard = prefixedProperty.group(1)!;
+          final String standard = prefixedProperty.requiredGroup(1);
           if (!_vendorOnlyProperties.contains(standard) &&
-              !RegExp(
+              !cachedRegExp(
                 '(?:^|[;{])\\s*${RegExp.escape(standard)}\\s*:',
               ).hasMatch(lowerSource)) {
             add('css-vendor-prefix-only', 'vendor-prefixed property');
           }
         }
         final RegExpMatch? declaration = inBlock
-            ? RegExp(r'^([a-z-]+)\s*:\s*([^;}]+)').firstMatch(lower)
+            ? cachedRegExp(r'^([a-z-]+)\s*:\s*([^;}]+)').firstMatch(lower)
             : null;
         if (declaration != null) {
-          final String property = declaration.group(1)!;
-          final String value = declaration.group(2)!.trim();
+          final String property = declaration.requiredGroup(1);
+          final String value = declaration.requiredGroup(2).trim();
           final String? previous = properties[property];
           if (previous != null &&
               !(previousProperty == property &&
@@ -337,7 +339,7 @@ final class FrontendRuleAnalysis {
   );
 
   static String _attribute(String line, String name) {
-    final RegExpMatch? match = RegExp(
+    final RegExpMatch? match = cachedRegExp(
       '(?:^|\\s)$name\\s*=\\s*(["\\\'])(.*?)\\1',
       caseSensitive: false,
     ).firstMatch(line);
@@ -345,17 +347,23 @@ final class FrontendRuleAnalysis {
   }
 
   static bool _hasInsecureHttpResource(String line) {
-    if (RegExp(r'''\s(?:src|srcset)\s*=\s*["']http://''').hasMatch(line)) {
+    if (cachedRegExp(
+      r'''\s(?:src|srcset)\s*=\s*["']http://''',
+    ).hasMatch(line)) {
       return true;
     }
-    if (RegExp(
+    if (cachedRegExp(
       r'''<(?:base|use)\b[^>]*\shref\s*=\s*["']http://''',
     ).hasMatch(line)) {
       return true;
     }
-    for (final RegExpMatch match in RegExp(r'<link\b[^>]*>').allMatches(line)) {
+    for (final RegExpMatch match in cachedRegExp(
+      r'<link\b[^>]*>',
+    ).allMatches(line)) {
       final String tag = match.group(0)!;
-      if (!RegExp(r'''\shref\s*=\s*["']http://''').hasMatch(tag)) continue;
+      if (!cachedRegExp(r'''\shref\s*=\s*["']http://''').hasMatch(tag)) {
+        continue;
+      }
       if (_attribute(tag, 'rel').trim() != 'profile') return true;
     }
     return false;
@@ -364,15 +372,15 @@ final class FrontendRuleAnalysis {
   static List<Set<String>> _doxygenConditions(List<String> lines) {
     final List<String> active = <String>[];
     final List<Set<String>> result = <Set<String>>[];
-    final RegExp marker = RegExp(
+    final RegExp marker = cachedRegExp(
       r'<!--\s*(BEGIN|END)\s+(!?[A-Z0-9_]+)\s*-->',
       caseSensitive: false,
     );
     for (final String line in lines) {
       final Set<String> conditions = active.toSet();
       for (final RegExpMatch match in marker.allMatches(line)) {
-        final String condition = match.group(2)!.toUpperCase();
-        if (match.group(1)!.toUpperCase() == 'BEGIN') {
+        final String condition = match.requiredGroup(2).toUpperCase();
+        if (match.requiredGroup(1).toUpperCase() == 'BEGIN') {
           active.add(condition);
           conditions.add(condition);
         } else {
@@ -393,6 +401,27 @@ final class FrontendRuleAnalysis {
       if (right.contains(opposite)) return true;
     }
     return false;
+  }
+
+  static bool _isUniversalBoxSizingReset(
+    String selector,
+    List<String> lines,
+    int start,
+  ) {
+    if (selector.trim() != '*') return false;
+    final List<String> declarations = <String>[];
+    for (var index = start + 1; index < lines.length; index++) {
+      final String line = lines[index].trim();
+      if (line.contains('}')) break;
+      if (line.isNotEmpty) declarations.add(line);
+    }
+    return declarations.isNotEmpty &&
+        declarations.every(
+          (line) => cachedRegExp(
+            r'^(?:-webkit-|-moz-)?box-sizing\s*:\s*border-box\s*;$',
+            caseSensitive: false,
+          ).hasMatch(line),
+        );
   }
 
   static bool _hasUniversalSelectorToken(String selector) {
@@ -533,8 +562,8 @@ final class FrontendRuleAnalysis {
     'touch-callout',
   };
 
-  static final RegExp _hexColor = RegExp(r'^#([0-9a-f]{3}|[0-9a-f]{6})$');
-  static final RegExp _rgbaColor = RegExp(
+  static final RegExp _hexColor = cachedRegExp(r'^#([0-9a-f]{3}|[0-9a-f]{6})$');
+  static final RegExp _rgbaColor = cachedRegExp(
     r'^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,',
   );
 
@@ -554,12 +583,12 @@ final class FrontendRuleAnalysis {
     String current,
   ) {
     Set<String>? signatures(String value) {
-      final RegExpMatch? match = RegExp(
+      final RegExpMatch? match = cachedRegExp(
         r'--value\(([^)]+)\)',
       ).firstMatch(value);
       if (match == null) return null;
       return match
-          .group(1)!
+          .requiredGroup(1)
           .split(',')
           .map((String signature) => signature.trim())
           .where((String signature) => signature.isNotEmpty)
@@ -590,8 +619,8 @@ final class FrontendRuleAnalysis {
       _hasVendorCompatibilityValue(current);
 
   static bool _hasVendorCompatibilityValue(String value) =>
-      RegExp(r'-(?:webkit|moz|ms|o)-').hasMatch(value) ||
-      RegExp(
+      cachedRegExp(r'-(?:webkit|moz|ms|o)-').hasMatch(value) ||
+      cachedRegExp(
         r'progid\s*:\s*dximagetransform\.microsoft\.gradient\s*\(',
       ).hasMatch(value);
 
@@ -599,7 +628,7 @@ final class FrontendRuleAnalysis {
     final RegExpMatch? hex = _hexColor.firstMatch(previous);
     final RegExpMatch? rgba = _rgbaColor.firstMatch(current);
     if (hex == null || rgba == null) return false;
-    final String digits = hex.group(1)!;
+    final String digits = hex.requiredGroup(1);
     final int color = int.parse(digits, radix: 16);
     final int red;
     final int green;
@@ -613,17 +642,17 @@ final class FrontendRuleAnalysis {
       green = (color >> 8) & 0xff;
       blue = color & 0xff;
     }
-    return red == int.parse(rgba.group(1)!) &&
-        green == int.parse(rgba.group(2)!) &&
-        blue == int.parse(rgba.group(3)!);
+    return red == int.parse(rgba.requiredGroup(1)) &&
+        green == int.parse(rgba.requiredGroup(2)) &&
+        blue == int.parse(rgba.requiredGroup(3));
   }
 
   static bool _hasMotionDeclaration(String line) {
-    final RegExpMatch? declaration = RegExp(
+    final RegExpMatch? declaration = cachedRegExp(
       r'^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)\s*:\s*([^;}]+)',
     ).firstMatch(line);
     if (declaration == null) return false;
-    final String value = declaration.group(1)!.trim();
+    final String value = declaration.requiredGroup(1).trim();
     if (const <String>{
       'none',
       'initial',
@@ -635,14 +664,14 @@ final class FrontendRuleAnalysis {
       return false;
     }
     if (value.contains('var(') || value.contains('calc(')) return true;
-    return RegExp(r'(\d*\.?\d+)(?:ms|s)\b')
+    return cachedRegExp(r'(\d*\.?\d+)(?:ms|s)\b')
         .allMatches(value)
-        .any((RegExpMatch match) => double.parse(match.group(1)!) > 0);
+        .any((RegExpMatch match) => double.parse(match.requiredGroup(1)) > 0);
   }
 
   static String _maskHtmlComments(String source) {
     final List<int> result = source.codeUnits.toList();
-    for (final RegExpMatch comment in RegExp(
+    for (final RegExpMatch comment in cachedRegExp(
       r'<!--.*?(?:-->|$)',
       dotAll: true,
     ).allMatches(source)) {
@@ -654,7 +683,7 @@ final class FrontendRuleAnalysis {
   }
 
   static Set<String> _labelTargets(String source) => <String>{
-    for (final RegExpMatch match in RegExp(
+    for (final RegExpMatch match in cachedRegExp(
       r'<label\b[^>]*>',
       caseSensitive: false,
       dotAll: true,
@@ -664,7 +693,7 @@ final class FrontendRuleAnalysis {
   };
 
   static Set<String> _boundLabelTargets(String source) => <String>{
-    for (final RegExpMatch match in RegExp(
+    for (final RegExpMatch match in cachedRegExp(
       r'<label\b[^>]*>',
       caseSensitive: false,
       dotAll: true,
@@ -679,7 +708,7 @@ final class FrontendRuleAnalysis {
     Set<String> boundLabelTargets,
   ) {
     final Set<int> result = <int>{};
-    for (final RegExpMatch inputMatch in RegExp(
+    for (final RegExpMatch inputMatch in cachedRegExp(
       r'<input\b[^>]*>',
       caseSensitive: false,
       dotAll: true,
@@ -695,7 +724,7 @@ final class FrontendRuleAnalysis {
             'reset',
           }.contains(type) ||
           (type == 'image' && _attribute(tag, 'alt').isNotEmpty) ||
-          RegExp(
+          cachedRegExp(
             r'\baria-label(?:ledby)?\s*=',
             caseSensitive: false,
           ).hasMatch(tag) ||
@@ -712,7 +741,7 @@ final class FrontendRuleAnalysis {
   }
 
   static String _boundAttribute(String tag, String name) {
-    final RegExpMatch? match = RegExp(
+    final RegExpMatch? match = cachedRegExp(
       '(?:^|\\s)(?::|v-bind:)$name\\s*=\\s*(["\\\'])(.*?)\\1',
       caseSensitive: false,
     ).firstMatch(tag);
@@ -722,10 +751,10 @@ final class FrontendRuleAnalysis {
   static bool _isInsideLabel(String source, int offset) {
     final String prefix = source.substring(0, offset);
     final int opening = prefix.lastIndexOf(
-      RegExp(r'<label\b[^>]*>', caseSensitive: false, dotAll: true),
+      cachedRegExp(r'<label\b[^>]*>', caseSensitive: false, dotAll: true),
     );
     final int closing = prefix.lastIndexOf(
-      RegExp(r'</label\s*>', caseSensitive: false),
+      cachedRegExp(r'</label\s*>', caseSensitive: false),
     );
     return opening > closing;
   }
@@ -736,12 +765,12 @@ final class FrontendRuleAnalysis {
     String attributeName,
   ) {
     final Set<int> result = <int>{};
-    for (final RegExpMatch tagMatch in RegExp(
+    for (final RegExpMatch tagMatch in cachedRegExp(
       '<$tagName\\b[^>]*>',
       caseSensitive: false,
       dotAll: true,
     ).allMatches(source)) {
-      if (RegExp(
+      if (cachedRegExp(
         '\\b$attributeName\\s*=',
         caseSensitive: false,
       ).hasMatch(tagMatch.group(0)!)) {
@@ -760,7 +789,7 @@ final class FrontendRuleAnalysis {
     String attributeName,
     String attributeValue,
   ) {
-    for (final RegExpMatch tagMatch in RegExp(
+    for (final RegExpMatch tagMatch in cachedRegExp(
       '<$tagName\\b[^>]*>',
       caseSensitive: false,
       dotAll: true,
@@ -775,13 +804,13 @@ final class FrontendRuleAnalysis {
 
   static Set<int> _formsWithoutNativeMethod(String source) {
     final Set<int> result = <int>{};
-    for (final RegExpMatch tagMatch in RegExp(
+    for (final RegExpMatch tagMatch in cachedRegExp(
       r'<form\b[^>]*>',
       caseSensitive: false,
       dotAll: true,
     ).allMatches(source)) {
       final String tag = tagMatch.group(0)!;
-      if (RegExp(r'\bmethod\s*=', caseSensitive: false).hasMatch(tag) ||
+      if (cachedRegExp(r'\bmethod\s*=', caseSensitive: false).hasMatch(tag) ||
           _preventsNativeFormSubmission(tag)) {
         continue;
       }
@@ -793,65 +822,65 @@ final class FrontendRuleAnalysis {
   }
 
   static bool _preventsNativeFormSubmission(String tag) {
-    if (RegExp(
+    if (cachedRegExp(
       r'(?:@|v-on:)submit(?:\.[\w-]+)*\.prevent(?:\.[\w-]+)*\s*=',
       caseSensitive: false,
     ).hasMatch(tag)) {
       return true;
     }
-    return RegExp(r'\bonsubmit\b', caseSensitive: false).hasMatch(tag) &&
-        RegExp(
+    return cachedRegExp(r'\bonsubmit\b', caseSensitive: false).hasMatch(tag) &&
+        cachedRegExp(
           r'\bpreventdefault\s*\(|\breturn\s+false\b',
           caseSensitive: false,
         ).hasMatch(tag);
   }
 
   static bool _hasMarkupTemplateInHead(String source) {
-    if (RegExp(
+    if (cachedRegExp(
       r'''{%\s*include\s+["']?(?:[^"'%\s]+[/\\])?head(?:\.[a-z0-9_-]+)?["']?\s*%}''',
       caseSensitive: false,
     ).hasMatch(source)) {
       return true;
     }
-    final RegExpMatch? head = RegExp(
+    final RegExpMatch? head = cachedRegExp(
       r'<head\b[^>]*>(.*?)</head>',
       caseSensitive: false,
       dotAll: true,
     ).firstMatch(source);
     if (head == null) return false;
-    return RegExp(
+    return cachedRegExp(
       r'''<%-|{{{\s*|{{\s*>|{%\s*include\b|<\?(?:php)?\s*(?:include|require)\b''',
       caseSensitive: false,
-    ).hasMatch(head.group(1)!);
+    ).hasMatch(head.requiredGroup(1));
   }
 
   static bool _hasJekyllSeoTagInHead(String source) {
-    final RegExpMatch? head = RegExp(
+    final RegExpMatch? head = cachedRegExp(
       r'<head\b[^>]*>(.*?)</head>',
       caseSensitive: false,
       dotAll: true,
     ).firstMatch(source);
     return head != null &&
-        RegExp(
+        cachedRegExp(
           r'{%\s*seo\b[^%]*%}',
           caseSensitive: false,
-        ).hasMatch(head.group(1)!);
+        ).hasMatch(head.requiredGroup(1));
   }
 
   static Set<int> _blankTargetsWithoutRel(String source) {
     final Set<int> result = <int>{};
-    for (final RegExpMatch tagMatch in RegExp(
+    for (final RegExpMatch tagMatch in cachedRegExp(
       r'<a\b[^>]*>',
       caseSensitive: false,
       dotAll: true,
     ).allMatches(source)) {
       final String tag = tagMatch.group(0)!;
-      final RegExpMatch? targetMatch = RegExp(
+      final RegExpMatch? targetMatch = cachedRegExp(
         r'''target\s*=\s*["']_blank["']''',
         caseSensitive: false,
       ).firstMatch(tag);
       if (targetMatch == null ||
-          RegExp(r'''\brel\s*=''', caseSensitive: false).hasMatch(tag)) {
+          cachedRegExp(r'''\brel\s*=''', caseSensitive: false).hasMatch(tag)) {
         continue;
       }
       result.add(
@@ -869,12 +898,12 @@ final class FrontendRuleAnalysis {
 
 Set<int> _executableInlineScriptLines(String source) {
   final Set<int> result = <int>{};
-  final RegExp openingTag = RegExp(
+  final RegExp openingTag = cachedRegExp(
     r'<script\b[^>]*>',
     caseSensitive: false,
     dotAll: true,
   );
-  final RegExp closingTag = RegExp(r'</script\s*>', caseSensitive: false);
+  final RegExp closingTag = cachedRegExp(r'</script\s*>', caseSensitive: false);
   var cursor = 0;
   while (cursor < source.length) {
     final Iterator<RegExpMatch> openings = openingTag
@@ -898,14 +927,16 @@ Set<int> _executableInlineScriptLines(String source) {
 }
 
 bool _isExecutableInlineScriptTag(String tag) {
-  if (RegExp(r'\bsrc\s*=', caseSensitive: false).hasMatch(tag)) return false;
-  if (RegExp(
+  if (cachedRegExp(r'\bsrc\s*=', caseSensitive: false).hasMatch(tag)) {
+    return false;
+  }
+  if (cachedRegExp(
     r'''(?:\bnonce\s*=|\{\{[^}]*\bnonce(?:_?attribute)?\b[^}]*\}\})''',
     caseSensitive: false,
   ).hasMatch(tag)) {
     return false;
   }
-  final RegExpMatch? type = RegExp(
+  final RegExpMatch? type = cachedRegExp(
     r'''\btype\s*=\s*["']([^"']+)["']''',
     caseSensitive: false,
   ).firstMatch(tag);
@@ -914,5 +945,5 @@ bool _isExecutableInlineScriptTag(String tag) {
     'module',
     'text/javascript',
     'application/javascript',
-  }.contains(type.group(1)!.toLowerCase());
+  }.contains(type.requiredGroup(1).toLowerCase());
 }

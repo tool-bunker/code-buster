@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import '../core/regexp_cache.dart';
+
 /// Detects declared language and runtime constraints without invoking toolchains.
 final class LanguageVersionDetector {
   /// Creates the stateless detector.
@@ -38,7 +40,7 @@ final class LanguageVersionDetector {
           _put(
             result,
             'go',
-            RegExp(
+            cachedRegExp(
               r'^\s*go\s+(\S+)',
               multiLine: true,
             ).firstMatch(source)?.group(1),
@@ -47,7 +49,7 @@ final class LanguageVersionDetector {
           _put(
             result,
             'python',
-            RegExp(
+            cachedRegExp(
               r'''requires-python\s*=\s*["']([^"']+)''',
             ).firstMatch(source)?.group(1),
           );
@@ -55,7 +57,7 @@ final class LanguageVersionDetector {
           _put(
             result,
             'java',
-            RegExp(
+            cachedRegExp(
               r'<maven\.compiler\.(?:release|source)>\s*([^<]+)',
             ).firstMatch(source)?.group(1)?.trim(),
           );
@@ -63,7 +65,7 @@ final class LanguageVersionDetector {
           _put(
             result,
             'java',
-            RegExp(
+            cachedRegExp(
               r'^\s*(?:javaVersion|java_version)\s*=\s*(\S+)',
               multiLine: true,
             ).firstMatch(source)?.group(1),
@@ -95,7 +97,7 @@ final class LanguageVersionDetector {
     }
   }
 
-  String? _yamlConstraint(String source, String key) => RegExp(
+  String? _yamlConstraint(String source, String key) => cachedRegExp(
     '^\\s{2}${RegExp.escape(key)}:\\s*["\']?([^"\'\\n]+)',
     multiLine: true,
   ).firstMatch(source)?.group(1)?.trim();

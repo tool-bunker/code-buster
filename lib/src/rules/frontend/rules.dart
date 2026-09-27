@@ -14,10 +14,12 @@ final class FrontendSourceRule extends SelfContainedRule {
     required String language,
     String? why,
     String? suggestion,
+    int version = 1,
   }) : language = language,
        super(
          RuleMetadata(
            id: id,
+           version: version,
            defaultSeverity: severity,
            group: group,
            title:
@@ -68,15 +70,20 @@ FrontendSourceRule _html(
   why: why,
   suggestion: suggestion,
 );
-FrontendSourceRule _css(String id, {String? why, String? suggestion}) =>
-    FrontendSourceRule(
-      id: id,
-      severity: RuleSeverity.info,
-      group: 'nim-style',
-      language: 'css',
-      why: why,
-      suggestion: suggestion,
-    );
+FrontendSourceRule _css(
+  String id, {
+  String? why,
+  String? suggestion,
+  int version = 1,
+}) => FrontendSourceRule(
+  id: id,
+  severity: RuleSeverity.info,
+  group: 'nim-style',
+  language: 'css',
+  why: why,
+  suggestion: suggestion,
+  version: version,
+);
 
 /// Self-contained HTML rules in deterministic execution order.
 final RuleRegistry htmlRuleRegistry = RuleRegistry(<CodeBusterRule>[
@@ -110,6 +117,6 @@ final RuleRegistry cssRuleRegistry = RuleRegistry(<CodeBusterRule>[
         'Fix selector structure or ordering instead of forcing priority.',
   ),
   _css('css-selector-depth'),
-  _css('css-universal-selector'),
+  _css('css-universal-selector', version: 2),
   _css('css-vendor-prefix-only'),
 ]);

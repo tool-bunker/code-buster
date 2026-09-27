@@ -2,6 +2,7 @@
 import 'dart:io';
 
 import '../../core/models.dart';
+import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
 
 /// Executes the legacy C# rule family outside the language adapter.
@@ -31,6 +32,7 @@ final class CSharpRuleAnalysis {
         _analyzeStructure(context);
         _analyzeRuntime(context);
         _analyzeLegacyApis(context);
+        _trackArchivePaths(context);
         _analyzeSecurity(context);
       }
     }
@@ -98,11 +100,11 @@ final class CSharpRuleAnalysis {
       return true;
     }
     final String alias = line.substring('using '.length, equals).trim();
-    return RegExp(r'^[A-Za-z_]\w*$').hasMatch(alias);
+    return cachedRegExp(r'^[A-Za-z_]\w*$').hasMatch(alias);
   }
 
   static void _analyzeLoop(_CSharpFindingContext context) {
-    if (RegExp(r'^(?:for|foreach)\b').hasMatch(context.line)) {
+    if (cachedRegExp(r'^(?:for|foreach)\b').hasMatch(context.line)) {
       context.loopDepth++;
     }
     if (_concatenatesInLoop(context)) {
@@ -120,7 +122,7 @@ final class CSharpRuleAnalysis {
       context.legacyApiLine,
     );
     if (readonlyHttpClient != null) {
-      context.readonlyHttpClientFields.add(readonlyHttpClient.group(1)!);
+      context.readonlyHttpClientFields.add(readonlyHttpClient.requiredGroup(1));
     }
     final String line = context.line;
     if (line.contains(' = new ') && line.contains('delegate')) {
@@ -251,11 +253,104 @@ final class CSharpRuleAnalysis {
     }
   }
 
+  static void _trackArchivePaths(_CSharpFindingContext context) {
+    final String code = context.legacyApiLine;
+    final RegExpMatch? assignment = cachedRegExp(
+      r'\b(?:var|string)\s+([A-Za-z_]\w*)\s*=\s*(.+?);?$',
+    ).firstMatch(code);
+    if (assignment != null) {
+      final String variable = assignment.requiredGroup(1);
+      final String expression = assignment.requiredGroup(2);
+      if (_containsArchiveEntryPath(expression) ||
+          context.archivePathVariables.any(
+            (String name) => cachedRegExp(
+              '\\b${RegExp.escape(name)}\\b',
+            ).hasMatch(expression),
+          )) {
+        context.archivePathVariables.add(variable);
+      }
+    }
+
+    for (final String variable in context.archivePathVariables) {
+      if (!cachedRegExp(
+        '\\b${RegExp.escape(variable)}\\.StartsWith\\s*\\(',
+      ).hasMatch(code)) {
+        continue;
+      }
+      final int end = context.index + 5 < context.lines.length
+          ? context.index + 5
+          : context.lines.length;
+      final String guard = context.lines.sublist(context.index, end).join('\n');
+      if (cachedRegExp(r'\b(?:throw|return)\b').hasMatch(guard)) {
+        context.validatedArchivePathVariables.add(variable);
+      }
+    }
+
+    final RegExpMatch? extraction = cachedRegExp(
+      r'\.ExtractToFile\s*\(|\b([A-Za-z_]\w*)\s*\(',
+    ).firstMatch(code);
+    if (extraction == null) return;
+    final bool directExtraction = code.contains('.ExtractToFile');
+    final String? wrapper = extraction.group(1);
+    if (!directExtraction &&
+        (wrapper == null ||
+            !_isArchiveExtractionWrapper(context.lines, wrapper))) {
+      return;
+    }
+    final String destination = code.substring(extraction.end);
+    final bool directEntryPath = _containsArchiveEntryPath(destination);
+    final String? taintedVariable = context.archivePathVariables
+        .where(
+          (String name) => cachedRegExp(
+            '\\b${RegExp.escape(name)}\\b',
+          ).hasMatch(destination),
+        )
+        .cast<String?>()
+        .firstWhere((String? name) => name != null, orElse: () => null);
+    if (!directEntryPath && taintedVariable == null) return;
+    if (taintedVariable != null &&
+        context.validatedArchivePathVariables.contains(taintedVariable)) {
+      return;
+    }
+    context.add(
+      'cs-archive-path-traversal',
+      RuleSeverity.warn,
+      'archive entry path reaches extraction without a containment check',
+    );
+  }
+
+  static bool _containsArchiveEntryPath(String expression) =>
+      cachedRegExp(r'\b[A-Za-z_]\w*\.FullName\b').hasMatch(expression);
+
+  static bool _isArchiveExtractionWrapper(
+    List<String> lines,
+    String methodName,
+  ) {
+    final RegExp declaration = cachedRegExp(
+      '^\\s*(?:(?:public|protected|internal|private|static|async)\\s+)+'
+      r'[A-Za-z_][\w<>\[\]?,.]*\s+'
+      '${RegExp.escape(methodName)}\\s*\\(',
+    );
+    for (var index = 0; index < lines.length; index++) {
+      if (!declaration.hasMatch(lines[index]) ||
+          lines[index].trim().endsWith(';')) {
+        continue;
+      }
+      final int end = index + 40 < lines.length ? index + 40 : lines.length;
+      if (lines
+          .sublist(index, end)
+          .any((String line) => line.contains('.ExtractToFile('))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static bool _catchesSystemException(String line) =>
       line.startsWith('catch (Exception') ||
       line.startsWith('catch (System.Exception');
   static bool _usesNonShortCircuitBoolean(String line) {
-    if (!RegExp(r'^(?:if|while)\s*\(').hasMatch(line) ||
+    if (!cachedRegExp(r'^(?:if|while)\s*\(').hasMatch(line) ||
         !_hasTopLevelNonShortCircuitOperator(line)) {
       return false;
     }
@@ -298,21 +393,21 @@ final class CSharpRuleAnalysis {
       final String rawRight = rawPlusEquals < 0
           ? ''
           : context.raw.substring(rawPlusEquals + 2);
-      if (RegExp(r'''(?:@|\$@|@\$|\$)?"''').hasMatch(rawRight)) {
+      if (cachedRegExp(r'''(?:@|\$@|@\$|\$)?"''').hasMatch(rawRight)) {
         return true;
       }
       final String candidate = context.line.substring(0, plusEquals).trim();
-      if (RegExp(r'^[A-Za-z_]\w*$').hasMatch(candidate)) {
+      if (cachedRegExp(r'^[A-Za-z_]\w*$').hasMatch(candidate)) {
         target = candidate;
       }
     } else {
-      target = RegExp(
+      target = cachedRegExp(
         r'^([A-Za-z_]\w*)\s*=\s*\1\s*\+',
       ).firstMatch(context.line)?.group(1);
     }
     if (target == null) return false;
 
-    final RegExp stringDeclaration = RegExp(
+    final RegExp stringDeclaration = cachedRegExp(
       r'\bstring\s+' + RegExp.escape(target) + r'\b',
     );
     return context.lines
@@ -360,12 +455,12 @@ final class CSharpRuleAnalysis {
       final RegExpMatch? declaration = _typeDeclaration.firstMatch(code);
       if (declaration != null) {
         final String modifiers = declaration.group(1) ?? '';
-        final bool restricted = RegExp(
+        final bool restricted = cachedRegExp(
           r'\b(?:private|internal|file)\b',
         ).hasMatch(modifiers);
         pendingTypeVisibility =
             !restricted &&
-            RegExp(r'\b(?:public|protected)\b').hasMatch(modifiers);
+            cachedRegExp(r'\b(?:public|protected)\b').hasMatch(modifiers);
       }
 
       for (final int character in code.codeUnits) {
@@ -402,14 +497,14 @@ final class CSharpRuleAnalysis {
     final int first = context.index > 12 ? context.index - 12 : 0;
     for (var index = context.index - 1; index >= first; index--) {
       final String candidate = context.lines[index];
-      if (RegExp(
+      if (cachedRegExp(
         r'\b[A-Za-z_]\w*\s*\([^;]*\)\s*(?:\{|$)',
       ).hasMatch(candidate)) {
         surrounding.write(' ${candidate.toLowerCase()}');
         break;
       }
     }
-    return RegExp(
+    return cachedRegExp(
       r'\b(?:auth|credential|password|passwd|secret|token|signature|signing|certificate|encryption|encrypt|decrypt|keyderivation|key derivation)',
     ).hasMatch(surrounding.toString());
   }
@@ -417,17 +512,17 @@ final class CSharpRuleAnalysis {
   static bool _containsHardcodedSecret(_CSharpFindingContext context) {
     final RegExpMatch? assignment = _literalAssignment.firstMatch(context.raw);
     if (assignment == null) return false;
-    final String identifier = assignment.group(1)!;
-    final String literal = assignment.group(2)!;
+    final String identifier = assignment.requiredGroup(1);
+    final String literal = assignment.requiredGroup(2);
     final String normalizedIdentifier = identifier
-        .replaceAll(RegExp('[^A-Za-z0-9]'), '')
+        .replaceAll(cachedRegExp('[^A-Za-z0-9]'), '')
         .toLowerCase();
     final String normalizedLiteral = literal
-        .replaceAll(RegExp('[^A-Za-z0-9]'), '')
+        .replaceAll(cachedRegExp('[^A-Za-z0-9]'), '')
         .toLowerCase();
     return literal.trim().isNotEmpty &&
         (normalizedLiteral.length >= 8 ||
-            !RegExp(r'^\d+$').hasMatch(normalizedLiteral)) &&
+            !cachedRegExp(r'^\d+$').hasMatch(normalizedLiteral)) &&
         _secretIdentifier.hasMatch(identifier) &&
         normalizedLiteral != normalizedIdentifier &&
         !_isPlaceholderSecretLiteral(normalizedLiteral) &&
@@ -451,34 +546,34 @@ final class CSharpRuleAnalysis {
   static bool _buildsSqlString(_CSharpFindingContext context) {
     final String raw = context.raw;
     if (_isManagementQuery(context)) return false;
-    if (!RegExp(
+    if (!cachedRegExp(
       r'\b\w*(?:sql|query|command)\w*\s*=\s*(?:\$@?|@\$?)?"[^"]*\b(?:select|insert|update|delete)\s',
       caseSensitive: false,
     ).hasMatch(raw)) {
       return false;
     }
     if ((raw.contains(r'$"') || raw.contains(r'$@"') || raw.contains(r'@$"')) &&
-        RegExp(r'\{[^{}]+\}').hasMatch(raw)) {
+        cachedRegExp(r'\{[^{}]+\}').hasMatch(raw)) {
       return !_onlySafeNumericSqlInterpolation(context);
     }
     if (!raw.contains('+')) return false;
     final String expression = _stripStrings(raw).split('=').skip(1).join('=');
-    return RegExp(
+    return cachedRegExp(
       r'(?:\+\s*[A-Za-z_]\w*|[A-Za-z_]\w*\s*\+)',
     ).hasMatch(expression);
   }
 
   static bool _isManagementQuery(_CSharpFindingContext context) {
-    final RegExpMatch? assignment = RegExp(
+    final RegExpMatch? assignment = cachedRegExp(
       r'\b([A-Za-z_]\w*)\s*=',
     ).firstMatch(context.raw);
     if (assignment == null) return false;
-    final String variable = assignment.group(1)!;
+    final String variable = assignment.requiredGroup(1);
     final String lowerVariable = variable.toLowerCase();
     if (lowerVariable.contains('wmi') || lowerVariable.contains('cim')) {
       return true;
     }
-    final RegExp use = RegExp(
+    final RegExp use = cachedRegExp(
       '\\b(?:ManagementObjectSearcher|QueryInstances)\\s*\\([^;]*\\b${RegExp.escape(variable)}\\b',
     );
     final int end = context.index + 25 < context.lines.length
@@ -488,32 +583,32 @@ final class CSharpRuleAnalysis {
   }
 
   static bool _onlySafeNumericSqlInterpolation(_CSharpFindingContext context) {
-    final List<RegExpMatch> expressions = RegExp(
+    final List<RegExpMatch> expressions = cachedRegExp(
       r'(?<!\{)\{([^{}]+)\}(?!\})',
     ).allMatches(context.raw).toList(growable: false);
     if (expressions.isEmpty) return false;
 
     return expressions.every((RegExpMatch match) {
-      final String expression = match.group(1)!.trim();
+      final String expression = match.requiredGroup(1).trim();
       if (_numericCastExpression.hasMatch(expression)) return true;
-      if (!RegExp(r'^[A-Za-z_]\w*$').hasMatch(expression)) return false;
+      if (!cachedRegExp(r'^[A-Za-z_]\w*$').hasMatch(expression)) return false;
 
       final int first = context.index > 80 ? context.index - 80 : 0;
       for (var previous = context.index - 1; previous >= first; previous--) {
         final String declaration = context.lines[previous];
         final String name = RegExp.escape(expression);
-        if (RegExp(
+        if (cachedRegExp(
           '\\b(?:const\\s+)?(?:s?byte|u?short|u?int|u?long|float|double|decimal)\\s+$name\\b',
         ).hasMatch(declaration)) {
           return true;
         }
-        final RegExpMatch? inferred = RegExp(
+        final RegExpMatch? inferred = cachedRegExp(
           '\\bvar\\s+$name\\s*=\\s*([^;]+)',
         ).firstMatch(declaration);
         if (inferred != null) {
-          final String value = inferred.group(1)!.trim();
+          final String value = inferred.requiredGroup(1).trim();
           return _numericLiteral.hasMatch(value) ||
-              RegExp(r'\.Ticks\b').hasMatch(value);
+              cachedRegExp(r'\.Ticks\b').hasMatch(value);
         }
       }
       return false;
@@ -547,68 +642,70 @@ final class CSharpRuleAnalysis {
   }
 
   static String _stripStrings(String line) => line.replaceAll(
-    RegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*' '''.trim()),
+    cachedRegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*' '''.trim()),
     '',
   );
-  static final RegExp _asyncVoidEventHandler = RegExp(
+  static final RegExp _asyncVoidEventHandler = cachedRegExp(
     r'\basync\s+void\s+[A-Za-z_]\w*\s*\(\s*object\??\s+sender\s*,\s*'
     r'(?:[A-Za-z_]\w*\.)*(?:[A-Za-z_]\w*)?EventArgs\??\s+[A-Za-z_]\w*\s*\)',
   );
-  static final RegExp _asyncVoidOverride = RegExp(
+  static final RegExp _asyncVoidOverride = cachedRegExp(
     r'\boverride\s+async\s+void\b',
   );
-  static final RegExp _staticHttpClientMember = RegExp(
+  static final RegExp _staticHttpClientMember = cachedRegExp(
     r'^(?=[^=]*\bstatic\b)'
     r'(?:(?:public|protected|internal|private|new|static|readonly|volatile|unsafe)\s+)+'
     r'(?:System\.Net\.Http\.)?HttpClient\??\s+[A-Za-z_]\w*\s*'
     r'(?:\{[^}]*\}\s*)?=\s*new\s+HttpClient\s*\(',
   );
-  static final RegExp _readonlyHttpClientField = RegExp(
+  static final RegExp _readonlyHttpClientField = cachedRegExp(
     r'\breadonly\s+(?:System\.Net\.Http\.)?HttpClient\??\s+([A-Za-z_]\w*)\s*;',
   );
-  static final RegExp _synchronizationEventWait = RegExp(
+  static final RegExp _synchronizationEventWait = cachedRegExp(
     r'(?:\b|\.)[A-Za-z_]\w*Event\.Wait\s*\(\s*\)',
   );
-  static final RegExp _httpClientAssignment = RegExp(
+  static final RegExp _httpClientAssignment = cachedRegExp(
     r'^(?:this\.)?([A-Za-z_]\w*)\s*=\s*new\s+HttpClient\s*\(',
   );
-  static final RegExp _typeDeclaration = RegExp(
+  static final RegExp _typeDeclaration = cachedRegExp(
     r'^(?:\[[^\]]+\]\s*)*((?:(?:public|protected|internal|private|file|new|static|abstract|sealed|partial|readonly|ref)\s+)*)'
     r'(?:class|struct|interface|record(?:\s+(?:class|struct))?)\s+[A-Za-z_]\w*',
   );
-  static final RegExp _numericBitwiseOperand = RegExp(
+  static final RegExp _numericBitwiseOperand = cachedRegExp(
     r'(?:0[xX][0-9A-Fa-f]+|\b\d+)(?:[uUlL]+)?\s*[&|]|'
     r'[&|]\s*(?:0[xX][0-9A-Fa-f]+|\d+)(?:[uUlL]+\b)?',
   );
-  static final RegExp _bitwiseResultComparison = RegExp(
+  static final RegExp _bitwiseResultComparison = cachedRegExp(
     r'\([^;\n]*\s[&|]\s[^;\n]*\)\s*(?:==|!=|<=|>=|<|>)\s*(?!true\b|false\b)',
   );
-  static final RegExp _numericCastExpression = RegExp(
+  static final RegExp _numericCastExpression = cachedRegExp(
     r'^\((?:s?byte|u?short|u?int|u?long|float|double|decimal)\)\s*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$',
   );
-  static final RegExp _numericLiteral = RegExp(
+  static final RegExp _numericLiteral = cachedRegExp(
     r'^[+-]?\d[\d_]*(?:\.\d[\d_]*)?[fFdDmMuUlL]*$',
   );
-  static final RegExp _synchronousWait = RegExp(
+  static final RegExp _synchronousWait = cachedRegExp(
     r'\.Result\b(?!\s*=(?!=))|\.Wait\s*\(\s*\)|\.GetAwaiter\s*\(\s*\)\s*\.GetResult\s*\(\s*\)',
   );
-  static final RegExp _runtimeType = RegExp(
+  static final RegExp _runtimeType = cachedRegExp(
     r'\bSystem\.(?:String|Int32|Boolean|Object|Void)\b',
   );
-  static final RegExp _casApi = RegExp(
+  static final RegExp _casApi = cachedRegExp(
     r'\b(?:CodeAccessPermission|SecurityPermission|PermissionSet)\b',
   );
-  static final RegExp _legacyDigest = RegExp(
+  static final RegExp _legacyDigest = cachedRegExp(
     r'\bHashAlgorithmName\.(?:MD5|SHA1)\b|\b(?:MD5|SHA1)\b\s*(?:\(|\.Create\b)',
   );
-  static final RegExp _obsoleteCipher = RegExp(
+  static final RegExp _obsoleteCipher = cachedRegExp(
     r'\b(?:DES|TripleDES|RC2|RijndaelManaged)\b\s*(?:\(|\.Create\b)',
   );
-  static final RegExp _literalAssignment = RegExp(
+  static final RegExp _literalAssignment = cachedRegExp(
     r'\b([A-Za-z_]\w*)\s*=\s*(?:@|\$@|@\$)?"([^"]*)"',
   );
-  static final RegExp _uriLiteral = RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*://');
-  static final RegExp _symbolicSecretLiteral = RegExp(
+  static final RegExp _uriLiteral = cachedRegExp(
+    r'^[A-Za-z][A-Za-z0-9+.-]*://',
+  );
+  static final RegExp _symbolicSecretLiteral = cachedRegExp(
     r'^(?:[A-Z][A-Z0-9_]*|[a-z0-9]+(?:_[a-z0-9]+)+|[a-z]+-\d+(?:-[a-z0-9]+)*|[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+|<[A-Za-z0-9_:-]+>|\[[A-Za-z0-9_:-]+\])$',
   );
   static bool _isLexicalTokenLiteral(
@@ -630,8 +727,8 @@ final class CSharpRuleAnalysis {
     return (prefix.isNotEmpty &&
             (prefix == normalizedLiteral ||
                 prefix.endsWith(normalizedLiteral))) ||
-        RegExp(r'^[A-Z][A-Za-z0-9]*$').hasMatch(literal) ||
-        RegExp(r'\{\d+\}').hasMatch(literal) ||
+        cachedRegExp(r'^[A-Z][A-Za-z0-9]*$').hasMatch(literal) ||
+        cachedRegExp(r'\{\d+\}').hasMatch(literal) ||
         (literal.startsWith('<') && literal.endsWith('>'));
   }
 
@@ -645,17 +742,17 @@ final class CSharpRuleAnalysis {
     'test',
     'asdf',
   };
-  static final RegExp _placeholderSecretPattern = RegExp(
+  static final RegExp _placeholderSecretPattern = cachedRegExp(
     r'^(?:(?:fake|mock|dummy|test)[a-z0-9]*(?:key|token|secret|password|passwd)|(?:asdf){2,})$',
   );
   static bool _isPlaceholderSecretLiteral(String normalizedLiteral) =>
       _placeholderSecretLiterals.contains(normalizedLiteral) ||
       _placeholderSecretPattern.hasMatch(normalizedLiteral);
-  static final RegExp _secretIdentifier = RegExp(
+  static final RegExp _secretIdentifier = cachedRegExp(
     r'(?:^|_)(?:token|secret|password|passwd|api_?key|nonce|salt)(?:$|_)|(?:access|auth|bearer|refresh|session|jwt|api|client|identity|security|oauth)token$|(?:secret|password|passwd|apikey|nonce|salt)$',
     caseSensitive: false,
   );
-  static final RegExp _nonCredentialKey = RegExp(
+  static final RegExp _nonCredentialKey = cachedRegExp(
     r'(?:Map|Preference|Package|Action|Type|Path|Error|Width|Height|Quality|Configuration|Setting|Name|Id|Url|Uri|File|Directory|Certificate)(?:Key|Token|Secret|Password)?$|^HeaderName\w*$',
     caseSensitive: false,
   );
@@ -664,7 +761,7 @@ final class CSharpRuleAnalysis {
       '$root${Platform.pathSeparator}.editorconfig',
     );
     if (!editorConfig.existsSync()) return false;
-    return RegExp(
+    return cachedRegExp(
       r'^\s*csharp_style_namespace_declarations\s*=\s*file_scoped\b',
       caseSensitive: false,
       multiLine: true,
@@ -690,6 +787,8 @@ final class _CSharpFindingContext {
   int index = 0;
   final Set<String> enabledIds;
   final Set<String> readonlyHttpClientFields = <String>{};
+  final Set<String> archivePathVariables = <String>{};
+  final Set<String> validatedArchivePathVariables = <String>{};
   int namespaceDepth = 0;
   int loopDepth = 0;
   bool _insideBlockComment = false;
@@ -730,8 +829,8 @@ final class _CSharpFindingContext {
           continue;
         }
         if (character != _stringQuote) continue;
-        if (_verbatimString && next == _stringQuote) {
-          output.writeCharCode(next!);
+        if (_verbatimString && next == _stringQuote && next != null) {
+          output.writeCharCode(next);
           offset++;
         } else {
           _stringQuote = null;
@@ -809,9 +908,10 @@ final class CSharpSourceRule extends SelfContainedRule {
            suggestion: id == 'cs-async-void'
                ? 'Return Task/ValueTask unless this is a UI/event handler with documented intent.'
                : 'Use the safer modern .NET alternative described by the rule.',
-           version: 5,
+           version: id == 'cs-archive-path-traversal' ? 3 : 5,
            securityKind:
                const <String>{
+                 'cs-archive-path-traversal',
                  'cs-cas-api',
                  'cs-dcom-api',
                  'cs-public-pinvoke',

@@ -1,6 +1,8 @@
-// Dead files, cycles, structure limits, architecture edges, and cross-language risks emerge only after the full repository graph exists.
+// Cross-language repository risks live here; framework overlays are registered separately.
 
 import '../core/rule.dart';
+import 'generic/clean_code_rules.dart';
+import 'generic/diff_quality_rules.dart';
 import 'generic/generated_code_risks.dart';
 import 'generic/generic_rules.dart';
 import 'generic/layout_rules.dart';
@@ -17,6 +19,23 @@ final RuleRegistry repositoryRuleRegistry = RuleRegistry(<CodeBusterRule>[
   TodoCommentRule(),
   FixmeCommentRule(),
   OperationOnSameValueRule(),
+  PublicMutableStateRule(),
+  CommentedOutCodeRule(),
+  PlaceholderIdentifierRule(),
+  MixedBoundaryResponsibilityRule(),
+  RepeatedPolicyLiteralRule(),
+  InconsistentPeerFileNamingRule(),
+  ChangedPublicApiWithoutTestRule(),
+  ChangedComplexityRegressionRule(),
+  BroadRefactorInFocusedChangeRule(),
+  StyleDriftInDiffRule(),
+  ChangedBehaviorWithoutTestRule(),
+  OptionalFeatureBundleRule(),
+  AbstractionCostExceedsUseRule(),
+  NewUnusedDeclarationRule(),
+  SingleCallerWrapperRule(),
+  UnrelatedSymbolChurnRule(),
+  BooleanOptionExplosionRule(),
   ExcessiveCommentDensityRule(),
   NarratingImplementationCommentRule(),
   TrivialCommentRestatementRule(),
@@ -28,10 +47,6 @@ final RuleRegistry repositoryRuleRegistry = RuleRegistry(<CodeBusterRule>[
   NeedlessBoolBranchRule(),
   const CssDuplicateDeclarationSetRule(),
   const CssDesignTokenDriftRule(),
-  const FlutterRepeatedInlineStyleRule(),
-  const FlutterThemeBypassRule(),
-  const FlutterParallelControlComponentRule(),
-  const FlutterSharedComponentBypassRule(),
   const HtmlParallelControlPatternRule(),
   const TestRepeatedRuntimeBootstrapRule(),
   SqlInlineStringConcatRule(),

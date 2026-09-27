@@ -143,6 +143,64 @@ String capture(Match match) => match.group(1)!;
     expect(assertions.single.line, 2);
   });
 
+  test('accepts map lookups while iterating sorted keys', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/config.dart': '''
+class Config {
+  Config(this.settings);
+  final Map<String, String> settings;
+}
+List<String> values(Config config) => <String>[
+  for (final String key in config.settings.keys.toList()..sort())
+    config.settings[key]!,
+];
+''',
+    });
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'dart-null-assertion',
+      ),
+      isEmpty,
+    );
+  });
+
+  test('accepts map lookups dominated by matching presence guards', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/config.dart': '''
+String? guarded(Map<String, String> values, String key, String other) {
+  if (!values.containsKey(key)) return null;
+  final String found = values[key]!;
+  if (values.containsKey(other)) return found + values[key]!;
+  return found + values[other]!;
+}
+''',
+    });
+
+    final List<Finding> assertions = findings
+        .where((Finding finding) => finding.code == 'dart-null-assertion')
+        .toList();
+    expect(assertions, hasLength(1));
+    expect(assertions.single.line, 5);
+  });
+
+  test('recognizes null assertions proven by local control flow', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/null_assertions.dart': sourceFixture(
+        'dart/recognizes_null_assertion_flow_guards/null_assertions.dart',
+      ),
+    });
+
+    final List<Finding> assertions = findings
+        .where((Finding finding) => finding.code == 'dart-null-assertion')
+        .toList();
+    expect(assertions, hasLength(3));
+    expect(
+      assertions.map((Finding finding) => finding.line),
+      containsAll(<int>[12, 28, 34]),
+    );
+  });
+
   test('ignores unwrappable comments, directives, and multiline strings', () {
     final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
       'lib/layout.dart': sourceFixture(
@@ -228,6 +286,23 @@ String capture(Match match) => match.group(1)!;
     expect(secrets, hasLength(2));
   });
 
+  test('does not treat public protocol identifiers as secrets', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/client.dart': '''
+const nonceUrl = 'https://api.example.com/v1/secure/nonce';
+const allowlistedUserAgentToken = 'Product-v3.5.9';
+const apiToken = 'AbCdEf1234567890';
+''',
+    });
+
+    expect(
+      findings
+          .where((Finding finding) => finding.code == 'dart-hardcoded-secret')
+          .map((Finding finding) => finding.line),
+      <int>[3],
+    );
+  });
+
   test('does not treat GraphQL documents as hardcoded secrets', () {
     final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
       'lib/account_queries.dart': sourceFixture(
@@ -288,6 +363,26 @@ const accessToken = '0123456789abcdef';
         'flutter-set-state-after-await',
         'flutter-stream-created-in-build',
       }),
+    );
+  });
+
+  test('detects alternate unconditional certificate callbacks', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/client.dart': '''
+void configure(dynamic config) {
+  config.onBadCertificate = (_) => true;
+}
+''',
+    });
+
+    expect(
+      findings
+          .where(
+            (Finding finding) =>
+                finding.code == 'dart-bad-certificate-callback',
+          )
+          .map((Finding finding) => finding.line),
+      <int>[2],
     );
   });
 
@@ -520,6 +615,28 @@ const accessToken = '0123456789abcdef';
     expect(sensitive.single.line, 3);
   });
 
+  test('reports reset-password tokens written to logs', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/logging.dart': '''
+void validate(String email, String token) {
+  Log.info('Validate reset password token: \$email, \$token');
+}
+
+void parse(String token) {
+  Log.info('Parsed token: \$token');
+}
+''',
+    });
+
+    final List<Finding> sensitive = findings
+        .where(
+          (Finding finding) => finding.code == 'dart-sensitive-data-logging',
+        )
+        .toList();
+    expect(sensitive, hasLength(1));
+    expect(sensitive.single.line, 2);
+  });
+
   test('pairs listener lifecycle calls by AST receiver', () {
     final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
       'lib/listeners.dart': sourceFixture(
@@ -535,6 +652,35 @@ const accessToken = '0123456789abcdef';
         .toList();
     expect(listenerFindings, hasLength(1));
     expect(listenerFindings.single.message, contains('`other`'));
+  });
+
+  test('accepts listeners on hook-owned collection values', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/hook_listeners.dart': '''
+class Dialog extends HookWidget {
+  Widget build(BuildContext context) {
+    final nodes = <String, FocusNode>{
+      'terms': useFocusNode(),
+      'privacy': useFocusNode(),
+    };
+    useEffect(() {
+      for (final entry in nodes.entries) {
+        entry.value.addListener(() => update(entry.key));
+      }
+      return null;
+    }, []);
+    return Container();
+  }
+}
+''',
+    });
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'flutter-listener-without-remove',
+      ),
+      isEmpty,
+    );
   });
 
   test('accepts JSON casts protected by a corrupt-input fallback', () {
@@ -594,6 +740,47 @@ const accessToken = '0123456789abcdef';
     },
   );
 
+  test('does not treat a shadowed setState callback as Flutter State', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/settings.dart': '''
+void showDialog(void Function() setState) {
+  register(() async {
+    await save();
+    setState();
+  });
+}
+''',
+    });
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'flutter-set-state-after-await',
+      ),
+      isEmpty,
+    );
+  });
+
+  test('does not mistake an error response factory for exception logging', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/service.dart': '''
+Future<Response> handle() async {
+  try {
+    return await execute();
+  } on Exception catch (error) {
+    return Response.error(500, error.toString());
+  }
+}
+''',
+    });
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'dart-catch-without-stack-trace',
+      ),
+      isEmpty,
+    );
+  });
+
   test('does not report advanced risks when ownership and inputs are safe', () {
     final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
       'lib/safe_advanced.dart': sourceFixture(
@@ -625,6 +812,73 @@ const accessToken = '0123456789abcdef';
       findings.where((Finding finding) => advanced.contains(finding.code)),
       isEmpty,
     );
+  });
+
+  test('requires untrusted provenance for path traversal hotspots', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/paths.dart': '''
+Future<FileInfo?> readBundledFile(String fileName) async {
+  final homePath = await appPath.homeDirPath;
+  return File(join(homePath, fileName)).getFileInfo();
+}
+
+Future<FileInfo?> readRequestedFile(String userPath) async {
+  final homePath = await appPath.homeDirPath;
+  return File(join(homePath, userPath)).getFileInfo();
+}
+''',
+    });
+
+    final List<Finding> pathFindings = findings
+        .where((Finding finding) => finding.code == 'dart-path-traversal')
+        .toList();
+    expect(pathFindings, hasLength(1));
+    expect(pathFindings.single.path, 'lib/paths.dart');
+    expect(pathFindings.single.line, 8);
+  });
+
+  test('accepts complete path guards before filesystem construction', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/guarded_paths.dart': r'''
+final windowsAbsolutePath = RegExp(r'^[A-Za-z]:[\\/]');
+final pathSeparator = RegExp(r'[\\/]');
+
+File? guardedFile(String root, String relativePath) {
+  if (relativePath.startsWith('/') ||
+      relativePath.startsWith(r'\') ||
+      windowsAbsolutePath.hasMatch(relativePath) ||
+      relativePath.split(pathSeparator).contains('..')) {
+    return null;
+  }
+  return File('$root/$relativePath');
+}
+
+File incompleteGuard(String root, String relativePath) {
+  if (relativePath.startsWith('/') ||
+      relativePath.split(pathSeparator).contains('..')) {
+    throw ArgumentError.value(relativePath);
+  }
+  return File('$root/$relativePath');
+}
+
+File lateGuard(String root, String relativePath) {
+  final file = File('$root/$relativePath');
+  if (relativePath.startsWith('/') ||
+      relativePath.startsWith(r'\') ||
+      windowsAbsolutePath.hasMatch(relativePath) ||
+      relativePath.split(pathSeparator).contains('..')) {
+    throw ArgumentError.value(relativePath);
+  }
+  return file;
+}
+''',
+    });
+
+    final List<Finding> pathFindings = findings
+        .where((Finding finding) => finding.code == 'dart-path-traversal')
+        .toList();
+    expect(pathFindings, hasLength(2));
+    expect(pathFindings.map((Finding finding) => finding.line), [19, 23]);
   });
 
   test('requires resource ownership and accepts optional disposal', () {
@@ -785,6 +1039,22 @@ const accessToken = '0123456789abcdef';
       ),
       isEmpty,
     );
+  });
+
+  test('scopes late final persistence checks to serialized fields', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/contracts.dart': sourceFixture(
+        'dart/scopes_late_final_persistence_to_serialized_fields/contracts.dart',
+      ),
+    });
+
+    final List<Finding> persistence = findings
+        .where(
+          (Finding finding) => finding.code == 'dart-late-final-persistence',
+        )
+        .toList();
+    expect(persistence, hasLength(1));
+    expect(persistence.single.message, contains('`token`'));
   });
 
   test('allows Expanded passed to a custom widget factory', () {
@@ -1001,6 +1271,31 @@ const accessToken = '0123456789abcdef';
 
     final List<Finding> findings = DartRuleAnalysis().findings(
       sources,
+      config: const AnalysisConfig(
+        root: '.',
+        duplicationMode: DuplicationMode.semantic,
+      ),
+    );
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'dart-overlapping-data-model',
+      ),
+      isEmpty,
+    );
+  });
+  test('ignores overlapping private implementation shapes', () {
+    const String shape = '''
+  final String id;
+  final String name;
+  final String email;
+  final String avatarUrl;
+''';
+    final List<Finding> findings = DartRuleAnalysis().findings(
+      <String, String>{
+        'lib/first.dart': 'class _First {$shape}',
+        'lib/second.dart': 'class _Second {$shape}',
+      },
       config: const AnalysisConfig(
         root: '.',
         duplicationMode: DuplicationMode.semantic,
