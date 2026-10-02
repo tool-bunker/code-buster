@@ -330,10 +330,12 @@ final class DartWorkspaceLayout {
           ? normalized.substring(prefix.length)
           : '';
       final List<String> segments = relative.split('/');
-      if (segments.length == 2 &&
-          (segments.first == 'lib' || segments.first == 'bin')) {
-        return true;
-      }
+      final bool publicLibrary =
+          segments.length >= 2 &&
+          segments.first == 'lib' &&
+          (segments.length == 2 || segments[1] != 'src');
+      final bool executable = segments.length == 2 && segments.first == 'bin';
+      if (publicLibrary || executable) return true;
     }
     return false;
   }

@@ -473,6 +473,30 @@ final class RuleExecutionStage {
         });
     final List<Finding> all = <Finding>[
       ...repository.complexityFindings(functions: functions, config: config),
+      ...repository.trivialWrapperFindings(
+        functions: functions,
+        config: config,
+      ),
+      ...repository.singleProductFactoryFindings(
+        functions: functions,
+        config: config,
+      ),
+      ...repository.constantArgumentFindings(
+        functions: functions,
+        config: config,
+      ),
+      ...repository.unusedCustomizationHookFindings(
+        functions: functions,
+        config: config,
+      ),
+      ...repository.unusedOptionalParameterFindings(
+        functions: functions,
+        config: config,
+      ),
+      ...repository.unusedConfigurationOptionFindings(
+        functions: functions,
+        config: config,
+      ),
       ...repository.fileFindings(sources: sources, config: config),
       ...graphFindings,
       ...duplication.exactBlocks(sources, minLines: config.minDuplicationLines),

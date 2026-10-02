@@ -65,7 +65,7 @@ final class RustAdapter {
             path: entry.key,
             name: match.requiredGroup(1),
             line: _lineAt(entry.value, declarationStart),
-            source: entry.value.substring(declarationStart, close + 1),
+            source: entry.value.substring(match.start, close + 1),
           ),
         );
       }

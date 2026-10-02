@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.7.2
+
+### Added
+
+- Detect single-use private functions that only forward unchanged arguments to one local target, while excluding reused wrappers, transformations, validation, overrides, comments, and string references.
+- Detect private parameters that receive the same simple constant at three or more visible call sites, while excluding public APIs, overrides, varying or dynamic arguments, optional parameters, ambiguous names, and incomplete reference evidence.
+- Detect optional callback customization hooks on private functions when three or more visible callers all use the fallback path, while excluding public APIs, overrides, supplied hooks, non-callback options, ambiguous names, and incomplete reference evidence.
+- Detect used optional parameters on private functions when three or more visible callers always omit them, while excluding public APIs, overrides, supplied options, callback hooks, unused parameters, ambiguous names, and incomplete reference evidence.
+- Detect private one-caller factories that only construct one fixed product with unchanged arguments, while excluding reused factories, transformations, lifecycle, validation, selection, decoration, and public composition boundaries.
+- Detect configuration options supplied through inline objects by every visible caller but never read by the private implementation, while excluding dynamic, forwarded, destructured, computed, public, and incompletely resolved configuration.
+- Validate the new YAGNI rules through C++, C#, Go, Java, TypeScript, Python, and Rust adapters, with language-aware visibility and parameter parsing and explicit metadata language contracts.
+
+### Improved
+
+- Store analysis caches in the operating system's user-cache directory instead of modifying analyzed repositories, with `--no-cache` for one-off runs and `--cache-dir` for explicit persistence.
+- Move the canonical product, documentation, and native installer URLs to `toolbunker.dev/codebuster`.
+- Treat nested Dart libraries outside `lib/src` as public package entry points so exported provider libraries and their implementations are not reported as dead files.
+- Classify conventional `vendored` directories as third-party source and top-level `templates` trees as example scaffolds.
+- Avoid sensitive-logging findings for non-secret object metadata and accept owned Dart sinks closed through a local alias.
+- Exclude multiline function and constructor parameters from cross-language public mutable-state findings.
+
 
 ## 0.7.1
 
