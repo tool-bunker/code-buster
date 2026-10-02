@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import '../cache/analysis_cache.dart';
 import '../cli/cli_contract.dart';
 import '../controls/finding_controls.dart';
 import '../core/models.dart';
@@ -148,7 +149,14 @@ final class AnalysisRunner {
         ...language.diagnostics,
       ...ingestion.diagnostics,
     ];
-    final AnalysisCacheStage cache = AnalysisCacheStage();
+    final AnalysisCacheStage cache = AnalysisCacheStage(
+      enabled: options.cacheEnabled,
+      cache: PersistentAnalysisCache(
+        directory: options.cacheDirectory.isEmpty
+            ? null
+            : Directory(options.cacheDirectory).absolute.path,
+      ),
+    );
     final DependencyGraph graph = cache.graph(
       prepared,
       () => GraphConstructionStage(_languagePlugins).build(indexed),

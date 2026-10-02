@@ -47,7 +47,7 @@ void main() {
 
     expect(plan.channel, UpdateChannel.native);
     expect(plan.executable, '/bin/sh');
-    expect(plan.downloadUrl, 'https://codebuster.toolbunker.dev/install');
+    expect(plan.downloadUrl, 'https://toolbunker.dev/codebuster/install');
     expect(plan.environment, <String, String>{'PREFIX': '/home/user/.local'});
   });
 

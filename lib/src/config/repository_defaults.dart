@@ -243,6 +243,7 @@ final class RepositoryDefaults {
         hasTestFlavor) {
       return 'test';
     }
+    if (segments.first == 'templates') return 'example';
     if (has(const <String>{
           'example',
           'examples',
@@ -260,7 +261,13 @@ final class RepositoryDefaults {
         hasExampleFlavor) {
       return 'example';
     }
-    if (has(const <String>{'vendor', 'third_party', 'compiled', 'cargokit'})) {
+    if (has(const <String>{
+      'vendor',
+      'vendored',
+      'third_party',
+      'compiled',
+      'cargokit',
+    })) {
       return 'vendored';
     }
     final int buildIndex = segments.indexOf('build');
@@ -385,9 +392,11 @@ final class RepositoryDefaults {
     '**/*.Benchmark/**',
     '**/*.Benchmarks/**',
     '**/storybook/**',
+    'templates/**',
   ];
   static const List<String> _vendorIgnores = <String>[
     '**/vendor/**',
+    '**/vendored/**',
     '**/third_party/**',
     '**/compiled/**',
     '**/cargokit/**',

@@ -82,6 +82,36 @@ void main() {
     expect(options.includeAll, isTrue);
   });
 
+  test('parses external and disabled cache policies', () {
+    final CodeBusterCliOptions defaults = CodeBusterCliContract.parse(<String>[
+      'summary',
+    ]);
+    final CodeBusterCliOptions disabled = CodeBusterCliContract.parse(<String>[
+      'summary',
+      '--no-cache',
+    ]);
+    final CodeBusterCliOptions custom = CodeBusterCliContract.parse(<String>[
+      'summary',
+      '--cache-dir',
+      '/tmp/cb-cache',
+    ]);
+
+    expect(defaults.cacheEnabled, isTrue);
+    expect(defaults.cacheDirectory, isEmpty);
+    expect(disabled.cacheEnabled, isFalse);
+    expect(custom.cacheEnabled, isTrue);
+    expect(custom.cacheDirectory, '/tmp/cb-cache');
+    expect(
+      () => CodeBusterCliContract.parse(<String>[
+        'summary',
+        '--no-cache',
+        '--cache-dir',
+        '/tmp/cb-cache',
+      ]),
+      throwsA(isA<UsageException>()),
+    );
+  });
+
   test('rejects unknown commands and invalid report formats', () {
     expect(
       () => CodeBusterCliContract.parse(<String>['unknown']),

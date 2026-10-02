@@ -45,6 +45,19 @@ class Session {
   private secret: string = '';
 }
 ''',
+            'src/github.ts': '''
+class GitHubError {
+  constructor(
+    kind: string,
+    options: { message?: string } = {}
+  ) {}
+}
+
+function applyStyle(
+  source: string,
+  markMatches = false
+) {}
+''',
           }),
         )
         .toList();

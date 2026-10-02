@@ -313,6 +313,9 @@ func main() { _ = os.WriteFile("ready", nil, 0o777) }
           "export 'src/worker.dart';",
       'packages/isolates/lib/src/worker.dart': '',
       'packages/isolates/lib/src/orphan.dart': '',
+      'packages/isolates/lib/providers/apple.dart':
+          "export '../src/apple.dart';",
+      'packages/isolates/lib/src/apple.dart': '',
     };
     final AnalysisConfig config = AnalysisConfig(root: root.path);
     final PreparedAnalysis prepared = PreparedAnalysis(
@@ -348,14 +351,14 @@ func main() { _ = os.WriteFile("ready", nil, 0o777) }
     Directory('${root.path}/lib/routes').createSync(recursive: true);
     File('${root.path}/lib/routes/app_router.g.dart').writeAsStringSync('''
 // GENERATED CODE - DO NOT MODIFY BY HAND
-import 'package:app/pages/home.dart';
+import 'package:app/src/pages/home.dart';
 ''');
     const Map<String, String> sources = <String, String>{
       'lib/main.dart': "import 'routes/app_router.dart';\nvoid main() {}\n",
       'lib/routes/app_router.dart': '',
-      'lib/pages/home.dart': "import '../widgets/player.dart';\n",
-      'lib/widgets/player.dart': '',
-      'lib/widgets/orphan.dart': '',
+      'lib/src/pages/home.dart': "import '../widgets/player.dart';\n",
+      'lib/src/widgets/player.dart': '',
+      'lib/src/widgets/orphan.dart': '',
     };
     final AnalysisConfig config = AnalysisConfig(root: root.path);
     final PreparedAnalysis prepared = PreparedAnalysis(
@@ -385,7 +388,7 @@ import 'package:app/pages/home.dart';
         .where((Finding finding) => finding.code == 'dead-file');
 
     expect(deadFiles.map((Finding finding) => finding.path), <String>[
-      'lib/widgets/orphan.dart',
+      'lib/src/widgets/orphan.dart',
     ]);
   });
 

@@ -89,21 +89,181 @@ final class RuleCatalog {
       requirements: <RuleAnalysisRequirement>{RuleAnalysisRequirement.graph},
       languages: <String>['dart'],
     ),
-    for (final String id in const <String>[
-      'constant-argument-parameter',
-      'single-use-trivial-wrapper',
-      'unused-customization-hook',
-    ])
-      id: RuleMetadata(
-        id: id,
-        defaultSeverity: RuleSeverity.info,
-        group: 'yagni',
-        title: 'Review ${id.replaceAll('-', ' ')}',
-        why:
-            'This abstraction may advertise flexibility that current callers do not use.',
-        suggestion:
-            'Simplify the API until multiple concrete uses justify the abstraction.',
-      ),
+    'unused-configuration-option': RuleMetadata(
+      id: 'unused-configuration-option',
+      defaultSeverity: RuleSeverity.info,
+      group: 'yagni',
+      title: 'Remove an unused configuration option',
+      why:
+          'A configuration option that every caller supplies but the implementation never reads adds misleading variation and maintenance cost.',
+      suggestion:
+          'Remove the option from callers and its configuration type until the implementation needs it.',
+      semanticMaturity: RuleSemanticMaturity.token,
+      requirements: <RuleAnalysisRequirement>{
+        RuleAnalysisRequirement.functions,
+      },
+      taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
+      languages: <String>[
+        'csharp',
+        'dart',
+        'javascript',
+        'typescript',
+        'python',
+      ],
+      limitations: <String>[
+        'Reports identifier-named options supplied through inline object literals or named constructor arguments to private functions with at least three visible call sites.',
+        'Requires a configuration-like parameter name, a project-unique function name, complete direct-call evidence, and property-only reads of the configuration parameter.',
+        'String-keyed maps, positional configuration constructors, aliases, destructuring, computed property access, reflection, overload ownership, and framework-discovered private hooks are not resolved.',
+      ],
+    ),
+    'unused-customization-hook': RuleMetadata(
+      id: 'unused-customization-hook',
+      defaultSeverity: RuleSeverity.info,
+      group: 'yagni',
+      title: 'Remove an unused customization hook',
+      why:
+          'An unused callback hook adds branching and API surface for variation that has no current caller.',
+      suggestion:
+          'Remove the hook and its fallback path until a concrete caller needs customization.',
+      version: 3,
+      semanticMaturity: RuleSemanticMaturity.token,
+      requirements: <RuleAnalysisRequirement>{
+        RuleAnalysisRequirement.functions,
+      },
+      taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
+      languages: <String>[
+        'csharp',
+        'dart',
+        'javascript',
+        'typescript',
+        'python',
+      ],
+      limitations: <String>[
+        'Reports optional callback-like parameters on private C# methods and underscore-prefixed Dart, JavaScript, TypeScript, or Python functions with at least three visible call sites and a project-unique name.',
+        'Requires the function body to invoke the hook and complete evidence that no visible caller supplies it.',
+        'Reflective calls, method tear-offs, overload ownership, forwarded callback parameters, and framework-discovered private hooks are not resolved.',
+      ],
+    ),
+    'unused-optional-parameter': RuleMetadata(
+      id: 'unused-optional-parameter',
+      defaultSeverity: RuleSeverity.info,
+      group: 'yagni',
+      title: 'Remove an unused optional parameter',
+      why:
+          'An optional parameter that every caller omits adds API surface and a dormant behavior path without current variation.',
+      suggestion:
+          'Use the default behavior directly and remove the parameter until a concrete caller needs variation.',
+      semanticMaturity: RuleSemanticMaturity.token,
+      requirements: <RuleAnalysisRequirement>{
+        RuleAnalysisRequirement.functions,
+      },
+      taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
+      languages: <String>[
+        'csharp',
+        'dart',
+        'javascript',
+        'typescript',
+        'python',
+      ],
+      limitations: <String>[
+        'Reports used optional parameters on private C# methods and underscore-prefixed Dart, JavaScript, TypeScript, or Python functions with at least three visible call sites and a project-unique name.',
+        'Requires complete evidence that no visible caller supplies the parameter and leaves invoked callback-like parameters to unused-customization-hook.',
+        'Reflective calls, method tear-offs, overload ownership, forwarded parameters, and framework-discovered private hooks are not resolved.',
+      ],
+    ),
+    'constant-argument-parameter': RuleMetadata(
+      id: 'constant-argument-parameter',
+      defaultSeverity: RuleSeverity.info,
+      group: 'yagni',
+      title: 'Remove a constant argument parameter',
+      why:
+          'A parameter whose callers always supply one value advertises flexibility that the current code does not use.',
+      suggestion:
+          'Move the constant into the private function and remove the parameter until callers need real variation.',
+      version: 3,
+      semanticMaturity: RuleSemanticMaturity.token,
+      requirements: <RuleAnalysisRequirement>{
+        RuleAnalysisRequirement.functions,
+      },
+      taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
+      languages: <String>[
+        'cpp',
+        'csharp',
+        'dart',
+        'go',
+        'java',
+        'javascript',
+        'typescript',
+        'python',
+        'rust',
+      ],
+      limitations: <String>[
+        'Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.',
+        'Supports required positional parameters whose values are booleans, null sentinels, numeric literals, enum values, or uppercase constants.',
+        'String constants, named and optional parameters, reflective calls, method tear-offs, overload ownership, and framework-discovered private hooks are not resolved.',
+      ],
+    ),
+    'single-product-factory': RuleMetadata(
+      id: 'single-product-factory',
+      defaultSeverity: RuleSeverity.info,
+      group: 'yagni',
+      title: 'Inline a single-product factory',
+      why:
+          'A one-caller factory with one fixed product and no owned policy, lifecycle, or transformation adds indirection without current variation.',
+      suggestion:
+          'Construct the product at the caller until selection, lifecycle, or shared creation policy is needed.',
+      semanticMaturity: RuleSemanticMaturity.token,
+      requirements: <RuleAnalysisRequirement>{
+        RuleAnalysisRequirement.functions,
+      },
+      taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
+      languages: <String>[
+        'cpp',
+        'csharp',
+        'dart',
+        'java',
+        'javascript',
+        'typescript',
+        'python',
+      ],
+      limitations: <String>[
+        'Reports only static C/C++ functions, private C#/Java methods, and underscore-prefixed Dart/JavaScript/TypeScript/Python factories with exactly one visible caller.',
+        'Requires a factory-like name and a body consisting only of direct construction with unchanged positional arguments.',
+        'Factories that select products, own lifecycle, cache, validate, decorate, transform arguments, or expose public composition boundaries are excluded.',
+      ],
+    ),
+    'single-use-trivial-wrapper': RuleMetadata(
+      id: 'single-use-trivial-wrapper',
+      defaultSeverity: RuleSeverity.info,
+      group: 'yagni',
+      title: 'Inline a single-use trivial wrapper',
+      why:
+          'A single-use forwarding function adds navigation without owning policy, transformation, validation, or resource lifetime.',
+      suggestion:
+          'Inline the wrapper unless it is an intentional extension or compatibility boundary.',
+      version: 3,
+      semanticMaturity: RuleSemanticMaturity.token,
+      requirements: <RuleAnalysisRequirement>{
+        RuleAnalysisRequirement.functions,
+      },
+      taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
+      languages: <String>[
+        'cpp',
+        'csharp',
+        'dart',
+        'go',
+        'java',
+        'javascript',
+        'typescript',
+        'python',
+        'rust',
+      ],
+      limitations: <String>[
+        'Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.',
+        'Requires unchanged positional arguments and a uniquely named local target function.',
+        'Method tear-offs, reflective calls, overload ownership, and framework-discovered private hooks are not resolved.',
+      ],
+    ),
     'complex-function': RuleMetadata(
       id: 'complex-function',
       defaultSeverity: RuleSeverity.warn,
@@ -162,7 +322,7 @@ final class RuleCatalog {
       why: 'A source file is not reachable from configured entry points.',
       suggestion:
           'Remove the file, add an entry point, or add the missing dependency edge.',
-      version: 8,
+      version: 9,
     ),
     'duplicate-block': RuleMetadata(
       id: 'duplicate-block',
