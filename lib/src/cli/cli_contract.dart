@@ -73,6 +73,8 @@ final class CodeBusterCliOptions {
     required this.verbose,
     required this.ci,
     required this.allowEmpty,
+    this.cacheEnabled = true,
+    this.cacheDirectory = '',
     this.includeAll = false,
     this.includeAdvisory = false,
     this.allFindings = false,
@@ -104,6 +106,8 @@ final class CodeBusterCliOptions {
   final bool verbose;
   final bool ci;
   final bool allowEmpty;
+  final bool cacheEnabled;
+  final String cacheDirectory;
   final bool includeAdvisory;
   final bool allFindings;
   final String findingGroup;
@@ -143,6 +147,16 @@ final class CodeBusterCliContract {
     ..addFlag('verbose', negatable: false)
     ..addFlag('ci', negatable: false)
     ..addFlag('allow-empty', negatable: false)
+    ..addFlag(
+      'cache',
+      defaultsTo: true,
+      help: 'Reuse analysis results from the external user cache.',
+    )
+    ..addOption(
+      'cache-dir',
+      valueHelp: 'PATH',
+      help: 'Store analysis cache files in PATH instead of the user cache.',
+    )
     ..addFlag('all', negatable: false)
     ..addFlag('advisory', negatable: false)
     ..addFlag('all-findings', negatable: false)
@@ -179,12 +193,16 @@ final class CodeBusterCliContract {
         'complete -c cb -f -a "$commands"\n'
             'complete -c cb -l root -r\n'
             'complete -c cb -l lang -r\n'
+            'complete -c cb -l cache-dir -r\n'
+            'complete -c cb -l cache\n'
             'complete -c cb -l format -a "text json ndjson markdown sarif junit mermaid"',
       'zsh' =>
         '#compdef cb\n'
             "_arguments '1:command:($commands)' "
             "'--root[project root]:dir:_files -/' "
             "'--lang[language]:' "
+            "'--cache[reuse analysis cache]' "
+            "'--cache-dir[cache directory]:dir:_files -/' "
             "'--format[format]:(text json ndjson markdown sarif junit mermaid)'",
       _ => 'complete -W "$commands" cb',
     };
@@ -198,6 +216,12 @@ final class CodeBusterCliContract {
     final String changedBase = results.flag('changed')
         ? 'HEAD'
         : results['changed-base'] as String? ?? '';
+    if (!results.flag('cache') && results.wasParsed('cache-dir')) {
+      throw UsageException(
+        '--no-cache cannot be combined with --cache-dir',
+        parser.usage,
+      );
+    }
     return CodeBusterCliOptions(
       command: command,
       root: results['root'] as String,
@@ -223,6 +247,8 @@ final class CodeBusterCliContract {
       verbose: results.flag('verbose'),
       ci: results.flag('ci'),
       allowEmpty: results.flag('allow-empty'),
+      cacheEnabled: results.flag('cache'),
+      cacheDirectory: results['cache-dir'] as String? ?? '',
       includeAll: results.flag('all'),
       includeAdvisory: results.flag('advisory'),
       allFindings: results.flag('all-findings'),

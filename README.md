@@ -7,11 +7,11 @@
     The AI Improver for code
     <br />
     <br />
-    <a href="https://toolbunker.dev/code-buster/">Overview</a>
+    <a href="https://toolbunker.dev/codebuster/">Overview</a>
     ·
-    <a href="https://toolbunker.dev/code-buster/docs/getting-started/installation">Installation</a>
+    <a href="https://toolbunker.dev/codebuster/docs/getting-started/installation">Installation</a>
     ·
-    <a href="https://toolbunker.dev/code-buster/docs/">Documentation</a>
+    <a href="https://toolbunker.dev/codebuster/docs/">Documentation</a>
     ·
     <a href="CONTRIBUTING.md">Contributing</a>
   </p>
@@ -45,13 +45,13 @@ Install a native Apple Silicon macOS or x86-64 Linux build with the verified
 installer:
 
 ```sh
-curl -fsSL https://codebuster.toolbunker.dev/install | sh
+curl -fsSL https://toolbunker.dev/codebuster/install | sh
 ```
 
 On x86-64 Windows PowerShell:
 
 ```powershell
-irm https://codebuster.toolbunker.dev/install.ps1 | iex
+irm https://toolbunker.dev/codebuster/install.ps1 | iex
 ```
 
 When Dart 3.11 or newer is already installed:
@@ -71,8 +71,12 @@ Configuration is optional. Start with coverage in the summary, then use focused
 commands such as `review`, `duplication`, `graph`, `dead`, `hotspots`, or
 `inspect` for the question you need to answer.
 
-See the [installation guide](https://toolbunker.dev/code-buster/docs/getting-started/installation)
-and [quickstart](https://toolbunker.dev/code-buster/docs/getting-started/quickstart)
+Analysis caches live in the operating system's user-cache directory, not in the
+analyzed repository. Use `--no-cache` for one-off runs or `--cache-dir PATH`
+when a CI job or local workflow needs an explicit cache location.
+
+See the [installation guide](https://toolbunker.dev/codebuster/docs/getting-started/installation)
+and [quickstart](https://toolbunker.dev/codebuster/docs/getting-started/quickstart)
 for every supported path.
 
 ## What Code Buster finds
@@ -111,7 +115,7 @@ Python, JavaScript, TypeScript, Go, HTML, CSS, Java, Wren, SQL, and Lua/Luau.
 Analysis depth and real-world validation vary by language. Flutter and React are
 detected as framework profiles rather than separate source languages.
 
-See the current [language support matrix](https://toolbunker.dev/code-buster/docs/reference/languages).
+See the current [language support matrix](https://toolbunker.dev/codebuster/docs/reference/languages).
 
 ## Reports and integrations
 
@@ -119,13 +123,13 @@ Available formats are text, JSON, NDJSON, Markdown, SARIF 2.1.0, Mermaid, and
 JUnit XML. The repository also includes starting integrations for GitHub Actions,
 Gradle, Maven, VS Code, and Code Climate conversion.
 
-See the [command reference](https://toolbunker.dev/code-buster/docs/reference/commands),
-[report reference](https://toolbunker.dev/code-buster/docs/reference/reports), and
-[integration guide](https://toolbunker.dev/code-buster/docs/guides/integrations).
+See the [command reference](https://toolbunker.dev/codebuster/docs/reference/commands),
+[report reference](https://toolbunker.dev/codebuster/docs/reference/reports), and
+[integration guide](https://toolbunker.dev/codebuster/docs/guides/integrations).
 
 ## Current status
 
-Current release: **0.7.1**.
+Current release: **0.7.2**.
 
 Code Buster is pre-1.0 and under active development. Use it for local repository
 exploration, focused AI context, and reviewing changes before handoff. Do not yet

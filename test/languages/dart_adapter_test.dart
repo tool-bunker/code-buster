@@ -147,6 +147,9 @@ export 'io.dart'
           "export 'src/worker.dart';",
       'packages/isolates/lib/src/worker.dart': '',
       'packages/isolates/lib/src/orphan.dart': '',
+      'packages/isolates/lib/providers/apple.dart':
+          "export '../src/apple.dart';",
+      'packages/isolates/lib/src/apple.dart': '',
     };
     final DartWorkspaceLayout workspace = DartWorkspaceLayout.discover(
       root.path,
@@ -167,9 +170,17 @@ export 'io.dart'
       graph.dependenciesOf('packages/isolates/lib/localsend_isolates.dart'),
       <String>['packages/isolates/lib/src/worker.dart'],
     );
+    expect(
+      graph.dependenciesOf('packages/isolates/lib/providers/apple.dart'),
+      <String>['packages/isolates/lib/src/apple.dart'],
+    );
     expect(workspace.isPublicRoot('app/lib/main.dart'), isTrue);
     expect(
       workspace.isPublicRoot('packages/isolates/lib/localsend_isolates.dart'),
+      isTrue,
+    );
+    expect(
+      workspace.isPublicRoot('packages/isolates/lib/providers/apple.dart'),
       isTrue,
     );
     expect(

@@ -120,11 +120,7 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
     required String kind,
     required String action,
   }) {
-    if (cachedRegExp(
-      '${RegExp.escape(field)}[!?]?\\.$action\\s*\\(',
-    ).hasMatch(text)) {
-      return;
-    }
+    if (_closesResource(text, field, action)) return;
     _add(
       node,
       code: code,
@@ -133,6 +129,27 @@ extension _DartLifecycleRules on _AdvancedDartVisitor {
       suggestion:
           '${action[0].toUpperCase()}${action.substring(1)} the $kind during shutdown.',
     );
+  }
+
+  bool _closesResource(String text, String field, String action) {
+    if (cachedRegExp(
+      '${RegExp.escape(field)}[!?]?\\.$action\\s*\\(',
+    ).hasMatch(text)) {
+      return true;
+    }
+    final RegExp alias = cachedRegExp(
+      '\\b(?:final|var)\\s+(\\w+)\\s*=\\s*'
+      '${RegExp.escape(field)}\\s*;',
+    );
+    for (final RegExpMatch match in alias.allMatches(text)) {
+      final String name = match.requiredGroup(1);
+      if (cachedRegExp(
+        '\\b${RegExp.escape(name)}[!?]?\\.$action\\s*\\(',
+      ).hasMatch(text.substring(match.end))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void _checkListeners(ClassDeclaration node) {

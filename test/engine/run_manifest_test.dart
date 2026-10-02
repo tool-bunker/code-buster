@@ -12,10 +12,16 @@ void main() {
     File(path.join(root.path, 'lib', 'main.dart'))
       ..createSync(recursive: true)
       ..writeAsStringSync('void main() {}\n');
+    final Directory cache = Directory('${root.path}-cache');
+    addTearDown(() {
+      if (cache.existsSync()) cache.deleteSync(recursive: true);
+    });
     final options = CodeBusterCliContract.parse(<String>[
       'summary',
       '--root',
       root.path,
+      '--cache-dir',
+      cache.path,
     ]);
 
     final AnalysisRun first = AnalysisRunner().run(options);
@@ -51,6 +57,30 @@ void main() {
     expect(compactManifest['sourceHash'], manifest.sourceHash);
     expect(compactManifest['selectedFileCount'], 1);
     expect(compactManifest, isNot(contains('selectedFiles')));
+  });
+
+  test('does not create cache files when caching is disabled', () {
+    final Directory root = Directory.systemTemp.createTempSync('cb-no-cache-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    File(
+      path.join(root.path, 'main.dart'),
+    ).writeAsStringSync('void main() {}\n');
+
+    final AnalysisRun run = AnalysisRunner().run(
+      CodeBusterCliContract.parse(<String>[
+        'summary',
+        '--root',
+        root.path,
+        '--no-cache',
+      ]),
+    );
+
+    expect(run.manifest!.graphCacheHit, isFalse);
+    expect(run.manifest!.findingsCacheHit, isFalse);
+    expect(
+      Directory(path.join(root.path, '.code-buster-cache')).existsSync(),
+      isFalse,
+    );
   });
 
   test('reports recovered parser diagnostics separately from findings', () {

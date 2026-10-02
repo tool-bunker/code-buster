@@ -43,6 +43,860 @@ void logic() {
     expect(repository.measure(function).cyclomatic, 5);
   });
 
+  test('reports a single-use private forwarding method', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: 'generate',
+        line: 2,
+        source: 'String generate(Project project) => _prepare(project);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_prepare',
+        line: 4,
+        source: 'String _prepare(Project project) => _render(project);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_render',
+        line: 6,
+        source: '''
+String _render(Project project) {
+  // `_prepare(project)` is documentation, not another caller.
+  final example = "_prepare(project)";
+  return project.files.join(example);
+}
+''',
+      ),
+    ];
+
+    final Finding finding = repository
+        .trivialWrapperFindings(
+          functions: functions,
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(finding.code, 'single-use-trivial-wrapper');
+    expect(finding.line, 4);
+    expect(finding.message, contains('`_prepare`'));
+    expect(finding.message, contains('`_render`'));
+  });
+
+  test('accepts reused, transforming, and behavior-owning helpers', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: 'generate',
+        line: 1,
+        source: 'String generate(String value) => _shared(value);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: 'preview',
+        line: 2,
+        source: 'String preview(String value) => _shared(value);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_shared',
+        line: 3,
+        source: 'String _shared(String value) => _render(value);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_transforming',
+        line: 4,
+        source: 'String _transforming(String value) => _render(value.trim());',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_validated',
+        line: 5,
+        source: '''
+String _validated(String value) {
+  if (value.isEmpty) throw ArgumentError.value(value);
+  return _render(value);
+}
+''',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_render',
+        line: 9,
+        source: 'String _render(String value) => value;',
+      ),
+    ];
+
+    expect(
+      repository.trivialWrapperFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports multiline Python forwarding with unchanged arguments', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'service.py',
+        name: 'run',
+        line: 1,
+        source: '''
+def run(self, request):
+    return self._prepare(request)
+''',
+      ),
+      FunctionSource(
+        path: 'service.py',
+        name: '_prepare',
+        line: 4,
+        source: '''
+def _prepare(self, request):
+    return self._execute(
+        request
+    )
+''',
+      ),
+      FunctionSource(
+        path: 'service.py',
+        name: '_execute',
+        line: 9,
+        source: '''
+def _execute(self, request):
+    return request.execute()
+''',
+      ),
+    ];
+
+    expect(
+      repository
+          .trivialWrapperFindings(
+            functions: functions,
+            config: const AnalysisConfig(root: '/project'),
+          )
+          .single
+          .line,
+      4,
+    );
+  });
+
+  test('reports a one-caller factory with one fixed product', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: '_createRenderer',
+        line: 2,
+        source: 'Renderer _createRenderer(int scale) => Renderer(scale);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'render',
+        line: 4,
+        source: 'void render() { final renderer = _createRenderer(2); }',
+      ),
+    ];
+
+    final Finding finding = repository
+        .singleProductFactoryFindings(
+          functions: functions,
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(finding.code, 'single-product-factory');
+    expect(finding.path, 'lib/render.dart');
+    expect(finding.line, 2);
+    expect(finding.message, contains('`Renderer`'));
+  });
+
+  test('accepts reused, transforming, and policy-owning factories', () {
+    const FunctionSource caller = FunctionSource(
+      path: 'lib/render.dart',
+      name: 'render',
+      line: 5,
+      source: 'void render() { _createRenderer(2); }',
+    );
+
+    expect(
+      repository.singleProductFactoryFindings(
+        functions: const <FunctionSource>[
+          FunctionSource(
+            path: 'lib/render.dart',
+            name: '_createRenderer',
+            line: 1,
+            source: 'Renderer _createRenderer(int scale) => Renderer(scale);',
+          ),
+          caller,
+          FunctionSource(
+            path: 'lib/render.dart',
+            name: 'preview',
+            line: 6,
+            source: 'void preview() { _createRenderer(1); }',
+          ),
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+    expect(
+      repository.singleProductFactoryFindings(
+        functions: const <FunctionSource>[
+          FunctionSource(
+            path: 'lib/render.dart',
+            name: '_createRenderer',
+            line: 1,
+            source:
+                'Renderer _createRenderer(int scale) => Renderer(scale + 1);',
+          ),
+          caller,
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+    expect(
+      repository.singleProductFactoryFindings(
+        functions: const <FunctionSource>[
+          FunctionSource(
+            path: 'lib/render.dart',
+            name: '_createRenderer',
+            line: 1,
+            source: '''
+Renderer _createRenderer(int scale) {
+  validate(scale);
+  return Renderer(scale);
+}
+''',
+          ),
+          caller,
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports a private parameter fixed at one constant value', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/dispatch.dart',
+        name: '_dispatch',
+        line: 2,
+        source: '''
+void _dispatch(int event, bool notify) {
+  handle(event);
+  if (notify) sendNotification();
+}
+''',
+      ),
+      FunctionSource(
+        path: 'lib/dispatch.dart',
+        name: 'onCreate',
+        line: 8,
+        source: 'void onCreate() { _dispatch(1, true); }',
+      ),
+      FunctionSource(
+        path: 'lib/dispatch.dart',
+        name: 'onUpdate',
+        line: 9,
+        source: 'void onUpdate() { _dispatch(2, true); }',
+      ),
+      FunctionSource(
+        path: 'lib/dispatch.dart',
+        name: 'onDelete',
+        line: 10,
+        source: '''
+void onDelete() {
+  // `_dispatch(4, false)` is documentation, not a call.
+  final example = "_dispatch(4, false)";
+  _dispatch(3, true);
+}
+''',
+      ),
+    ];
+
+    final Finding finding = repository
+        .constantArgumentFindings(
+          functions: functions,
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(finding.code, 'constant-argument-parameter');
+    expect(finding.line, 2);
+    expect(finding.message, contains('parameter `notify`'));
+    expect(finding.message, contains('all 3 visible call sites'));
+  });
+
+  test('accepts varying, dynamic, and insufficient argument evidence', () {
+    const FunctionSource target = FunctionSource(
+      path: 'lib/dispatch.dart',
+      name: '_dispatch',
+      line: 1,
+      source: '''
+void _dispatch(int event, bool notify) {
+  handle(event);
+  if (notify) sendNotification();
+}
+''',
+    );
+
+    expect(
+      repository.constantArgumentFindings(
+        functions: const <FunctionSource>[
+          target,
+          FunctionSource(
+            path: 'lib/dispatch.dart',
+            name: 'first',
+            line: 6,
+            source: 'void first() { _dispatch(1, true); }',
+          ),
+          FunctionSource(
+            path: 'lib/dispatch.dart',
+            name: 'second',
+            line: 7,
+            source: 'void second() { _dispatch(2, false); }',
+          ),
+          FunctionSource(
+            path: 'lib/dispatch.dart',
+            name: 'third',
+            line: 8,
+            source: 'void third(bool notify) { _dispatch(3, notify); }',
+          ),
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+    expect(
+      repository.constantArgumentFindings(
+        functions: const <FunctionSource>[
+          target,
+          FunctionSource(
+            path: 'lib/dispatch.dart',
+            name: 'first',
+            line: 6,
+            source: 'void first() { _dispatch(1, true); }',
+          ),
+          FunctionSource(
+            path: 'lib/dispatch.dart',
+            name: 'second',
+            line: 7,
+            source: 'void second() { _dispatch(2, true); }',
+          ),
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('accepts public and override boundaries', () {
+    const List<FunctionSource> callers = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/service.dart',
+        name: 'first',
+        line: 10,
+        source: 'void first() { configure(1, true); }',
+      ),
+      FunctionSource(
+        path: 'lib/service.dart',
+        name: 'second',
+        line: 11,
+        source: 'void second() { configure(2, true); }',
+      ),
+      FunctionSource(
+        path: 'lib/service.dart',
+        name: 'third',
+        line: 12,
+        source: 'void third() { configure(3, true); }',
+      ),
+    ];
+    const FunctionSource publicTarget = FunctionSource(
+      path: 'lib/service.dart',
+      name: 'configure',
+      line: 1,
+      source: '''
+void configure(int mode, bool enabled) {
+  if (enabled) apply(mode);
+}
+''',
+    );
+    const FunctionSource privateTarget = FunctionSource(
+      path: 'lib/service.dart',
+      name: '_configure',
+      line: 1,
+      source: '''
+@override
+void _configure(int mode, bool enabled) {
+  if (enabled) apply(mode);
+}
+''',
+    );
+
+    expect(
+      repository.constantArgumentFindings(
+        functions: <FunctionSource>[publicTarget, ...callers],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+    expect(
+      repository.constantArgumentFindings(
+        functions: <FunctionSource>[
+          privateTarget,
+          ...callers.map(
+            (FunctionSource caller) => FunctionSource(
+              path: caller.path,
+              name: caller.name,
+              line: caller.line,
+              source: caller.source.replaceAll('configure', '_configure'),
+            ),
+          ),
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports an optional callback hook no caller supplies', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: '_render',
+        line: 2,
+        source: '''
+int _render(
+  int value, {
+  int Function(int)? customize,
+}) {
+  return customize?.call(value) ?? value;
+}
+''',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'renderFirst',
+        line: 10,
+        source: 'int renderFirst() => _render(1);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'renderSecond',
+        line: 11,
+        source: 'int renderSecond() => _render(2);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'renderThird',
+        line: 12,
+        source: '''
+int renderThird() {
+  // _render(3, customize: transform);
+  final example = "_render(3, customize: transform)";
+  return _render(3);
+}
+''',
+      ),
+    ];
+
+    final Finding finding = repository
+        .unusedCustomizationHookFindings(
+          functions: functions,
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(finding.code, 'unused-customization-hook');
+    expect(finding.path, 'lib/render.dart');
+    expect(finding.line, 2);
+    expect(finding.message, contains('`customize`'));
+    expect(finding.message, contains('3 visible callers'));
+  });
+
+  test('accepts a customization hook supplied by one caller', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: '_render',
+        line: 1,
+        source: '''
+int _render(int value, {int Function(int)? customize}) {
+  return customize?.call(value) ?? value;
+}
+''',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'first',
+        line: 5,
+        source: 'int first() => _render(1);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'second',
+        line: 6,
+        source: 'int second() => _render(2, customize: transform);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'third',
+        line: 7,
+        source: 'int third() => _render(3);',
+      ),
+    ];
+
+    expect(
+      repository.unusedCustomizationHookFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('accepts non-callback options and unused callback parameters', () {
+    const List<FunctionSource> callers = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'first',
+        line: 8,
+        source: 'int first() => _render(1);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'second',
+        line: 9,
+        source: 'int second() => _render(2);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'third',
+        line: 10,
+        source: 'int third() => _render(3);',
+      ),
+    ];
+
+    expect(
+      repository.unusedCustomizationHookFindings(
+        functions: const <FunctionSource>[
+          FunctionSource(
+            path: 'lib/render.dart',
+            name: '_render',
+            line: 1,
+            source: '''
+int _render(int value, {bool verbose = false}) {
+  return verbose ? value + 1 : value;
+}
+''',
+          ),
+          ...callers,
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+    expect(
+      repository.unusedCustomizationHookFindings(
+        functions: const <FunctionSource>[
+          FunctionSource(
+            path: 'lib/render.dart',
+            name: '_render',
+            line: 1,
+            source: '''
+int _render(int value, {int Function(int)? customize}) {
+  return value;
+}
+''',
+          ),
+          ...callers,
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports a used optional parameter no caller supplies', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/save.dart',
+        name: '_save',
+        line: 2,
+        source: '''
+void _save(int value, {bool validate = true}) {
+  if (validate) check(value);
+  persist(value);
+}
+''',
+      ),
+      FunctionSource(
+        path: 'lib/save.dart',
+        name: 'saveFirst',
+        line: 8,
+        source: 'void saveFirst() { _save(1); }',
+      ),
+      FunctionSource(
+        path: 'lib/save.dart',
+        name: 'saveSecond',
+        line: 9,
+        source: 'void saveSecond() { _save(2); }',
+      ),
+      FunctionSource(
+        path: 'lib/save.dart',
+        name: 'saveThird',
+        line: 10,
+        source: '''
+void saveThird() {
+  // _save(3, validate: false);
+  final example = "_save(3, validate: false)";
+  _save(3);
+}
+''',
+      ),
+    ];
+
+    final Finding finding = repository
+        .unusedOptionalParameterFindings(
+          functions: functions,
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(finding.code, 'unused-optional-parameter');
+    expect(finding.path, 'lib/save.dart');
+    expect(finding.line, 2);
+    expect(finding.message, contains('`validate`'));
+    expect(finding.message, contains('3 visible callers'));
+    expect(
+      repository.unusedCustomizationHookFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('accepts supplied and behaviorally unused optional parameters', () {
+    const List<FunctionSource> callers = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/save.dart',
+        name: 'first',
+        line: 6,
+        source: 'void first() { _save(1); }',
+      ),
+      FunctionSource(
+        path: 'lib/save.dart',
+        name: 'second',
+        line: 7,
+        source: 'void second() { _save(2, validate: false); }',
+      ),
+      FunctionSource(
+        path: 'lib/save.dart',
+        name: 'third',
+        line: 8,
+        source: 'void third() { _save(3); }',
+      ),
+    ];
+    const FunctionSource usedTarget = FunctionSource(
+      path: 'lib/save.dart',
+      name: '_save',
+      line: 1,
+      source: '''
+void _save(int value, {bool validate = true}) {
+  if (validate) check(value);
+  persist(value);
+}
+''',
+    );
+    const FunctionSource unusedTarget = FunctionSource(
+      path: 'lib/save.dart',
+      name: '_save',
+      line: 1,
+      source: '''
+void _save(int value, {bool validate = true}) {
+  persist(value);
+}
+''',
+    );
+
+    expect(
+      repository.unusedOptionalParameterFindings(
+        functions: const <FunctionSource>[usedTarget, ...callers],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+    expect(
+      repository.unusedOptionalParameterFindings(
+        functions: const <FunctionSource>[
+          unusedTarget,
+          FunctionSource(
+            path: 'lib/save.dart',
+            name: 'first',
+            line: 6,
+            source: 'void first() { _save(1); }',
+          ),
+          FunctionSource(
+            path: 'lib/save.dart',
+            name: 'second',
+            line: 7,
+            source: 'void second() { _save(2); }',
+          ),
+          FunctionSource(
+            path: 'lib/save.dart',
+            name: 'third',
+            line: 8,
+            source: 'void third() { _save(3); }',
+          ),
+        ],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports a configuration option every caller supplies but none reads', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: '_render',
+        line: 2,
+        source: '''
+int _render(int value, RenderOptions options) {
+  return options.cache ? value : 0;
+}
+''',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'first',
+        line: 7,
+        source:
+            'int first() => _render(1, RenderOptions(cache: true, trace: false));',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'second',
+        line: 8,
+        source:
+            'int second() => _render(2, RenderOptions(cache: false, trace: true));',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'third',
+        line: 9,
+        source:
+            'int third() => _render(3, RenderOptions(cache: true, trace: true));',
+      ),
+    ];
+
+    final Finding finding = repository
+        .unusedConfigurationOptionFindings(
+          functions: functions,
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(finding.code, 'unused-configuration-option');
+    expect(finding.path, 'lib/render.dart');
+    expect(finding.line, 2);
+    expect(finding.message, contains('`trace`'));
+    expect(finding.message, contains('all 3 visible callers'));
+  });
+
+  test('accepts configuration options read by the implementation', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: '_render',
+        line: 1,
+        source: '''
+int _render(int value, RenderOptions options) {
+  if (options.trace) log(value);
+  return options.cache ? value : 0;
+}
+''',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'first',
+        line: 6,
+        source:
+            'int first() => _render(1, RenderOptions(cache: true, trace: false));',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'second',
+        line: 7,
+        source:
+            'int second() => _render(2, RenderOptions(cache: false, trace: true));',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'third',
+        line: 8,
+        source:
+            'int third() => _render(3, RenderOptions(cache: true, trace: true));',
+      ),
+    ];
+
+    expect(
+      repository.unusedConfigurationOptionFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('accepts forwarded and dynamically constructed configuration', () {
+    const FunctionSource target = FunctionSource(
+      path: 'lib/render.dart',
+      name: '_render',
+      line: 1,
+      source: '''
+int _render(int value, RenderOptions options) {
+  return delegate(value, options);
+}
+''',
+    );
+    const List<FunctionSource> callers = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'first',
+        line: 5,
+        source: 'int first(RenderOptions options) => _render(1, options);',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'second',
+        line: 6,
+        source:
+            'int second() => _render(2, RenderOptions(cache: true, trace: false));',
+      ),
+      FunctionSource(
+        path: 'lib/render.dart',
+        name: 'third',
+        line: 7,
+        source:
+            'int third() => _render(3, RenderOptions(cache: true, trace: false));',
+      ),
+    ];
+
+    expect(
+      repository.unusedConfigurationOptionFindings(
+        functions: const <FunctionSource>[target, ...callers],
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
   test('scores flat dispatch switches with standard switch semantics', () {
     const FunctionSource function = FunctionSource(
       path: 'lib/action_dispatcher.dart',

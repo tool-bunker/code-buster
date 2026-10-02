@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as path;
 
 import '../catalog/rule_catalog.dart';
 import '../core/models.dart';
@@ -11,9 +12,58 @@ import '../core/schema_versions.dart';
 import '../graph/graph.dart';
 
 final class PersistentAnalysisCache {
-  const PersistentAnalysisCache({this.version = 'code-buster-cache-v4'});
+  const PersistentAnalysisCache({
+    this.version = 'code-buster-cache-v4',
+    this.directory,
+  });
 
   final String version;
+  final String? directory;
+
+  /// Returns the external per-project cache directory for [projectRoot].
+  static String defaultDirectory(
+    String projectRoot, {
+    Map<String, String>? environment,
+  }) {
+    final Map<String, String> variables = environment ?? Platform.environment;
+    final String home = variables['HOME'] ?? variables['USERPROFILE'] ?? '';
+    final String base;
+    if (Platform.isWindows) {
+      base =
+          variables['LOCALAPPDATA'] ??
+          variables['APPDATA'] ??
+          (home.isEmpty
+              ? Directory.systemTemp.path
+              : path.join(home, 'AppData', 'Local'));
+    } else if (Platform.isMacOS) {
+      base = home.isEmpty
+          ? Directory.systemTemp.path
+          : path.join(home, 'Library', 'Caches');
+    } else {
+      final String xdg = variables['XDG_CACHE_HOME'] ?? '';
+      base = xdg.isNotEmpty
+          ? xdg
+          : home.isEmpty
+          ? Directory.systemTemp.path
+          : path.join(home, '.cache');
+    }
+    final String normalizedRoot = path.normalize(
+      Directory(projectRoot).absolute.path,
+    );
+    final String projectName = path
+        .basename(normalizedRoot)
+        .replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '-');
+    final String fingerprint = sha256
+        .convert(utf8.encode(normalizedRoot))
+        .toString()
+        .substring(0, 16);
+    return path.join(
+      base,
+      'code-buster',
+      'projects',
+      '$projectName-$fingerprint',
+    );
+  }
 
   String key({
     required AnalysisConfig config,
@@ -247,9 +297,8 @@ final class PersistentAnalysisCache {
     }
   }
 
-  File _file(String root, String name) => File(
-    '$root${Platform.pathSeparator}.code-buster-cache${Platform.pathSeparator}$name',
-  );
+  File _file(String root, String name) =>
+      File(path.join(directory ?? defaultDirectory(root), name));
 
   Map<String, Object> _findingJson(Finding finding) => <String, Object>{
     'code': finding.code,

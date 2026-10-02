@@ -22,7 +22,7 @@ import 'repository_view_command.dart';
 import 'rules_command.dart';
 
 /// Current Code Buster command-line version.
-const String version = '0.7.1';
+const String version = '0.7.2';
 
 final Map<CodeBusterCommand, CliCommandHandler> _commandHandlers =
     _buildCommandHandlers(const <CliCommandHandler>[
