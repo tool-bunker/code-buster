@@ -101,7 +101,23 @@ void main() {
       'production',
     );
     expect(
+      RepositoryDefaults.classify(
+        'templates/project/lib/src/{{#auth}}endpoint.dart',
+      ),
+      'example',
+    );
+    expect(
+      RepositoryDefaults.classify('lib/templates/renderer.dart'),
+      'production',
+    );
+    expect(
       RepositoryDefaults.classify('packages/next/src/compiled/react.js'),
+      'vendored',
+    );
+    expect(
+      RepositoryDefaults.classify(
+        'tools/serverpod_cli/lib/src/vendored/semver.dart',
+      ),
       'vendored',
     );
     expect(

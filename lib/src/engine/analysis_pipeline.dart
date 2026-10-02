@@ -66,9 +66,11 @@ final class PreparedAnalysis {
 
 /// Loads and stores content-addressed graph and finding stage results.
 final class AnalysisCacheStage {
-  AnalysisCacheStage({this.cache = const PersistentAnalysisCache()});
+  AnalysisCacheStage({PersistentAnalysisCache? cache, this.enabled = true})
+    : cache = cache ?? const PersistentAnalysisCache();
 
   final PersistentAnalysisCache cache;
+  final bool enabled;
 
   bool _graphCacheHit = false;
   bool get graphCacheHit => _graphCacheHit;
@@ -80,6 +82,7 @@ final class AnalysisCacheStage {
     PreparedAnalysis prepared,
     DependencyGraph Function() build,
   ) {
+    if (!enabled) return build();
     final String key = cache.key(
       config: prepared.config,
       sources: prepared.sources,
@@ -103,6 +106,7 @@ final class AnalysisCacheStage {
     CodeBusterCommand command,
     List<Finding> Function() analyze,
   ) {
+    if (!enabled) return List<Finding>.unmodifiable(analyze());
     final Map<String, String> findingInputs = <String, String>{
       ...prepared.sources,
       for (final MapEntry<String, String> entry in prepared.baseSources.entries)

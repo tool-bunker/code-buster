@@ -450,6 +450,35 @@ void configure(dynamic config) {
     expect(catches.single.line, 20);
   });
 
+  test('logs secret values but not sensitive-object metadata', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/logging.dart': '''
+void report(
+  validationResponse,
+  passwordReset,
+  config,
+  password,
+  cookieName,
+) {
+  log(validationResponse.passwordHash);
+  log(password);
+  log(passwordReset.userId);
+  log(config.minPasswordLength);
+  log(cookieName);
+}
+''',
+    });
+
+    expect(
+      findings
+          .where(
+            (Finding finding) => finding.code == 'dart-sensitive-data-logging',
+          )
+          .map((Finding finding) => finding.line),
+      <int>[8, 9],
+    );
+  });
+
   test('allows SQL interpolation from literal const String declarations', () {
     final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
       'lib/schema.dart': sourceFixture(
@@ -893,6 +922,34 @@ File lateGuard(String root, String relativePath) {
         (Finding finding) =>
             finding.code == 'dart-controller-not-disposed' ||
             finding.code == 'dart-receive-port-not-closed',
+      ),
+      isEmpty,
+    );
+  });
+
+  test('accepts closing an owned sink through a local alias', () {
+    final List<Finding> findings = DartRuleAnalysis().findings(<String, String>{
+      'lib/log_file.dart': '''
+class LogFile {
+  IOSink? _sink;
+
+  void open(File file) {
+    _sink = file.openWrite();
+  }
+
+  Future<void> close() async {
+    final sink = _sink;
+    _sink = null;
+    await sink?.flush();
+    await sink?.close();
+  }
+}
+''',
+    });
+
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'dart-iosink-not-closed',
       ),
       isEmpty,
     );

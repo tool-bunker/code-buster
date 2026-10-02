@@ -65,7 +65,7 @@ final class UpdateCommand implements CliCommandHandler {
   }) : _processRunner = processRunner;
 
   static const String _unixInstaller =
-      'https://codebuster.toolbunker.dev/install';
+      'https://toolbunker.dev/codebuster/install';
 
   final String? executablePath;
   final String? scriptPath;
@@ -129,7 +129,7 @@ final class UpdateCommand implements CliCommandHandler {
         executable: '',
         arguments: <String>[],
         description:
-            'A running Windows executable cannot replace itself safely. Update with: irm https://codebuster.toolbunker.dev/install.ps1 | iex',
+            'A running Windows executable cannot replace itself safely. Update with: irm https://toolbunker.dev/codebuster/install.ps1 | iex',
       );
     }
     final String parentName = normalizedExecutable

@@ -154,6 +154,501 @@ final class RepositoryAnalysis {
     return List<Finding>.unmodifiable(result);
   }
 
+  /// Reports private functions that have one caller and only forward unchanged
+  /// arguments to another function in the same source file.
+  List<Finding> trivialWrapperFindings({
+    required Iterable<FunctionSource> functions,
+    required AnalysisConfig config,
+  }) {
+    final List<FunctionSource> ordered = functions.toList(growable: false)
+      ..sort((FunctionSource left, FunctionSource right) {
+        final int path = left.path.compareTo(right.path);
+        return path != 0 ? path : left.line.compareTo(right.line);
+      });
+    final Map<FunctionSource, _TrivialForwarder> candidates =
+        <FunctionSource, _TrivialForwarder>{};
+    for (final FunctionSource function in ordered) {
+      final _TrivialForwarder? forwarder = _trivialForwarder(function);
+      if (forwarder != null) candidates[function] = forwarder;
+    }
+
+    final List<Finding> findings = <Finding>[];
+    for (final MapEntry<FunctionSource, _TrivialForwarder> entry
+        in candidates.entries) {
+      final FunctionSource wrapper = entry.key;
+      final _TrivialForwarder forwarder = entry.value;
+      final List<FunctionSource> targetMatches = ordered
+          .where(
+            (FunctionSource function) =>
+                function.path == wrapper.path &&
+                function.name == forwarder.target &&
+                function != wrapper,
+          )
+          .toList(growable: false);
+      if (targetMatches.length != 1) continue;
+
+      final int callers = ordered
+          .where(
+            (FunctionSource function) =>
+                function.path == wrapper.path && function != wrapper,
+          )
+          .where(
+            (FunctionSource function) =>
+                _callsFunction(function.source, wrapper.name),
+          )
+          .length;
+      if (callers != 1) continue;
+
+      findings.add(
+        Finding(
+          code: 'single-use-trivial-wrapper',
+          severity:
+              config.severityOverrides['single-use-trivial-wrapper'] ??
+              RuleSeverity.info,
+          path: wrapper.path,
+          line: wrapper.line,
+          endLine: wrapper.endLine,
+          message:
+              '`${wrapper.name}` has one caller and only forwards unchanged arguments to `${forwarder.target}`',
+          confidence: 'high',
+          why:
+              'A single-use forwarding function adds navigation without owning policy, transformation, validation, or resource lifetime.',
+          suggestion:
+              'Inline the wrapper unless it is an intentional extension or compatibility boundary.',
+        ),
+      );
+    }
+    return List<Finding>.unmodifiable(findings);
+  }
+
+  /// Reports private one-caller factories that only construct one product.
+  List<Finding> singleProductFactoryFindings({
+    required Iterable<FunctionSource> functions,
+    required AnalysisConfig config,
+  }) {
+    final List<FunctionSource> ordered = functions.toList(growable: false)
+      ..sort((FunctionSource left, FunctionSource right) {
+        final int path = left.path.compareTo(right.path);
+        return path != 0 ? path : left.line.compareTo(right.line);
+      });
+    final Map<String, int> nameCounts = <String, int>{};
+    for (final FunctionSource function in ordered) {
+      nameCounts.update(
+        function.name,
+        (int count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+
+    final List<Finding> findings = <Finding>[];
+    for (final FunctionSource function in ordered) {
+      if (!_supportsLanguage(function.path, _singleProductFactoryLanguages) ||
+          !_isPrivateFunction(function) ||
+          nameCounts[function.name] != 1 ||
+          _isOverride(function.source)) {
+        continue;
+      }
+      final String? product = _singleProductFactory(function);
+      if (product == null) continue;
+      final List<List<String>> calls = ordered
+          .where((FunctionSource caller) => caller != function)
+          .expand(
+            (FunctionSource caller) =>
+                _callArguments(caller.source, function.name),
+          )
+          .toList(growable: false);
+      if (calls.length != 1) continue;
+      final int references = ordered.fold(
+        0,
+        (int total, FunctionSource current) =>
+            total +
+            _identifierCount(
+              _codeWithoutCommentsAndStrings(current.source),
+              function.name,
+            ),
+      );
+      if (references != 2) continue;
+
+      findings.add(
+        Finding(
+          code: 'single-product-factory',
+          severity:
+              config.severityOverrides['single-product-factory'] ??
+              RuleSeverity.info,
+          path: function.path,
+          line: function.line,
+          endLine: function.endLine,
+          message:
+              '`${function.name}` has one caller and only constructs `$product` with unchanged arguments',
+          confidence: 'high',
+          why:
+              'A one-caller factory with one fixed product and no owned policy, lifecycle, or transformation adds indirection without current variation.',
+          suggestion:
+              'Construct the product at the caller until selection, lifecycle, or shared creation policy is needed.',
+        ),
+      );
+    }
+    return List<Finding>.unmodifiable(findings);
+  }
+
+  /// Reports private function parameters whose visible callers always pass the
+  /// same simple constant.
+  List<Finding> constantArgumentFindings({
+    required Iterable<FunctionSource> functions,
+    required AnalysisConfig config,
+  }) {
+    final List<FunctionSource> ordered = functions.toList(growable: false)
+      ..sort((FunctionSource left, FunctionSource right) {
+        final int path = left.path.compareTo(right.path);
+        return path != 0 ? path : left.line.compareTo(right.line);
+      });
+    final Map<String, int> nameCounts = <String, int>{};
+    for (final FunctionSource function in ordered) {
+      nameCounts.update(
+        function.name,
+        (int count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+
+    final List<Finding> findings = <Finding>[];
+    for (final FunctionSource function in ordered) {
+      if (!_supportsLanguage(function.path, _constantArgumentLanguages) ||
+          !_isPrivateFunction(function) ||
+          nameCounts[function.name] != 1 ||
+          _isOverride(function.source)) {
+        continue;
+      }
+      final List<String>? parameters = _requiredParameterNames(function);
+      if (parameters == null || parameters.isEmpty) continue;
+      final List<List<String>> calls = ordered
+          .where((FunctionSource caller) => caller != function)
+          .expand(
+            (FunctionSource caller) =>
+                _callArguments(caller.source, function.name),
+          )
+          .toList(growable: false);
+      if (calls.length < 3 ||
+          calls.any(
+            (List<String> arguments) => arguments.length != parameters.length,
+          )) {
+        continue;
+      }
+      final int references = ordered.fold(
+        0,
+        (int total, FunctionSource current) =>
+            total +
+            _identifierCount(
+              _codeWithoutCommentsAndStrings(current.source),
+              function.name,
+            ),
+      );
+      if (references != calls.length + 1) continue;
+
+      final String functionCode = _codeWithoutCommentsAndStrings(
+        function.source,
+      );
+      for (var index = 0; index < parameters.length; index++) {
+        final String parameter = parameters[index];
+        if (_identifierCount(functionCode, parameter) < 2) continue;
+        final String? constant = _simpleConstant(calls.first[index]);
+        if (constant == null ||
+            calls
+                .skip(1)
+                .any(
+                  (List<String> arguments) =>
+                      _simpleConstant(arguments[index]) != constant,
+                )) {
+          continue;
+        }
+        findings.add(
+          Finding(
+            code: 'constant-argument-parameter',
+            severity:
+                config.severityOverrides['constant-argument-parameter'] ??
+                RuleSeverity.info,
+            path: function.path,
+            line: function.line,
+            endLine: function.endLine,
+            message:
+                '`${function.name}` receives the constant `$constant` for parameter `$parameter` at all ${calls.length} visible call sites',
+            confidence: 'high',
+            why:
+                'A parameter whose callers always supply one value advertises flexibility that the current code does not use.',
+            suggestion:
+                'Move the constant into the private function and remove the parameter until callers need real variation.',
+          ),
+        );
+      }
+    }
+    return List<Finding>.unmodifiable(findings);
+  }
+
+  /// Reports optional private callback hooks that visible callers never use.
+  List<Finding> unusedCustomizationHookFindings({
+    required Iterable<FunctionSource> functions,
+    required AnalysisConfig config,
+  }) {
+    final List<FunctionSource> ordered = functions.toList(growable: false)
+      ..sort((FunctionSource left, FunctionSource right) {
+        final int path = left.path.compareTo(right.path);
+        return path != 0 ? path : left.line.compareTo(right.line);
+      });
+    final Map<String, int> nameCounts = <String, int>{};
+    for (final FunctionSource function in ordered) {
+      nameCounts.update(
+        function.name,
+        (int count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+
+    final List<Finding> findings = <Finding>[];
+    for (final FunctionSource function in ordered) {
+      if (!_supportsLanguage(function.path, _customizationHookLanguages) ||
+          !_isPrivateFunction(function) ||
+          nameCounts[function.name] != 1 ||
+          _isOverride(function.source)) {
+        continue;
+      }
+      final List<_OptionalParameter> hooks = _optionalParameters(function)
+          .where((_OptionalParameter parameter) {
+            return parameter.callbackLike && parameter.invoked;
+          })
+          .toList(growable: false);
+      if (hooks.isEmpty) continue;
+      final List<List<String>> calls = ordered
+          .where((FunctionSource caller) => caller != function)
+          .expand(
+            (FunctionSource caller) =>
+                _callArguments(caller.source, function.name),
+          )
+          .toList(growable: false);
+      if (calls.length < 3) continue;
+      final int references = ordered.fold(
+        0,
+        (int total, FunctionSource current) =>
+            total +
+            _identifierCount(
+              _codeWithoutCommentsAndStrings(current.source),
+              function.name,
+            ),
+      );
+      if (references != calls.length + 1) continue;
+
+      for (final _OptionalParameter hook in hooks) {
+        if (calls.any((List<String> arguments) => hook.isSupplied(arguments))) {
+          continue;
+        }
+        findings.add(
+          Finding(
+            code: 'unused-customization-hook',
+            severity:
+                config.severityOverrides['unused-customization-hook'] ??
+                RuleSeverity.info,
+            path: function.path,
+            line: function.line,
+            endLine: function.endLine,
+            message:
+                '`${function.name}` exposes optional customization hook `${hook.name}`, but none of its ${calls.length} visible callers supplies it',
+            confidence: 'high',
+            why:
+                'An unused callback hook adds branching and API surface for variation that has no current caller.',
+            suggestion:
+                'Remove the hook and its fallback path until a concrete caller needs customization.',
+          ),
+        );
+      }
+    }
+    return List<Finding>.unmodifiable(findings);
+  }
+
+  /// Reports optional private parameters that visible callers always omit.
+  List<Finding> unusedOptionalParameterFindings({
+    required Iterable<FunctionSource> functions,
+    required AnalysisConfig config,
+  }) {
+    final List<FunctionSource> ordered = functions.toList(growable: false)
+      ..sort((FunctionSource left, FunctionSource right) {
+        final int path = left.path.compareTo(right.path);
+        return path != 0 ? path : left.line.compareTo(right.line);
+      });
+    final Map<String, int> nameCounts = <String, int>{};
+    for (final FunctionSource function in ordered) {
+      nameCounts.update(
+        function.name,
+        (int count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+
+    final List<Finding> findings = <Finding>[];
+    for (final FunctionSource function in ordered) {
+      if (!_supportsLanguage(function.path, _optionalParameterLanguages) ||
+          !_isPrivateFunction(function) ||
+          nameCounts[function.name] != 1 ||
+          _isOverride(function.source)) {
+        continue;
+      }
+      final List<_OptionalParameter> parameters = _optionalParameters(function)
+          .where((_OptionalParameter parameter) {
+            return !parameter.callbackLike || !parameter.invoked;
+          })
+          .toList(growable: false);
+      if (parameters.isEmpty) continue;
+      final List<List<String>> calls = ordered
+          .where((FunctionSource caller) => caller != function)
+          .expand(
+            (FunctionSource caller) =>
+                _callArguments(caller.source, function.name),
+          )
+          .toList(growable: false);
+      if (calls.length < 3) continue;
+      final int references = ordered.fold(
+        0,
+        (int total, FunctionSource current) =>
+            total +
+            _identifierCount(
+              _codeWithoutCommentsAndStrings(current.source),
+              function.name,
+            ),
+      );
+      if (references != calls.length + 1) continue;
+
+      for (final _OptionalParameter parameter in parameters) {
+        if (calls.any(parameter.isSupplied)) continue;
+        findings.add(
+          Finding(
+            code: 'unused-optional-parameter',
+            severity:
+                config.severityOverrides['unused-optional-parameter'] ??
+                RuleSeverity.info,
+            path: function.path,
+            line: function.line,
+            endLine: function.endLine,
+            message:
+                '`${function.name}` exposes optional parameter `${parameter.name}`, but none of its ${calls.length} visible callers supplies it',
+            confidence: 'high',
+            why:
+                'An optional parameter that every caller omits adds API surface and a dormant behavior path without current variation.',
+            suggestion:
+                'Use the default behavior directly and remove the parameter until a concrete caller needs variation.',
+          ),
+        );
+      }
+    }
+    return List<Finding>.unmodifiable(findings);
+  }
+
+  /// Reports configuration keys supplied by every visible caller but never
+  /// read by the private function receiving the configuration object.
+  List<Finding> unusedConfigurationOptionFindings({
+    required Iterable<FunctionSource> functions,
+    required AnalysisConfig config,
+  }) {
+    final List<FunctionSource> ordered = functions.toList(growable: false)
+      ..sort((FunctionSource left, FunctionSource right) {
+        final int path = left.path.compareTo(right.path);
+        return path != 0 ? path : left.line.compareTo(right.line);
+      });
+    final Map<String, int> nameCounts = <String, int>{};
+    for (final FunctionSource function in ordered) {
+      nameCounts.update(
+        function.name,
+        (int count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+
+    final List<Finding> findings = <Finding>[];
+    for (final FunctionSource function in ordered) {
+      if (!_supportsLanguage(function.path, _configurationOptionLanguages) ||
+          !_isPrivateFunction(function) ||
+          nameCounts[function.name] != 1 ||
+          _isOverride(function.source)) {
+        continue;
+      }
+      final List<String>? parameters = _requiredParameterNames(function);
+      if (parameters == null || parameters.isEmpty) continue;
+      final List<List<String>> calls = ordered
+          .where((FunctionSource caller) => caller != function)
+          .expand(
+            (FunctionSource caller) =>
+                _callArguments(caller.source, function.name),
+          )
+          .toList(growable: false);
+      if (calls.length < 3 ||
+          calls.any(
+            (List<String> arguments) => arguments.length != parameters.length,
+          )) {
+        continue;
+      }
+      final int references = ordered.fold(
+        0,
+        (int total, FunctionSource current) =>
+            total +
+            _identifierCount(
+              _codeWithoutCommentsAndStrings(current.source),
+              function.name,
+            ),
+      );
+      if (references != calls.length + 1) continue;
+
+      final String body = _functionBodyCode(function);
+      for (var index = 0; index < parameters.length; index++) {
+        final String parameter = parameters[index];
+        if (!_configurationParameterName.hasMatch(parameter)) continue;
+        final Set<String>? firstKeys = _configurationKeys(calls.first[index]);
+        if (firstKeys == null || firstKeys.isEmpty) continue;
+        final Set<String> commonKeys = Set<String>.of(firstKeys);
+        var complete = true;
+        for (final List<String> call in calls.skip(1)) {
+          final Set<String>? keys = _configurationKeys(call[index]);
+          if (keys == null) {
+            complete = false;
+            break;
+          }
+          commonKeys.retainAll(keys);
+        }
+        if (!complete || commonKeys.isEmpty) continue;
+
+        final RegExp access = cachedRegExp(
+          '\\b${RegExp.escape(parameter)}\\s*(?:(?:\\?|!)\\s*)?\\.\\s*([A-Za-z_\$][\\w\$]*)',
+        );
+        final List<RegExpMatch> accesses = access
+            .allMatches(body)
+            .toList(growable: false);
+        if (_identifierCount(body, parameter) != accesses.length) continue;
+        final Set<String> readKeys = accesses
+            .map((RegExpMatch match) => match.requiredGroup(1))
+            .toSet();
+        final List<String> unused = commonKeys.difference(readKeys).toList()
+          ..sort();
+        for (final String option in unused) {
+          findings.add(
+            Finding(
+              code: 'unused-configuration-option',
+              severity:
+                  config.severityOverrides['unused-configuration-option'] ??
+                  RuleSeverity.info,
+              path: function.path,
+              line: function.line,
+              endLine: function.endLine,
+              message:
+                  '`${function.name}` receives configuration option `$option` from all ${calls.length} visible callers but never reads it',
+              confidence: 'high',
+              why:
+                  'A configuration option that every caller supplies but the implementation never reads adds misleading variation and maintenance cost.',
+              suggestion:
+                  'Remove the option from callers and its configuration type until the implementation needs it.',
+            ),
+          );
+        }
+      }
+    }
+    return List<Finding>.unmodifiable(findings);
+  }
+
   /// Emits file-size and unstructured-control-flow findings.
   List<Finding> fileFindings({
     required Map<String, String> sources,
@@ -767,3 +1262,527 @@ bool _isBackslashEscaped(String source, int index) {
   }
   return backslashes.isOdd;
 }
+
+final class _TrivialForwarder {
+  const _TrivialForwarder(this.target);
+
+  final String target;
+}
+
+_TrivialForwarder? _trivialForwarder(FunctionSource function) {
+  final String source = function.source.trim();
+  if (!_supportsLanguage(function.path, _trivialWrapperLanguages) ||
+      !_isPrivateFunction(function) ||
+      _isOverride(function.source)) {
+    return null;
+  }
+
+  final RegExpMatch? declaration = cachedRegExp(
+    '\\b${RegExp.escape(function.name)}\\s*\\(',
+  ).firstMatch(source);
+  if (declaration == null) return null;
+  final int open = source.indexOf('(', declaration.start);
+  final int close = _matchingDelimiter(source, open, '(', ')');
+  if (close == -1) return null;
+  final List<String>? parameters = _forwardedParameterNames(
+    source.substring(open + 1, close),
+    path: function.path,
+  );
+  if (parameters == null) return null;
+
+  final RegExpMatch? call = _directForwardingCall(source.substring(close + 1));
+  if (call == null) return null;
+  final String target = call.requiredGroup(1);
+  if (target == function.name) return null;
+  final List<String> arguments = _splitTopLevel(call.requiredGroup(2))
+      .map((String argument) => argument.trim())
+      .where((String argument) => argument.isNotEmpty)
+      .toList(growable: false);
+  if (arguments.length != parameters.length) return null;
+  for (var index = 0; index < parameters.length; index++) {
+    if (arguments[index] != parameters[index]) return null;
+  }
+  return _TrivialForwarder(target);
+}
+
+String? _singleProductFactory(FunctionSource function) {
+  final String source = function.source.trim();
+  if (!cachedRegExp(
+    r'^_?(?:(?:[Cc]reate|[Mm]ake|[Bb]uild|[Pp]rovide)(?:[A-Z_].*)?|.*Factory)$',
+  ).hasMatch(function.name)) {
+    return null;
+  }
+  final RegExpMatch? declaration = cachedRegExp(
+    '\\b${RegExp.escape(function.name)}\\s*\\(',
+  ).firstMatch(source);
+  if (declaration == null) return null;
+  final int open = source.indexOf('(', declaration.start);
+  final int close = _matchingDelimiter(source, open, '(', ')');
+  if (close == -1) return null;
+  final List<String>? parameters = _forwardedParameterNames(
+    source.substring(open + 1, close),
+    path: function.path,
+  );
+  if (parameters == null) return null;
+  final String? expression = _directReturnedExpression(
+    source.substring(close + 1),
+  );
+  if (expression == null) return null;
+  final RegExpMatch? construction = cachedRegExp(
+    r'^(?:(?:new|const)\s+)?([A-Z][A-Za-z0-9_$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(([^()]*)\)$',
+  ).firstMatch(expression);
+  if (construction == null) return null;
+  final List<String> arguments = _splitTopLevel(construction.requiredGroup(2))
+      .map((String argument) => argument.trim())
+      .where((String argument) => argument.isNotEmpty)
+      .toList(growable: false);
+  if (arguments.length != parameters.length) return null;
+  for (var index = 0; index < parameters.length; index++) {
+    if (arguments[index] != parameters[index]) return null;
+  }
+  return construction.requiredGroup(1);
+}
+
+const Set<String> _trivialWrapperLanguages = <String>{
+  'cpp',
+  'csharp',
+  'dart',
+  'go',
+  'java',
+  'javascript',
+  'typescript',
+  'python',
+  'rust',
+};
+
+const Set<String> _singleProductFactoryLanguages = <String>{
+  'cpp',
+  'csharp',
+  'dart',
+  'java',
+  'javascript',
+  'typescript',
+  'python',
+};
+
+const Set<String> _constantArgumentLanguages = _trivialWrapperLanguages;
+
+const Set<String> _customizationHookLanguages = <String>{
+  'csharp',
+  'dart',
+  'javascript',
+  'typescript',
+  'python',
+};
+
+const Set<String> _optionalParameterLanguages = _customizationHookLanguages;
+
+const Set<String> _configurationOptionLanguages = <String>{
+  'csharp',
+  'dart',
+  'javascript',
+  'typescript',
+  'python',
+};
+
+final RegExp _configurationParameterName = cachedRegExp(
+  r'^(?:config|configuration|options|settings|preferences)$',
+  caseSensitive: false,
+);
+
+bool _supportsLanguage(String path, Set<String> languages) {
+  final String? language = _sourceLanguage(path);
+  return language != null && languages.contains(language);
+}
+
+String? _sourceLanguage(String path) {
+  final String lower = path.toLowerCase();
+  if (lower.endsWith('.dart')) return 'dart';
+  if (lower.endsWith('.py')) return 'python';
+  if (lower.endsWith('.java')) return 'java';
+  if (lower.endsWith('.cs')) return 'csharp';
+  if (lower.endsWith('.go')) return 'go';
+  if (lower.endsWith('.rs')) return 'rust';
+  if (cachedRegExp(r'\.(?:ts|tsx|mts|cts)$').hasMatch(lower)) {
+    return 'typescript';
+  }
+  if (cachedRegExp(r'\.(?:js|jsx|mjs|cjs)$').hasMatch(lower)) {
+    return 'javascript';
+  }
+  if (cachedRegExp(r'\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$').hasMatch(lower)) {
+    return 'cpp';
+  }
+  return null;
+}
+
+bool _isPrivateFunction(FunctionSource function) {
+  final String? language = _sourceLanguage(function.path);
+  final String source = function.source;
+  if (function.name.startsWith('_')) return true;
+  switch (language) {
+    case 'cpp':
+      return cachedRegExp(r'^\s*static\b').hasMatch(source);
+    case 'csharp':
+    case 'java':
+      return cachedRegExp(r'\bprivate\b').hasMatch(source);
+    case 'go':
+      final String first = function.name.substring(0, 1);
+      return first == first.toLowerCase();
+    case 'rust':
+      return !cachedRegExp(r'^\s*pub(?:\s|\()').hasMatch(source);
+    case 'dart':
+    case 'javascript':
+    case 'typescript':
+    case 'python':
+    case null:
+      return false;
+  }
+  return false;
+}
+
+bool _isOverride(String source) => cachedRegExp(
+  r'@\s*override\b|\boverride\b',
+  caseSensitive: false,
+).hasMatch(source);
+
+List<String>? _requiredParameterNames(FunctionSource function) {
+  final String source = function.source;
+  final RegExpMatch? declaration = cachedRegExp(
+    '\\b${RegExp.escape(function.name)}\\s*\\(',
+  ).firstMatch(source);
+  if (declaration == null) return null;
+  final int open = source.indexOf('(', declaration.start);
+  final int close = _matchingDelimiter(source, open, '(', ')');
+  if (close == -1) return null;
+  final String parameters = source.substring(open + 1, close);
+  if (parameters.contains('{') || parameters.contains('[')) return null;
+  return _forwardedParameterNames(parameters, path: function.path);
+}
+
+String _functionBodyCode(FunctionSource function) {
+  final String source = function.source;
+  final RegExpMatch? declaration = cachedRegExp(
+    '\\b${RegExp.escape(function.name)}\\s*\\(',
+  ).firstMatch(source);
+  if (declaration == null) return '';
+  final int open = source.indexOf('(', declaration.start);
+  final int close = _matchingDelimiter(source, open, '(', ')');
+  if (close == -1) return '';
+  return _codeWithoutCommentsAndStrings(source.substring(close + 1));
+}
+
+Set<String>? _configurationKeys(String argument) {
+  var source = argument.trim();
+  if (source.startsWith('{') && source.endsWith('}')) {
+    source = source.substring(1, source.length - 1);
+  } else {
+    final RegExpMatch? constructor = cachedRegExp(
+      r'^(?:(?:new|const)\s+)?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\((.*)\)$',
+    ).firstMatch(source);
+    if (constructor == null) return null;
+    source = constructor.requiredGroup(1);
+  }
+  final Set<String> keys = <String>{};
+  for (final String raw in _splitTopLevel(source)) {
+    final String member = raw.trim();
+    if (member.isEmpty) continue;
+    final RegExpMatch? keyed = cachedRegExp(
+      r'^([A-Za-z_$][\w$]*)\s*(?::|=)',
+    ).firstMatch(member);
+    if (keyed == null || !keys.add(keyed.requiredGroup(1))) return null;
+  }
+  return keys;
+}
+
+final class _OptionalParameter {
+  const _OptionalParameter({
+    required this.name,
+    required this.positionalIndex,
+    required this.named,
+    required this.callbackLike,
+    required this.invoked,
+  });
+
+  final String name;
+  final int positionalIndex;
+  final bool named;
+  final bool callbackLike;
+  final bool invoked;
+
+  bool isSupplied(List<String> arguments) {
+    if (arguments.any(
+      (String argument) =>
+          cachedRegExp('^${RegExp.escape(name)}\\s*(?::|=)').hasMatch(argument),
+    )) {
+      return true;
+    }
+    if (named) return false;
+    final int positionalArguments = arguments
+        .where(
+          (String argument) =>
+              !cachedRegExp(r'^[A-Za-z_$][\w$]*\s*(?::|=)').hasMatch(argument),
+        )
+        .length;
+    return positionalArguments > positionalIndex;
+  }
+}
+
+List<_OptionalParameter> _optionalParameters(FunctionSource function) {
+  final String source = function.source;
+  final RegExpMatch? declaration = cachedRegExp(
+    '\\b${RegExp.escape(function.name)}\\s*\\(',
+  ).firstMatch(source);
+  if (declaration == null) return const <_OptionalParameter>[];
+  final int open = source.indexOf('(', declaration.start);
+  final int close = _matchingDelimiter(source, open, '(', ')');
+  if (close == -1) return const <_OptionalParameter>[];
+  final String body = _codeWithoutCommentsAndStrings(
+    source.substring(close + 1),
+  );
+
+  final List<_OptionalParameter> parameters = <_OptionalParameter>[];
+  var positionalIndex = 0;
+  for (final String group in _splitTopLevel(
+    source.substring(open + 1, close),
+  )) {
+    var parameterGroup = group.trim();
+    var named = false;
+    var groupOptional = false;
+    if ((parameterGroup.startsWith('{') && parameterGroup.endsWith('}')) ||
+        (parameterGroup.startsWith('[') && parameterGroup.endsWith(']'))) {
+      named = parameterGroup.startsWith('{');
+      groupOptional = true;
+      parameterGroup = parameterGroup.substring(1, parameterGroup.length - 1);
+    }
+    for (final String raw in _splitTopLevel(parameterGroup)) {
+      final String parameter = raw.trim();
+      if (parameter.isEmpty) continue;
+      final int equals = parameter.indexOf('=');
+      final String declarationPart = equals == -1
+          ? parameter
+          : parameter.substring(0, equals).trim();
+      final int colon = declarationPart.indexOf(':');
+      final String nameSource = colon == -1
+          ? declarationPart
+          : declarationPart.substring(0, colon);
+      final List<RegExpMatch> identifiers = cachedRegExp(
+        r'[A-Za-z_$][\w$]*',
+      ).allMatches(nameSource).toList(growable: false);
+      if (identifiers.isEmpty) continue;
+      final String name = identifiers.last.group(0)!;
+      if (name == 'this' || name == 'self') continue;
+      final bool optional =
+          groupOptional ||
+          equals != -1 ||
+          cachedRegExp(
+            '\\b${RegExp.escape(name)}\\s*\\?',
+          ).hasMatch(declarationPart);
+      final bool callbackName =
+          cachedRegExp(r'^on[A-Z_]').hasMatch(name) ||
+          cachedRegExp(
+            r'(?:callback|hook|customiz(?:e|er)|transform|decorator|factory|builder|handler|interceptor|strategy)',
+            caseSensitive: false,
+          ).hasMatch(name);
+
+      final bool invoked = cachedRegExp(
+        '\\b${RegExp.escape(name)}\\s*(?:(?:\\?|!)\\s*\\.\\s*)?(?:(?:call|Invoke)\\s*)?\\(',
+      ).hasMatch(body);
+      if (optional && _identifierCount(body, name) > 0) {
+        parameters.add(
+          _OptionalParameter(
+            name: name,
+            positionalIndex: positionalIndex,
+            named: named,
+            callbackLike: callbackName,
+            invoked: invoked,
+          ),
+        );
+      }
+      if (!named) positionalIndex++;
+    }
+  }
+  return parameters;
+}
+
+Iterable<List<String>> _callArguments(String source, String name) sync* {
+  final String code = _codeWithoutCommentsAndStrings(source);
+  final RegExp call = cachedRegExp('\\b${RegExp.escape(name)}\\s*\\(');
+  for (final RegExpMatch match in call.allMatches(code)) {
+    var cursor = match.start - 1;
+    while (cursor >= 0 && code[cursor].trim().isEmpty) {
+      cursor--;
+    }
+    if (cursor >= 0 && code[cursor] == '.') {
+      final String receiver = code.substring(0, cursor).trimRight();
+      if (!cachedRegExp(r'(?:this|self)$').hasMatch(receiver)) continue;
+    }
+    final int open = code.indexOf('(', match.start);
+    final int close = _matchingDelimiter(code, open, '(', ')');
+    if (close == -1) continue;
+    final String arguments = code.substring(open + 1, close);
+    if (arguments.trim().isEmpty) {
+      yield const <String>[];
+      continue;
+    }
+    yield _splitTopLevel(
+      arguments,
+    ).map((String argument) => argument.trim()).toList(growable: false);
+  }
+}
+
+String? _simpleConstant(String argument) {
+  final String normalized = argument.replaceAll(cachedRegExp(r'\s+'), '');
+  if (cachedRegExp(
+    r'^(?:true|false|True|False|null|None|nil|-?(?:0[xX][0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?))$',
+  ).hasMatch(normalized)) {
+    return normalized;
+  }
+  if (cachedRegExp(
+    r'^(?:[A-Z][A-Za-z0-9_$]*\.)+[A-Za-z_$][\w$]*$|^[A-Z][A-Z0-9_]*$',
+  ).hasMatch(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
+int _identifierCount(String source, String identifier) => cachedRegExp(
+  '\\b${RegExp.escape(identifier)}\\b',
+).allMatches(source).length;
+
+RegExpMatch? _directForwardingCall(String tail) {
+  final String? expression = _directReturnedExpression(tail);
+  if (expression == null) return null;
+  return cachedRegExp(
+    r'^(?:(?:this|self)\.)?([A-Za-z_$][\w$]*)\s*\(([^()]*)\)$',
+    multiLine: true,
+  ).firstMatch(expression);
+}
+
+String? _directReturnedExpression(String tail) {
+  var body = tail.trim();
+  if (body.startsWith('async ')) body = body.substring(6).trim();
+  if (body.startsWith('=>')) {
+    body = body.substring(2).trim();
+  } else if (body.startsWith('{')) {
+    if (!body.endsWith('}')) return null;
+    body = body.substring(1, body.length - 1).trim();
+  } else if (body.startsWith('->')) {
+    final int colon = body.indexOf(':');
+    final int brace = body.indexOf('{');
+    if (colon != -1 && (brace == -1 || colon < brace)) {
+      body = body.substring(colon + 1).trim();
+    } else {
+      if (brace == -1 || !body.endsWith('}')) return null;
+      body = body.substring(brace + 1, body.length - 1).trim();
+    }
+  } else if (body.startsWith(':')) {
+    final int brace = body.indexOf('{');
+    if (brace == -1) {
+      body = body.substring(1).trim();
+    } else {
+      if (!body.endsWith('}')) return null;
+      body = body.substring(brace + 1, body.length - 1).trim();
+    }
+  } else {
+    final int brace = body.indexOf('{');
+    if (brace == -1 || !body.endsWith('}')) return null;
+    final String returnType = body.substring(0, brace).trim();
+    if (returnType.isEmpty || cachedRegExp(r'[;=]').hasMatch(returnType)) {
+      return null;
+    }
+    body = body.substring(brace + 1, body.length - 1).trim();
+  }
+  if (body.startsWith('return ')) body = body.substring(7).trim();
+  if (body.startsWith('await ')) body = body.substring(6).trim();
+  if (body.endsWith(';')) body = body.substring(0, body.length - 1).trim();
+  return body;
+}
+
+List<String>? _forwardedParameterNames(String source, {required String path}) {
+  final String? language = _sourceLanguage(path);
+  final List<String> result = <String>[];
+  for (final String raw in _splitTopLevel(source)) {
+    var parameter = raw.trim();
+    if (parameter.isEmpty || (language == 'cpp' && parameter == 'void')) {
+      continue;
+    }
+    parameter = parameter.replaceAll(cachedRegExp(r'^[\s{\[]+|[\s}\]]+$'), '');
+    final int equals = parameter.indexOf('=');
+    if (equals != -1) parameter = parameter.substring(0, equals).trim();
+    if (cachedRegExp(r'[\(\{\[]').hasMatch(parameter)) return null;
+
+    final int colon = parameter.indexOf(':');
+    final String nameSource = colon == -1
+        ? parameter
+        : parameter.substring(0, colon);
+    final List<RegExpMatch> identifiers = cachedRegExp(
+      r'[A-Za-z_$][\w$]*',
+    ).allMatches(nameSource).toList(growable: false);
+    if (identifiers.isEmpty) return null;
+    final String name = language == 'go'
+        ? identifiers.first.group(0)!
+        : identifiers.last.group(0)!;
+    if (name == 'this' || name == 'self') continue;
+    result.add(name);
+  }
+  return result;
+}
+
+List<String> _splitTopLevel(String source) {
+  final List<String> result = <String>[];
+  var start = 0;
+  var depth = 0;
+  for (var index = 0; index < source.length; index++) {
+    switch (source[index]) {
+      case '(':
+      case '[':
+      case '{':
+      case '<':
+        depth++;
+      case ')':
+      case ']':
+      case '}':
+      case '>':
+        depth--;
+      case ',':
+        if (depth == 0) {
+          result.add(source.substring(start, index));
+          start = index + 1;
+        }
+    }
+  }
+  result.add(source.substring(start));
+  return result;
+}
+
+int _matchingDelimiter(
+  String source,
+  int open,
+  String opening,
+  String closing,
+) {
+  var depth = 0;
+  for (var index = open; index < source.length; index++) {
+    if (source[index] == opening) depth++;
+    if (source[index] == closing && --depth == 0) return index;
+  }
+  return -1;
+}
+
+String _codeWithoutCommentsAndStrings(String source) {
+  final StringBuffer code = StringBuffer();
+  var inBlockComment = false;
+  for (final String line in source.split('\n')) {
+    final ({String source, bool endsInBlockComment}) stripped = _stripComments(
+      _stripStringLiterals(line),
+      inBlockComment: inBlockComment,
+    );
+    inBlockComment = stripped.endsInBlockComment;
+    code.writeln(stripped.source);
+  }
+  return code.toString();
+}
+
+bool _callsFunction(String source, String name) => cachedRegExp(
+  '\\b(?:(?:this|self)\\s*\\.\\s*)?${RegExp.escape(name)}\\s*\\(',
+).hasMatch(_codeWithoutCommentsAndStrings(source));

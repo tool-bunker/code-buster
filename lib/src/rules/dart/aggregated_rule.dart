@@ -122,7 +122,8 @@ final class DartAggregatedRule extends SelfContainedRule {
                     : _versionTwoIds.contains(id)
                     ? 3
                     : 2
-              : id == 'dart-hardcoded-secret'
+              : id == 'dart-hardcoded-secret' ||
+                    id == 'dart-sensitive-data-logging'
               ? 4
               : _versionThreeIds.contains(id)
               ? 3
@@ -150,6 +151,7 @@ final class DartAggregatedRule extends SelfContainedRule {
   static const Set<String> _versionThreeIds = <String>{
     'flutter-listener-without-remove',
     'dart-path-traversal',
+    'dart-sensitive-data-logging',
     'dart-null-assertion',
   };
 
@@ -158,6 +160,7 @@ final class DartAggregatedRule extends SelfContainedRule {
     'dart-catch-without-stack-trace',
     'dart-late-final-persistence',
     'dart-null-assertion',
+    'dart-iosink-not-closed',
     'dart-insecure-random',
     'dart-http-client-not-closed',
     'dart-path-traversal',

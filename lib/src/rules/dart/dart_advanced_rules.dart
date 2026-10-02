@@ -1638,11 +1638,31 @@ final class _SensitiveIdentifierVisitor extends RecursiveAstVisitor<void> {
   final RegExp pattern;
   bool found = false;
 
+  bool _isSensitive(String name) =>
+      pattern.hasMatch(name) &&
+      !cachedRegExp(
+        r'(?:length|limit|minimum|maximum|name|policy|requirements?)$',
+        caseSensitive: false,
+      ).hasMatch(name);
+
+  @override
+  void visitPropertyAccess(PropertyAccess node) {
+    if (_isSensitive(node.propertyName.name)) found = true;
+  }
+
+  @override
+  void visitPrefixedIdentifier(PrefixedIdentifier node) {
+    if (_isSensitive(node.identifier.name)) found = true;
+  }
+
   @override
   void visitSimpleIdentifier(SimpleIdentifier node) {
-    if (pattern.hasMatch(node.name)) {
-      found = true;
+    final AstNode? parent = node.parent;
+    if ((parent is PropertyAccess && parent.propertyName == node) ||
+        (parent is PrefixedIdentifier && parent.identifier == node)) {
+      return;
     }
+    if (_isSensitive(node.name)) found = true;
   }
 }
 

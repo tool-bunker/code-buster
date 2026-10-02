@@ -121,7 +121,9 @@
     "**/*.Benchmark/**",
     "**/*.Benchmarks/**",
     "**/storybook/**",
+    "templates/**",
     "**/vendor/**",
+    "**/vendored/**",
     "**/third_party/**",
     "**/compiled/**",
     "**/cargokit/**",
@@ -421,19 +423,33 @@
       "id": "constant-argument-parameter",
       "severity": "info",
       "group": "yagni",
-      "version": 1,
-      "semanticMaturity": "text",
+      "version": 3,
+      "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
-        "design"
+        "maintainability"
       ],
       "requirements": [
-        "sourceText"
+        "functions"
       ],
-      "languages": [],
+      "languages": [
+        "cpp",
+        "csharp",
+        "dart",
+        "go",
+        "java",
+        "javascript",
+        "typescript",
+        "python",
+        "rust"
+      ],
       "frameworks": [],
       "languageVersions": {},
-      "limitations": [],
+      "limitations": [
+        "Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.",
+        "Supports required positional parameters whose values are booleans, null sentinels, numeric literals, enum values, or uppercase constants.",
+        "String constants, named and optional parameters, reflective calls, method tear-offs, overload ownership, and framework-discovered private hooks are not resolved."
+      ],
       "enabledByDefault": true
     },
     {
@@ -1786,7 +1802,7 @@
       "id": "dart-iosink-not-closed",
       "severity": "warn",
       "group": "style",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -2212,7 +2228,7 @@
       "id": "dart-sensitive-data-logging",
       "severity": "warn",
       "group": "security",
-      "version": 3,
+      "version": 5,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -2378,7 +2394,7 @@
       "id": "dead-file",
       "severity": "error",
       "group": "core",
-      "version": 8,
+      "version": 9,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -8000,7 +8016,7 @@
       "id": "public-mutable-state",
       "severity": "info",
       "group": "maintainability",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -8987,22 +9003,67 @@
       "enabledByDefault": true
     },
     {
-      "id": "single-use-trivial-wrapper",
+      "id": "single-product-factory",
       "severity": "info",
       "group": "yagni",
       "version": 1,
-      "semanticMaturity": "text",
+      "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
-        "design"
+        "maintainability"
       ],
       "requirements": [
-        "sourceText"
+        "functions"
       ],
-      "languages": [],
+      "languages": [
+        "cpp",
+        "csharp",
+        "dart",
+        "java",
+        "javascript",
+        "typescript",
+        "python"
+      ],
       "frameworks": [],
       "languageVersions": {},
-      "limitations": [],
+      "limitations": [
+        "Reports only static C/C++ functions, private C#/Java methods, and underscore-prefixed Dart/JavaScript/TypeScript/Python factories with exactly one visible caller.",
+        "Requires a factory-like name and a body consisting only of direct construction with unchanged positional arguments.",
+        "Factories that select products, own lifecycle, cache, validate, decorate, transform arguments, or expose public composition boundaries are excluded."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "single-use-trivial-wrapper",
+      "severity": "info",
+      "group": "yagni",
+      "version": 3,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "cpp",
+        "csharp",
+        "dart",
+        "go",
+        "java",
+        "javascript",
+        "typescript",
+        "python",
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.",
+        "Requires unchanged positional arguments and a uniquely named local target function.",
+        "Method tear-offs, reflective calls, overload ownership, and framework-discovered private hooks are not resolved."
+      ],
       "enabledByDefault": true
     },
     {
@@ -9693,22 +9754,61 @@
       "enabledByDefault": true
     },
     {
-      "id": "unused-customization-hook",
+      "id": "unused-configuration-option",
       "severity": "info",
       "group": "yagni",
       "version": 1,
-      "semanticMaturity": "text",
+      "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
-        "design"
+        "maintainability"
       ],
       "requirements": [
-        "sourceText"
+        "functions"
       ],
-      "languages": [],
+      "languages": [
+        "csharp",
+        "dart",
+        "javascript",
+        "typescript",
+        "python"
+      ],
       "frameworks": [],
       "languageVersions": {},
-      "limitations": [],
+      "limitations": [
+        "Reports identifier-named options supplied through inline object literals or named constructor arguments to private functions with at least three visible call sites.",
+        "Requires a configuration-like parameter name, a project-unique function name, complete direct-call evidence, and property-only reads of the configuration parameter.",
+        "String-keyed maps, positional configuration constructors, aliases, destructuring, computed property access, reflection, overload ownership, and framework-discovered private hooks are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "unused-customization-hook",
+      "severity": "info",
+      "group": "yagni",
+      "version": 3,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "csharp",
+        "dart",
+        "javascript",
+        "typescript",
+        "python"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Reports optional callback-like parameters on private C# methods and underscore-prefixed Dart, JavaScript, TypeScript, or Python functions with at least three visible call sites and a project-unique name.",
+        "Requires the function body to invoke the hook and complete evidence that no visible caller supplies it.",
+        "Reflective calls, method tear-offs, overload ownership, forwarded callback parameters, and framework-discovered private hooks are not resolved."
+      ],
       "enabledByDefault": true
     },
     {
@@ -9728,6 +9828,35 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "unused-optional-parameter",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "csharp",
+        "dart",
+        "javascript",
+        "typescript",
+        "python"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Reports used optional parameters on private C# methods and underscore-prefixed Dart, JavaScript, TypeScript, or Python functions with at least three visible call sites and a project-unique name.",
+        "Requires complete evidence that no visible caller supplies the parameter and leaves invoked callback-like parameters to unused-customization-hook.",
+        "Reflective calls, method tear-offs, overload ownership, forwarded parameters, and framework-discovered private hooks are not resolved."
+      ],
       "enabledByDefault": true
     },
     {

@@ -12,8 +12,10 @@ void main() {
         'code-buster-cache-',
       );
       addTearDown(() => root.delete(recursive: true));
-      const PersistentAnalysisCache cache = PersistentAnalysisCache(
+      final String cacheDirectory = '${root.path}/cache';
+      final PersistentAnalysisCache cache = PersistentAnalysisCache(
         version: 'test-v1',
+        directory: cacheDirectory,
       );
       final AnalysisConfig config = AnalysisConfig(root: root.path);
       final Map<String, String> sources = <String, String>{
@@ -44,9 +46,7 @@ void main() {
       );
       final Map<String, Object?> findingEnvelope =
           jsonDecode(
-                File(
-                  '${root.path}/.code-buster-cache/findings-$key.json',
-                ).readAsStringSync(),
+                File('$cacheDirectory/findings-$key.json').readAsStringSync(),
               )
               as Map<String, Object?>;
       expect(findingEnvelope['schemaVersion'], cacheSchemaVersion);
@@ -61,11 +61,7 @@ void main() {
         <String>['b.dart'],
       );
       final Map<String, Object?> graphEnvelope =
-          jsonDecode(
-                File(
-                  '${root.path}/.code-buster-cache/graph-$key.json',
-                ).readAsStringSync(),
-              )
+          jsonDecode(File('$cacheDirectory/graph-$key.json').readAsStringSync())
               as Map<String, Object?>;
       expect(graphEnvelope['schemaVersion'], cacheSchemaVersion);
       expect(graphEnvelope['kind'], 'graph');
@@ -82,8 +78,9 @@ void main() {
         isNot(key),
       );
       expect(
-        const PersistentAnalysisCache(
+        PersistentAnalysisCache(
           version: 'test-v2',
+          directory: cacheDirectory,
         ).key(config: config, sources: sources, kind: 'summary'),
         isNot(key),
       );
@@ -129,15 +126,37 @@ void main() {
       'code-buster-cache-',
     );
     addTearDown(() => root.delete(recursive: true));
-    final Directory directory = Directory('${root.path}/.code-buster-cache')
-      ..createSync();
+    final Directory directory = Directory('${root.path}/cache')..createSync();
     File('${directory.path}/findings-bad.json').writeAsStringSync('{broken');
     expect(
-      const PersistentAnalysisCache().loadFindings(
+      PersistentAnalysisCache(directory: directory.path).loadFindings(
         config: AnalysisConfig(root: root.path),
         key: 'bad',
       ),
       isNull,
+    );
+  });
+
+  test('keeps the default cache outside the analyzed repository', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code-buster-project-',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final String cacheDirectory = PersistentAnalysisCache.defaultDirectory(
+      root.path,
+    );
+
+    expect(
+      cacheDirectory,
+      isNot(startsWith('${root.absolute.path}${Platform.pathSeparator}')),
+    );
+    expect(cacheDirectory, contains('code-buster'));
+    expect(
+      cacheDirectory,
+      contains(
+        root.uri.pathSegments.lastWhere((String segment) => segment.isNotEmpty),
+      ),
     );
   });
 }

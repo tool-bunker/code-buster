@@ -42,7 +42,7 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'Publicly writable state lets callers bypass invariants and couples them to representation details.',
     'Make the field private and expose behavior or a deliberately constrained immutable view.',
     maturity: RuleSemanticMaturity.token,
-    version: 2,
+    version: 3,
   ),
   'commented-out-code': _metadata(
     'commented-out-code',
@@ -165,6 +165,7 @@ final class PublicMutableStateRule extends _CleanCodeRule {
         sourcePath: entry.key,
       );
       var depth = 0;
+      var parenthesisDepth = 0;
       int? classDepth;
       var privateClass = false;
       for (var index = 0; index < lines.length; index++) {
@@ -176,7 +177,8 @@ final class PublicMutableStateRule extends _CleanCodeRule {
           classDepth = depth + '{'.allMatches(line).length;
           privateClass = classDeclaration.requiredGroup(1).startsWith('_');
         }
-        final bool directMember = classDepth != null && depth == classDepth;
+        final bool directMember =
+            classDepth != null && depth == classDepth && parenthesisDepth == 0;
         final RegExpMatch? explicit = cachedRegExp(
           r'^\s*public\s+(?!(?:static\s+)?(?:final|readonly|const)\b)(?:static\s+)?(?:[A-Za-z_$][\w$<>,?\[\].]*\s+)+(\w+)\s*(?:=|;)',
         ).firstMatch(line);
@@ -209,6 +211,8 @@ final class PublicMutableStateRule extends _CleanCodeRule {
           );
         }
         depth += '{'.allMatches(line).length - '}'.allMatches(line).length;
+        parenthesisDepth +=
+            '('.allMatches(line).length - ')'.allMatches(line).length;
         if (classDepth != null && depth < classDepth) classDepth = null;
       }
     }

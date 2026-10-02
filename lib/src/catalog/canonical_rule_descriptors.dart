@@ -1238,6 +1238,11 @@ canonicalRuleDescriptors =
         group: 'design',
         title: 'Repeated condition',
       ),
+      'single-product-factory': (
+        language: 'all',
+        group: 'yagni',
+        title: 'Single product factory',
+      ),
       'single-use-trivial-wrapper': (
         language: 'all',
         group: 'yagni',
@@ -1371,6 +1376,11 @@ canonicalRuleDescriptors =
         group: 'nim-style',
         title: 'Ts non null assertion',
       ),
+      'unused-configuration-option': (
+        language: 'all',
+        group: 'yagni',
+        title: 'Unused configuration option',
+      ),
       'unused-customization-hook': (
         language: 'all',
         group: 'yagni',
@@ -1380,6 +1390,11 @@ canonicalRuleDescriptors =
         language: 'all',
         group: 'yagni',
         title: 'Remove speculative generic parameter',
+      ),
+      'unused-optional-parameter': (
+        language: 'all',
+        group: 'yagni',
+        title: 'Unused optional parameter',
       ),
       'wren-broad-import': (
         language: 'wren',
