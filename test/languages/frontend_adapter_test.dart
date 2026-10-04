@@ -41,6 +41,64 @@ void main() {
     );
   });
 
+  test('understands Svelte component syntax and conditional rendering', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('html')
+        .analyze(<String, String>{
+          'Component.svelte': r'''
+<script lang="ts">
+  let upload = $state<HTMLInputElement | null>(null);
+</script>
+{#if panel === 'first'}
+  <section id="panel-content">
+    <button onclick={() => select('first')}>First</button>
+  </section>
+{:else if panel === 'second'}
+  <section id="panel-content">
+    <input bind:this={upload} hidden type="file" onchange={importFile} />
+  </section>
+{:else}
+  <section id="panel-content">Empty</section>
+{/if}
+''',
+        }, config)
+        .findings;
+
+    expect(
+      findings.where(
+        (Finding finding) => <String>{
+          'html-duplicate-id',
+          'html-inline-event',
+          'html-inline-script',
+          'html-input-label',
+          'html-missing-lang',
+          'html-missing-title',
+          'html-missing-viewport',
+        }.contains(finding.code),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('still reports duplicate ids rendered together by Svelte', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('html')
+        .analyze(<String, String>{
+          'Component.svelte': '''
+<main id="content"></main>
+{#if visible}
+  <aside id="content"></aside>
+{/if}
+''',
+        }, config)
+        .findings
+        .where((Finding finding) => finding.code == 'html-duplicate-id')
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.line, 3);
+  });
+
   test('checks blank-link rel across multiline start tags', () {
     final List<Finding> findings = LanguagePluginRegistry.standard()
         .require('html')

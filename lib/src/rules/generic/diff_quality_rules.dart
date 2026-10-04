@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../core/models.dart';
 import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
@@ -85,6 +87,26 @@ diffQualityRuleMetadata = <String, RuleMetadata>{
     'Keep only the required mode or use one purpose-named value when callers genuinely need multiple modes.',
     limitations: <String>[
       'Reports newly added single-line function declarations containing at least three Boolean parameters.',
+    ],
+  ),
+  'caller-side-guard-duplication': _metadata(
+    'caller-side-guard-duplication',
+    'Move repeated guards to the shared callee',
+    'Equivalent precondition guards added around one project-owned callee in several callers duplicate an invariant and leave sibling callers exposed.',
+    'Validate the shared precondition once in the callee when it belongs to that operation.',
+    limitations: <String>[
+      'Requires at least two newly added single-line conditional calls with the same null, empty, or length guard around a directly declared project function.',
+      'Caller-specific authorization, feature policy, and intentionally different fallback behavior cannot be inferred.',
+    ],
+  ),
+  'thin-dependency-for-trivial-capability': _metadata(
+    'thin-dependency-for-trivial-capability',
+    'Prefer the native trivial capability',
+    'A new dependency used once for an operation already provided by the declared runtime adds supply-chain and maintenance cost without owning behavior.',
+    'Use the named native operation unless the dependency supplies behavior the call site actually requires.',
+    limitations: <String>[
+      'Requires a newly added package.json production dependency, one import, one use, and an explicit semantics-preserving capability mapping.',
+      'Currently recognizes left-pad via String.padStart and object-assign via Object.assign in JavaScript and TypeScript.',
     ],
   ),
 };
@@ -264,6 +286,108 @@ final class BooleanOptionExplosionRule extends _DiffQualityRule {
   }
 }
 
+final class CallerSideGuardDuplicationRule extends _DiffQualityRule {
+  CallerSideGuardDuplicationRule() : super('caller-side-guard-duplication');
+
+  @override
+  Iterable<Finding> analyze(RuleContext context) sync* {
+    final SemanticDiff? change = diff(context);
+    if (change == null) return;
+    final Map<String, List<_GuardedCall>> groups =
+        <String, List<_GuardedCall>>{};
+    final RegExp guardedCall = cachedRegExp(
+      r'\bif\s*\(\s*([^)]*?)\s*\)\s*(?:\{\s*)?(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)',
+    );
+    for (final SemanticFileDiff file in change.productionFiles) {
+      final List<String> maskedLines = maskGenericRuleStrings(
+        file.after.split('\n'),
+        sourcePath: file.path,
+      );
+      for (final SemanticLine line in file.addedLines) {
+        final RegExpMatch? match = guardedCall.firstMatch(
+          maskedLines[line.number - 1],
+        );
+        if (match == null) continue;
+        final String guard = match.requiredGroup(1);
+        final String callee = match.requiredGroup(2);
+        final String argument = match.requiredGroup(3);
+        if (!cachedRegExp('\\b${RegExp.escape(argument)}\\b').hasMatch(guard) ||
+            !cachedRegExp(
+              r'\b(?:null|nil|None|isEmpty|isNotEmpty|length)\b',
+              caseSensitive: false,
+            ).hasMatch(guard) ||
+            !_declaresProjectFunction(context, callee)) {
+          continue;
+        }
+        final String shape = guard
+            .replaceAll(
+              cachedRegExp('\\b${RegExp.escape(argument)}\\b'),
+              r'$argument',
+            )
+            .replaceAll(cachedRegExp(r'\s+'), '');
+        groups
+            .putIfAbsent('$callee|$shape', () => <_GuardedCall>[])
+            .add(_GuardedCall(file.path, line.number, callee));
+      }
+    }
+    for (final List<_GuardedCall> calls in groups.values) {
+      if (calls.length < 2) continue;
+      final _GuardedCall first = calls.first;
+      yield report(
+        context,
+        path: first.path,
+        line: first.line,
+        message:
+            '${calls.length} callers add the same guard around `${first.callee}`',
+        confidence: 'medium',
+      );
+    }
+  }
+}
+
+final class ThinDependencyForTrivialCapabilityRule extends _DiffQualityRule {
+  ThinDependencyForTrivialCapabilityRule()
+    : super('thin-dependency-for-trivial-capability');
+
+  @override
+  Iterable<Finding> analyze(RuleContext context) sync* {
+    final SemanticDiff? change = diff(context);
+    if (change == null || !context.changedPaths.contains('package.json')) {
+      return;
+    }
+    final Set<String> added = _addedProductionDependencies(context);
+    for (final _NativeCapability capability in _nativeCapabilities) {
+      if (!added.contains(capability.package)) continue;
+      final List<_DependencyUse> uses = <_DependencyUse>[];
+      for (final SemanticFileDiff file in change.productionFiles) {
+        final RegExpMatch? import = capability.importPattern.firstMatch(
+          file.after,
+        );
+        if (import == null) continue;
+        final String binding = import.requiredGroup(1);
+        final String masked = maskGenericRuleStrings(
+          file.after.split('\n'),
+          sourcePath: file.path,
+        ).join('\n');
+        if (_identifierOccurrences(masked, binding) == 2) {
+          uses.add(_DependencyUse(file.path, import.start, binding));
+        }
+      }
+      if (uses.length != 1) continue;
+      final _DependencyUse use = uses.single;
+      final String source = context.sources.requiredValue(use.path);
+      yield report(
+        context,
+        path: use.path,
+        line: '\n'.allMatches(source.substring(0, use.offset)).length + 1,
+        message:
+            'new `${capability.package}` dependency is used once for `${use.binding}`; ${capability.replacement} is native',
+        confidence: 'high',
+      );
+    }
+  }
+}
+
 final class AbstractionCostExceedsUseRule extends _DiffQualityRule {
   AbstractionCostExceedsUseRule() : super('abstraction-cost-exceeds-use');
 
@@ -433,3 +557,97 @@ String _referenceSource(RuleContext context) => context.sources.entries
 int _identifierOccurrences(String source, String identifier) => cachedRegExp(
   '\\b${RegExp.escape(identifier)}\\b',
 ).allMatches(source).length;
+
+final class _GuardedCall {
+  const _GuardedCall(this.path, this.line, this.callee);
+
+  final String path;
+  final int line;
+  final String callee;
+}
+
+final class _DependencyUse {
+  const _DependencyUse(this.path, this.offset, this.binding);
+
+  final String path;
+  final int offset;
+  final String binding;
+}
+
+final class _NativeCapability {
+  const _NativeCapability({
+    required this.package,
+    required this.importPattern,
+    required this.replacement,
+  });
+
+  final String package;
+  final RegExp importPattern;
+  final String replacement;
+}
+
+final List<_NativeCapability> _nativeCapabilities = <_NativeCapability>[
+  _NativeCapability(
+    package: 'left-pad',
+    importPattern: cachedRegExp(
+      r'''(?:import\s+|(?:const|let|var)\s+)([A-Za-z_$][\w$]*)\s*(?:from\s+|=\s*require\(\s*)["']left-pad["']''',
+    ),
+    replacement: 'String.padStart',
+  ),
+  _NativeCapability(
+    package: 'object-assign',
+    importPattern: cachedRegExp(
+      r'''(?:import\s+|(?:const|let|var)\s+)([A-Za-z_$][\w$]*)\s*(?:from\s+|=\s*require\(\s*)["']object-assign["']''',
+    ),
+    replacement: 'Object.assign',
+  ),
+];
+
+bool _declaresProjectFunction(RuleContext context, String name) {
+  final RegExp declaration = cachedRegExp(
+    '(?:^|\\n)\\s*(?:(?:export|async|public|private|protected|static)\\s+)*(?:(?:function|def|fun|fn)\\s+${RegExp.escape(name)}\\s*\\(|(?:[A-Za-z_][\\w<>,?\\[\\].]*\\s+)+${RegExp.escape(name)}\\s*\\([^;\\n]*\\)\\s*(?:\\{|=>|:))',
+  );
+  if (context.sources.entries.any(
+    (MapEntry<String, String> entry) => declaration.hasMatch(
+      maskGenericRuleStrings(
+        entry.value.split('\n'),
+        sourcePath: entry.key,
+      ).join('\n'),
+    ),
+  )) {
+    return true;
+  }
+  final RegExp localImport = cachedRegExp(
+    '(?:^|\\n)\\s*(?:import\\s*\\{[^}]*\\b${RegExp.escape(name)}\\b[^}]*\\}\\s*from\\s*["\\\']\\.|from\\s+\\.+[\\w.]*\\s+import\\s+[^\\n]*\\b${RegExp.escape(name)}\\b)',
+  );
+  return context.sources.values.any(localImport.hasMatch);
+}
+
+Set<String> _addedProductionDependencies(RuleContext context) {
+  final Map<String, Object?> current = _jsonObject(
+    context.auxiliaryFiles['package.json'],
+  );
+  final Map<String, Object?> previous = _jsonObject(
+    context.auxiliaryFiles['@base/package.json'],
+  );
+  return _dependencyNames(current).difference(_dependencyNames(previous));
+}
+
+Map<String, Object?> _jsonObject(String? source) {
+  if (source == null) return const <String, Object?>{};
+  try {
+    final Object? decoded = jsonDecode(source);
+    return decoded is Map<String, Object?>
+        ? decoded
+        : const <String, Object?>{};
+  } on FormatException {
+    return const <String, Object?>{};
+  }
+}
+
+Set<String> _dependencyNames(Map<String, Object?> manifest) {
+  final Object? dependencies = manifest['dependencies'];
+  return dependencies is Map<String, Object?>
+      ? dependencies.keys.toSet()
+      : const <String>{};
+}

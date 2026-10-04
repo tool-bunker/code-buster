@@ -89,4 +89,13 @@ final RuleRegistry javascriptRuleRegistry = RuleRegistry(<CodeBusterRule>[
     severity: RuleSeverity.info,
     group: 'nim-style',
   ),
+  TypeScriptSourceRule(
+    id: 'ts-string-timer-code-execution',
+    severity: RuleSeverity.error,
+    group: 'security',
+    why:
+        'Passing source text to a timer evaluates it as code and can turn untrusted data into code execution.',
+    suggestion:
+        'Pass a function or closure to the timer instead of source text.',
+  ),
 ]);

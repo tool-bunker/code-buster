@@ -34,6 +34,8 @@ final class TypeScriptSourceRule extends SelfContainedRule {
                ? 7
                : id == 'ts-json-parse-unsafe'
                ? 6
+               : id == 'ts-string-timer-code-execution'
+               ? 1
                : 2,
            languages: const <String>['javascript', 'typescript'],
          ),

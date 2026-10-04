@@ -247,7 +247,7 @@ final class FindingReporter {
           'tool': <String, Object>{
             'driver': <String, Object>{
               'name': 'code-buster',
-              'version': '0.7.2',
+              'version': '0.7.3',
               'rules': firstByCode.entries
                   .map(
                     (MapEntry<String, Finding> entry) => <String, Object>{

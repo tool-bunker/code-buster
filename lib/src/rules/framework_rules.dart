@@ -5,6 +5,8 @@ import 'dart/aggregated_rule.dart';
 import 'dart/flutter_repeated_sizedbox_spacing.dart';
 import 'fastapi_quality_rules.dart';
 import 'flutter_quality_rules.dart';
+import 'pixijs_quality_rules.dart';
+import 'svelte_quality_rules.dart';
 import 'ui/ui_consistency.dart';
 
 final class FrameworkRuleRegistry {
@@ -42,6 +44,18 @@ final Map<String, FrameworkRuleRegistry> frameworkRuleRegistries =
         languageRules: const <String, RuleRegistry>{},
         repositoryRules: RuleRegistry(<CodeBusterRule>[
           for (final String id in fastApiQualityRuleIds) FastApiQualityRule(id),
+        ]),
+      ),
+      'svelte': FrameworkRuleRegistry(
+        languageRules: const <String, RuleRegistry>{},
+        repositoryRules: RuleRegistry(<CodeBusterRule>[
+          for (final String id in svelteQualityRuleIds) SvelteQualityRule(id),
+        ]),
+      ),
+      'pixijs': FrameworkRuleRegistry(
+        languageRules: const <String, RuleRegistry>{},
+        repositoryRules: RuleRegistry(<CodeBusterRule>[
+          for (final String id in pixiJsQualityRuleIds) PixiJsQualityRule(id),
         ]),
       ),
     };

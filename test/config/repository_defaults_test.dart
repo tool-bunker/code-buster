@@ -221,6 +221,21 @@ void main() {
     expect(defaults.frameworks, contains('fastapi'));
   });
 
+  test('detects Svelte and PixiJS from JavaScript manifests', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'cb-web-frameworks-',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    File('${root.path}/package.json').writeAsStringSync(
+      '{"dependencies":{"svelte":"^5.0.0","pixi.js":"^8.0.0"}}',
+    );
+
+    final RepositoryDefaults defaults = RepositoryDefaults.infer(root.path);
+
+    expect(defaults.profiles, containsAll(<String>['svelte', 'pixijs']));
+    expect(defaults.frameworks, containsAll(<String>{'svelte', 'pixijs'}));
+  });
+
   test('ignores generated migration definition snapshots generically', () {
     final Directory root = Directory.systemTemp.createTempSync(
       'cb-migration-definitions-',
