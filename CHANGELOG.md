@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Added
+
+### Improved
+
+## 0.7.3
+
+### Added
+
+- Detect Svelte projects and report async `onMount` cleanup, leaked global listeners and intervals, dynamic `{@html}` trust boundaries, unkeyed animation blocks, and browser globals in module scripts.
+- Detect PixiJS projects and report PixiJS v8 migration hazards, unawaited application initialization, numeric ticker-delta assumptions, ticker listener lifecycle gaps, and display-object allocation inside frame loops.
+- Add focused-change advisories for repeated caller-side guards around a shared project function and newly added single-use dependencies whose exact capability is already native.
+- Detect Go derived contexts whose cancel function is discarded or never used.
+- Detect Go SQL row iteration that omits the terminal `Rows.Err()` check.
+- Detect JavaScript and TypeScript timers that execute string or template-literal source text.
+
+### Improved
+
+- Consolidate consecutive single-use forwarding functions into one maximal-chain finding across C++, C#, Dart, Go, Java, JavaScript, TypeScript, Python, and Rust.
+- Keep individual YAGNI findings while adding file-level guidance when at least three findings from two rule families indicate concentrated speculative design.
+- Analyze TypeScript correctness and security rules in one shared lexical pass instead of remasking every source for each registered rule.
+- Remove the obsolete repository-hosted product site and recording sources now that canonical documentation and installer scripts are owned by `toolbunker.dev`.
+- Round the README rule count to `450+` so routine rule additions do not require documentation churn.
+
 ## 0.7.2
 
 ### Added

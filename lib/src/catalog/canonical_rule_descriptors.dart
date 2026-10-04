@@ -1071,6 +1071,36 @@ canonicalRuleDescriptors =
         group: 'suspicious',
         title: 'Operation on same value',
       ),
+      'pixijs-frame-loop-allocation': (
+        language: 'typescript',
+        group: 'performance',
+        title: 'Avoid display-object allocation per frame',
+      ),
+      'pixijs-ticker-listener-without-removal': (
+        language: 'typescript',
+        group: 'reliability',
+        title: 'Remove owned ticker listeners',
+      ),
+      'pixijs-v8-cache-as-bitmap': (
+        language: 'typescript',
+        group: 'correctness',
+        title: 'Use PixiJS v8 cacheAsTexture',
+      ),
+      'pixijs-v8-legacy-interactive': (
+        language: 'typescript',
+        group: 'correctness',
+        title: 'Use PixiJS v8 eventMode',
+      ),
+      'pixijs-v8-numeric-ticker-delta': (
+        language: 'typescript',
+        group: 'correctness',
+        title: 'Use PixiJS v8 ticker timing',
+      ),
+      'pixijs-v8-unawaited-application-init': (
+        language: 'typescript',
+        group: 'correctness',
+        title: 'Await PixiJS application initialization',
+      ),
       'py-assert-runtime': (
         language: 'python',
         group: 'nim-style',
@@ -1318,6 +1348,36 @@ canonicalRuleDescriptors =
         group: 'suspicious',
         title: 'Suspicious command arg space',
       ),
+      'svelte-animate-unkeyed-each': (
+        language: 'html',
+        group: 'correctness',
+        title: 'Key animated each blocks',
+      ),
+      'svelte-async-onmount-cleanup': (
+        language: 'html',
+        group: 'reliability',
+        title: 'Keep onMount cleanup synchronous',
+      ),
+      'svelte-dynamic-html': (
+        language: 'html',
+        group: 'security',
+        title: 'Review dynamic Svelte HTML',
+      ),
+      'svelte-global-listener-without-cleanup': (
+        language: 'html',
+        group: 'reliability',
+        title: 'Remove manually registered global listeners',
+      ),
+      'svelte-interval-without-cleanup': (
+        language: 'html',
+        group: 'reliability',
+        title: 'Clear component intervals',
+      ),
+      'svelte-module-browser-global': (
+        language: 'html',
+        group: 'reliability',
+        title: 'Keep browser globals out of module initialization',
+      ),
       'tab-indent': (language: 'all', group: 'core', title: 'Replace tabs'),
       'todo-comment': (
         language: 'all',
@@ -1435,5 +1495,10 @@ canonicalRuleDescriptors =
         language: 'wren',
         group: 'nim-style',
         title: 'Wren system print',
+      ),
+      'yagni-concentration': (
+        language: 'all',
+        group: 'yagni',
+        title: 'Review concentrated speculative design',
       ),
     };

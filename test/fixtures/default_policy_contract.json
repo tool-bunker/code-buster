@@ -312,6 +312,29 @@
       "enabledByDefault": true
     },
     {
+      "id": "caller-side-guard-duplication",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires at least two newly added single-line conditional calls with the same null, empty, or length guard around a directly declared project function.",
+        "Caller-specific authorization, feature policy, and intentionally different fallback behavior cannot be inferred.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "changed-behavior-without-test",
       "severity": "info",
       "group": "yagni",
@@ -3867,6 +3890,29 @@
       "enabledByDefault": true
     },
     {
+      "id": "go-derived-context-cancel-not-called",
+      "severity": "warn",
+      "group": "reliability",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "go"
+      ],
+      "frameworks": [],
+      "languageVersions": {
+        "go": ">=1.13"
+      },
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
       "id": "go-http-client-no-timeout",
       "severity": "warn",
       "group": "reliability",
@@ -3953,6 +3999,29 @@
       "enabledByDefault": true
     },
     {
+      "id": "go-sql-rows-error-not-checked",
+      "severity": "warn",
+      "group": "correctness",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "go"
+      ],
+      "frameworks": [],
+      "languageVersions": {
+        "go": ">=1.13"
+      },
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
       "id": "go-world-writable",
       "severity": "warn",
       "group": "security",
@@ -4017,7 +4086,7 @@
       "id": "html-duplicate-id",
       "severity": "warn",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -4101,7 +4170,7 @@
       "id": "html-inline-event",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -4122,7 +4191,7 @@
       "id": "html-inline-script",
       "severity": "warn",
       "group": "security",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -4143,7 +4212,7 @@
       "id": "html-input-label",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -4164,7 +4233,7 @@
       "id": "html-missing-lang",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -4185,7 +4254,7 @@
       "id": "html-missing-title",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -4206,7 +4275,7 @@
       "id": "html-missing-viewport",
       "severity": "info",
       "group": "nim-style",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -7994,6 +8063,168 @@
       "enabledByDefault": true
     },
     {
+      "id": "pixijs-frame-loop-allocation",
+      "severity": "info",
+      "group": "performance",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "performance"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "pixijs"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+        "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "pixijs-ticker-listener-without-removal",
+      "severity": "info",
+      "group": "reliability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "pixijs"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+        "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "pixijs-v8-cache-as-bitmap",
+      "severity": "info",
+      "group": "correctness",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "pixijs"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+        "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "pixijs-v8-legacy-interactive",
+      "severity": "info",
+      "group": "correctness",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "pixijs"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+        "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "pixijs-v8-numeric-ticker-delta",
+      "severity": "info",
+      "group": "correctness",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "pixijs"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+        "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "pixijs-v8-unawaited-application-init",
+      "severity": "info",
+      "group": "correctness",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "pixijs"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+        "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "placeholder-identifier",
       "severity": "info",
       "group": "maintainability",
@@ -9037,7 +9268,7 @@
       "id": "single-use-trivial-wrapper",
       "severity": "info",
       "group": "yagni",
-      "version": 3,
+      "version": 4,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9062,6 +9293,7 @@
       "limitations": [
         "Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.",
         "Requires unchanged positional arguments and a uniquely named local target function.",
+        "Maximal chains are consolidated only within one source file; cross-file forwarding chains are reported as separately resolved local segments.",
         "Method tear-offs, reflective calls, overload ownership, and framework-discovered private hooks are not resolved."
       ],
       "enabledByDefault": true
@@ -9380,6 +9612,174 @@
       "enabledByDefault": true
     },
     {
+      "id": "svelte-animate-unkeyed-each",
+      "severity": "info",
+      "group": "correctness",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "correctness"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html",
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "svelte"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit syntax inside discovered .svelte components is analyzed.",
+        "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "svelte-async-onmount-cleanup",
+      "severity": "info",
+      "group": "reliability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html",
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "svelte"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit syntax inside discovered .svelte components is analyzed.",
+        "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "svelte-dynamic-html",
+      "severity": "info",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html",
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "svelte"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit syntax inside discovered .svelte components is analyzed.",
+        "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "svelte-global-listener-without-cleanup",
+      "severity": "info",
+      "group": "reliability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html",
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "svelte"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit syntax inside discovered .svelte components is analyzed.",
+        "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "svelte-interval-without-cleanup",
+      "severity": "info",
+      "group": "reliability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html",
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "svelte"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit syntax inside discovered .svelte components is analyzed.",
+        "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "svelte-module-browser-global",
+      "severity": "info",
+      "group": "reliability",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "html",
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [
+        "svelte"
+      ],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit syntax inside discovered .svelte components is analyzed.",
+        "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "tab-indent",
       "severity": "warn",
       "group": "core",
@@ -9423,6 +9823,29 @@
         "Only literal process commands in selected test sources are checked.",
         "Tests must be included in analysis with --include-tests or --all.",
         "A repeated launch is evidence of bootstrap cost, not proof that every tool recompiles on every invocation."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "thin-dependency-for-trivial-capability",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a newly added package.json production dependency, one import, one use, and an explicit semantics-preserving capability mapping.",
+        "Currently recognizes left-pad via String.padStart and object-assign via Object.assign in JavaScript and TypeScript.",
+        "Runs only for focused changes touching at most five production source files."
       ],
       "enabledByDefault": true
     },
@@ -9732,6 +10155,28 @@
       "enabledByDefault": true
     },
     {
+      "id": "ts-string-timer-code-execution",
+      "severity": "error",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "text",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [],
+      "enabledByDefault": true
+    },
+    {
       "id": "unrelated-symbol-churn",
       "severity": "info",
       "group": "yagni",
@@ -10025,6 +10470,36 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [],
+      "enabledByDefault": true
+    },
+    {
+      "id": "yagni-concentration",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [],
+      "languages": [
+        "cpp",
+        "csharp",
+        "dart",
+        "go",
+        "java",
+        "javascript",
+        "typescript",
+        "python",
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires at least three active YAGNI findings from two distinct rule IDs in one file.",
+        "Concentration is advisory evidence for holistic review, not proof that every abstraction should be removed."
+      ],
       "enabledByDefault": true
     }
   ]

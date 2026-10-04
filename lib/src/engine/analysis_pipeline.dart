@@ -322,10 +322,19 @@ final class AnalysisPreparationStage {
       'l10n.yaml',
       'pyproject.toml',
       'requirements.txt',
+      'package.json',
     ]) {
       final File file = File('$root${Platform.pathSeparator}$relative');
       if (file.existsSync()) {
         auxiliaryFiles[relative] = file.readAsStringSync();
+      }
+    }
+    if (changedPaths.contains('package.json')) {
+      final String? baseManifest = discovery.baseSources(const <String>[
+        'package.json',
+      ])['package.json'];
+      if (baseManifest != null) {
+        auxiliaryFiles['@base/package.json'] = baseManifest;
       }
     }
     for (final String source in sources.values) {

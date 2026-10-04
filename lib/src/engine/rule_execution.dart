@@ -4,11 +4,13 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import '../catalog/rule_catalog.dart';
 import '../cli/cli_contract.dart';
 import '../controls/finding_controls.dart';
 import '../core/models.dart';
 import '../core/regexp_cache.dart';
 import '../core/rule.dart';
+import '../core/rule_policy.dart';
 import '../discovery/discovery.dart';
 import '../graph/graph.dart';
 import '../languages/dart/dart_adapter.dart';
@@ -471,7 +473,7 @@ final class RuleExecutionStage {
             genericLayout.contains(right.code) ? 0 : 1,
           );
         });
-    final List<Finding> all = <Finding>[
+    final List<Finding> base = <Finding>[
       ...repository.complexityFindings(functions: functions, config: config),
       ...repository.trivialWrapperFindings(
         functions: functions,
@@ -508,6 +510,20 @@ final class RuleExecutionStage {
       ...FeatureFlagAnalysis().findings(sources),
       ...repository.structureFindings(files: files, config: config),
       ...styleFindings,
+    ];
+    final RulePolicy policy = RulePolicy(config);
+    final Set<String> activeYagniRuleIds = RuleCatalog.all
+        .where((RuleMetadata metadata) => metadata.group == 'yagni')
+        .map((RuleMetadata metadata) => metadata.id)
+        .where((String id) => policy.modeFor(id) != RuleMode.off)
+        .toSet();
+    final List<Finding> all = <Finding>[
+      ...base,
+      ...const YagniConcentrationAnalysis().findings(
+        findings: base,
+        activeYagniRuleIds: activeYagniRuleIds,
+        config: config,
+      ),
     ];
     return switch (command) {
       CodeBusterCommand.summary ||

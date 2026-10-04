@@ -7,7 +7,7 @@ void main() {
   const RepositoryAnalysis repository = RepositoryAnalysis();
   const AnalysisConfig config = AnalysisConfig(root: '/project');
 
-  test('validates trivial wrappers through seven language adapters', () {
+  test('validates maximal wrapper chains through nine language adapters', () {
     for (final _LanguageFixture fixture in _wrapperFixtures) {
       final List<Finding> findings = repository.trivialWrapperFindings(
         functions: fixture.functions(),
@@ -16,6 +16,11 @@ void main() {
       expect(findings.map((Finding finding) => finding.code), <String>[
         'single-use-trivial-wrapper',
       ], reason: fixture.language);
+      expect(
+        findings.single.message,
+        contains('2 single-use forwarding wrappers'),
+        reason: fixture.language,
+      );
     }
   });
 
@@ -157,8 +162,11 @@ final List<_LanguageFixture> _wrapperFixtures = <_LanguageFixture>[
 static int target(int value) {
   return value;
 }
-static int wrapper(int value) {
+static int middle(int value) {
   return target(value);
+}
+static int wrapper(int value) {
+  return middle(value);
 }
 int caller() {
   return wrapper(1);
@@ -169,21 +177,33 @@ class Wrapper {
   private static int Target(int value) {
     return value;
   }
-  private static int Wrap(int value) {
+  private static int Middle(int value) {
     return Target(value);
+  }
+  private static int Wrap(int value) {
+    return Middle(value);
   }
   public static int Call() {
     return Wrap(1);
   }
 }
 ''', _csharp),
+  const _LanguageFixture('Dart', 'lib/wrapper.dart', '''
+int _target(int value) => value;
+int _middle(int value) => _target(value);
+int _wrap(int value) => _middle(value);
+int call() => _wrap(1);
+''', _dart),
   const _LanguageFixture('Go', 'wrapper.go', '''
 package wrapper
 func target(value int) int {
   return value
 }
-func wrap(value int) int {
+func middle(value int) int {
   return target(value)
+}
+func wrap(value int) int {
+  return middle(value)
 }
 func Call() int {
   return wrap(1)
@@ -194,20 +214,40 @@ class Wrapper {
   private static int target(int value) {
     return value;
   }
-  private static int wrap(int value) {
+  private static int middle(int value) {
     return target(value);
+  }
+  private static int wrap(int value) {
+    return middle(value);
   }
   static int call() {
     return wrap(1);
   }
 }
 ''', _java),
+  const _LanguageFixture('JavaScript', 'src/wrapper.js', '''
+function _target(value) {
+  return value;
+}
+function _middle(value) {
+  return _target(value);
+}
+function _wrap(value) {
+  return _middle(value);
+}
+function call() {
+  return _wrap(1);
+}
+''', _typescript),
   const _LanguageFixture('TypeScript', 'src/wrapper.ts', '''
 function _target(value: number) {
   return value;
 }
-function _wrap(value: number) {
+function _middle(value: number) {
   return _target(value);
+}
+function _wrap(value: number) {
+  return _middle(value);
 }
 function call() {
   return _wrap(1);
@@ -217,8 +257,11 @@ function call() {
 def _target(value: int) -> int:
     return value
 
-def _wrap(value: int) -> int:
+def _middle(value: int) -> int:
     return _target(value)
+
+def _wrap(value: int) -> int:
+    return _middle(value)
 
 def call() -> int:
     return _wrap(1)
@@ -227,8 +270,11 @@ def call() -> int:
 fn target(value: i32) -> i32 {
     value
 }
-fn wrap(value: i32) -> i32 {
+fn middle(value: i32) -> i32 {
     target(value)
+}
+fn wrap(value: i32) -> i32 {
+    middle(value)
 }
 pub fn call() -> i32 {
     wrap(1)

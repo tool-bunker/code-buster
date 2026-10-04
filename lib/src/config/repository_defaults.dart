@@ -48,13 +48,26 @@ final class RepositoryDefaults {
           profiles.add(source.contains('flutter:') ? 'flutter' : 'dart');
         } else if (name == 'package.json') {
           final String source = _readManifest(file);
-          profiles.add(
-            source.contains(
-                  cachedRegExp(r'''["'](?:react|react-dom)["']\s*:'''),
-                )
-                ? 'react'
-                : 'javascript/node',
-          );
+          var detectedFramework = false;
+          if (cachedRegExp(
+            r'''["'](?:react|react-dom)["']\s*:''',
+          ).hasMatch(source)) {
+            profiles.add('react');
+            detectedFramework = true;
+          }
+          if (cachedRegExp(
+            r'''["'](?:svelte|@sveltejs/kit)["']\s*:''',
+          ).hasMatch(source)) {
+            profiles.add('svelte');
+            detectedFramework = true;
+          }
+          if (cachedRegExp(
+            r'''["'](?:pixi\.js|@pixi/[^"']+)["']\s*:''',
+          ).hasMatch(source)) {
+            profiles.add('pixijs');
+            detectedFramework = true;
+          }
+          if (!detectedFramework) profiles.add('javascript/node');
         } else if (const <String>{
           'requirements.txt',
           'pyproject.toml',
@@ -137,6 +150,8 @@ final class RepositoryDefaults {
           'flutter',
         if (profiles.contains('react')) 'react',
         if (profiles.contains('fastapi')) 'fastapi',
+        if (profiles.contains('svelte')) 'svelte',
+        if (profiles.contains('pixijs')) 'pixijs',
       }),
       ignores: List<String>.unmodifiable(ignores),
     );
