@@ -6,6 +6,8 @@
 
 ### Improved
 
+- Generate the embedded CLI and SARIF tool version from `pubspec.yaml` so release updates have one canonical version source.
+
 ## 0.7.3
 
 ### Added

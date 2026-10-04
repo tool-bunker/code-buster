@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:code_buster/src/version.dart';
 import 'package:test/test.dart';
 
 import '../support/cli_process.dart';
@@ -12,7 +13,7 @@ void main() {
     ], workingDirectory: Directory.current.path);
 
     expect(result.exitCode, 0);
-    expect(result.stdout, 'cb 0.7.3\nruntime: Dart\n');
+    expect(result.stdout, 'cb $codeBusterVersion\nruntime: Dart\n');
     expect(result.stderr, isEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
