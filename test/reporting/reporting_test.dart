@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:code_buster/src/internal.dart';
+import 'package:code_buster/src/version.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -232,6 +233,9 @@ void main() {
           as Map<String, dynamic>)['codeBusterReportSchemaVersion'],
       reportSchemaVersion,
     );
+    final Map<String, dynamic> tool = run['tool']! as Map<String, dynamic>;
+    final Map<String, dynamic> driver = tool['driver']! as Map<String, dynamic>;
+    expect(driver['version'], codeBusterVersion);
     final List<dynamic> results = run['results']! as List<dynamic>;
     final Map<String, dynamic> sarifFinding =
         results.single as Map<String, dynamic>;
