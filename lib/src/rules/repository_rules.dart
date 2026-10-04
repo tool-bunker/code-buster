@@ -36,6 +36,8 @@ final RuleRegistry repositoryRuleRegistry = RuleRegistry(<CodeBusterRule>[
   SingleCallerWrapperRule(),
   UnrelatedSymbolChurnRule(),
   BooleanOptionExplosionRule(),
+  CallerSideGuardDuplicationRule(),
+  ThinDependencyForTrivialCapabilityRule(),
   ExcessiveCommentDensityRule(),
   NarratingImplementationCommentRule(),
   TrivialCommentRestatementRule(),

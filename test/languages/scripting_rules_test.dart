@@ -200,7 +200,43 @@ void main() {
         .where((Finding finding) => finding.code == 'ts-eval')
         .toList();
 
-    expect(findings.map((Finding finding) => finding.line), <int>[3, 4, 5, 6, 7]);
+    expect(findings.map((Finding finding) => finding.line), <int>[
+      3,
+      4,
+      5,
+      6,
+      7,
+    ]);
+  });
+
+  test('reports only timer calls whose first argument is source text', () {
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('javascript')
+        .analyze(<String, String>{
+          'timers.ts': '''
+setTimeout("runTask()", 10);
+window.setInterval(
+  `poll(\${taskId})`,
+  1000,
+);
+setTimeout(runTask, 10);
+setInterval(() => poll(), 1000);
+scheduler.setTimeout("owned by another API", 10);
+// setTimeout("comment only", 10);
+const example = 'setInterval("string only", 10)';
+''',
+        }, configFor('ts-'))
+        .findings
+        .where(
+          (Finding finding) => finding.code == 'ts-string-timer-code-execution',
+        )
+        .toList();
+
+    expect(findings.map((Finding finding) => finding.line), <int>[1, 2]);
+    expect(
+      findings.every((Finding finding) => finding.confidence == 'medium'),
+      isTrue,
+    );
   });
 
   test('accepts JSON embedded in a dedicated document element', () {

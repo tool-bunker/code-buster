@@ -1,6 +1,8 @@
 import 'package:code_buster/src/internal.dart';
 import 'package:code_buster/src/rules/fastapi_quality_rules.dart';
 import 'package:code_buster/src/rules/framework_rules.dart';
+import 'package:code_buster/src/rules/pixijs_quality_rules.dart';
+import 'package:code_buster/src/rules/svelte_quality_rules.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -90,6 +92,8 @@ void main() {
           'single-caller-wrapper',
           'unrelated-symbol-churn',
           'boolean-option-explosion',
+          'caller-side-guard-duplication',
+          'thin-dependency-for-trivial-capability',
           'excessive-comment-density',
           'narrating-implementation-comment',
           'trivial-comment-restatement',
@@ -138,6 +142,18 @@ void main() {
           (RuleMetadata metadata) => metadata.id,
         ),
         fastApiQualityRuleIds,
+      );
+      expect(
+        frameworkRuleRegistries['svelte']!.repositoryRules.metadata.map(
+          (RuleMetadata metadata) => metadata.id,
+        ),
+        svelteQualityRuleIds,
+      );
+      expect(
+        frameworkRuleRegistries['pixijs']!.repositoryRules.metadata.map(
+          (RuleMetadata metadata) => metadata.id,
+        ),
+        pixiJsQualityRuleIds,
       );
       expect(
         () => RuleCatalog.validateExecutableRules(const <CodeBusterRule>[

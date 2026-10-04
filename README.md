@@ -28,7 +28,7 @@ its own. The executable is `cb`; optional repository configuration lives in
 `code-buster.toml`.
 
 - 18 recognized source languages
-- 450 registered rules
+- 450+ registered rules
 - 7 report formats
 - 0 required cloud services
 
@@ -112,8 +112,9 @@ decides what matters and makes the fix.
 
 Code Buster recognizes C and C++, Objective-C, C#, Dart, Rust, Mojo, Odin, Nim,
 Python, JavaScript, TypeScript, Go, HTML, CSS, Java, Wren, SQL, and Lua/Luau.
-Analysis depth and real-world validation vary by language. Flutter and React are
-detected as framework profiles rather than separate source languages.
+Analysis depth and real-world validation vary by language. Flutter, React,
+Svelte, PixiJS, and FastAPI are detected as framework profiles rather than
+separate source languages.
 
 See the current [language support matrix](https://toolbunker.dev/codebuster/docs/reference/languages).
 
@@ -128,8 +129,6 @@ See the [command reference](https://toolbunker.dev/codebuster/docs/reference/com
 [integration guide](https://toolbunker.dev/codebuster/docs/guides/integrations).
 
 ## Current status
-
-Current release: **0.7.2**.
 
 Code Buster is pre-1.0 and under active development. Use it for local repository
 exploration, focused AI context, and reviewing changes before handoff. Do not yet

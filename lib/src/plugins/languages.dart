@@ -130,7 +130,7 @@ final class LanguageRegistry {
       LanguageDefinition(
         id: 'html',
         aliases: <String>{'htm'},
-        extensions: <String>{'.html', '.htm'},
+        extensions: <String>{'.html', '.htm', '.svelte'},
       ),
       LanguageDefinition(
         id: 'css',

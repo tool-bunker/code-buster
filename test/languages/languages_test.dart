@@ -76,6 +76,7 @@ void main() {
       '.sql',
       '.html',
       '.htm',
+      '.svelte',
       '.css',
       '.wren',
     });

@@ -69,6 +69,9 @@ dependencies:
   flutter:
     sdk: flutter
 ''');
+    File(
+      path.join(root.path, 'package.json'),
+    ).writeAsStringSync('{"private":true}\n');
     File(path.join(root.path, 'code-buster.toml')).writeAsStringSync('''
 languages = ["auto"]
 [files]
@@ -90,6 +93,7 @@ exclude = ["test"]
       'web/helper.js',
       'web/main.js',
     ]);
+    expect(prepared.auxiliaryFiles['package.json'], '{"private":true}\n');
     expect(prepared.sourcesFor(<String>{'python'}).keys, <String>[
       'tool/helper.py',
     ]);

@@ -154,8 +154,8 @@ final class RepositoryAnalysis {
     return List<Finding>.unmodifiable(result);
   }
 
-  /// Reports private functions that have one caller and only forward unchanged
-  /// arguments to another function in the same source file.
+  /// Reports maximal chains of private, single-use functions that only forward
+  /// unchanged arguments to another function in the same source file.
   List<Finding> trivialWrapperFindings({
     required Iterable<FunctionSource> functions,
     required AnalysisConfig config,
@@ -165,27 +165,28 @@ final class RepositoryAnalysis {
         final int path = left.path.compareTo(right.path);
         return path != 0 ? path : left.line.compareTo(right.line);
       });
-    final Map<FunctionSource, _TrivialForwarder> candidates =
+    final Map<FunctionSource, _TrivialForwarder> parsed =
         <FunctionSource, _TrivialForwarder>{};
     for (final FunctionSource function in ordered) {
       final _TrivialForwarder? forwarder = _trivialForwarder(function);
-      if (forwarder != null) candidates[function] = forwarder;
+      if (forwarder != null) parsed[function] = forwarder;
     }
 
-    final List<Finding> findings = <Finding>[];
+    final Map<FunctionSource, _TrivialForwarder> eligible =
+        <FunctionSource, _TrivialForwarder>{};
     for (final MapEntry<FunctionSource, _TrivialForwarder> entry
-        in candidates.entries) {
+        in parsed.entries) {
       final FunctionSource wrapper = entry.key;
       final _TrivialForwarder forwarder = entry.value;
-      final List<FunctionSource> targetMatches = ordered
+      final int targetMatches = ordered
           .where(
             (FunctionSource function) =>
                 function.path == wrapper.path &&
                 function.name == forwarder.target &&
                 function != wrapper,
           )
-          .toList(growable: false);
-      if (targetMatches.length != 1) continue;
+          .length;
+      if (targetMatches != 1) continue;
 
       final int callers = ordered
           .where(
@@ -197,26 +198,71 @@ final class RepositoryAnalysis {
                 _callsFunction(function.source, wrapper.name),
           )
           .length;
-      if (callers != 1) continue;
+      if (callers == 1) eligible[wrapper] = forwarder;
+    }
 
+    FunctionSource? nextWrapper(FunctionSource wrapper) {
+      final String target = eligible[wrapper]!.target;
+      final List<FunctionSource> matches = eligible.keys
+          .where(
+            (FunctionSource function) =>
+                function.path == wrapper.path && function.name == target,
+          )
+          .toList(growable: false);
+      return matches.length == 1 ? matches.single : null;
+    }
+
+    final Set<FunctionSource> nested = <FunctionSource>{};
+    for (final FunctionSource wrapper in eligible.keys) {
+      final FunctionSource? next = nextWrapper(wrapper);
+      if (next != null) nested.add(next);
+    }
+
+    final List<Finding> findings = <Finding>[];
+    final Set<FunctionSource> reported = <FunctionSource>{};
+    void reportChain(FunctionSource outermost) {
+      final List<FunctionSource> wrappers = <FunctionSource>[];
+      FunctionSource current = outermost;
+      while (reported.add(current)) {
+        wrappers.add(current);
+        final FunctionSource? next = nextWrapper(current);
+        if (next == null || reported.contains(next)) break;
+        current = next;
+      }
+      final String terminal = eligible[wrappers.last]!.target;
+      final List<String> path = <String>[
+        ...wrappers.map((FunctionSource wrapper) => wrapper.name),
+        terminal,
+      ];
+      final bool isChain = wrappers.length > 1;
       findings.add(
         Finding(
           code: 'single-use-trivial-wrapper',
           severity:
               config.severityOverrides['single-use-trivial-wrapper'] ??
               RuleSeverity.info,
-          path: wrapper.path,
-          line: wrapper.line,
-          endLine: wrapper.endLine,
-          message:
-              '`${wrapper.name}` has one caller and only forwards unchanged arguments to `${forwarder.target}`',
+          path: outermost.path,
+          line: outermost.line,
+          endLine: outermost.endLine,
+          message: isChain
+              ? '${wrappers.length} single-use forwarding wrappers form the chain `${path.join('` -> `')}`'
+              : '`${outermost.name}` has one caller and only forwards unchanged arguments to `$terminal`',
           confidence: 'high',
-          why:
-              'A single-use forwarding function adds navigation without owning policy, transformation, validation, or resource lifetime.',
-          suggestion:
-              'Inline the wrapper unless it is an intentional extension or compatibility boundary.',
+          why: isChain
+              ? 'A chain of single-use forwarding functions adds repeated navigation without owning policy, transformation, validation, or resource lifetime.'
+              : 'A single-use forwarding function adds navigation without owning policy, transformation, validation, or resource lifetime.',
+          suggestion: isChain
+              ? 'Collapse the chain into its caller unless a wrapper is an intentional extension or compatibility boundary.'
+              : 'Inline the wrapper unless it is an intentional extension or compatibility boundary.',
         ),
       );
+    }
+
+    for (final FunctionSource wrapper in eligible.keys) {
+      if (!nested.contains(wrapper)) reportChain(wrapper);
+    }
+    for (final FunctionSource wrapper in eligible.keys) {
+      if (!reported.contains(wrapper)) reportChain(wrapper);
     }
     return List<Finding>.unmodifiable(findings);
   }
@@ -824,6 +870,62 @@ final class RepositoryAnalysis {
   ) {
     final String name = relative.substring(root.length + 1);
     return allowed.any((String item) => item == name || item == relative);
+  }
+}
+
+/// Groups several independent YAGNI findings in one file into holistic guidance.
+final class YagniConcentrationAnalysis {
+  /// Creates the deterministic file-level concentration analysis.
+  const YagniConcentrationAnalysis();
+
+  /// Reports files with at least three YAGNI findings from two distinct rules.
+  List<Finding> findings({
+    required Iterable<Finding> findings,
+    required Set<String> activeYagniRuleIds,
+    required AnalysisConfig config,
+  }) {
+    final Map<String, List<Finding>> byPath = <String, List<Finding>>{};
+    for (final Finding finding in findings) {
+      if (finding.path.isEmpty ||
+          finding.code == 'yagni-concentration' ||
+          !activeYagniRuleIds.contains(finding.code)) {
+        continue;
+      }
+      byPath.putIfAbsent(finding.path, () => <Finding>[]).add(finding);
+    }
+
+    final List<Finding> result = <Finding>[];
+    final List<String> paths = byPath.keys.toList()..sort();
+    for (final String path in paths) {
+      final List<Finding> fileFindings = byPath.requiredValue(path)
+        ..sort((Finding left, Finding right) {
+          final int line = left.line.compareTo(right.line);
+          return line != 0 ? line : left.code.compareTo(right.code);
+        });
+      final List<String> ruleIds =
+          fileFindings.map((Finding finding) => finding.code).toSet().toList()
+            ..sort();
+      if (fileFindings.length < 3 || ruleIds.length < 2) continue;
+
+      result.add(
+        Finding(
+          code: 'yagni-concentration',
+          severity:
+              config.severityOverrides['yagni-concentration'] ??
+              RuleSeverity.info,
+          path: path,
+          line: fileFindings.first.line,
+          message:
+              '${fileFindings.length} YAGNI findings from ${ruleIds.length} rule families are concentrated in this file: ${ruleIds.join(', ')}',
+          confidence: 'medium',
+          why:
+              'Several independent signs of unused flexibility or one-use indirection in one file suggest the design should be reviewed as a whole instead of fixing each symptom separately.',
+          suggestion:
+              'Start from the actual callers and required behavior, then remove unused variation and collapse one-use layers together; retain boundaries that own policy, validation, lifecycle, or an external contract.',
+        ),
+      );
+    }
+    return List<Finding>.unmodifiable(result);
   }
 }
 

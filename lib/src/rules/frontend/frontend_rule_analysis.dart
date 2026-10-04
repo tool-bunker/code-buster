@@ -13,8 +13,11 @@ final class FrontendRuleAnalysis {
       final List<String> lines = entry.value.split('\n');
       final List<String> maskedLines = markup.split('\n');
       final String document = markup.toLowerCase();
-      final bool isDocument =
-          document.contains('<!doctype html') || document.contains('<html');
+      final bool isSvelte = entry.key.toLowerCase().endsWith('.svelte');
+      final bool isDocument = cachedRegExp(
+        r'<html\b',
+        caseSensitive: false,
+      ).hasMatch(markup);
       final Map<String, List<Set<String>>> ids = <String, List<Set<String>>>{};
       final Set<String> labels = _labelTargets(markup);
       final Set<String> boundLabels = _boundLabelTargets(markup);
@@ -38,7 +41,7 @@ final class FrontendRuleAnalysis {
       final bool hasTemplatedHead = _hasMarkupTemplateInHead(entry.value);
       final bool hasTemplatedTitle =
           hasTemplatedHead || _hasJekyllSeoTagInHead(entry.value);
-      final List<Set<String>> doxygenConditions = _doxygenConditions(lines);
+      final List<Set<String>> templateConditions = _templateConditions(lines);
       final bool hasLang = cachedRegExp(
         r'<html\b[^>]*\blang\s*=',
         caseSensitive: false,
@@ -63,12 +66,13 @@ final class FrontendRuleAnalysis {
           result.add(_finding(id, severity, entry.key, index + 1, message));
         }
 
-        if (executableInlineScripts.contains(index + 1)) {
+        if (!isSvelte && executableInlineScripts.contains(index + 1)) {
           add('html-inline-script', RuleSeverity.warn, 'inline script block');
         }
-        if (cachedRegExp(
-          r'\son(?:click|load|change|submit|error)\s*=',
-        ).hasMatch(lower)) {
+        if (!isSvelte &&
+            cachedRegExp(
+              r'\son(?:click|load|change|submit|error)\s*=',
+            ).hasMatch(lower)) {
           add('html-inline-event', RuleSeverity.warn, 'inline event handler');
         }
         if (blankTargetsWithoutRel.contains(index + 1)) {
@@ -96,7 +100,7 @@ final class FrontendRuleAnalysis {
           );
           if (previous.any(
             (Set<String> conditions) =>
-                !_mutuallyExclusive(conditions, doxygenConditions[index]),
+                !_mutuallyExclusive(conditions, templateConditions[index]),
           )) {
             add(
               'html-duplicate-id',
@@ -104,7 +108,7 @@ final class FrontendRuleAnalysis {
               'duplicate id attribute: $id',
             );
           }
-          previous.add(doxygenConditions[index]);
+          previous.add(templateConditions[index]);
         }
         if (inputsWithoutLabel.contains(index + 1)) {
           add(
@@ -393,12 +397,67 @@ final class FrontendRuleAnalysis {
     return result;
   }
 
+  static List<Set<String>> _templateConditions(List<String> lines) {
+    final List<Set<String>> doxygen = _doxygenConditions(lines);
+    final List<Set<String>> svelte = _svelteConditions(lines);
+    return <Set<String>>[
+      for (var index = 0; index < lines.length; index++)
+        Set<String>.unmodifiable(<String>{...doxygen[index], ...svelte[index]}),
+    ];
+  }
+
+  static List<Set<String>> _svelteConditions(List<String> lines) {
+    final List<({int branch, int group})> active =
+        <({int branch, int group})>[];
+    final List<Set<String>> result = <Set<String>>[];
+    final RegExp marker = cachedRegExp(r'\{(#if\b|:else if\b|:else\b|/if\b)');
+    var nextGroup = 0;
+    String condition(({int branch, int group}) value) =>
+        '@svelte:${value.group}:${value.branch}';
+    for (final String line in lines) {
+      final Set<String> conditions = active.map(condition).toSet();
+      for (final RegExpMatch match in marker.allMatches(line)) {
+        final String kind = match.requiredGroup(1);
+        if (kind == '#if') {
+          final ({int branch, int group}) value = (
+            branch: 0,
+            group: nextGroup++,
+          );
+          active.add(value);
+          conditions.add(condition(value));
+        } else if (kind.startsWith(':else') && active.isNotEmpty) {
+          final ({int branch, int group}) previous = active.removeLast();
+          conditions.remove(condition(previous));
+          final ({int branch, int group}) value = (
+            branch: previous.branch + 1,
+            group: previous.group,
+          );
+          active.add(value);
+          conditions.add(condition(value));
+        } else if (kind == '/if' && active.isNotEmpty) {
+          active.removeLast();
+        }
+      }
+      result.add(Set<String>.unmodifiable(conditions));
+    }
+    return result;
+  }
+
   static bool _mutuallyExclusive(Set<String> left, Set<String> right) {
     for (final String condition in left) {
       final String opposite = condition.startsWith('!')
           ? condition.substring(1)
           : '!$condition';
       if (right.contains(opposite)) return true;
+      if (!condition.startsWith('@svelte:')) continue;
+      final int separator = condition.lastIndexOf(':');
+      final String group = condition.substring(0, separator + 1);
+      if (right.any(
+        (String candidate) =>
+            candidate.startsWith(group) && candidate != condition,
+      )) {
+        return true;
+      }
     }
     return false;
   }
@@ -723,6 +782,10 @@ final class FrontendRuleAnalysis {
             'button',
             'reset',
           }.contains(type) ||
+          cachedRegExp(
+            r'(?:^|\s)hidden(?:\s|/?>|=)',
+            caseSensitive: false,
+          ).hasMatch(tag) ||
           (type == 'image' && _attribute(tag, 'alt').isNotEmpty) ||
           cachedRegExp(
             r'\baria-label(?:ledby)?\s*=',
