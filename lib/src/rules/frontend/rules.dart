@@ -62,6 +62,7 @@ FrontendSourceRule _html(
   String group = 'nim-style',
   String? why,
   String? suggestion,
+  int version = 1,
 }) => FrontendSourceRule(
   id: id,
   severity: severity,
@@ -69,6 +70,7 @@ FrontendSourceRule _html(
   language: 'html',
   why: why,
   suggestion: suggestion,
+  version: version,
 );
 FrontendSourceRule _css(
   String id, {
@@ -88,7 +90,7 @@ FrontendSourceRule _css(
 /// Self-contained HTML rules in deterministic execution order.
 final RuleRegistry htmlRuleRegistry = RuleRegistry(<CodeBusterRule>[
   _html('html-blank-no-rel', severity: RuleSeverity.warn, group: 'security'),
-  _html('html-duplicate-id', severity: RuleSeverity.warn),
+  _html('html-duplicate-id', severity: RuleSeverity.warn, version: 2),
   _html('html-form-method'),
   _html('html-http-resource', severity: RuleSeverity.warn, group: 'security'),
   _html(
@@ -96,12 +98,22 @@ final RuleRegistry htmlRuleRegistry = RuleRegistry(<CodeBusterRule>[
     why: 'Images without alt text are inaccessible to screen readers.',
     suggestion: 'Add meaningful alt text or alt="" for decorative images.',
   ),
-  _html('html-inline-event', severity: RuleSeverity.warn, group: 'security'),
-  _html('html-inline-script', severity: RuleSeverity.warn, group: 'security'),
-  _html('html-input-label'),
-  _html('html-missing-lang'),
-  _html('html-missing-title'),
-  _html('html-missing-viewport'),
+  _html(
+    'html-inline-event',
+    severity: RuleSeverity.warn,
+    group: 'security',
+    version: 2,
+  ),
+  _html(
+    'html-inline-script',
+    severity: RuleSeverity.warn,
+    group: 'security',
+    version: 2,
+  ),
+  _html('html-input-label', version: 2),
+  _html('html-missing-lang', version: 2),
+  _html('html-missing-title', version: 2),
+  _html('html-missing-viewport', version: 2),
 ]);
 
 /// Self-contained CSS rules in deterministic execution order.

@@ -84,6 +84,162 @@ String _render(Project project) {
     expect(finding.message, contains('`_render`'));
   });
 
+  test('reports one finding for a maximal forwarding chain', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: 'generate',
+        line: 2,
+        source: 'String generate(Project project) => _prepare(project);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_prepare',
+        line: 4,
+        source: 'String _prepare(Project project) => _dispatch(project);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_dispatch',
+        line: 6,
+        source: 'String _dispatch(Project project) => _execute(project);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_execute',
+        line: 8,
+        source: 'String _execute(Project project) => _render(project);',
+      ),
+      FunctionSource(
+        path: 'lib/report.dart',
+        name: '_render',
+        line: 10,
+        source: 'String _render(Project project) => project.name;',
+      ),
+    ];
+
+    final Finding finding = repository
+        .trivialWrapperFindings(
+          functions: functions,
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(finding.line, 4);
+    expect(finding.message, contains('3 single-use forwarding wrappers'));
+    expect(
+      finding.message,
+      contains('`_prepare` -> `_dispatch` -> `_execute` -> `_render`'),
+    );
+  });
+
+  test('groups concentrated YAGNI evidence into holistic guidance', () {
+    const List<Finding> findings = <Finding>[
+      Finding(
+        code: 'single-use-trivial-wrapper',
+        severity: RuleSeverity.info,
+        path: 'lib/service.dart',
+        line: 4,
+        message: 'wrapper chain',
+      ),
+      Finding(
+        code: 'constant-argument-parameter',
+        severity: RuleSeverity.info,
+        path: 'lib/service.dart',
+        line: 8,
+        message: 'constant option',
+      ),
+      Finding(
+        code: 'constant-argument-parameter',
+        severity: RuleSeverity.info,
+        path: 'lib/service.dart',
+        line: 12,
+        message: 'constant mode',
+      ),
+    ];
+
+    final Finding concentration = const YagniConcentrationAnalysis()
+        .findings(
+          findings: findings,
+          activeYagniRuleIds: const <String>{
+            'single-use-trivial-wrapper',
+            'constant-argument-parameter',
+          },
+          config: const AnalysisConfig(root: '/project'),
+        )
+        .single;
+
+    expect(concentration.code, 'yagni-concentration');
+    expect(concentration.path, 'lib/service.dart');
+    expect(concentration.line, 4);
+    expect(concentration.message, contains('3 YAGNI findings'));
+    expect(concentration.message, contains('2 rule families'));
+    expect(concentration.message, contains('constant-argument-parameter'));
+    expect(concentration.message, contains('single-use-trivial-wrapper'));
+    expect(concentration.suggestion, contains('actual callers'));
+  });
+
+  test('requires both YAGNI density and rule diversity', () {
+    const YagniConcentrationAnalysis analysis = YagniConcentrationAnalysis();
+    const AnalysisConfig config = AnalysisConfig(root: '/project');
+    const Finding wrapperOne = Finding(
+      code: 'single-use-trivial-wrapper',
+      severity: RuleSeverity.info,
+      path: 'lib/service.dart',
+      line: 2,
+      message: 'first wrapper',
+    );
+    const Finding wrapperTwo = Finding(
+      code: 'single-use-trivial-wrapper',
+      severity: RuleSeverity.info,
+      path: 'lib/service.dart',
+      line: 4,
+      message: 'second wrapper',
+    );
+    const Finding wrapperThree = Finding(
+      code: 'single-use-trivial-wrapper',
+      severity: RuleSeverity.info,
+      path: 'lib/service.dart',
+      line: 6,
+      message: 'third wrapper',
+    );
+    const Finding constantArgument = Finding(
+      code: 'constant-argument-parameter',
+      severity: RuleSeverity.info,
+      path: 'lib/service.dart',
+      line: 8,
+      message: 'constant argument',
+    );
+
+    expect(
+      analysis.findings(
+        findings: const <Finding>[wrapperOne, wrapperTwo, wrapperThree],
+        activeYagniRuleIds: const <String>{'single-use-trivial-wrapper'},
+        config: config,
+      ),
+      isEmpty,
+    );
+    expect(
+      analysis.findings(
+        findings: const <Finding>[wrapperOne, constantArgument],
+        activeYagniRuleIds: const <String>{
+          'single-use-trivial-wrapper',
+          'constant-argument-parameter',
+        },
+        config: config,
+      ),
+      isEmpty,
+    );
+    expect(
+      analysis.findings(
+        findings: const <Finding>[wrapperOne, wrapperTwo, constantArgument],
+        activeYagniRuleIds: const <String>{'single-use-trivial-wrapper'},
+        config: config,
+      ),
+      isEmpty,
+    );
+  });
+
   test('accepts reused, transforming, and behavior-owning helpers', () {
     const List<FunctionSource> functions = <FunctionSource>[
       FunctionSource(

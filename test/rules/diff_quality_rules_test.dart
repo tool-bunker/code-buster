@@ -9,12 +9,14 @@ void main() {
     Set<String> paths = const <String>{'lib/upload.dart'},
     Map<String, String> extraSources = const <String, String>{},
     Map<String, String> extraBase = const <String, String>{},
+    Map<String, String> auxiliaryFiles = const <String, String>{},
   }) => RuleContext(
     config: const AnalysisConfig(root: '.', changedBase: 'HEAD'),
     sources: <String, String>{'lib/upload.dart': after, ...extraSources},
     language: 'repository',
     changedPaths: paths,
     baseSources: <String, String>{'lib/upload.dart': before, ...extraBase},
+    auxiliaryFiles: auxiliaryFiles,
   );
 
   test('reports style drift and broad refactoring beside behavior', () {
@@ -202,5 +204,167 @@ int archive(int value) => value + 3;
 
     expect(BooleanOptionExplosionRule().analyze(risky), hasLength(1));
     expect(BooleanOptionExplosionRule().analyze(focused), isEmpty);
+  });
+  test('reports equivalent caller-side guards around a shared function', () {
+    final RuleContext context = changed(
+      'void upload(String? value) { if (value != null) parse(value); }',
+      '',
+      paths: const <String>{'lib/upload.dart', 'lib/preview.dart'},
+      extraSources: const <String, String>{
+        'lib/preview.dart':
+            'void preview(String? input) { if (input != null) parse(input); }',
+        'lib/parser.ts': 'export function parse(value: string): void {}',
+      },
+      extraBase: const <String, String>{
+        'lib/preview.dart': '',
+        'lib/parser.ts': 'export function parse(value: string): void {}',
+      },
+    );
+
+    final List<Finding> findings = CallerSideGuardDuplicationRule()
+        .analyze(context)
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.message, contains('parse'));
+  });
+
+  test('accepts one guard different policies and external callees', () {
+    expect(
+      CallerSideGuardDuplicationRule().analyze(
+        changed(
+          'void upload(String? value) { if (value != null) parse(value); }',
+          '',
+          extraSources: const <String, String>{
+            'lib/parser.dart': 'void parse(String value) {}',
+          },
+          extraBase: const <String, String>{
+            'lib/parser.dart': 'void parse(String value) {}',
+          },
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      CallerSideGuardDuplicationRule().analyze(
+        changed(
+          'void upload(String? value) { if (value != null) parse(value); }',
+          '',
+          paths: const <String>{'lib/upload.dart', 'lib/preview.dart'},
+          extraSources: const <String, String>{
+            'lib/preview.dart':
+                'void preview(String input) { if (input.isNotEmpty) parse(input); }',
+            'lib/parser.dart': 'void parse(String value) {}',
+          },
+          extraBase: const <String, String>{
+            'lib/preview.dart': '',
+            'lib/parser.dart': 'void parse(String value) {}',
+          },
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      CallerSideGuardDuplicationRule().analyze(
+        changed(
+          'void upload(String? value) { if (value != null) external(value); }',
+          '',
+          paths: const <String>{'lib/upload.dart', 'lib/preview.dart'},
+          extraSources: const <String, String>{
+            'lib/preview.dart':
+                'void preview(String? input) { if (input != null) external(input); }',
+          },
+          extraBase: const <String, String>{'lib/preview.dart': ''},
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      CallerSideGuardDuplicationRule().analyze(
+        changed(
+          'const note = "if (value != null) parse(value);";',
+          '',
+          paths: const <String>{'lib/upload.dart', 'lib/preview.dart'},
+          extraSources: const <String, String>{
+            'lib/preview.dart': '// if (input != null) parse(input);',
+            'lib/parser.dart': 'void parse(String value) {}',
+          },
+          extraBase: const <String, String>{
+            'lib/preview.dart': '',
+            'lib/parser.dart': 'void parse(String value) {}',
+          },
+        ),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports a new dependency used once for a native capability', () {
+    final RuleContext context = changed(
+      '''
+import leftPad from 'left-pad';
+export const code = leftPad('7', 3, '0');
+''',
+      '',
+      paths: const <String>{'lib/upload.dart', 'package.json'},
+      auxiliaryFiles: const <String, String>{
+        'package.json': '{"dependencies":{"left-pad":"^1.3.0"}}',
+        '@base/package.json': '{"dependencies":{}}',
+      },
+    );
+
+    final List<Finding> findings = ThinDependencyForTrivialCapabilityRule()
+        .analyze(context)
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.message, contains('String.padStart'));
+  });
+
+  test('accepts existing reused and unmapped dependencies', () {
+    RuleContext dependencyContext(
+      String source,
+      String current,
+      String previous,
+    ) => changed(
+      source,
+      '',
+      paths: const <String>{'lib/upload.dart', 'package.json'},
+      auxiliaryFiles: <String, String>{
+        'package.json': current,
+        '@base/package.json': previous,
+      },
+    );
+
+    expect(
+      ThinDependencyForTrivialCapabilityRule().analyze(
+        dependencyContext(
+          "import leftPad from 'left-pad';\nleftPad('7', 3);",
+          '{"dependencies":{"left-pad":"^1.3.0"}}',
+          '{"dependencies":{"left-pad":"^1.2.0"}}',
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      ThinDependencyForTrivialCapabilityRule().analyze(
+        dependencyContext(
+          "import leftPad from 'left-pad';\nleftPad('7', 3);\nleftPad('8', 3);",
+          '{"dependencies":{"left-pad":"^1.3.0"}}',
+          '{"dependencies":{}}',
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      ThinDependencyForTrivialCapabilityRule().analyze(
+        dependencyContext(
+          "import merge from 'deepmerge';\nmerge(left, right);",
+          '{"dependencies":{"deepmerge":"^4.3.1"}}',
+          '{"dependencies":{}}',
+        ),
+      ),
+      isEmpty,
+    );
   });
 }

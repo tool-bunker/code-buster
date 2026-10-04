@@ -3,12 +3,19 @@
 import '../../core/models.dart';
 import '../../core/regexp_cache.dart';
 
+final Expando<Map<String, List<Finding>>> _findingsBySources =
+    Expando<Map<String, List<Finding>>>('typescript-rule-findings');
+
 /// Shared scan used by independently registered JavaScript/TypeScript rules.
 final class TypeScriptRuleAnalysis {
-  /// Emits findings for [ruleId] in source order.
-  // code-buster-ignore complex-function: rule-ID dispatch shares one lexical pass and executes independent checks without reparsing each source.
-  List<Finding> findings(Map<String, String> sources, String ruleId) {
-    final List<Finding> result = <Finding>[];
+  /// Returns findings for [ruleId] from one repository-wide lexical pass.
+  List<Finding> findings(Map<String, String> sources, String ruleId) =>
+      (_findingsBySources[sources] ??= _analyze(sources))[ruleId] ??
+      const <Finding>[];
+
+  // code-buster-ignore complex-function: one lexical pass executes independent rule checks without remasking each source.
+  Map<String, List<Finding>> _analyze(Map<String, String> sources) {
+    final Map<String, List<Finding>> result = <String, List<Finding>>{};
     for (final MapEntry<String, String> entry in sources.entries) {
       final bool isToolingSource = _isToolingSource(entry.key);
       final bool isCommandLineSource = _isNodeCommandLineSource(entry.value);
@@ -27,24 +34,25 @@ final class TypeScriptRuleAnalysis {
         final String sinkLine = _strip(sinkCodeLines[index]).trim();
         final String lower = raw.toLowerCase();
         void add(String id, RuleSeverity severity, String message) {
-          if (id != ruleId) return;
-          result.add(
-            Finding(
-              code: id,
-              severity: severity,
-              path: entry.key,
-              line: index + 1,
-              endLine: index + 1,
-              message: message,
-              confidence: 'medium',
-              why: id == 'ts-console'
-                  ? 'Console logging in app/library code can leak data and create noisy production output.'
-                  : 'This scripting construct can weaken correctness, security, or runtime performance.',
-              suggestion: id == 'ts-console'
-                  ? 'Use a structured logger or remove debug logging before release.'
-                  : 'Use the safer explicit pattern described by the rule.',
-            ),
-          );
+          result
+              .putIfAbsent(id, () => <Finding>[])
+              .add(
+                Finding(
+                  code: id,
+                  severity: severity,
+                  path: entry.key,
+                  line: index + 1,
+                  endLine: index + 1,
+                  message: message,
+                  confidence: 'medium',
+                  why: id == 'ts-console'
+                      ? 'Console logging in app/library code can leak data and create noisy production output.'
+                      : 'This scripting construct can weaken correctness, security, or runtime performance.',
+                  suggestion: id == 'ts-console'
+                      ? 'Use a structured logger or remove debug logging before release.'
+                      : 'Use the safer explicit pattern described by the rule.',
+                ),
+              );
         }
 
         if (line.contains(': any') ||
@@ -83,6 +91,13 @@ final class TypeScriptRuleAnalysis {
             'ts-eval',
             RuleSeverity.error,
             'dynamic JavaScript execution used',
+          );
+        }
+        if (_hasStringTimerExecution(uncommentedLines, sinkLine, index)) {
+          add(
+            'ts-string-timer-code-execution',
+            RuleSeverity.error,
+            'timer executes source text as code',
           );
         }
         if (_hasUnsafeInnerHtmlSink(uncommentedLines, sinkCodeLines, index)) {
@@ -162,8 +177,17 @@ final class TypeScriptRuleAnalysis {
         }
       }
     }
-    if (ruleId == 'oop-data-clump') result.addAll(_dataClumps(sources));
-    return result;
+    result
+        .putIfAbsent('oop-data-clump', () => <Finding>[])
+        .addAll(_dataClumps(sources));
+    return Map<String, List<Finding>>.unmodifiable(
+      result.map(
+        (String id, List<Finding> findings) => MapEntry<String, List<Finding>>(
+          id,
+          List<Finding>.unmodifiable(findings),
+        ),
+      ),
+    );
   }
 
   bool _isToolingSource(String path) {
@@ -619,6 +643,28 @@ final class TypeScriptRuleAnalysis {
   static String _strip(String line) => line.replaceAll(
     cachedRegExp(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`'''),
     '',
+  );
+
+  static bool _hasStringTimerExecution(
+    List<String> lines,
+    String codeLine,
+    int index,
+  ) {
+    if (!_timerCall.hasMatch(codeLine)) return false;
+    final RegExpMatch? call = _timerCall.firstMatch(lines[index]);
+    if (call == null ||
+        (call.start > 0 && lines[index][call.start - 1] == '.')) {
+      return false;
+    }
+    final String source = lines.skip(index).take(20).join('\n');
+    final String argument = source.substring(call.end).trimLeft();
+    return argument.startsWith('"') ||
+        argument.startsWith("'") ||
+        argument.startsWith('`');
+  }
+
+  static final RegExp _timerCall = cachedRegExp(
+    r'\b(?:(?:window|globalThis)\s*\.\s*)?(?:setTimeout|setInterval)\s*\(',
   );
 
   static final RegExp _embeddedJsonElementParse = cachedRegExp(

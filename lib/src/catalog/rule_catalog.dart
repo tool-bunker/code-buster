@@ -203,6 +203,34 @@ final class RuleCatalog {
         'String constants, named and optional parameters, reflective calls, method tear-offs, overload ownership, and framework-discovered private hooks are not resolved.',
       ],
     ),
+    'yagni-concentration': RuleMetadata(
+      id: 'yagni-concentration',
+      defaultSeverity: RuleSeverity.info,
+      group: 'yagni',
+      title: 'Review concentrated speculative design',
+      why:
+          'Several independent YAGNI findings in one file can indicate a broader pattern of speculative flexibility and one-use indirection.',
+      suggestion:
+          'Review the file from its callers inward, remove unused variation, and collapse layers that do not own behavior.',
+      semanticMaturity: RuleSemanticMaturity.project,
+      requirements: <RuleAnalysisRequirement>{},
+      taxonomy: <FindingTaxonomy>{FindingTaxonomy.maintainability},
+      languages: <String>[
+        'cpp',
+        'csharp',
+        'dart',
+        'go',
+        'java',
+        'javascript',
+        'typescript',
+        'python',
+        'rust',
+      ],
+      limitations: <String>[
+        'Requires at least three active YAGNI findings from two distinct rule IDs in one file.',
+        'Concentration is advisory evidence for holistic review, not proof that every abstraction should be removed.',
+      ],
+    ),
     'single-product-factory': RuleMetadata(
       id: 'single-product-factory',
       defaultSeverity: RuleSeverity.info,
@@ -238,10 +266,10 @@ final class RuleCatalog {
       group: 'yagni',
       title: 'Inline a single-use trivial wrapper',
       why:
-          'A single-use forwarding function adds navigation without owning policy, transformation, validation, or resource lifetime.',
+          'Single-use forwarding functions and chains add navigation without owning policy, transformation, validation, or resource lifetime.',
       suggestion:
-          'Inline the wrapper unless it is an intentional extension or compatibility boundary.',
-      version: 3,
+          'Inline or collapse the wrappers unless they are intentional extension or compatibility boundaries.',
+      version: 4,
       semanticMaturity: RuleSemanticMaturity.token,
       requirements: <RuleAnalysisRequirement>{
         RuleAnalysisRequirement.functions,
@@ -261,6 +289,7 @@ final class RuleCatalog {
       limitations: <String>[
         'Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.',
         'Requires unchanged positional arguments and a uniquely named local target function.',
+        'Maximal chains are consolidated only within one source file; cross-file forwarding chains are reported as separately resolved local segments.',
         'Method tear-offs, reflective calls, overload ownership, and framework-discovered private hooks are not resolved.',
       ],
     ),

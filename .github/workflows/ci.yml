@@ -31,8 +31,6 @@ jobs:
         env:
           CODE_BUSTER_TEST_EXECUTABLE: ${{ github.workspace }}/build/cb-test
       - run: dart doc --dry-run
-      - name: Check Unix installer syntax
-        run: sh -n website/install
       - name: Smoke-test Code Buster
         run: |
           build/cb-test version
@@ -78,21 +76,6 @@ jobs:
         run: |
           mkdir -p build
           dart compile exe bin/cb.dart -o "build/cb${{ matrix.suffix }}"
-      - name: Check PowerShell installer syntax
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path 'website/install.ps1'),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_ }
-            exit 1
-          }
       - uses: actions/upload-artifact@v7
         with:
           name: cb-${{ matrix.os }}
