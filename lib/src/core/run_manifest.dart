@@ -35,6 +35,7 @@ final class RunManifest {
     required this.graphCacheHit,
     required this.findingsCacheHit,
     required this.durationMilliseconds,
+    this.stageDurationsMilliseconds = const <String, int>{},
     this.status = RunStatus.complete,
   });
 
@@ -61,6 +62,9 @@ final class RunManifest {
   final bool findingsCacheHit;
 
   final int durationMilliseconds;
+
+  /// Wall-clock durations for pipeline stages and executed rule families.
+  final Map<String, int> stageDurationsMilliseconds;
 
   final RunStatus status;
 
@@ -90,5 +94,7 @@ final class RunManifest {
         'findingsHit': findingsCacheHit,
       },
     if (includeOperational) 'durationMilliseconds': durationMilliseconds,
+    if (includeOperational && stageDurationsMilliseconds.isNotEmpty)
+      'stageDurationsMilliseconds': stageDurationsMilliseconds,
   };
 }

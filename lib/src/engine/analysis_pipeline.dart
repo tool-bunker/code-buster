@@ -76,7 +76,10 @@ final class AnalysisCacheStage {
   bool get graphCacheHit => _graphCacheHit;
 
   bool _findingsCacheHit = false;
-  bool get findingsCacheHit => _findingsCacheHit;
+  bool _findingCacheRequested = false;
+  bool _findingCacheMiss = false;
+  bool get findingsCacheHit =>
+      _findingCacheRequested ? !_findingCacheMiss : _findingsCacheHit;
 
   DependencyGraph graph(
     PreparedAnalysis prepared,
@@ -105,22 +108,37 @@ final class AnalysisCacheStage {
     PreparedAnalysis prepared,
     CodeBusterCommand command,
     List<Finding> Function() analyze,
-  ) {
-    if (!enabled) return List<Finding>.unmodifiable(analyze());
-    final Map<String, String> findingInputs = <String, String>{
-      ...prepared.sources,
-      for (final MapEntry<String, String> entry in prepared.baseSources.entries)
-        '@base/${entry.key}': entry.value,
-      for (final String changedPath in prepared.changedPaths)
-        '@changed/$changedPath': '',
-      for (final MapEntry<String, String> entry
-          in prepared.auxiliaryFiles.entries)
-        '@aux/${entry.key}': entry.value,
-    };
+  ) => findingFamily(prepared, 'command.${command.name}', analyze);
+
+  /// Loads or computes one independently reusable finding family.
+  List<Finding> findingFamily(
+    PreparedAnalysis prepared,
+    String family,
+    List<Finding> Function() analyze, {
+    Map<String, String>? sourceInputs,
+  }) {
+    _findingCacheRequested = true;
+    if (!enabled) {
+      _findingCacheMiss = true;
+      return List<Finding>.unmodifiable(analyze());
+    }
+    final Map<String, String> findingInputs =
+        sourceInputs ??
+        <String, String>{
+          ...prepared.sources,
+          for (final MapEntry<String, String> entry
+              in prepared.baseSources.entries)
+            '@base/${entry.key}': entry.value,
+          for (final String changedPath in prepared.changedPaths)
+            '@changed/$changedPath': '',
+          for (final MapEntry<String, String> entry
+              in prepared.auxiliaryFiles.entries)
+            '@aux/${entry.key}': entry.value,
+        };
     final String key = cache.key(
       config: prepared.config,
       sources: findingInputs,
-      kind: 'findings:${command.name}',
+      kind: 'findings-family:$family',
     );
     final List<Finding>? cached = cache.loadFindings(
       config: prepared.config,
@@ -130,6 +148,7 @@ final class AnalysisCacheStage {
       _findingsCacheHit = true;
       return List<Finding>.unmodifiable(cached);
     }
+    _findingCacheMiss = true;
     final List<Finding> result = List<Finding>.unmodifiable(analyze());
     cache.storeFindings(config: prepared.config, key: key, findings: result);
     return result;

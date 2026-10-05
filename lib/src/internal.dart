@@ -22,6 +22,7 @@ export 'core/schema_versions.dart';
 export 'discovery/discovery.dart';
 export 'discovery/language_versions.dart';
 export 'engine/analysis.dart';
+export 'engine/analysis_execution_plan.dart';
 export 'engine/analysis_pipeline.dart';
 export 'engine/analysis_runner.dart';
 export 'engine/rule_execution.dart';
