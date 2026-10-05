@@ -74,6 +74,9 @@ commands such as `review`, `duplication`, `graph`, `dead`, `hotspots`, or
 Analysis caches live in the operating system's user-cache directory, not in the
 analyzed repository. Use `--no-cache` for one-off runs or `--cache-dir PATH`
 when a CI job or local workflow needs an explicit cache location.
+Focused commands and `--only RULE` execute only the required analysis families.
+Finding-family caches are reused independently, and `--verbose` JSON manifests
+include pipeline and rule-family durations for performance diagnosis.
 
 See the [installation guide](https://toolbunker.dev/codebuster/docs/getting-started/installation)
 and [quickstart](https://toolbunker.dev/codebuster/docs/getting-started/quickstart)

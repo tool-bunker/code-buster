@@ -38,6 +38,13 @@ void main() {
     expect(manifest.sourceHash, hasLength(64));
     expect(manifest.configHash, hasLength(64));
     expect(manifest.status, RunStatus.complete);
+    expect(manifest.stageDurationsMilliseconds, contains('preparation'));
+    expect(manifest.stageDurationsMilliseconds, contains('languageIndex'));
+    expect(manifest.stageDurationsMilliseconds, contains('rules'));
+    expect(
+      manifest.toJson()['stageDurationsMilliseconds'],
+      manifest.stageDurationsMilliseconds,
+    );
     expect(manifest.toJson()['schemaVersion'], runManifestSchemaVersion);
 
     final Map<String, Object?> report =

@@ -22,19 +22,34 @@ import '../rules/framework_rules.dart';
 import '../rules/regex/regex_rules.dart';
 import '../rules/repository_rules.dart';
 import 'analysis.dart';
+import 'analysis_execution_plan.dart';
 import 'analysis_pipeline.dart';
+
+typedef FindingFamilyCache =
+    List<Finding> Function(
+      String family,
+      Map<String, String>? sourceInputs,
+      List<Finding> Function() analyze,
+    );
 
 /// Executes repository, graph, language, and cross-language rules.
 final class RuleExecutionStage {
-  /// Creates a stage with validated built-in registries.
   RuleExecutionStage({
     LanguagePluginRegistry? languagePlugins,
     RuleRegistry? repositoryRules,
+    FindingFamilyCache? cacheFamily,
   }) : _languagePlugins = languagePlugins ?? LanguagePluginRegistry.standard(),
-       _repositoryRules = repositoryRules ?? _standardRepositoryRules;
+       _repositoryRules = repositoryRules ?? _standardRepositoryRules,
+       _cacheFamily = cacheFamily;
 
   final LanguagePluginRegistry _languagePlugins;
   final RuleRegistry _repositoryRules;
+  final FindingFamilyCache? _cacheFamily;
+
+  /// Milliseconds spent in each rule family during the latest execution.
+  Map<String, int> get familyTimings =>
+      Map<String, int>.unmodifiable(_familyTimings);
+  final Map<String, int> _familyTimings = <String, int>{};
 
   static final RuleRegistry _standardRepositoryRules = repositoryRuleRegistry;
   static final RegExp _runtimeDiscoveredTestDirectory = cachedRegExp(
@@ -208,12 +223,54 @@ final class RuleExecutionStage {
   List<Finding> execute(
     CodeBusterCommand command,
     IndexedAnalysis indexed,
-    GraphAnalysis graph,
-  ) {
+    GraphAnalysis graph, {
+    String only = '',
+    String group = '',
+  }) {
     final PreparedAnalysis prepared = indexed.prepared;
     final AnalysisConfig config = prepared.config;
     final Map<String, String> sources = prepared.sources;
     final List<SourceFile> files = prepared.files;
+    _familyTimings.clear();
+    final AnalysisExecutionPlan plan = AnalysisExecutionPlan(
+      command: command,
+      config: config,
+      only: only,
+      group: group,
+    );
+    if (command == CodeBusterCommand.graph) return const <Finding>[];
+    if (command == CodeBusterCommand.structure ||
+        (plan.only.isNotEmpty && plan.only.startsWith('structure-'))) {
+      return _findingFamily(
+        'structure',
+        () => RepositoryAnalysis()
+            .structureFindings(files: files, config: config)
+            .where((Finding finding) => plan.allows(finding.code))
+            .toList(growable: false),
+        sourceInputs: <String, String>{
+          for (final String path in sources.keys) path: '',
+        },
+      );
+    }
+    if (command == CodeBusterCommand.flags || plan.only == 'feature-flag') {
+      return _perSourceFamily(
+        'featureFlags',
+        sources,
+        (Map<String, String> selected) => FeatureFlagAnalysis()
+            .findings(selected)
+            .where((Finding finding) => plan.allows(finding.code))
+            .toList(growable: false),
+      );
+    }
+    if (command == CodeBusterCommand.complexity ||
+        AnalysisExecutionPlan.complexityRuleIds.contains(plan.only)) {
+      return _focusedComplexity(indexed, plan);
+    }
+    if (command == CodeBusterCommand.duplication ||
+        command == CodeBusterCommand.clusters ||
+        AnalysisExecutionPlan.duplicationRuleIds.contains(plan.only)) {
+      return _focusedDuplication(indexed, plan);
+    }
     final List<String> luaDeadFileCandidates = sources.keys
         .where(
           (String path) =>
@@ -415,47 +472,47 @@ final class RuleExecutionStage {
                 MapEntry<String, List<String>>(path, source.split('\n')),
           ),
         );
-    final List<Finding> styleFindings =
-        <Finding>[
-          ...indexed.require('html').findings,
-          ...indexed.require('css').findings,
-          ...indexed.require('wren').findings,
-          ...indexed.require('nim').findings,
-          ...indexed.require('lua').findings,
-          ...indexed.require('mojo').findings,
-          ...indexed.require('javascript').findings,
-          ...indexed.require('go').findings,
-          ...indexed.require('python').findings,
-          ...indexed.require('sql').findings,
-          ...indexed.require('rust').findings,
-          ...indexed.require('cpp').findings,
-          ...indexed.require('csharp').findings,
-          ...indexed.require('java').findings,
-          ...indexed.require('dart').findings,
-          ...<CodeBusterRule>[
+    final RuleContext repositoryContext = RuleContext(
+      config: config,
+      sources: sources,
+      sourceLines: sourceLines,
+      language: 'repository',
+      graph: graph.graph,
+      changedPaths: prepared.changedPaths,
+      baseSources: prepared.baseSources,
+      auxiliaryFiles: prepared.auxiliaryFiles,
+    );
+    final List<Finding> repositoryRuleFindings = _findingFamily(
+      'repositoryRules',
+      () =>
+          <CodeBusterRule>[
                 ..._repositoryRules.rules,
                 ...frameworkRepositoryRules(config.frameworks),
               ]
               .where(
                 (CodeBusterRule rule) =>
+                    plan.allows(rule.metadata.id) &&
                     ruleFrameworksAreActive(rule.metadata, config),
               )
-              .expand(
-                (CodeBusterRule rule) => rule.analyze(
-                  RuleContext(
-                    config: config,
-                    sources: sources,
-                    sourceLines: sourceLines,
-                    language: 'repository',
-                    graph: graph.graph,
-                    changedPaths: prepared.changedPaths,
-                    baseSources: prepared.baseSources,
-                    auxiliaryFiles: prepared.auxiliaryFiles,
-                  ),
-                ),
-              ),
-          ...RegexRuleAnalysis().findings(sources),
-          ...PatternRuleAnalysis().findings(sources, config.patternRules),
+              .expand((CodeBusterRule rule) => rule.analyze(repositoryContext))
+              .toList(growable: false),
+    );
+    final List<Finding> styleFindings =
+        <Finding>[
+          ..._allLanguageFindings(indexed),
+          ...repositoryRuleFindings,
+          ..._perSourceFamily(
+            'regexRules',
+            sources,
+            (Map<String, String> selected) =>
+                RegexRuleAnalysis().findings(selected),
+          ),
+          ..._perSourceFamily(
+            'patternRules',
+            sources,
+            (Map<String, String> selected) =>
+                PatternRuleAnalysis().findings(selected, config.patternRules),
+          ),
         ]..sort((Finding left, Finding right) {
           if (left.code.startsWith('nim-') && right.code.startsWith('nim-')) {
             return _languagePlugins.compareFindings('nim', left, right);
@@ -474,42 +531,115 @@ final class RuleExecutionStage {
           );
         });
     final List<Finding> base = <Finding>[
-      ...repository.complexityFindings(functions: functions, config: config),
-      ...repository.trivialWrapperFindings(
-        functions: functions,
-        config: config,
-      ),
-      ...repository.singleProductFactoryFindings(
-        functions: functions,
-        config: config,
-      ),
-      ...repository.constantArgumentFindings(
-        functions: functions,
-        config: config,
-      ),
-      ...repository.unusedCustomizationHookFindings(
-        functions: functions,
-        config: config,
-      ),
-      ...repository.unusedOptionalParameterFindings(
-        functions: functions,
-        config: config,
-      ),
-      ...repository.unusedConfigurationOptionFindings(
-        functions: functions,
-        config: config,
-      ),
-      ...repository.fileFindings(sources: sources, config: config),
-      ...graphFindings,
-      ...duplication.exactBlocks(sources, minLines: config.minDuplicationLines),
-      if (config.duplicationMode != DuplicationMode.exact)
-        ...duplication.nearDuplicateFunctions(functions),
-      if (config.duplicationMode == DuplicationMode.semantic)
-        ...duplication.parallelContractImplementations(functions),
-      ...duplication.repeatedConditions(sources),
-      ...FeatureFlagAnalysis().findings(sources),
-      ...repository.structureFindings(files: files, config: config),
-      ...styleFindings,
+      if (plan.requires(AnalysisExecutionPlan.complexityRuleIds))
+        ..._findingFamily(
+          'complexity',
+          () => repository.complexityFindings(
+            functions: functions,
+            config: config,
+          ),
+        ),
+      if (plan.allows('single-use-trivial-wrapper'))
+        ..._findingFamily(
+          'yagni.trivialWrapper',
+          () => repository.trivialWrapperFindings(
+            functions: functions,
+            config: config,
+          ),
+        ),
+      if (plan.allows('single-product-factory'))
+        ..._findingFamily(
+          'yagni.singleProductFactory',
+          () => repository.singleProductFactoryFindings(
+            functions: functions,
+            config: config,
+          ),
+        ),
+      if (plan.allows('constant-argument-parameter'))
+        ..._findingFamily(
+          'yagni.constantArgument',
+          () => repository.constantArgumentFindings(
+            functions: functions,
+            config: config,
+          ),
+        ),
+      if (plan.allows('unused-customization-hook'))
+        ..._findingFamily(
+          'yagni.unusedCustomizationHook',
+          () => repository.unusedCustomizationHookFindings(
+            functions: functions,
+            config: config,
+          ),
+        ),
+      if (plan.allows('unused-optional-parameter'))
+        ..._findingFamily(
+          'yagni.unusedOptionalParameter',
+          () => repository.unusedOptionalParameterFindings(
+            functions: functions,
+            config: config,
+          ),
+        ),
+      if (plan.allows('unused-configuration-option'))
+        ..._findingFamily(
+          'yagni.unusedConfigurationOption',
+          () => repository.unusedConfigurationOptionFindings(
+            functions: functions,
+            config: config,
+          ),
+        ),
+      if (plan.allows('large-file') || plan.allows('goto-statement'))
+        ..._perSourceFamily(
+          'file',
+          sources,
+          (Map<String, String> selected) =>
+              repository.fileFindings(sources: selected, config: config),
+        ),
+      ...graphFindings.where((Finding finding) => plan.allows(finding.code)),
+      if (plan.allows('duplicate-block'))
+        ..._findingFamily(
+          'duplication.exact',
+          () => duplication.exactBlocks(
+            sources,
+            minLines: config.minDuplicationLines,
+          ),
+        ),
+      if (plan.allows('near-duplicate-function') &&
+          config.duplicationMode != DuplicationMode.exact)
+        ..._findingFamily(
+          'duplication.near',
+          () => duplication.nearDuplicateFunctions(functions),
+        ),
+      if (plan.allows('parallel-contract-implementation') &&
+          config.duplicationMode == DuplicationMode.semantic)
+        ..._findingFamily(
+          'duplication.semantic',
+          () => duplication.parallelContractImplementations(functions),
+        ),
+      if (plan.allows('repeated-condition'))
+        ..._findingFamily(
+          'duplication.conditions',
+          () => duplication.repeatedConditions(sources),
+        ),
+      if (plan.allows('feature-flag'))
+        ..._perSourceFamily(
+          'featureFlags',
+          sources,
+          (Map<String, String> selected) =>
+              FeatureFlagAnalysis().findings(selected),
+        ),
+      if (plan.requiresMetadata(
+        RuleCatalog.all.where(
+          (RuleMetadata metadata) => metadata.id.startsWith('structure-'),
+        ),
+      ))
+        ..._findingFamily(
+          'structure',
+          () => repository.structureFindings(files: files, config: config),
+          sourceInputs: <String, String>{
+            for (final String path in sources.keys) path: '',
+          },
+        ),
+      ...styleFindings.where((Finding finding) => plan.allows(finding.code)),
     ];
     final RulePolicy policy = RulePolicy(config);
     final Set<String> activeYagniRuleIds = RuleCatalog.all
@@ -568,5 +698,122 @@ final class RuleExecutionStage {
             .toList(growable: false),
       _ => const <Finding>[],
     };
+  }
+
+  List<Finding> _focusedComplexity(
+    IndexedAnalysis indexed,
+    AnalysisExecutionPlan plan,
+  ) => _findingFamily('complexity', () {
+    final PreparedAnalysis prepared = indexed.prepared;
+    final RepositoryAnalysis repository = RepositoryAnalysis();
+    return <Finding>[
+          ...repository.complexityFindings(
+            functions: _allFunctions(indexed),
+            config: prepared.config,
+          ),
+          ...repository.fileFindings(
+            sources: prepared.sources,
+            config: prepared.config,
+          ),
+          ..._allLanguageFindings(indexed),
+        ]
+        .where((Finding finding) => plan.allows(finding.code))
+        .toList(growable: false);
+  });
+
+  List<Finding> _focusedDuplication(
+    IndexedAnalysis indexed,
+    AnalysisExecutionPlan plan,
+  ) => _findingFamily('duplication', () {
+    final PreparedAnalysis prepared = indexed.prepared;
+    final DuplicationAnalysis duplication = DuplicationAnalysis();
+    final List<FunctionSource> functions = _allFunctions(indexed);
+    return <Finding>[
+          ...duplication.exactBlocks(
+            prepared.sources,
+            minLines: prepared.config.minDuplicationLines,
+          ),
+          if (prepared.config.duplicationMode != DuplicationMode.exact)
+            ...duplication.nearDuplicateFunctions(functions),
+          if (prepared.config.duplicationMode == DuplicationMode.semantic)
+            ...duplication.parallelContractImplementations(functions),
+          ...duplication.repeatedConditions(prepared.sources),
+          ..._allLanguageFindings(indexed),
+        ]
+        .where((Finding finding) => plan.allows(finding.code))
+        .toList(growable: false);
+  });
+
+  List<FunctionSource> _allFunctions(IndexedAnalysis indexed) =>
+      <FunctionSource>[
+        ...indexed.require('cpp').functions,
+        ...indexed.require('csharp').functions,
+        ...indexed.require('dart').functions,
+        ...indexed.require('go').functions,
+        ...indexed.require('java').functions,
+        ...indexed.require('javascript').functions,
+        ...indexed.require('nim').functions,
+        ...indexed.require('mojo').functions,
+        ...indexed.require('wren').functions,
+        ...indexed.require('python').functions,
+        ...indexed.require('rust').functions,
+      ];
+
+  List<Finding> _allLanguageFindings(IndexedAnalysis indexed) => <Finding>[
+    ...indexed.require('html').findings,
+    ...indexed.require('css').findings,
+    ...indexed.require('wren').findings,
+    ...indexed.require('nim').findings,
+    ...indexed.require('lua').findings,
+    ...indexed.require('mojo').findings,
+    ...indexed.require('javascript').findings,
+    ...indexed.require('go').findings,
+    ...indexed.require('python').findings,
+    ...indexed.require('sql').findings,
+    ...indexed.require('rust').findings,
+    ...indexed.require('cpp').findings,
+    ...indexed.require('csharp').findings,
+    ...indexed.require('java').findings,
+    ...indexed.require('dart').findings,
+  ];
+
+  List<Finding> _perSourceFamily(
+    String name,
+    Map<String, String> sources,
+    List<Finding> Function(Map<String, String> selected) analyze,
+  ) {
+    final List<Finding> findings = <Finding>[];
+    for (final MapEntry<String, String> source in sources.entries) {
+      final Map<String, String> selected = <String, String>{
+        source.key: source.value,
+      };
+      findings.addAll(
+        _findingFamily(
+          '$name:${source.key}',
+          () => analyze(selected),
+          sourceInputs: selected,
+          timingName: name,
+        ),
+      );
+    }
+    return findings;
+  }
+
+  List<Finding> _findingFamily(
+    String name,
+    List<Finding> Function() operation, {
+    Map<String, String>? sourceInputs,
+    String? timingName,
+  }) => _measure(
+    timingName ?? name,
+    () => _cacheFamily?.call(name, sourceInputs, operation) ?? operation(),
+  );
+
+  T _measure<T>(String name, T Function() operation) {
+    final Stopwatch stopwatch = Stopwatch()..start();
+    final T result = operation();
+    _familyTimings[name] =
+        (_familyTimings[name] ?? 0) + stopwatch.elapsedMilliseconds;
+    return result;
   }
 }
