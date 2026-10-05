@@ -130,18 +130,24 @@ final class AnalysisRunner {
   /// Runs one finding-producing [CodeBusterCliOptions.command] over the project.
   AnalysisRun run(CodeBusterCliOptions options, {CodeBusterCommand? command}) {
     final Stopwatch stopwatch = Stopwatch()..start();
-    final PreparedAnalysis prepared = AnalysisPreparationStage().prepare(
-      options,
+    final Map<String, int> stageDurations = <String, int>{};
+    final PreparedAnalysis prepared = _timed(
+      stageDurations,
+      'preparation',
+      () => AnalysisPreparationStage().prepare(options),
     );
     final AnalysisConfig config = prepared.config;
     final List<SourceFile> files = prepared.files;
     final Map<String, String> sources = prepared.sources;
-    final IndexedAnalysis indexed = LanguageIndexStage(
-      _languagePlugins,
-    ).build(prepared);
-    final SarifIngestionResult ingestion = const SarifIngestion().read(
-      options.ingestSarif,
-      config.root,
+    final IndexedAnalysis indexed = _timed(
+      stageDurations,
+      'languageIndex',
+      () => LanguageIndexStage(_languagePlugins).build(prepared),
+    );
+    final SarifIngestionResult ingestion = _timed(
+      stageDurations,
+      'sarifIngestion',
+      () => const SarifIngestion().read(options.ingestSarif, config.root),
     );
     final List<ProcessingDiagnostic> diagnostics = <ProcessingDiagnostic>[
       ...prepared.diagnostics,
@@ -157,27 +163,54 @@ final class AnalysisRunner {
             : Directory(options.cacheDirectory).absolute.path,
       ),
     );
-    final DependencyGraph graph = cache.graph(
-      prepared,
-      () => GraphConstructionStage(_languagePlugins).build(indexed),
+    final DependencyGraph graph = _timed(
+      stageDurations,
+      'graph',
+      () => cache.graph(
+        prepared,
+        () => GraphConstructionStage(_languagePlugins).build(indexed),
+      ),
     );
     final GraphAnalysis graphAnalysis = GraphAnalysis(graph);
     final CodeBusterCommand effectiveCommand = command ?? options.command;
-    final List<Finding> raw = cache.findings(
-      prepared,
-      effectiveCommand,
-      () => RuleExecutionStage(
-        languagePlugins: _languagePlugins,
-      ).execute(effectiveCommand, indexed, graphAnalysis),
+    final RuleExecutionStage ruleExecution = RuleExecutionStage(
+      languagePlugins: _languagePlugins,
+      cacheFamily: options.only.isEmpty
+          ? (
+              String family,
+              Map<String, String>? sourceInputs,
+              List<Finding> Function() analyze,
+            ) => cache.findingFamily(
+              prepared,
+              '${effectiveCommand.name}.$family',
+              analyze,
+              sourceInputs: sourceInputs,
+            )
+          : null,
     );
+    List<Finding> executeRules() => ruleExecution.execute(
+      effectiveCommand,
+      indexed,
+      graphAnalysis,
+      only: options.only,
+    );
+    final List<Finding> raw = _timed(stageDurations, 'rules', executeRules);
+    for (final MapEntry<String, int> timing
+        in ruleExecution.familyTimings.entries) {
+      stageDurations['rules.${timing.key}'] = timing.value;
+    }
     final Set<String> baseline = options.baseline.isEmpty
         ? const <String>{}
         : BaselineCodec.read(File(options.baseline));
-    final List<Finding> controlledFindings = const FindingControlStage().apply(
-      prepared: prepared,
-      findings: <Finding>[...raw, ...ingestion.findings],
-      baseline: baseline,
-      only: options.only,
+    final List<Finding> controlledFindings = _timed(
+      stageDurations,
+      'controls',
+      () => const FindingControlStage().apply(
+        prepared: prepared,
+        findings: <Finding>[...raw, ...ingestion.findings],
+        baseline: baseline,
+        only: options.only,
+      ),
     );
     final RulePolicy policy = RulePolicy(config);
     final List<Finding> findings = controlledFindings
@@ -230,8 +263,22 @@ final class AnalysisRunner {
         graphCacheHit: cache.graphCacheHit,
         findingsCacheHit: cache.findingsCacheHit,
         durationMilliseconds: stopwatch.elapsedMilliseconds,
+        stageDurationsMilliseconds: Map<String, int>.unmodifiable(
+          stageDurations,
+        ),
       ),
     );
+  }
+
+  static T _timed<T>(
+    Map<String, int> durations,
+    String name,
+    T Function() operation,
+  ) {
+    final Stopwatch stopwatch = Stopwatch()..start();
+    final T result = operation();
+    durations[name] = stopwatch.elapsedMilliseconds;
+    return result;
   }
 
   static String _sourceHash(Map<String, String> sources) {

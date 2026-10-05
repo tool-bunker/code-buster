@@ -159,4 +159,49 @@ void main() {
       ),
     );
   });
+
+  test('reuses per-source families when another source changes', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code-buster-family-cache-',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    File('${root.path}/a.dart').writeAsStringSync('void a() {}');
+    final File changed = File('${root.path}/b.dart')
+      ..writeAsStringSync('void b() {}');
+    final Directory cacheDirectory = Directory('${root.path}/cache');
+    final PersistentAnalysisCache persistent = PersistentAnalysisCache(
+      directory: cacheDirectory.path,
+    );
+    PreparedAnalysis prepare() => AnalysisPreparationStage().prepare(
+      CodeBusterCliContract.parse(<String>[
+        'summary',
+        '--root',
+        root.path,
+        '--exclude',
+        'cache/**',
+      ]),
+    );
+    final PreparedAnalysis first = prepare();
+    final AnalysisCacheStage firstCache = AnalysisCacheStage(cache: persistent);
+    firstCache.findingFamily(
+      first,
+      'file:a.dart',
+      () => const <Finding>[],
+      sourceInputs: <String, String>{'a.dart': first.sources['a.dart']!},
+    );
+
+    changed.writeAsStringSync('void changed() {}');
+    final PreparedAnalysis second = prepare();
+    final AnalysisCacheStage secondCache = AnalysisCacheStage(
+      cache: persistent,
+    );
+    secondCache.findingFamily(
+      second,
+      'file:a.dart',
+      () => throw StateError('unchanged source family was recomputed'),
+      sourceInputs: <String, String>{'a.dart': second.sources['a.dart']!},
+    );
+
+    expect(secondCache.findingsCacheHit, isTrue);
+  });
 }

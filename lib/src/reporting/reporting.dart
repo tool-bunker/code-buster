@@ -7,6 +7,7 @@ import '../core/models.dart';
 import '../core/processing_diagnostic.dart';
 import '../core/run_manifest.dart';
 import '../core/schema_versions.dart';
+import '../version.dart';
 import 'markdown_reporter.dart';
 import 'report_model.dart';
 import 'text_reporter.dart';
@@ -247,7 +248,7 @@ final class FindingReporter {
           'tool': <String, Object>{
             'driver': <String, Object>{
               'name': 'code-buster',
-              'version': '0.7.3',
+              'version': codeBusterVersion,
               'rules': firstByCode.entries
                   .map(
                     (MapEntry<String, Finding> entry) => <String, Object>{

@@ -9,6 +9,7 @@ void main() {
         tag: 'v0.1.0',
         pubspec: 'name: code_buster\nversion: 0.1.0\n',
         changelog: '# Changelog\n\n## 0.1.0\n\n- Initial release.\n',
+        generatedVersionSource: renderVersionSource('0.1.0'),
       ),
       isNull,
     );
@@ -20,6 +21,7 @@ void main() {
         tag: 'v0.2.0',
         pubspec: 'name: code_buster\nversion: 0.2.0\n',
         changelog: '# Changelog\n\n## 0.1.0\n',
+        generatedVersionSource: renderVersionSource('0.2.0'),
       ),
       'CHANGELOG.md has no release heading for 0.2.0',
     );
@@ -31,8 +33,21 @@ void main() {
         tag: 'v0.2.0',
         pubspec: 'name: code_buster\nversion: 0.1.0\n',
         changelog: '# Changelog\n\n## 0.1.0\n',
+        generatedVersionSource: renderVersionSource('0.1.0'),
       ),
       'tag v0.2.0 does not match pubspec version 0.1.0',
+    );
+  });
+
+  test('rejects an embedded version not generated from pubspec', () {
+    expect(
+      validateReleaseVersion(
+        tag: 'v0.2.0',
+        pubspec: 'name: code_buster\nversion: 0.2.0\n',
+        changelog: '# Changelog\n\n## 0.2.0\n',
+        generatedVersionSource: renderVersionSource('0.1.0'),
+      ),
+      'lib/src/version.dart is not generated from pubspec version 0.2.0',
     );
   });
 }

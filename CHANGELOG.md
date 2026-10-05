@@ -6,6 +6,17 @@
 
 ### Improved
 
+## 0.7.4
+
+### Added
+
+- Add per-stage and per-rule-family timings to verbose run manifests.
+
+### Improved
+
+- Generate the embedded CLI and SARIF tool version from `pubspec.yaml` so release updates have one canonical version source.
+- Plan focused commands and `--only` selections before rule execution, cache independent and per-source finding families, and reuse masked function sources across repository-wide YAGNI analyses.
+
 ## 0.7.3
 
 ### Added

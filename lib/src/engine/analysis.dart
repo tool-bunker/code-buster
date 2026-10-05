@@ -356,6 +356,12 @@ final class RepositoryAnalysis {
         ifAbsent: () => 1,
       );
     }
+    final List<String> strippedSources = ordered
+        .map(
+          (FunctionSource function) =>
+              _codeWithoutCommentsAndStrings(function.source),
+        )
+        .toList(growable: false);
 
     final List<Finding> findings = <Finding>[];
     for (final FunctionSource function in ordered) {
@@ -367,28 +373,18 @@ final class RepositoryAnalysis {
       }
       final List<String>? parameters = _requiredParameterNames(function);
       if (parameters == null || parameters.isEmpty) continue;
-      final List<List<String>> calls = ordered
-          .where((FunctionSource caller) => caller != function)
-          .expand(
-            (FunctionSource caller) =>
-                _callArguments(caller.source, function.name),
-          )
-          .toList(growable: false);
+      final List<List<String>> calls = _visibleCalls(
+        ordered,
+        strippedSources,
+        function,
+      );
       if (calls.length < 3 ||
           calls.any(
             (List<String> arguments) => arguments.length != parameters.length,
           )) {
         continue;
       }
-      final int references = ordered.fold(
-        0,
-        (int total, FunctionSource current) =>
-            total +
-            _identifierCount(
-              _codeWithoutCommentsAndStrings(current.source),
-              function.name,
-            ),
-      );
+      final int references = _referenceCount(strippedSources, function.name);
       if (references != calls.length + 1) continue;
 
       final String functionCode = _codeWithoutCommentsAndStrings(
@@ -448,6 +444,12 @@ final class RepositoryAnalysis {
         ifAbsent: () => 1,
       );
     }
+    final List<String> strippedSources = ordered
+        .map(
+          (FunctionSource function) =>
+              _codeWithoutCommentsAndStrings(function.source),
+        )
+        .toList(growable: false);
 
     final List<Finding> findings = <Finding>[];
     for (final FunctionSource function in ordered) {
@@ -463,23 +465,13 @@ final class RepositoryAnalysis {
           })
           .toList(growable: false);
       if (hooks.isEmpty) continue;
-      final List<List<String>> calls = ordered
-          .where((FunctionSource caller) => caller != function)
-          .expand(
-            (FunctionSource caller) =>
-                _callArguments(caller.source, function.name),
-          )
-          .toList(growable: false);
-      if (calls.length < 3) continue;
-      final int references = ordered.fold(
-        0,
-        (int total, FunctionSource current) =>
-            total +
-            _identifierCount(
-              _codeWithoutCommentsAndStrings(current.source),
-              function.name,
-            ),
+      final List<List<String>> calls = _visibleCalls(
+        ordered,
+        strippedSources,
+        function,
       );
+      if (calls.length < 3) continue;
+      final int references = _referenceCount(strippedSources, function.name);
       if (references != calls.length + 1) continue;
 
       for (final _OptionalParameter hook in hooks) {
@@ -527,6 +519,12 @@ final class RepositoryAnalysis {
         ifAbsent: () => 1,
       );
     }
+    final List<String> strippedSources = ordered
+        .map(
+          (FunctionSource function) =>
+              _codeWithoutCommentsAndStrings(function.source),
+        )
+        .toList(growable: false);
 
     final List<Finding> findings = <Finding>[];
     for (final FunctionSource function in ordered) {
@@ -542,23 +540,13 @@ final class RepositoryAnalysis {
           })
           .toList(growable: false);
       if (parameters.isEmpty) continue;
-      final List<List<String>> calls = ordered
-          .where((FunctionSource caller) => caller != function)
-          .expand(
-            (FunctionSource caller) =>
-                _callArguments(caller.source, function.name),
-          )
-          .toList(growable: false);
-      if (calls.length < 3) continue;
-      final int references = ordered.fold(
-        0,
-        (int total, FunctionSource current) =>
-            total +
-            _identifierCount(
-              _codeWithoutCommentsAndStrings(current.source),
-              function.name,
-            ),
+      final List<List<String>> calls = _visibleCalls(
+        ordered,
+        strippedSources,
+        function,
       );
+      if (calls.length < 3) continue;
+      final int references = _referenceCount(strippedSources, function.name);
       if (references != calls.length + 1) continue;
 
       for (final _OptionalParameter parameter in parameters) {
@@ -605,6 +593,12 @@ final class RepositoryAnalysis {
         ifAbsent: () => 1,
       );
     }
+    final List<String> strippedSources = ordered
+        .map(
+          (FunctionSource function) =>
+              _codeWithoutCommentsAndStrings(function.source),
+        )
+        .toList(growable: false);
 
     final List<Finding> findings = <Finding>[];
     for (final FunctionSource function in ordered) {
@@ -616,28 +610,18 @@ final class RepositoryAnalysis {
       }
       final List<String>? parameters = _requiredParameterNames(function);
       if (parameters == null || parameters.isEmpty) continue;
-      final List<List<String>> calls = ordered
-          .where((FunctionSource caller) => caller != function)
-          .expand(
-            (FunctionSource caller) =>
-                _callArguments(caller.source, function.name),
-          )
-          .toList(growable: false);
+      final List<List<String>> calls = _visibleCalls(
+        ordered,
+        strippedSources,
+        function,
+      );
       if (calls.length < 3 ||
           calls.any(
             (List<String> arguments) => arguments.length != parameters.length,
           )) {
         continue;
       }
-      final int references = ordered.fold(
-        0,
-        (int total, FunctionSource current) =>
-            total +
-            _identifierCount(
-              _codeWithoutCommentsAndStrings(current.source),
-              function.name,
-            ),
-      );
+      final int references = _referenceCount(strippedSources, function.name);
       if (references != calls.length + 1) continue;
 
       final String body = _functionBodyCode(function);
@@ -1706,8 +1690,10 @@ List<_OptionalParameter> _optionalParameters(FunctionSource function) {
   return parameters;
 }
 
-Iterable<List<String>> _callArguments(String source, String name) sync* {
-  final String code = _codeWithoutCommentsAndStrings(source);
+Iterable<List<String>> _callArguments(String source, String name) =>
+    _callArgumentsInCode(_codeWithoutCommentsAndStrings(source), name);
+
+Iterable<List<String>> _callArgumentsInCode(String code, String name) sync* {
   final RegExp call = cachedRegExp('\\b${RegExp.escape(name)}\\s*\\(');
   for (final RegExpMatch match in call.allMatches(code)) {
     var cursor = match.start - 1;
@@ -1731,6 +1717,26 @@ Iterable<List<String>> _callArguments(String source, String name) sync* {
     ).map((String argument) => argument.trim()).toList(growable: false);
   }
 }
+
+List<List<String>> _visibleCalls(
+  List<FunctionSource> functions,
+  List<String> strippedSources,
+  FunctionSource target,
+) {
+  final List<List<String>> result = <List<String>>[];
+  for (var index = 0; index < functions.length; index++) {
+    if (identical(functions[index], target)) continue;
+    result.addAll(_callArgumentsInCode(strippedSources[index], target.name));
+  }
+  return result;
+}
+
+int _referenceCount(List<String> strippedSources, String identifier) =>
+    strippedSources.fold(
+      0,
+      (int total, String source) =>
+          total + _identifierCount(source, identifier),
+    );
 
 String? _simpleConstant(String argument) {
   final String normalized = argument.replaceAll(cachedRegExp(r'\s+'), '');

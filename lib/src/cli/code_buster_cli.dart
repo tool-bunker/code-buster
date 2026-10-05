@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:code_buster/src/internal.dart';
 
+import '../version.dart';
+
 import 'analysis_command.dart';
 import 'baseline_command.dart';
 import 'cli_command.dart';
@@ -21,14 +23,11 @@ import 'quality_commands.dart';
 import 'repository_view_command.dart';
 import 'rules_command.dart';
 
-/// Current Code Buster command-line version.
-const String version = '0.7.3';
-
 final Map<CodeBusterCommand, CliCommandHandler> _commandHandlers =
     _buildCommandHandlers(const <CliCommandHandler>[
       AnalysisCommand(),
       BaselineCommand(),
-      VersionCommand(version),
+      VersionCommand(codeBusterVersion),
       UpdateCommand(),
       CompletionsCommand(),
       ConfigCommand(),
