@@ -4,14 +4,30 @@
 
 ### Added
 
+- Add Rust rules for undocumented unsafe blocks, mutable statics, raw ownership reconstruction, manual `Send` and `Sync` implementations, panic-capable exported FFI functions, blocking calls in async code, unbounded channels, and unpinned Cargo Git dependencies.
+
 ### Improved
+
+- Parse Rust comments, literals, attributes, functions, and block ranges once for language rules and adapters, including nested comments and raw strings.
+- Require an actual command-string switch before reporting Rust shell execution.
+- Detect Cargo workspaces as Rust projects and record their declared `rust-version`.
+- Recognize multiline Rust `SAFETY` rationales, mask raw strings in generic advisories, and classify conventional `benches` and test-helper sources outside production analysis.
+- Classify conventional `test_suite` trees as tests, avoid Rust path fragments in same-value comparisons, and distinguish Rust macro interpolation and documented code examples from disabled source comments.
+- Reduce large Python repository analysis times by sharing one coordinated rule pass and indexing monkey-patch replacement names once per file.
+- Index function calls and references once for repository-wide YAGNI rules instead of rescanning every function for every private candidate.
+- Precompute comment syntax by file while scanning comment-density evidence instead of rebuilding path expressions for every source character.
+- Plan focused language analysis before indexing so `--only` scans skip unrelated rules, function extraction, and dependency graph construction.
+- Reuse complete command findings before language parsing on warm cached runs while retaining content-hash invalidation and parser diagnostics on uncached inputs.
+- Discover sources and nested `.gitignore` files in one traversal, reuse normalized path policies, and index selected languages by extension.
+- Share one deterministic Python source index across coordinated rules, function extraction, and dependency graph construction.
+- Precompute generic string-masked source lines once for repository rules instead of rescanning each file in every clean-code rule.
+- Partition active, actionable, and advisory findings in one pass, reuse language indexes for summaries, and avoid rebuilding already enriched findings during report rendering.
 
 ## 0.7.5
 
 ### Improved
 
 - Reduce large JavaScript and TypeScript repository analysis times by bounding function discovery, precomputing lexical context, prefiltering inline SQL candidates, and sharing comment scans.
-- Preserve Paperclip's 152 actionable findings while reducing a cold summary from about 24 minutes to about 3 minutes and a cache-hit summary to about 87 seconds.
 
 ## 0.7.4
 
