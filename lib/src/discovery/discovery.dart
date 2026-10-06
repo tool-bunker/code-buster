@@ -118,13 +118,20 @@ final class GeneratedSourceProvenance {
 /// Deterministic source discovery and Git changed-scope resolution.
 final class SourceDiscovery {
   /// Creates discovery using [config] and registered [languages].
-  SourceDiscovery({required this.config, required this.languages});
+  SourceDiscovery({required this.config, required this.languages})
+    : _ignorePatterns = _normalizedPatterns(config.ignorePatterns),
+      _includePatterns = _normalizedPatterns(config.includes),
+      _excludePatterns = _normalizedPatterns(config.excludes);
 
   /// Effective project settings.
   final AnalysisConfig config;
 
   /// Registered source language metadata.
   final LanguageRegistry languages;
+
+  final List<String> _ignorePatterns;
+  final List<String> _includePatterns;
+  final List<String> _excludePatterns;
 
   static const SourceClassifier _classifier = SourceClassifier();
 
@@ -150,16 +157,26 @@ final class SourceDiscovery {
         ? const <String>{}
         : changedFiles();
     final List<LanguageDefinition> selectedLanguages = _selectedLanguages();
-    final Set<String> extensions = selectedLanguages
-        .expand((LanguageDefinition definition) => definition.extensions)
-        .toSet();
+    final Map<String, LanguageDefinition> languagesByExtension =
+        <String, LanguageDefinition>{
+          for (final LanguageDefinition definition in selectedLanguages)
+            for (final String extension in definition.extensions)
+              extension: definition,
+        };
+    final Set<String> extensions = languagesByExtension.keys.toSet();
     final LanguageDefinition? selectedLua = selectedLanguages
         .where((LanguageDefinition definition) => definition.id == 'lua')
         .firstOrNull;
-    final List<GitIgnoreRule> gitRules = _loadGitIgnoreRules();
     final List<SourceFile> result = <SourceFile>[];
 
-    void walk(Directory directory) {
+    void walk(Directory directory, List<GitIgnoreRule> inheritedGitRules) {
+      final File gitIgnore = File(path.join(directory.path, '.gitignore'));
+      final List<GitIgnoreRule> gitRules = gitIgnore.existsSync()
+          ? <GitIgnoreRule>[
+              ...inheritedGitRules,
+              ..._readGitIgnoreRules(gitIgnore),
+            ]
+          : inheritedGitRules;
       final List<FileSystemEntity> entries =
           directory.listSync(followLinks: false)..sort(
             (FileSystemEntity a, FileSystemEntity b) =>
@@ -191,7 +208,7 @@ final class SourceDiscovery {
             _countExcludedDirectory(entry, extensions, 'git_ignored');
             continue;
           }
-          walk(entry);
+          walk(entry, gitRules);
           continue;
         }
         final bool forcedProduction = _matchesAny(
@@ -264,13 +281,7 @@ final class SourceDiscovery {
           continue;
         }
         final LanguageDefinition? language =
-            shebangLanguage ??
-            languages.definitions
-                .where(
-                  (LanguageDefinition definition) =>
-                      definition.extensions.contains(extension),
-                )
-                .firstOrNull;
+            shebangLanguage ?? languagesByExtension[extension];
         if (language != null) {
           _recordCoverage('selected');
           result.add(
@@ -284,7 +295,7 @@ final class SourceDiscovery {
       }
     }
 
-    walk(Directory(config.root));
+    walk(Directory(config.root), const <GitIgnoreRule>[]);
     result.sort(
       (SourceFile a, SourceFile b) => a.relativePath.compareTo(b.relativePath),
     );
@@ -446,25 +457,22 @@ final class SourceDiscovery {
 
   bool _shouldInclude(String relative, List<GitIgnoreRule> gitRules) {
     if (_matchesIgnore(relative) ||
-        _matchesPrefixes(relative, config.excludes)) {
+        _matchesPrefixes(relative, _excludePatterns)) {
       return false;
     }
-    if (config.includes.isNotEmpty &&
-        !_matchesPrefixes(relative, config.includes)) {
+    if (_includePatterns.isNotEmpty &&
+        !_matchesPrefixes(relative, _includePatterns)) {
       return false;
     }
     return !_isGitIgnored(relative, false, gitRules);
   }
 
   bool _matchesIgnore(String relative) =>
-      _matchesPrefixes(relative, config.ignorePatterns);
+      _matchesPrefixes(relative, _ignorePatterns);
 
   bool _matchesPrefixes(String relative, Iterable<String> patterns) {
     final String normalized = _normalizeRelative(relative);
-    for (final String rawPattern in patterns) {
-      final String pattern = _normalizeRelative(
-        rawPattern.trim(),
-      ).replaceAll(cachedRegExp(r'^/+|/+$'), '');
+    for (final String pattern in patterns) {
       final bool wildcard = pattern.contains('*');
       if (pattern.isNotEmpty &&
           ((wildcard && _globMatches(normalized, pattern)) ||
@@ -477,47 +485,25 @@ final class SourceDiscovery {
     return false;
   }
 
-  List<GitIgnoreRule> _loadGitIgnoreRules() {
-    final List<File> files = <File>[];
-
-    void collect(Directory directory) {
-      for (final FileSystemEntity entry in directory.listSync(
-        followLinks: false,
-      )) {
-        final String name = path.basename(entry.path);
-        if (entry is Directory) {
-          if (!_defaultIgnoredDirectories.contains(name) ||
-              _isSourceBuildDirectory(_relative(entry.path))) {
-            collect(entry);
-          }
-        } else if (entry is File && name == '.gitignore') {
-          files.add(entry);
-        }
-      }
-    }
-
-    collect(Directory(config.root));
-    files.sort((File a, File b) => a.path.compareTo(b.path));
+  List<GitIgnoreRule> _readGitIgnoreRules(File file) {
+    final String base = _relative(path.dirname(file.path));
     final List<GitIgnoreRule> rules = <GitIgnoreRule>[];
-    for (final File file in files) {
-      final String base = _relative(path.dirname(file.path));
-      for (final String rawLine in file.readAsLinesSync()) {
-        final String line = rawLine.trim();
-        if (line.isEmpty || line.startsWith('#')) {
-          continue;
-        }
-        final bool negated = line.startsWith('!');
-        final String withoutNegation = negated ? line.substring(1) : line;
-        rules.add(
-          GitIgnoreRule(
-            base: base == '.' ? '' : base,
-            pattern: withoutNegation.replaceAll(cachedRegExp(r'^/+|/+$'), ''),
-            negated: negated,
-            directoryOnly: withoutNegation.endsWith('/'),
-            anchored: withoutNegation.startsWith('/'),
-          ),
-        );
+    for (final String rawLine in file.readAsLinesSync()) {
+      final String line = rawLine.trim();
+      if (line.isEmpty || line.startsWith('#')) {
+        continue;
       }
+      final bool negated = line.startsWith('!');
+      final String withoutNegation = negated ? line.substring(1) : line;
+      rules.add(
+        GitIgnoreRule(
+          base: base == '.' ? '' : base,
+          pattern: withoutNegation.replaceAll(cachedRegExp(r'^/+|/+$'), ''),
+          negated: negated,
+          directoryOnly: withoutNegation.endsWith('/'),
+          anchored: withoutNegation.startsWith('/'),
+        ),
+      );
     }
     return rules;
   }
@@ -627,6 +613,18 @@ final class SourceDiscovery {
 
   String _normalizeRelative(String value) => value.replaceAll('\\', '/');
 }
+
+List<String> _normalizedPatterns(Iterable<String> patterns) =>
+    List<String>.unmodifiable(
+      patterns
+          .map(
+            (String pattern) => pattern
+                .trim()
+                .replaceAll('\\', '/')
+                .replaceAll(cachedRegExp(r'^/+|/+$'), ''),
+          )
+          .where((String pattern) => pattern.isNotEmpty),
+    );
 
 Map<String, List<ChangedLineRange>> _immutableRanges(
   Map<String, List<ChangedLineRange>> ranges,

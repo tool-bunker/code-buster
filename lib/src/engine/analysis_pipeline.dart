@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:path/path.dart' as path;
 
 import '../cache/analysis_cache.dart';
 import '../cli/cli_contract.dart';
@@ -11,11 +12,14 @@ import '../controls/finding_controls.dart';
 import '../core/models.dart';
 import '../core/processing_diagnostic.dart';
 import '../core/regexp_cache.dart';
+import '../core/rule.dart';
 import '../discovery/discovery.dart';
 import '../discovery/language_versions.dart';
 import '../graph/graph.dart';
 import '../plugins/language_plugin.dart';
 import '../plugins/languages.dart';
+import '../rules/framework_rules.dart';
+import 'analysis_execution_plan.dart';
 
 /// Immutable configuration and source inputs prepared for analysis stages.
 final class PreparedAnalysis {
@@ -107,8 +111,14 @@ final class AnalysisCacheStage {
   List<Finding> findings(
     PreparedAnalysis prepared,
     CodeBusterCommand command,
-    List<Finding> Function() analyze,
-  ) => findingFamily(prepared, 'command.${command.name}', analyze);
+    List<Finding> Function() analyze, {
+    bool Function()? cacheable,
+  }) => findingFamily(
+    prepared,
+    'command.${command.name}',
+    analyze,
+    cacheable: cacheable,
+  );
 
   /// Loads or computes one independently reusable finding family.
   List<Finding> findingFamily(
@@ -116,6 +126,7 @@ final class AnalysisCacheStage {
     String family,
     List<Finding> Function() analyze, {
     Map<String, String>? sourceInputs,
+    bool Function()? cacheable,
   }) {
     _findingCacheRequested = true;
     if (!enabled) {
@@ -150,7 +161,9 @@ final class AnalysisCacheStage {
     }
     _findingCacheMiss = true;
     final List<Finding> result = List<Finding>.unmodifiable(analyze());
-    cache.storeFindings(config: prepared.config, key: key, findings: result);
+    if (cacheable == null || cacheable()) {
+      cache.storeFindings(config: prepared.config, key: key, findings: result);
+    }
     return result;
   }
 }
@@ -221,16 +234,44 @@ final class LanguageIndexStage {
 
   Map<String, int> get timings => Map<String, int>.unmodifiable(_timings);
 
-  IndexedAnalysis build(PreparedAnalysis prepared) {
+  IndexedAnalysis build(
+    PreparedAnalysis prepared, {
+    AnalysisExecutionPlan? plan,
+  }) {
     _timings.clear();
     final Map<String, LanguageAnalysis> languages =
         <String, LanguageAnalysis>{};
     for (final LanguagePlugin plugin in plugins.plugins) {
+      final LanguageAnalysisRequirements requirements;
+      if (plan == null || plugin is! BuiltInLanguagePlugin) {
+        requirements = const LanguageAnalysisRequirements.all();
+      } else {
+        final Set<String> activeRuleIds = <String>{
+          for (final CodeBusterRule rule in <CodeBusterRule>[
+            ...plugin.registeredRules.rules,
+            ...frameworkLanguageRules(prepared.config.frameworks, plugin.id),
+          ])
+            if (plan.allows(rule.metadata.id)) rule.metadata.id,
+        };
+        requirements = LanguageAnalysisRequirements(
+          rules: activeRuleIds.isNotEmpty,
+          functions: plan.requiresFunctions,
+          graph: plan.requiresLanguageGraph,
+          activeRuleIds: activeRuleIds,
+        );
+      }
       final Stopwatch stopwatch = Stopwatch()..start();
-      final LanguageAnalysis analysis = plugin.analyze(
-        prepared.sourcesFor(plugin.sourceLanguageIds),
-        prepared.config,
-      );
+      final LanguageAnalysis analysis =
+          plugin is BuiltInLanguagePlugin && plugin.supportsAnalysisRequirements
+          ? plugin.analyzePlanned(
+              prepared.sourcesFor(plugin.sourceLanguageIds),
+              prepared.config,
+              requirements: requirements,
+            )
+          : plugin.analyze(
+              prepared.sourcesFor(plugin.sourceLanguageIds),
+              prepared.config,
+            );
       languages[plugin.id] = analysis;
       _timings[plugin.id] = stopwatch.elapsedMilliseconds;
       for (final MapEntry<String, int> timing in analysis.timings.entries) {
@@ -355,11 +396,31 @@ final class AnalysisPreparationStage {
       'pyproject.toml',
       'requirements.txt',
       'package.json',
+      'Cargo.toml',
     ]) {
       final File file = File('$root${Platform.pathSeparator}$relative');
       if (file.existsSync()) {
         auxiliaryFiles[relative] = file.readAsStringSync();
       }
+    }
+    final Set<String> cargoDirectories = sources.keys
+        .where((String sourcePath) => sourcePath.endsWith('.rs'))
+        .expand((String sourcePath) sync* {
+          var directory = path.posix.dirname(sourcePath);
+          while (directory != '.') {
+            yield directory;
+            final String parent = path.posix.dirname(directory);
+            if (parent == directory) break;
+            directory = parent;
+          }
+        })
+        .toSet();
+    for (final String directory in cargoDirectories) {
+      final String relative = path.posix.join(directory, 'Cargo.toml');
+      final File file = File(
+        '$root${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
+      );
+      if (file.existsSync()) auxiliaryFiles[relative] = file.readAsStringSync();
     }
     if (changedPaths.contains('package.json')) {
       final String? baseManifest = discovery.baseSources(const <String>[
@@ -430,6 +491,9 @@ final class AnalysisPreparationStage {
     final Set<String> manifests = <String>{};
     if (File('$root${Platform.pathSeparator}pubspec.yaml').existsSync()) {
       manifests.add('dart');
+    }
+    if (File('$root${Platform.pathSeparator}Cargo.toml').existsSync()) {
+      manifests.add('rust');
     }
     if (<String>['package.json', 'deno.json', 'deno.jsonc'].any(
       (String name) => File('$root${Platform.pathSeparator}$name').existsSync(),

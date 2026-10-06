@@ -62,6 +62,34 @@ def load_lazily():
     expect(graph.dependenciesOf('app/models.py'), <String>['app/runtime.py']);
   });
 
+  test('shares indexed source facts across Python analysis products', () {
+    final LanguageAnalysis analysis = PythonLanguagePlugin().analyze(
+      const <String, String>{
+        'app/main.py':
+            'from . import worker\n\ndef load():\n    return open("data.txt")\n',
+        'app/worker.py': 'def work():\n    return 1\n',
+      },
+      const AnalysisConfig(
+        root: '/project',
+        severityOverrides: <String, RuleSeverity>{
+          'py-open-no-encoding': RuleSeverity.info,
+        },
+      ),
+    );
+
+    expect(analysis.graph.dependenciesOf('app/main.py'), <String>[
+      'app/worker.py',
+    ]);
+    expect(
+      analysis.functions.map((FunctionSource function) => function.name),
+      <String>['load', 'work'],
+    );
+    expect(
+      analysis.findings.map((Finding finding) => finding.code),
+      contains('py-open-no-encoding'),
+    );
+  });
+
   test('treats public packages and executable scripts as Python roots', () async {
     final Directory root = await Directory.systemTemp.createTemp(
       'code-buster-python-library-',

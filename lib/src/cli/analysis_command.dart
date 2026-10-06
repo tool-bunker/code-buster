@@ -54,7 +54,7 @@ final class AnalysisCommand implements CliCommandHandler {
               )
               .toList(growable: false)
         : options.includeAdvisory
-        ? <Finding>[...run.actionableFindings, ...run.advisoryFindings]
+        ? run.activeFindings
         : dedicatedDetailCommand
         ? run.activeFindings
         : run.actionableFindings;
