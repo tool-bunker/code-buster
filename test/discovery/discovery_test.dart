@@ -176,6 +176,21 @@ void main() {
     );
   });
 
+  test('keeps nested gitignore rules scoped to their directory', () {
+    _write(root, 'packages/a/.gitignore', '*.omit.dart\n');
+    _write(root, 'packages/a/drop.omit.dart', 'void drop() {}');
+    _write(root, 'packages/b/keep.omit.dart', 'void keep() {}');
+
+    final List<SourceFile> files = SourceDiscovery(
+      config: AnalysisConfig(root: root.path, language: 'dart'),
+      languages: languages,
+    ).discover();
+
+    expect(files.map((SourceFile file) => file.relativePath), <String>[
+      'packages/b/keep.omit.dart',
+    ]);
+  });
+
   test('skips Dart tests outside conventional test directories', () {
     _write(root, 'lib/main.dart', 'void main() {}');
     _write(root, 'lib/cloud_env_test.dart', 'void configureTestCloud() {}');

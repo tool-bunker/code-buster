@@ -19,6 +19,7 @@ import '../rules/architecture/architecture.dart';
 import '../rules/architecture/mvvm_architecture.dart';
 import '../rules/duplication/duplication.dart';
 import '../rules/framework_rules.dart';
+import '../rules/generic/generic_rules.dart';
 import '../rules/regex/regex_rules.dart';
 import '../rules/repository_rules.dart';
 import 'analysis.dart';
@@ -239,6 +240,15 @@ final class RuleExecutionStage {
       group: group,
     );
     if (command == CodeBusterCommand.graph) return const <Finding>[];
+    if (plan.only.isNotEmpty &&
+        _languagePlugins.containsRule(plan.only, config)) {
+      return <Finding>[
+        for (final LanguageAnalysis language in indexed.languages.values)
+          ...language.findings.where(
+            (Finding finding) => finding.code == plan.only,
+          ),
+      ];
+    }
     if (command == CodeBusterCommand.structure ||
         (plan.only.isNotEmpty && plan.only.startsWith('structure-'))) {
       return _findingFamily(
@@ -465,6 +475,15 @@ final class RuleExecutionStage {
       ...indexed.require('python').functions,
       ...indexed.require('rust').functions,
     ];
+    final bool needsYagniCallIndex = const <String>{
+      'constant-argument-parameter',
+      'unused-customization-hook',
+      'unused-optional-parameter',
+      'unused-configuration-option',
+    }.any(plan.allows);
+    final YagniCallIndex? yagniCallIndex = needsYagniCallIndex
+        ? _measure('yagni.index', () => YagniCallIndex(functions))
+        : null;
     final Map<String, List<String>> sourceLines =
         Map<String, List<String>>.unmodifiable(
           sources.map(
@@ -472,10 +491,21 @@ final class RuleExecutionStage {
                 MapEntry<String, List<String>>(path, source.split('\n')),
           ),
         );
+    final Map<String, List<String>> maskedSourceLines =
+        Map<String, List<String>>.unmodifiable(
+          sourceLines.map(
+            (String sourcePath, List<String> lines) =>
+                MapEntry<String, List<String>>(
+                  sourcePath,
+                  maskGenericRuleStrings(lines, sourcePath: sourcePath),
+                ),
+          ),
+        );
     final RuleContext repositoryContext = RuleContext(
       config: config,
       sources: sources,
       sourceLines: sourceLines,
+      maskedSourceLines: maskedSourceLines,
       language: 'repository',
       graph: graph.graph,
       changedPaths: prepared.changedPaths,
@@ -566,6 +596,7 @@ final class RuleExecutionStage {
           () => repository.constantArgumentFindings(
             functions: functions,
             config: config,
+            callIndex: yagniCallIndex!,
           ),
         ),
       if (plan.allows('unused-customization-hook'))
@@ -574,6 +605,7 @@ final class RuleExecutionStage {
           () => repository.unusedCustomizationHookFindings(
             functions: functions,
             config: config,
+            callIndex: yagniCallIndex!,
           ),
         ),
       if (plan.allows('unused-optional-parameter'))
@@ -582,6 +614,7 @@ final class RuleExecutionStage {
           () => repository.unusedOptionalParameterFindings(
             functions: functions,
             config: config,
+            callIndex: yagniCallIndex!,
           ),
         ),
       if (plan.allows('unused-configuration-option'))
@@ -590,6 +623,7 @@ final class RuleExecutionStage {
           () => repository.unusedConfigurationOptionFindings(
             functions: functions,
             config: config,
+            callIndex: yagniCallIndex!,
           ),
         ),
       if (plan.allows('large-file') || plan.allows('goto-statement'))

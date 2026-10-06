@@ -16,6 +16,7 @@ import '../discovery/discovery.dart';
 import '../graph/graph.dart';
 import '../ingestion/sarif_ingestion.dart';
 import '../plugins/language_plugin.dart';
+import 'analysis_execution_plan.dart';
 import 'analysis_pipeline.dart';
 import 'rule_execution.dart';
 
@@ -25,7 +26,7 @@ final LanguagePluginRegistry _languagePlugins =
 /// Materialized inputs and findings for one Code Buster command invocation.
 final class AnalysisRun {
   /// Creates one completed analysis invocation.
-  const AnalysisRun({
+  AnalysisRun({
     required this.config,
     required this.files,
     required this.sources,
@@ -34,7 +35,41 @@ final class AnalysisRun {
     this.coverage = const <String, int>{},
     this.diagnostics = const <ProcessingDiagnostic>[],
     this.manifest,
-  });
+  }) {
+    final RulePolicy policy = RulePolicy(config);
+    final List<Finding> active = <Finding>[];
+    final List<Finding> actionable = <Finding>[];
+    final List<Finding> advisory = <Finding>[];
+    final Map<String, int> advisoryGroups = <String, int>{};
+    for (final Finding finding in findings) {
+      switch (policy.modeFor(finding.code)) {
+        case RuleMode.off:
+          break;
+        case RuleMode.report:
+          active.add(finding);
+          actionable.add(finding);
+          break;
+        case RuleMode.count:
+          active.add(finding);
+          advisory.add(finding);
+          final String group = RulePolicy.taxonomyGroupFor(finding.code);
+          advisoryGroups[group] = (advisoryGroups[group] ?? 0) + 1;
+          break;
+      }
+    }
+    activeFindings = List<Finding>.unmodifiable(active);
+    actionableFindings = List<Finding>.unmodifiable(actionable);
+    advisoryFindings = List<Finding>.unmodifiable(advisory);
+    advisorySummary = Map<String, int>.unmodifiable(advisoryGroups);
+    _languageByPath = <String, String>{
+      for (final SourceFile file in files) file.relativePath: file.language,
+    };
+    final Map<String, int> fileCounts = <String, int>{};
+    for (final SourceFile file in files) {
+      fileCounts[file.language] = (fileCounts[file.language] ?? 0) + 1;
+    }
+    _languageFileCounts = Map<String, int>.unmodifiable(fileCounts);
+  }
 
   /// Effective project configuration.
   final AnalysisConfig config;
@@ -52,38 +87,20 @@ final class AnalysisRun {
   final List<Finding> findings;
 
   /// Findings from active report and count rules.
-  List<Finding> get activeFindings => List<Finding>.unmodifiable(
-    findings.where(
-      (Finding finding) =>
-          RulePolicy(config).modeFor(finding.code) != RuleMode.off,
-    ),
-  );
+  late final List<Finding> activeFindings;
 
   /// Findings shown individually and included in default quality gates.
-  List<Finding> get actionableFindings => List<Finding>.unmodifiable(
-    findings.where(
-      (Finding finding) =>
-          RulePolicy(config).modeFor(finding.code) == RuleMode.report,
-    ),
-  );
+  late final List<Finding> actionableFindings;
 
   /// Findings analyzed but summarized by count in default output.
-  List<Finding> get advisoryFindings => List<Finding>.unmodifiable(
-    findings.where(
-      (Finding finding) =>
-          RulePolicy(config).modeFor(finding.code) == RuleMode.count,
-    ),
-  );
+  late final List<Finding> advisoryFindings;
 
   /// Advisory totals grouped by the rule's semantic activation group.
-  Map<String, int> get advisorySummary {
-    final Map<String, int> result = <String, int>{};
-    for (final Finding finding in advisoryFindings) {
-      final String group = RulePolicy.taxonomyGroupFor(finding.code);
-      result[group] = (result[group] ?? 0) + 1;
-    }
-    return Map<String, int>.unmodifiable(result);
-  }
+  late final Map<String, int> advisorySummary;
+
+  late final Map<String, String> _languageByPath;
+
+  late final Map<String, int> _languageFileCounts;
 
   /// Selected and excluded source accounting.
   final Map<String, int> coverage;
@@ -102,18 +119,12 @@ final class AnalysisRun {
   Map<String, Map<String, int>> languageSummaryFor(
     Iterable<Finding> selectedFindings,
   ) {
-    final Map<String, String> languageByPath = <String, String>{
-      for (final SourceFile file in files) file.relativePath: file.language,
+    final Map<String, Map<String, int>> result = <String, Map<String, int>>{
+      for (final MapEntry<String, int> entry in _languageFileCounts.entries)
+        entry.key: <String, int>{'files': entry.value, 'findings': 0},
     };
-    final Map<String, Map<String, int>> result = <String, Map<String, int>>{};
-    for (final SourceFile file in files) {
-      result.putIfAbsent(
-        file.language,
-        () => <String, int>{'files': 0, 'findings': 0},
-      )['files'] = result[file.language]!['files']! + 1;
-    }
     for (final Finding finding in selectedFindings) {
-      final String? language = languageByPath[finding.path];
+      final String? language = _languageByPath[finding.path];
       if (language != null) {
         result[language]!['findings'] = result[language]!['findings']! + 1;
       }
@@ -137,30 +148,34 @@ final class AnalysisRunner {
       () => AnalysisPreparationStage().prepare(options),
     );
     final AnalysisConfig config = prepared.config;
+    final CodeBusterCommand effectiveCommand = command ?? options.command;
+    final AnalysisExecutionPlan executionPlan = AnalysisExecutionPlan(
+      command: effectiveCommand,
+      config: config,
+      only: options.only,
+    );
     final List<SourceFile> files = prepared.files;
     final Map<String, String> sources = prepared.sources;
+    IndexedAnalysis? indexed;
     final LanguageIndexStage languageIndex = LanguageIndexStage(
       _languagePlugins,
     );
-    final IndexedAnalysis indexed = _timed(
-      stageDurations,
-      'languageIndex',
-      () => languageIndex.build(prepared),
-    );
-    for (final MapEntry<String, int> timing in languageIndex.timings.entries) {
-      stageDurations['languageIndex.${timing.key}'] = timing.value;
+    IndexedAnalysis resolveIndexed() {
+      final IndexedAnalysis? existing = indexed;
+      if (existing != null) return existing;
+      final IndexedAnalysis result = _timed(
+        stageDurations,
+        'languageIndex',
+        () => languageIndex.build(prepared, plan: executionPlan),
+      );
+      for (final MapEntry<String, int> timing
+          in languageIndex.timings.entries) {
+        stageDurations['languageIndex.${timing.key}'] = timing.value;
+      }
+      indexed = result;
+      return result;
     }
-    final SarifIngestionResult ingestion = _timed(
-      stageDurations,
-      'sarifIngestion',
-      () => const SarifIngestion().read(options.ingestSarif, config.root),
-    );
-    final List<ProcessingDiagnostic> diagnostics = <ProcessingDiagnostic>[
-      ...prepared.diagnostics,
-      for (final LanguageAnalysis language in indexed.languages.values)
-        ...language.diagnostics,
-      ...ingestion.diagnostics,
-    ];
+
     final AnalysisCacheStage cache = AnalysisCacheStage(
       enabled: options.cacheEnabled,
       cache: PersistentAnalysisCache(
@@ -169,42 +184,83 @@ final class AnalysisRunner {
             : Directory(options.cacheDirectory).absolute.path,
       ),
     );
-    final DependencyGraph graph = _timed(
-      stageDurations,
-      'graph',
-      () => cache.graph(
-        prepared,
-        () => GraphConstructionStage(_languagePlugins).build(indexed),
-      ),
-    );
-    final GraphAnalysis graphAnalysis = GraphAnalysis(graph);
-    final CodeBusterCommand effectiveCommand = command ?? options.command;
-    final RuleExecutionStage ruleExecution = RuleExecutionStage(
-      languagePlugins: _languagePlugins,
-      cacheFamily: options.only.isEmpty
-          ? (
-              String family,
-              Map<String, String>? sourceInputs,
-              List<Finding> Function() analyze,
-            ) => cache.findingFamily(
-              prepared,
-              '${effectiveCommand.name}.$family',
-              analyze,
-              sourceInputs: sourceInputs,
-            )
-          : null,
-    );
-    List<Finding> executeRules() => ruleExecution.execute(
-      effectiveCommand,
-      indexed,
-      graphAnalysis,
-      only: options.only,
-    );
-    final List<Finding> raw = _timed(stageDurations, 'rules', executeRules);
-    for (final MapEntry<String, int> timing
-        in ruleExecution.familyTimings.entries) {
-      stageDurations['rules.${timing.key}'] = timing.value;
+    DependencyGraph? resolvedGraph;
+    DependencyGraph resolveGraph() {
+      final DependencyGraph? existing = resolvedGraph;
+      if (existing != null) return existing;
+      final DependencyGraph result = _timed(
+        stageDurations,
+        'graph',
+        () => cache.graph(
+          prepared,
+          () =>
+              GraphConstructionStage(_languagePlugins).build(resolveIndexed()),
+        ),
+      );
+      resolvedGraph = result;
+      return result;
     }
+
+    final SarifIngestionResult ingestion = _timed(
+      stageDurations,
+      'sarifIngestion',
+      () => const SarifIngestion().read(options.ingestSarif, config.root),
+    );
+    RuleExecutionStage? ruleExecution;
+    List<Finding> analyzeRules() {
+      final RuleExecutionStage execution = RuleExecutionStage(
+        languagePlugins: _languagePlugins,
+        cacheFamily: options.only.isEmpty
+            ? (
+                String family,
+                Map<String, String>? sourceInputs,
+                List<Finding> Function() analyze,
+              ) => cache.findingFamily(
+                prepared,
+                '${effectiveCommand.name}.$family',
+                analyze,
+                sourceInputs: sourceInputs,
+              )
+            : null,
+      );
+      ruleExecution = execution;
+      return execution.execute(
+        effectiveCommand,
+        resolveIndexed(),
+        GraphAnalysis(resolveGraph()),
+        only: options.only,
+      );
+    }
+
+    final List<Finding> raw = _timed(
+      stageDurations,
+      'rules',
+      () => options.only.isEmpty
+          ? cache.findings(
+              prepared,
+              effectiveCommand,
+              analyzeRules,
+              cacheable: () => indexed!.languages.values.every(
+                (LanguageAnalysis language) => language.diagnostics.isEmpty,
+              ),
+            )
+          : analyzeRules(),
+    );
+    final DependencyGraph graph = resolveGraph();
+    final RuleExecutionStage? completedRuleExecution = ruleExecution;
+    if (completedRuleExecution != null) {
+      for (final MapEntry<String, int> timing
+          in completedRuleExecution.familyTimings.entries) {
+        stageDurations['rules.${timing.key}'] = timing.value;
+      }
+    }
+    final List<ProcessingDiagnostic> diagnostics = <ProcessingDiagnostic>[
+      ...prepared.diagnostics,
+      if (indexed case final IndexedAnalysis completedIndex)
+        for (final LanguageAnalysis language in completedIndex.languages.values)
+          ...language.diagnostics,
+      ...ingestion.diagnostics,
+    ];
     final Set<String> baseline = options.baseline.isEmpty
         ? const <String>{}
         : BaselineCodec.read(File(options.baseline));

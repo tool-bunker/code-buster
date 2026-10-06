@@ -724,4 +724,23 @@ import after_string
 
     expect(findings.map((Finding finding) => finding.line), <int>[2, 5, 7]);
   });
+  test('scales linearly across ordinary Python function declarations', () {
+    final String source = List<String>.generate(
+      4000,
+      (int index) => 'def function_$index(value):\n    return value\n',
+    ).join();
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    final List<Finding> findings = LanguagePluginRegistry.standard()
+        .require('python')
+        .analyze(<String, String>{'large.py': source}, config)
+        .findings;
+
+    stopwatch.stop();
+    expect(
+      findings.where((Finding finding) => finding.code == 'py-function-naming'),
+      isEmpty,
+    );
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+  });
 }

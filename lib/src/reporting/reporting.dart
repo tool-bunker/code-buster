@@ -158,54 +158,62 @@ final class FindingReporter {
     'findings': report.findings.map(_findingJson).toList(growable: false),
   };
 
-  Finding _enriched(Finding finding) => Finding(
-    code: finding.code,
-    severity: finding.severity,
-    path: finding.path,
-    line: finding.line,
-    endLine: finding.endLine,
-    message: finding.message,
-    confidence: finding.confidence.isEmpty
-        ? finding.severity == RuleSeverity.error
-              ? 'high'
-              : 'medium'
-        : finding.confidence,
-    why: finding.why.isNotEmpty
-        ? finding.why
-        : switch (finding.code) {
-            'duplicate-block' =>
-              'The same normalized code block appears in more than one location.',
-            'complex-function' =>
-              'The function exceeds configured complexity thresholds.',
-            'feature-flag' => 'A feature/config flag reference was found.',
-            'dead-file' || 'dead-export' =>
-              'The symbol or file was not reached by the heuristic dependency graph.',
-            'long-line' => 'A line exceeds the recommended style length.',
-            'tab-indent' => 'A line contains a tab character.',
-            'trailing-whitespace' => 'A line has trailing whitespace.',
-            'nim-std-import' =>
-              'A Nim standard-library import does not use the std/ prefix.',
-            'nim-prefer-let' => 'A Nim variable declaration may be immutable.',
-            _ =>
-              'This finding was produced by a Code Buster heuristic analyzer.',
-          },
-    suggestion: finding.suggestion.isNotEmpty
-        ? finding.suggestion
-        : switch (finding.code) {
-            'duplicate-block' =>
-              'Extract shared logic or raise min_duplication_lines if intentional.',
-            'complex-function' =>
-              'Split branches into smaller helpers or simplify control flow.',
-            'feature-flag' => 'Review ownership and lifecycle for this flag.',
-            'dead-file' || 'dead-export' =>
-              'Remove it or add an entry point/reference if it is loaded dynamically.',
-            _ =>
-              'Review the finding and update code or configuration as appropriate.',
-          },
-    relatedFiles: finding.relatedFiles,
-    snippet: finding.snippet,
-    codeFlow: finding.codeFlow,
-  );
+  Finding _enriched(Finding finding) {
+    if (finding.confidence.isNotEmpty &&
+        finding.why.isNotEmpty &&
+        finding.suggestion.isNotEmpty) {
+      return finding;
+    }
+    return Finding(
+      code: finding.code,
+      severity: finding.severity,
+      path: finding.path,
+      line: finding.line,
+      endLine: finding.endLine,
+      message: finding.message,
+      confidence: finding.confidence.isEmpty
+          ? finding.severity == RuleSeverity.error
+                ? 'high'
+                : 'medium'
+          : finding.confidence,
+      why: finding.why.isNotEmpty
+          ? finding.why
+          : switch (finding.code) {
+              'duplicate-block' =>
+                'The same normalized code block appears in more than one location.',
+              'complex-function' =>
+                'The function exceeds configured complexity thresholds.',
+              'feature-flag' => 'A feature/config flag reference was found.',
+              'dead-file' || 'dead-export' =>
+                'The symbol or file was not reached by the heuristic dependency graph.',
+              'long-line' => 'A line exceeds the recommended style length.',
+              'tab-indent' => 'A line contains a tab character.',
+              'trailing-whitespace' => 'A line has trailing whitespace.',
+              'nim-std-import' =>
+                'A Nim standard-library import does not use the std/ prefix.',
+              'nim-prefer-let' =>
+                'A Nim variable declaration may be immutable.',
+              _ =>
+                'This finding was produced by a Code Buster heuristic analyzer.',
+            },
+      suggestion: finding.suggestion.isNotEmpty
+          ? finding.suggestion
+          : switch (finding.code) {
+              'duplicate-block' =>
+                'Extract shared logic or raise min_duplication_lines if intentional.',
+              'complex-function' =>
+                'Split branches into smaller helpers or simplify control flow.',
+              'feature-flag' => 'Review ownership and lifecycle for this flag.',
+              'dead-file' || 'dead-export' =>
+                'Remove it or add an entry point/reference if it is loaded dynamically.',
+              _ =>
+                'Review the finding and update code or configuration as appropriate.',
+            },
+      relatedFiles: finding.relatedFiles,
+      snippet: finding.snippet,
+      codeFlow: finding.codeFlow,
+    );
+  }
 
   Map<String, Object> _findingJson(Finding finding) {
     final SecurityFindingKind securityKind =

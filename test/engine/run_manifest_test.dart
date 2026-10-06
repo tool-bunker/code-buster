@@ -39,7 +39,10 @@ void main() {
     expect(manifest.configHash, hasLength(64));
     expect(manifest.status, RunStatus.complete);
     expect(manifest.stageDurationsMilliseconds, contains('preparation'));
-    expect(manifest.stageDurationsMilliseconds, contains('languageIndex'));
+    expect(
+      manifest.stageDurationsMilliseconds,
+      isNot(contains('languageIndex')),
+    );
     expect(manifest.stageDurationsMilliseconds, contains('rules'));
     expect(
       manifest.toJson()['stageDurationsMilliseconds'],
@@ -64,6 +67,13 @@ void main() {
     expect(compactManifest['sourceHash'], manifest.sourceHash);
     expect(compactManifest['selectedFileCount'], 1);
     expect(compactManifest, isNot(contains('selectedFiles')));
+
+    File(
+      path.join(root.path, 'lib', 'main.dart'),
+    ).writeAsStringSync('void main() { print("changed"); }\n');
+    final RunManifest changed = AnalysisRunner().run(options).manifest!;
+    expect(changed.findingsCacheHit, isFalse);
+    expect(changed.stageDurationsMilliseconds, contains('languageIndex'));
   });
 
   test('does not create cache files when caching is disabled', () {
@@ -111,6 +121,17 @@ void main() {
         (ProcessingDiagnostic item) => item.stage == 'parsing',
       ),
       isTrue,
+    );
+    final AnalysisRun repeated = AnalysisRunner().run(
+      CodeBusterCliContract.parse(<String>['summary', '--root', root.path]),
+    );
+    expect(
+      repeated.diagnostics.map((ProcessingDiagnostic item) => item.code),
+      contains('dart-parse-error'),
+    );
+    expect(
+      repeated.manifest!.stageDurationsMilliseconds,
+      contains('languageIndex'),
     );
   });
 

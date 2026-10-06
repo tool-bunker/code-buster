@@ -1,23 +1,27 @@
 // Python imports and indentation-defined functions are converted into repository edges and callable regions without executing the code.
 
 import 'package:path/path.dart' as path;
-import '../../core/models.dart';
-
 import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
+import 'python_source_index.dart';
 
 /// Resolves local Python imports into language-neutral graph edges.
 final class PythonGraphAdapter {
   /// Builds a dependency graph from project-relative Python [sources].
-  DependencyGraph build(Map<String, String> sources) {
-    final Set<String> knownFiles = sources.keys.toSet();
+  DependencyGraph build(Map<String, String> sources) =>
+      buildIndexed(PythonSourceIndex(sources));
+
+  /// Builds a dependency graph from a shared Python [index].
+  DependencyGraph buildIndexed(PythonSourceIndex index) {
+    final Set<String> knownFiles = index.files
+        .map((PythonSourceFacts facts) => facts.path)
+        .toSet();
     final Map<String, Iterable<String>> edges = <String, Iterable<String>>{};
-    final List<String> files = sources.keys.toList()..sort();
-    for (final String sourcePath in files) {
+    for (final PythonSourceFacts facts in index.files) {
       final Set<String> dependencies = <String>{};
       for (final RegExpMatch match in _importPattern.allMatches(
-        _runtimeImportSource(sources.requiredValue(sourcePath)),
+        _runtimeImportSource(facts),
       )) {
         final String? fromModule = match.group(1);
         final List<String> modules;
@@ -35,14 +39,14 @@ final class PythonGraphAdapter {
           ];
         }
         for (final String module in modules) {
-          final String? target = _resolve(sourcePath, module, knownFiles);
+          final String? target = _resolve(facts.path, module, knownFiles);
           if (target != null) {
             dependencies.add(target);
             break;
           }
         }
       }
-      edges[sourcePath] = dependencies;
+      edges[facts.path] = dependencies;
     }
     return DependencyGraph(edges);
   }
@@ -52,8 +56,8 @@ final class PythonGraphAdapter {
     multiLine: true,
   );
 
-  String _runtimeImportSource(String source) {
-    final String code = _maskNonCode(source);
+  String _runtimeImportSource(PythonSourceFacts facts) {
+    final String code = facts.maskedSource;
     final List<String> result = <String>[];
     int? excludedBlockIndent;
     for (final String raw in code.split('\n')) {
@@ -79,65 +83,6 @@ final class PythonGraphAdapter {
       }
     }
     return result.join('\n');
-  }
-
-  String _maskNonCode(String source) {
-    final List<int> result = source.codeUnits.toList();
-    String? quote;
-    var tripleQuoted = false;
-    var escaped = false;
-    var inComment = false;
-    for (var index = 0; index < source.length; index++) {
-      final String character = source[index];
-      final String next = index + 1 < source.length ? source[index + 1] : '';
-      final String nextTwo = index + 2 < source.length
-          ? source.substring(index, index + 3)
-          : '';
-      if (inComment) {
-        if (character == '\n') {
-          inComment = false;
-        } else {
-          result[index] = 0x20;
-        }
-        continue;
-      }
-      if (quote != null) {
-        if (character != '\n' && character != '\r') {
-          result[index] = 0x20;
-        }
-        if (tripleQuoted && nextTwo == quote * 3) {
-          result[index + 1] = 0x20;
-          result[index + 2] = 0x20;
-          index += 2;
-          quote = null;
-          tripleQuoted = false;
-        } else if (!tripleQuoted && !escaped && character == quote) {
-          quote = null;
-        }
-        escaped = !tripleQuoted && !escaped && character == r'\';
-        if (character != r'\') {
-          escaped = false;
-        }
-        continue;
-      }
-      if (character == '#') {
-        result[index] = 0x20;
-        inComment = true;
-      } else if (character == '"' || character == "'") {
-        quote = character;
-        tripleQuoted =
-            next == character &&
-            index + 2 < source.length &&
-            source[index + 2] == character;
-        result[index] = 0x20;
-        if (tripleQuoted) {
-          result[index + 1] = 0x20;
-          result[index + 2] = 0x20;
-          index += 2;
-        }
-      }
-    }
-    return String.fromCharCodes(result);
   }
 
   String? _resolve(String sourcePath, String module, Set<String> knownFiles) {
@@ -169,18 +114,20 @@ final class PythonGraphAdapter {
 /// Extracts indentation-scoped Python functions for language-neutral metrics.
 final class PythonFunctionParser {
   /// Parses named Python functions from [sources].
-  List<FunctionSource> parse(Map<String, String> sources) {
+  List<FunctionSource> parse(Map<String, String> sources) =>
+      parseIndexed(PythonSourceIndex(sources));
+
+  /// Parses named functions from a shared Python [index].
+  List<FunctionSource> parseIndexed(PythonSourceIndex index) {
     final List<FunctionSource> result = <FunctionSource>[];
-    final List<String> paths = sources.keys.toList()..sort();
-    for (final String sourcePath in paths) {
-      final List<String> lines = sources.requiredValue(sourcePath).split('\n');
-      for (var index = 0; index < lines.length; index++) {
-        final RegExpMatch? match = _declaration.firstMatch(lines[index]);
-        if (match == null) {
-          continue;
-        }
-        final int indent = lines[index].length - lines[index].trimLeft().length;
-        var end = index + 1;
+    for (final PythonSourceFacts facts in index.files) {
+      final List<String> lines = facts.lines;
+      for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        final RegExpMatch? match = _declaration.firstMatch(lines[lineIndex]);
+        if (match == null) continue;
+        final int indent =
+            lines[lineIndex].length - lines[lineIndex].trimLeft().length;
+        var end = lineIndex + 1;
         while (end < lines.length &&
             (lines[end].trim().isEmpty ||
                 lines[end].length - lines[end].trimLeft().length > indent)) {
@@ -188,10 +135,10 @@ final class PythonFunctionParser {
         }
         result.add(
           FunctionSource(
-            path: sourcePath,
+            path: facts.path,
             name: match.group(1)!,
-            line: index + 1,
-            source: lines.sublist(index, end).join('\n'),
+            line: lineIndex + 1,
+            source: lines.sublist(lineIndex, end).join('\n'),
           ),
         );
       }

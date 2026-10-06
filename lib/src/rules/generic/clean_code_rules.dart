@@ -50,6 +50,7 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'Disabled source in comments rots, obscures current behavior, and duplicates version-control history.',
     'Delete the disabled code and recover it from version control if it is needed later.',
     maturity: RuleSemanticMaturity.token,
+    version: 2,
   ),
   'placeholder-identifier': _metadata(
     'placeholder-identifier',
@@ -57,6 +58,7 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'A placeholder name hides the role of a declaration once it escapes a tiny local scope.',
     'Rename the declaration for the domain concept or responsibility it represents.',
     maturity: RuleSemanticMaturity.token,
+    version: 2,
   ),
   'mixed-boundary-responsibility': _metadata(
     'mixed-boundary-responsibility',
@@ -160,10 +162,12 @@ final class PublicMutableStateRule extends _CleanCodeRule {
   Iterable<Finding> analyze(RuleContext context) sync* {
     for (final MapEntry<String, String> entry in context.sources.entries) {
       if (!_isSource(entry.key) || _isTest(entry.key)) continue;
-      final List<String> lines = maskGenericRuleStrings(
-        entry.value.split('\n'),
-        sourcePath: entry.key,
-      );
+      final List<String> lines =
+          context.maskedLinesFor(entry.key) ??
+          maskGenericRuleStrings(
+            entry.value.split('\n'),
+            sourcePath: entry.key,
+          );
       var depth = 0;
       var parenthesisDepth = 0;
       int? classDepth;
@@ -226,20 +230,47 @@ final class CommentedOutCodeRule extends _CleanCodeRule {
     r'^(?:\s*(?:public|private|protected|internal|static|final|const|var|let|def|class|interface|return|throw|if\s*\(|for\s*\(|while\s*\(|[A-Za-z_$]\w*\s*[.(\[]).*(?:[;{}]|=>)\s*)$',
   );
 
+  static const Set<String> _hashCommentExtensions = <String>{
+    '.mojo',
+    '.nim',
+    '.php',
+    '.py',
+  };
+  static final RegExp _documentationExample = cachedRegExp(
+    r'\b(?:example|expands?\s+to|code\s+(?:like|such\s+as)|calls?\s+this\s+like|following\s+code)\b',
+    caseSensitive: false,
+  );
+
+  static bool _isDocumentedExample(List<String> lines, int lineIndex) {
+    for (var index = lineIndex - 1; index >= 0; index--) {
+      final RegExpMatch? comment = cachedRegExp(
+        r'^\s*(?://|#)\s?(.*)$',
+      ).firstMatch(lines[index]);
+      if (comment == null) return false;
+      if (_documentationExample.hasMatch(comment.requiredGroup(1))) return true;
+    }
+    return false;
+  }
+
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
     for (final MapEntry<String, String> entry in context.sources.entries) {
       if (!_isSource(entry.key) || _isTest(entry.key)) continue;
       final List<String> lines = entry.value.split('\n');
+      final bool supportsHashComments = _hashCommentExtensions.contains(
+        path.extension(entry.key).toLowerCase(),
+      );
+      final RegExp commentLine = cachedRegExp(
+        supportsHashComments ? r'^\s*(?://|#)\s?(.*)$' : r'^\s*//\s?(.*)$',
+      );
       for (var index = 0; index < lines.length; index++) {
-        final RegExpMatch? comment = cachedRegExp(
-          r'^\s*(?://|#)\s?(.*)$',
-        ).firstMatch(lines[index]);
+        final RegExpMatch? comment = commentLine.firstMatch(lines[index]);
         if (comment == null) continue;
         final String body = comment.requiredGroup(1).trim();
         if (body.length >= 8 &&
             _code.hasMatch(body) &&
-            !_looksLikeDirective(body)) {
+            !_looksLikeDirective(body) &&
+            !_isDocumentedExample(lines, index)) {
           yield finding(
             context,
             entry.key,
@@ -271,10 +302,12 @@ final class PlaceholderIdentifierRule extends _CleanCodeRule {
   Iterable<Finding> analyze(RuleContext context) sync* {
     for (final MapEntry<String, String> entry in context.sources.entries) {
       if (!_isSource(entry.key) || _isTest(entry.key)) continue;
-      final List<String> lines = maskGenericRuleStrings(
-        entry.value.split('\n'),
-        sourcePath: entry.key,
-      );
+      final List<String> lines =
+          context.maskedLinesFor(entry.key) ??
+          maskGenericRuleStrings(
+            entry.value.split('\n'),
+            sourcePath: entry.key,
+          );
       final String source = lines.join('\n');
       for (var index = 0; index < lines.length; index++) {
         for (final RegExpMatch match in cachedRegExp(
@@ -375,10 +408,12 @@ final class RepeatedPolicyLiteralRule extends _CleanCodeRule {
     );
     for (final MapEntry<String, String> entry in context.sources.entries) {
       if (!_isSource(entry.key) || _isTest(entry.key)) continue;
-      final List<String> lines = maskGenericRuleStrings(
-        entry.value.split('\n'),
-        sourcePath: entry.key,
-      );
+      final List<String> lines =
+          context.maskedLinesFor(entry.key) ??
+          maskGenericRuleStrings(
+            entry.value.split('\n'),
+            sourcePath: entry.key,
+          );
       for (var index = 0; index < lines.length; index++) {
         final String line = lines[index];
         final Iterable<RegExpMatch> matches = <RegExpMatch>[

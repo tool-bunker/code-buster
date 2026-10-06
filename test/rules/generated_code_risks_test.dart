@@ -284,4 +284,28 @@ Object result() => value;
 
     expect(ParallelSchemaDefinitionRule().analyze(context), isEmpty);
   });
+  test('scans large comment-capable sources linearly', () {
+    final String payload = List<String>.filled(80, 'x').join();
+    final String source = List<String>.generate(
+      5000,
+      (int line) => 'value_$line = $payload',
+    ).join('\n');
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    final List<Finding> findings = ExcessiveCommentDensityRule()
+        .analyze(
+          RuleContext(
+            config: config,
+            sources: <String, String>{
+              for (var file = 0; file < 5; file++) 'module_$file.py': source,
+            },
+            language: 'repository',
+          ),
+        )
+        .toList();
+
+    stopwatch.stop();
+    expect(findings, isEmpty);
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
+  });
 }

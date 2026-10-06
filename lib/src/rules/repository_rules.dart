@@ -6,6 +6,7 @@ import 'generic/diff_quality_rules.dart';
 import 'generic/generated_code_risks.dart';
 import 'generic/generic_rules.dart';
 import 'generic/layout_rules.dart';
+import 'rust/cargo_rules.dart';
 import 'security/ai_prompt_injection.dart';
 import 'sql/inline_string_concat.dart';
 import 'testing/runtime_bootstrap.dart';
@@ -55,4 +56,5 @@ final RuleRegistry repositoryRuleRegistry = RuleRegistry(<CodeBusterRule>[
   AiPromptInjectionInstructionRule(),
   AiUntrustedPromptConstructionRule(),
   AiModelOutputExecutionRule(),
+  RustUnpinnedGitDependencyRule(),
 ]);

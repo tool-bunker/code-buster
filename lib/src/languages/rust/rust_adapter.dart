@@ -5,11 +5,16 @@ import 'package:path/path.dart' as path;
 import '../../core/regexp_cache.dart';
 import '../../engine/analysis.dart';
 import '../../graph/graph.dart';
+import 'rust_analysis.dart';
 
 /// Extracts local Rust module edges and brace-delimited functions.
 final class RustAdapter {
   /// Resolves `mod` declarations and local `use` paths to discovered Rust files.
-  DependencyGraph buildGraph(Map<String, String> sources) {
+  DependencyGraph buildGraph(
+    Map<String, String> sources, {
+    RustAnalysis? analysis,
+  }) {
+    final RustAnalysis parsed = analysis ?? RustAnalysis(sources);
     final Set<String> known = sources.keys.toSet();
     final Map<String, List<String>> byStem = <String, List<String>>{};
     for (final String sourcePath in known) {
@@ -17,8 +22,9 @@ final class RustAdapter {
     }
 
     final Map<String, Iterable<String>> edges = <String, Iterable<String>>{};
-    for (final MapEntry<String, String> entry in sources.entries) {
-      final String code = _rustStructure(entry.value);
+    for (final MapEntry<String, RustFileAnalysis> entry
+        in parsed.files.entries) {
+      final String code = entry.value.masked;
       final Set<String> dependencies = <String>{};
       for (final RegExpMatch declaration in _module.allMatches(code)) {
         final String module = declaration.requiredGroup(1);
@@ -43,11 +49,17 @@ final class RustAdapter {
   }
 
   /// Extracts Rust functions for language-neutral complexity analysis.
-  List<FunctionSource> functions(Map<String, String> sources) {
+  List<FunctionSource> functions(
+    Map<String, String> sources, {
+    RustAnalysis? analysis,
+  }) {
+    final RustAnalysis parsed = analysis ?? RustAnalysis(sources);
     final List<FunctionSource> result = <FunctionSource>[];
-    for (final MapEntry<String, String> entry in sources.entries) {
-      final String code = _rustStructure(entry.value);
-      final Set<int> testLines = rustCfgTestLines(code.split('\n'));
+    for (final MapEntry<String, RustFileAnalysis> entry
+        in parsed.files.entries) {
+      final RustFileAnalysis file = entry.value;
+      final String code = file.masked;
+      final Set<int> testLines = file.cfgTestLines;
       for (final RegExpMatch match in _function.allMatches(code)) {
         final RegExpMatch? functionName = cachedRegExp(
           r'\bfn\s+',
@@ -57,15 +69,15 @@ final class RustAdapter {
         }
         final int declarationStart = match.start + functionName.start;
         final int open = code.indexOf('{', match.start);
-        final int close = _matchingBrace(code, open);
+        final int close = file.matchingBrace(open);
         if (testLines.contains(_lineAt(code, declarationStart) - 1)) continue;
         if (open == -1 || close == -1) continue;
         result.add(
           FunctionSource(
             path: entry.key,
             name: match.requiredGroup(1),
-            line: _lineAt(entry.value, declarationStart),
-            source: entry.value.substring(match.start, close + 1),
+            line: _lineAt(file.source, declarationStart),
+            source: file.source.substring(match.start, close + 1),
           ),
         );
       }
@@ -95,147 +107,8 @@ final class RustAdapter {
 }
 
 /// Returns zero-based lines controlled by a `cfg` predicate containing `test`.
-Set<int> rustCfgTestLines(List<String> lines) => _rustAttributedLines(
-  lines,
-  (String line) =>
-      cachedRegExp(r'#\s*\[\s*cfg\s*\([^\n]*test[^\n]*\)\s*\]').hasMatch(line),
-);
-
-Set<int> _rustAttributedLines(
-  List<String> lines,
-  bool Function(String line) matchesAttribute,
-) {
-  final Set<int> result = <int>{};
-  var pending = false;
-  var excludedDepth = 0;
-  for (var index = 0; index < lines.length; index++) {
-    final String line = lines[index];
-    if (excludedDepth > 0) {
-      result.add(index);
-      excludedDepth +=
-          '{'.allMatches(line).length - '}'.allMatches(line).length;
-      continue;
-    }
-    if (matchesAttribute(line)) {
-      pending = true;
-      result.add(index);
-      continue;
-    }
-    if (pending && line.trimLeft().startsWith('#[')) {
-      result.add(index);
-      continue;
-    }
-    if (pending && line.trim().isNotEmpty) {
-      result.add(index);
-      excludedDepth = '{'.allMatches(line).length - '}'.allMatches(line).length;
-      pending = false;
-    }
-  }
-  return result;
-}
-
-int _matchingBrace(String source, int open) {
-  if (open < 0) return -1;
-  var depth = 0;
-  String? quote;
-  for (var index = open; index < source.length; index++) {
-    final String character = source[index];
-    if (quote != null) {
-      if (character == r'\' && index + 1 < source.length) {
-        index++;
-      } else if (character == quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (character == '"') {
-      quote = character;
-    } else if (character == "'" &&
-        index + 2 < source.length &&
-        source[index + 2] == "'") {
-      index += 2;
-    } else if (character == "'" &&
-        index + 3 < source.length &&
-        source[index + 1] == r'\' &&
-        source[index + 3] == "'") {
-      index += 3;
-    } else if (character == '{') {
-      depth++;
-    } else if (character == '}' && --depth == 0) {
-      return index;
-    }
-  }
-  return -1;
-}
-
-String _rustStructure(String source) {
-  final StringBuffer result = StringBuffer();
-  var blockDepth = 0;
-  var lineComment = false;
-  String? quote;
-  for (var index = 0; index < source.length; index++) {
-    final String character = source[index];
-    final String next = index + 1 < source.length ? source[index + 1] : '';
-    if (lineComment) {
-      if (character == '\n') {
-        lineComment = false;
-        result.write('\n');
-      } else {
-        result.write(' ');
-      }
-      continue;
-    }
-    if (blockDepth > 0) {
-      result.write(character == '\n' ? '\n' : ' ');
-      if (character == '/' && next == '*') {
-        blockDepth++;
-        result.write(' ');
-        index++;
-      } else if (character == '*' && next == '/') {
-        blockDepth--;
-        result.write(' ');
-        index++;
-      }
-      continue;
-    }
-    if (quote != null) {
-      result.write(character == '\n' ? '\n' : ' ');
-      if (character == r'\' && next.isNotEmpty) {
-        result.write(next == '\n' ? '\n' : ' ');
-        index++;
-      } else if (character == quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (character == '/' && next == '/') {
-      lineComment = true;
-      result.write('  ');
-      index++;
-    } else if (character == '/' && next == '*') {
-      blockDepth = 1;
-      result.write('  ');
-      index++;
-    } else if (character == '"') {
-      quote = character;
-      result.write(' ');
-    } else if (character == "'" &&
-        index + 2 < source.length &&
-        source[index + 2] == "'") {
-      result.write('   ');
-      index += 2;
-    } else if (character == "'" &&
-        index + 3 < source.length &&
-        source[index + 1] == r'\' &&
-        source[index + 3] == "'") {
-      result.write('    ');
-      index += 3;
-    } else {
-      result.write(character);
-    }
-  }
-  return result.toString();
-}
+Set<int> rustCfgTestLines(List<String> lines) =>
+    RustFileAnalysis(lines.join('\n')).cfgTestLines;
 
 int _lineAt(String source, int offset) =>
     1 + '\n'.allMatches(source.substring(0, offset)).length;

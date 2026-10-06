@@ -45,6 +45,15 @@ final class LanguageVersionDetector {
               multiLine: true,
             ).firstMatch(source)?.group(1),
           );
+        case 'Cargo.toml':
+          _put(
+            result,
+            'rust',
+            cachedRegExp(
+              r'''^\s*rust-version\s*=\s*["']([^"']+)''',
+              multiLine: true,
+            ).firstMatch(source)?.group(1),
+          );
         case 'pyproject.toml':
           _put(
             result,
@@ -130,6 +139,7 @@ final class LanguageVersionDetector {
     'pubspec.yaml',
     'package.json',
     'go.mod',
+    'Cargo.toml',
     'pyproject.toml',
     'pom.xml',
     'gradle.properties',
