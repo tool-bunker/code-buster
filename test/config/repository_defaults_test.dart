@@ -101,6 +101,18 @@ void main() {
       'production',
     );
     expect(
+      RepositoryDefaults.classify('crates/globset/benches/bench.rs'),
+      'example',
+    );
+    expect(
+      RepositoryDefaults.classify('crates/searcher/src/testutil.rs'),
+      'test',
+    );
+    expect(
+      RepositoryDefaults.classify('test_suite/no_std/src/main.rs'),
+      'test',
+    );
+    expect(
       RepositoryDefaults.classify(
         'templates/project/lib/src/{{#auth}}endpoint.dart',
       ),

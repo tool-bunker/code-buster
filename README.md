@@ -133,10 +133,12 @@ See the [command reference](https://toolbunker.dev/codebuster/docs/reference/com
 
 ## Current status
 
-Code Buster is pre-1.0 and under active development. Use it for local repository
-exploration, focused AI context, and reviewing changes before handoff. Do not yet
-rely on it as a blocking production quality gate; evaluate CI and report
-integrations with explicit policy and preserved coverage.
+Code Buster 0.8.0 is pre-1.0 and under active development. It substantially
+reduces full-analysis time on large mixed-language and Python repositories while
+expanding Rust safety analysis. Use it for local repository exploration,
+focused AI context, and reviewing changes before handoff. Do not yet rely on it
+as a blocking production quality gate; evaluate CI and report integrations with
+explicit policy and preserved coverage.
 
 ## Development and contributing
 

@@ -3,7 +3,8 @@
 import '../../core/models.dart';
 import '../../core/regexp_cache.dart';
 import '../../core/rule.dart';
-import '../../languages/rust/rust_adapter.dart';
+import '../../languages/rust/rust_analysis.dart';
+import 'advanced_rules.dart';
 
 /// A narrow Rust source rule with stable metadata and comment/string masking.
 final class RustSourceRule extends SelfContainedRule {
@@ -27,7 +28,7 @@ final class RustSourceRule extends SelfContainedRule {
            group: group,
            title: title,
            why: why,
-           version: 4,
+           version: 5,
            suggestion: suggestion,
            semanticMaturity: RuleSemanticMaturity.token,
            taxonomy: <FindingTaxonomy>{taxonomy},
@@ -45,14 +46,19 @@ final class RustSourceRule extends SelfContainedRule {
 
   @override
   Iterable<Finding> analyze(RuleContext context) sync* {
-    for (final MapEntry<String, String> entry in context.sources.entries) {
-      if (!entry.key.endsWith('.rs') || _allowsRule(entry.value)) continue;
-      final List<String> lines = _rustCodeLines(
-        entry.value,
-        preserveStrings: includeStrings,
-      );
+    final RustAnalysis analysis = context.languageAnalysis is RustAnalysis
+        ? context.languageAnalysis! as RustAnalysis
+        : RustAnalysis(context.sources);
+    for (final MapEntry<String, RustFileAnalysis> entry
+        in analysis.files.entries) {
+      if (!entry.key.endsWith('.rs') || _allowsRule(entry.value.source)) {
+        continue;
+      }
+      final List<String> lines = includeStrings
+          ? entry.value.commentsMaskedLines
+          : entry.value.lines;
       final Set<int> excludedLines = <int>{
-        ...rustCfgTestLines(lines),
+        ...entry.value.cfgTestLines,
         ..._rustAllowedLines(lines, allowedLints),
       };
       for (var index = 0; index < lines.length; index++) {
@@ -174,18 +180,10 @@ final RuleRegistry rustRuleRegistry = RuleRegistry(<CodeBusterRule>[
     taxonomy: FindingTaxonomy.reliability,
     allowedLints: const <String>['clippy::panic', 'panic'],
   ),
-  RustSourceRule(
-    id: 'rust-unsafe-block',
-    severity: RuleSeverity.info,
-    title: 'Review Rust unsafe boundaries',
-    why:
-        'Unsafe code moves memory and aliasing invariants from the compiler to the implementation.',
-    suggestion:
-        'Keep the block minimal and document every invariant required for soundness.',
-    pattern: RegExp(r'\bunsafe\s*\{'),
-    message: 'unsafe block requires a documented soundness review',
-    taxonomy: FindingTaxonomy.reliability,
-  ),
+  RustUndocumentedUnsafeBlockRule(),
+  RustStaticMutRule(),
+  RustRawOwnershipReconstructionRule(),
+  RustManualSendSyncImplRule(),
   RustSourceRule(
     id: 'rust-mem-forget',
     severity: RuleSeverity.warn,
@@ -221,71 +219,8 @@ final RuleRegistry rustRuleRegistry = RuleRegistry(<CodeBusterRule>[
     message: 'todo! leaves an executable panic path',
     taxonomy: FindingTaxonomy.correctness,
   ),
-  RustSourceRule(
-    id: 'rust-command-shell',
-    severity: RuleSeverity.warn,
-    title: 'Review Rust shell execution',
-    why:
-        'Shell interpreters expand metacharacters and can turn data into commands.',
-    suggestion:
-        'Invoke the target executable directly with separately supplied arguments.',
-    pattern: RegExp(
-      r'''\bCommand::new\s*\(\s*["'](?:sh|bash|zsh|cmd|powershell|pwsh)["']''',
-      caseSensitive: false,
-    ),
-    message: 'process command launches a shell interpreter',
-    taxonomy: FindingTaxonomy.security,
-    group: 'security',
-    includeStrings: true,
-  ),
+  RustCommandShellRule(),
+  RustPanicAcrossFfiBoundaryRule(),
+  RustBlockingCallInAsyncRule(),
+  RustUnboundedChannelRule(),
 ]);
-
-List<String> _rustCodeLines(String source, {required bool preserveStrings}) {
-  final List<String> result = <String>[];
-  var inBlockComment = false;
-  for (final String line in source.split('\n')) {
-    final StringBuffer masked = StringBuffer();
-    String? quote;
-    for (var index = 0; index < line.length; index++) {
-      final String character = line[index];
-      final String next = index + 1 < line.length ? line[index + 1] : '';
-      if (inBlockComment) {
-        masked.write(' ');
-        if (character == '*' && next == '/') {
-          inBlockComment = false;
-          masked.write(' ');
-          index++;
-        }
-        continue;
-      }
-      if (quote != null) {
-        masked.write(preserveStrings ? character : ' ');
-        if (character == r'\' && next.isNotEmpty) {
-          index++;
-          masked.write(preserveStrings ? next : ' ');
-        } else if (character == quote) {
-          quote = null;
-        }
-        continue;
-      }
-      if (character == '/' && next == '/') {
-        masked.write(' ' * (line.length - index));
-        break;
-      }
-      if (character == '/' && next == '*') {
-        inBlockComment = true;
-        masked.write('  ');
-        index++;
-        continue;
-      }
-      if (character == '"') {
-        quote = character;
-        masked.write(preserveStrings ? character : ' ');
-      } else {
-        masked.write(character);
-      }
-    }
-    result.add(masked.toString());
-  }
-  return result;
-}

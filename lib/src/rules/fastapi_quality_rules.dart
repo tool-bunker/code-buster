@@ -37,7 +37,7 @@ fastApiQualityRuleMetadata = <String, RuleMetadata>{
   for (final String id in fastApiQualityRuleIds)
     id: RuleMetadata(
       id: id,
-      version: 1,
+      version: id == 'fastapi-query-in-loop' ? 2 : 1,
       defaultSeverity: RuleSeverity.info,
       group:
           id.contains(
@@ -484,13 +484,10 @@ final class _Project {
         }
       case 'fastapi-query-in-loop':
         for (final _PySource source in sources) {
-          for (final RegExpMatch match in cachedRegExp(
-            r'for\s+[^:]+:\s*\n(?:[ \t]+.*\n){0,8}?[ \t]+(?:\w+\.)?(?:execute|query|get)\s*\(',
-            multiLine: true,
-          ).allMatches(source.code)) {
+          for (final int line in _queryInLoopLines(source.lines)) {
             yield _Finding(
               source.path,
-              source.lineAt(match.start),
+              line,
               'database query executes inside a loop',
             );
           }
@@ -630,6 +627,28 @@ final class _Project {
             );
           }
         }
+    }
+  }
+}
+
+Iterable<int> _queryInLoopLines(List<String> lines) sync* {
+  final RegExp loop = cachedRegExp(r'^\s*for\s+[^:]+:\s*$');
+  final RegExp query = cachedRegExp(r'^(?:\w+\.)?(?:execute|query|get)\s*\(');
+  for (var index = 0; index < lines.length; index++) {
+    final String header = lines[index];
+    if (!loop.hasMatch(header)) continue;
+    final int loopIndent = header.length - header.trimLeft().length;
+    final int stop = (index + 10).clamp(0, lines.length);
+    for (var candidate = index + 1; candidate < stop; candidate++) {
+      final String raw = lines[candidate];
+      final String trimmed = raw.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+      final int indent = raw.length - raw.trimLeft().length;
+      if (indent <= loopIndent) break;
+      if (query.hasMatch(trimmed)) {
+        yield candidate + 1;
+        break;
+      }
     }
   }
 }

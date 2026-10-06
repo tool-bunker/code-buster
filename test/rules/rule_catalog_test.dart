@@ -111,6 +111,7 @@ void main() {
           'ai-prompt-injection-instruction',
           'ai-untrusted-prompt-construction',
           'ai-model-output-to-execution',
+          'rust-unpinned-git-dependency',
         ]),
       );
       expect(

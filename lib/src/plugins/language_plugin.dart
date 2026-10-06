@@ -20,12 +20,36 @@ import '../languages/mojo/mojo_adapter.dart';
 import '../languages/nim/nim_adapter.dart';
 import '../languages/odin/odin_adapter.dart';
 import '../languages/python/python_adapter.dart';
+import '../languages/python/python_source_index.dart';
 import '../languages/rust/rust_adapter.dart';
+import '../languages/rust/rust_analysis.dart';
 import '../languages/wren/wren_adapter.dart';
 import '../rules/csharp/oop_rules.dart';
 import '../rules/framework_rules.dart';
 import '../rules/language_rules.dart';
 import '../rules/nim/nim_finding_order.dart';
+import '../rules/python/python_rule_analysis.dart';
+
+/// Work that an active command requires from one language plugin.
+final class LanguageAnalysisRequirements {
+  const LanguageAnalysisRequirements({
+    required this.rules,
+    required this.functions,
+    required this.graph,
+    this.activeRuleIds = const <String>{},
+  });
+
+  const LanguageAnalysisRequirements.all()
+    : rules = true,
+      functions = true,
+      graph = true,
+      activeRuleIds = const <String>{};
+
+  final bool rules;
+  final bool functions;
+  final bool graph;
+  final Set<String> activeRuleIds;
+}
 
 /// Immutable outputs produced by one language plugin invocation.
 final class LanguageAnalysis {
@@ -79,7 +103,17 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
   Set<String> get sourceLanguageIds => <String>{id};
 
   @override
-  LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
+  LanguageAnalysis analyze(
+    Map<String, String> sources,
+    AnalysisConfig config,
+  ) => analyzePlanned(sources, config);
+
+  LanguageAnalysis analyzePlanned(
+    Map<String, String> sources,
+    AnalysisConfig config, {
+    LanguageAnalysisRequirements requirements =
+        const LanguageAnalysisRequirements.all(),
+  }) {
     final Map<String, int> timings = <String, int>{};
     T timed<T>(String name, T Function() operation) {
       final Stopwatch stopwatch = Stopwatch()..start();
@@ -88,20 +122,25 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
       return result;
     }
 
-    final List<FunctionSource> extractedFunctions = timed(
-      'functions',
-      () => functions(sources),
-    );
-    final DependencyGraph graph = timed(
-      'graph',
-      () => buildGraph(sources, config),
-    );
-    final List<Finding> findings = timed(
-      'rules',
-      () => List<Finding>.unmodifiable(
-        executeRegisteredRules(sources, config, timings: timings),
-      ),
-    );
+    final List<FunctionSource> extractedFunctions = requirements.functions
+        ? timed('functions', () => functions(sources))
+        : const <FunctionSource>[];
+    final DependencyGraph graph = requirements.graph
+        ? timed('graph', () => buildGraph(sources, config))
+        : DependencyGraph(const <String, Iterable<String>>{});
+    final List<Finding> findings = requirements.rules
+        ? timed(
+            'rules',
+            () => List<Finding>.unmodifiable(
+              executeRegisteredRules(
+                sources,
+                config,
+                activeRuleIds: requirements.activeRuleIds,
+                timings: timings,
+              ),
+            ),
+          )
+        : const <Finding>[];
     return LanguageAnalysis(
       graph: graph,
       functions: List<FunctionSource>.unmodifiable(extractedFunctions),
@@ -110,12 +149,15 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
     );
   }
 
+  bool get supportsAnalysisRequirements => true;
+
   RuleRegistry get registeredRules => languageRules(id);
 
   Iterable<Finding> executeRegisteredRules(
     Map<String, String> sources,
     AnalysisConfig config, {
     Object? representation,
+    Set<String> activeRuleIds = const <String>{},
     Map<String, int>? timings,
   }) sync* {
     final Map<String, List<String>> sourceLines =
@@ -136,6 +178,10 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
       ...registeredRules.rules,
       ...frameworkLanguageRules(config.frameworks, id),
     ]) {
+      if (activeRuleIds.isNotEmpty &&
+          !activeRuleIds.contains(rule.metadata.id)) {
+        continue;
+      }
       if (!ruleFrameworksAreActive(rule.metadata, config) ||
           !(config.ruleGroups.contains(rule.metadata.group) ||
               config.ruleGroups.contains(
@@ -203,6 +249,23 @@ final class LanguagePluginRegistry {
     throw StateError('No language plugin registered for $id');
   }
 
+  /// Whether [ruleId] belongs to a built-in or active framework language rule.
+  bool containsRule(String ruleId, AnalysisConfig config) {
+    for (final LanguagePlugin plugin in plugins) {
+      if (plugin is! BuiltInLanguagePlugin) continue;
+      if (plugin.registeredRules.rules.any(
+            (CodeBusterRule rule) => rule.metadata.id == ruleId,
+          ) ||
+          frameworkLanguageRules(
+            config.frameworks,
+            plugin.id,
+          ).any((CodeBusterRule rule) => rule.metadata.id == ruleId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static Map<String, LanguagePlugin> _indexPlugins(
     Iterable<LanguagePlugin> plugins,
   ) {
@@ -234,11 +297,13 @@ final class CppLanguagePlugin extends BuiltInLanguagePlugin {
     Map<String, String> sources,
     AnalysisConfig config, {
     Object? representation,
+    Set<String> activeRuleIds = const <String>{},
     Map<String, int>? timings,
   }) => super.executeRegisteredRules(
     _sourcesCompiledAsCpp(sources),
     config,
     representation: representation,
+    activeRuleIds: activeRuleIds,
     timings: timings,
   );
 
@@ -339,6 +404,9 @@ final class CSharpLanguagePlugin extends BuiltInLanguagePlugin {
   String get id => 'csharp';
 
   @override
+  bool get supportsAnalysisRequirements => false;
+
+  @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
     final CSharpOopProject project = CSharpOopProject.parse(sources);
     return LanguageAnalysis(
@@ -401,6 +469,9 @@ final class DartLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   String get id => 'dart';
+
+  @override
+  bool get supportsAnalysisRequirements => false;
 
   @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
@@ -506,6 +577,9 @@ final class JavaLanguagePlugin extends BuiltInLanguagePlugin {
   String get id => 'java';
 
   @override
+  bool get supportsAnalysisRequirements => false;
+
+  @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
     final CSharpOopProject project = CSharpOopProject.parse(sources);
     return LanguageAnalysis(
@@ -541,6 +615,9 @@ final class JavaScriptLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   Set<String> get sourceLanguageIds => <String>{'javascript', 'typescript'};
+
+  @override
+  bool get supportsAnalysisRequirements => false;
 
   @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
@@ -677,6 +754,78 @@ final class PythonLanguagePlugin extends BuiltInLanguagePlugin {
   String get id => 'python';
 
   @override
+  LanguageAnalysis analyzePlanned(
+    Map<String, String> sources,
+    AnalysisConfig config, {
+    LanguageAnalysisRequirements requirements =
+        const LanguageAnalysisRequirements.all(),
+  }) {
+    final Map<String, int> timings = <String, int>{};
+    final Stopwatch indexStopwatch = Stopwatch()..start();
+    final PythonSourceIndex index = PythonSourceIndex(sources);
+    timings['index'] = indexStopwatch.elapsedMilliseconds;
+    final PythonRuleFindings analysis;
+    if (requirements.rules) {
+      final Stopwatch parseStopwatch = Stopwatch()..start();
+      final String? focusedRule = requirements.activeRuleIds.length == 1
+          ? requirements.activeRuleIds.single
+          : null;
+      analysis = PythonRuleFindings(
+        PythonRuleAnalysis().findings(
+          sources,
+          ruleId: focusedRule,
+          index: index,
+        ),
+      );
+      timings['parse'] = parseStopwatch.elapsedMilliseconds;
+    } else {
+      analysis = PythonRuleFindings(const <Finding>[]);
+    }
+
+    final List<FunctionSource> extractedFunctions;
+    if (requirements.functions) {
+      final Stopwatch functionStopwatch = Stopwatch()..start();
+      extractedFunctions = _functions.parseIndexed(index);
+      timings['functions'] = functionStopwatch.elapsedMilliseconds;
+    } else {
+      extractedFunctions = const <FunctionSource>[];
+    }
+
+    final DependencyGraph graph;
+    if (requirements.graph) {
+      final Stopwatch graphStopwatch = Stopwatch()..start();
+      graph = _graph.buildIndexed(index);
+      timings['graph'] = graphStopwatch.elapsedMilliseconds;
+    } else {
+      graph = DependencyGraph(const <String, Iterable<String>>{});
+    }
+
+    final List<Finding> findings;
+    if (requirements.rules) {
+      final Stopwatch ruleStopwatch = Stopwatch()..start();
+      findings = List<Finding>.unmodifiable(
+        executeRegisteredRules(
+          sources,
+          config,
+          representation: analysis,
+          activeRuleIds: requirements.activeRuleIds,
+          timings: timings,
+        ),
+      );
+      timings['rules'] = ruleStopwatch.elapsedMilliseconds;
+    } else {
+      findings = const <Finding>[];
+    }
+    return LanguageAnalysis(
+      graph: graph,
+      functions: List<FunctionSource>.unmodifiable(extractedFunctions),
+      findings: findings,
+      timings: Map<String, int>.unmodifiable(timings),
+      representation: analysis,
+    );
+  }
+
+  @override
   DependencyGraph buildGraph(
     Map<String, String> sources,
     AnalysisConfig config,
@@ -694,6 +843,48 @@ final class RustLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   String get id => 'rust';
+  @override
+  bool get supportsAnalysisRequirements => false;
+
+  @override
+  LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
+    final Map<String, int> timings = <String, int>{};
+    final Stopwatch parseStopwatch = Stopwatch()..start();
+    final RustAnalysis analysis = RustAnalysis(sources);
+    timings['parse'] = parseStopwatch.elapsedMilliseconds;
+
+    final Stopwatch functionStopwatch = Stopwatch()..start();
+    final List<FunctionSource> extractedFunctions = _adapter.functions(
+      sources,
+      analysis: analysis,
+    );
+    timings['functions'] = functionStopwatch.elapsedMilliseconds;
+
+    final Stopwatch graphStopwatch = Stopwatch()..start();
+    final DependencyGraph graph = _adapter.buildGraph(
+      sources,
+      analysis: analysis,
+    );
+    timings['graph'] = graphStopwatch.elapsedMilliseconds;
+
+    final Stopwatch ruleStopwatch = Stopwatch()..start();
+    final List<Finding> findings = List<Finding>.unmodifiable(
+      executeRegisteredRules(
+        sources,
+        config,
+        representation: analysis,
+        timings: timings,
+      ),
+    );
+    timings['rules'] = ruleStopwatch.elapsedMilliseconds;
+    return LanguageAnalysis(
+      graph: graph,
+      functions: List<FunctionSource>.unmodifiable(extractedFunctions),
+      findings: findings,
+      timings: Map<String, int>.unmodifiable(timings),
+      representation: analysis,
+    );
+  }
 
   @override
   DependencyGraph buildGraph(

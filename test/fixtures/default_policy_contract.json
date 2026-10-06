@@ -35,7 +35,14 @@
     "**/test/**",
     "**/*_test/**",
     "**/tests/**",
+    "**/test_suite/**",
     "**/testenv/**",
+    "**/testutil.*",
+    "**/test_util.*",
+    "**/testhelper.*",
+    "**/test_helper.*",
+    "**/testhelpers.*",
+    "**/test_helpers.*",
     "**/test.ts",
     "**/test.tsx",
     "**/test.js",
@@ -112,6 +119,7 @@
     "**/demos/**",
     "**/Demo/**",
     "**/Demos/**",
+    "**/benches/**",
     "**/bench/**",
     "**/Bench/**",
     "**/benchmark/**",
@@ -404,7 +412,7 @@
       "id": "commented-out-code",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -2771,7 +2779,7 @@
       "id": "fastapi-query-in-loop",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -7980,7 +7988,7 @@
       "id": "operation-on-same-value",
       "severity": "warn",
       "group": "suspicious",
-      "version": 10,
+      "version": 11,
       "semanticMaturity": "text",
       "securityKind": "none",
       "taxonomy": [
@@ -8228,7 +8236,7 @@
       "id": "placeholder-identifier",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9004,17 +9012,17 @@
       "enabledByDefault": true
     },
     {
-      "id": "rust-command-shell",
+      "id": "rust-blocking-call-in-async",
       "severity": "warn",
-      "group": "security",
-      "version": 4,
-      "semanticMaturity": "token",
-      "securityKind": "hotspot",
+      "group": "performance",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
       "taxonomy": [
-        "security"
+        "performance"
       ],
       "requirements": [
-        "sourceText"
+        "functions"
       ],
       "languages": [
         "rust"
@@ -9022,7 +9030,32 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [
-        "The rule uses masked source tokens and does not perform Rust type resolution."
+        "Only fully qualified known-blocking APIs are recognized; aliases and wrappers require type resolution.",
+        "Runtime scheduling and actual operation cost are not inferred."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-command-shell",
+      "severity": "warn",
+      "group": "security",
+      "version": 5,
+      "semanticMaturity": "token",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "tokens"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "The rule recognizes literal shell executables and command-string switches in one builder expression.",
+        "It does not resolve variables that contain a shell executable or follow a builder across statements."
       ],
       "enabledByDefault": true
     },
@@ -9030,7 +9063,7 @@
       "id": "rust-dbg-macro",
       "severity": "info",
       "group": "nim-style",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9053,7 +9086,7 @@
       "id": "rust-expect",
       "severity": "info",
       "group": "core",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9069,6 +9102,30 @@
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-manual-send-sync-impl",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "tokens"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "The rule verifies documentation presence and cannot prove the implementation is sound.",
+        "Send and Sync implementations separated by unrelated items are reported independently."
       ],
       "enabledByDefault": true
     },
@@ -9076,7 +9133,7 @@
       "id": "rust-mem-forget",
       "severity": "warn",
       "group": "core",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9092,6 +9149,30 @@
       "languageVersions": {},
       "limitations": [
         "The rule uses masked source tokens and does not perform Rust type resolution."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-panic-across-ffi-boundary",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "ast",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "functions"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Only explicit panic-capable sites in the exported function body are detected; indirect panics through callees are not resolved.",
+        "catch_unwind recognition is structural and does not prove that every panic path is contained."
       ],
       "enabledByDefault": true
     },
@@ -9099,7 +9180,7 @@
       "id": "rust-panic-macro",
       "severity": "warn",
       "group": "core",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9119,10 +9200,57 @@
       "enabledByDefault": true
     },
     {
+      "id": "rust-raw-ownership-reconstruction",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "tokens"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "The rule cannot prove pointer provenance, allocator compatibility, uniqueness, or lifetime correctness.",
+        "Aliases and wrapper functions around ownership reconstruction are not resolved."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-static-mut",
+      "severity": "warn",
+      "group": "core",
+      "version": 1,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "tokens"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "The declaration is reported as a review boundary; the rule does not prove an access is unsound."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "rust-todo-macro",
       "severity": "info",
       "group": "core",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9142,17 +9270,17 @@
       "enabledByDefault": true
     },
     {
-      "id": "rust-unsafe-block",
+      "id": "rust-unbounded-channel",
       "severity": "info",
-      "group": "core",
-      "version": 4,
+      "group": "performance",
+      "version": 1,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
         "reliability"
       ],
       "requirements": [
-        "sourceText"
+        "tokens"
       ],
       "languages": [
         "rust"
@@ -9160,7 +9288,55 @@
       "frameworks": [],
       "languageVersions": {},
       "limitations": [
-        "The rule uses masked source tokens and does not perform Rust type resolution."
+        "The rule cannot infer producer rate, message size, consumer throughput, or process lifetime."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-undocumented-unsafe-block",
+      "severity": "warn",
+      "group": "core",
+      "version": 2,
+      "semanticMaturity": "token",
+      "securityKind": "none",
+      "taxonomy": [
+        "reliability"
+      ],
+      "requirements": [
+        "tokens"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "The rule verifies that a nonempty SAFETY rationale is attached, not that the rationale proves soundness.",
+        "Macro-generated unsafe blocks are not visible in source text."
+      ],
+      "enabledByDefault": true
+    },
+    {
+      "id": "rust-unpinned-git-dependency",
+      "severity": "warn",
+      "group": "security",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "hotspot",
+      "taxonomy": [
+        "security"
+      ],
+      "requirements": [
+        "declarations"
+      ],
+      "languages": [
+        "rust"
+      ],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "The rule verifies that a rev field exists but cannot establish upstream trust or repository integrity.",
+        "Cargo source replacement and organization-specific trust policy are not resolved."
       ],
       "enabledByDefault": true
     },
@@ -9168,7 +9344,7 @@
       "id": "rust-unwrap",
       "severity": "info",
       "group": "core",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [

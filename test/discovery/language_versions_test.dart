@@ -20,6 +20,7 @@ void main() {
       '{"engines":{"node":">=20"},"devDependencies":{"typescript":"^5.7.0"}}',
     );
     write('service/go.mod', 'module example.test/service\ngo 1.23\n');
+    write('rust/Cargo.toml', '[package]\nrust-version = "1.82"\n');
     write('python/pyproject.toml', 'requires-python = ">=3.12"\n');
     write(
       'java/pom.xml',
@@ -32,6 +33,7 @@ void main() {
       'java': '21',
       'python': '>=3.12',
       'go': '1.23',
+      'rust': '1.82',
       'node': '>=20',
       'typescript': '^5.7.0',
     });

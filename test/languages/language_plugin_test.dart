@@ -68,6 +68,56 @@ void main() {
     expect(analysis.representation, isA<Map<String, CompilationUnit>>());
   });
 
+  test('focused Python planning skips unrelated indexes and rules', () {
+    final String source = <String>[
+      'def load():',
+      '    return open("data.txt")',
+      for (var index = 0; index < 3000; index++) ...<String>[
+        '',
+        'def function_$index(value):',
+        '    return value + $index',
+      ],
+    ].join('\n');
+    final PreparedAnalysis prepared = PreparedAnalysis(
+      root: '/project',
+      config: const AnalysisConfig(
+        root: '/project',
+        severityOverrides: <String, RuleSeverity>{
+          'py-open-no-encoding': RuleSeverity.warn,
+        },
+      ),
+      files: const <SourceFile>[
+        SourceFile(
+          absolutePath: '/project/app.py',
+          relativePath: 'app.py',
+          language: 'python',
+        ),
+      ],
+      sources: <String, String>{'app.py': source},
+      changedLineRanges: const <String, List<ChangedLineRange>>{},
+    );
+    final AnalysisExecutionPlan plan = AnalysisExecutionPlan(
+      command: CodeBusterCommand.summary,
+      config: prepared.config,
+      only: 'py-open-no-encoding',
+    );
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    final LanguageAnalysis analysis = LanguageIndexStage(
+      LanguagePluginRegistry.standard(),
+    ).build(prepared, plan: plan).require('python');
+
+    stopwatch.stop();
+    expect(analysis.findings.map((Finding finding) => finding.code), <String>[
+      'py-open-no-encoding',
+    ]);
+    expect(analysis.functions, isEmpty);
+    expect(analysis.graph.nodes, isEmpty);
+    expect(analysis.timings, isNot(contains('functions')));
+    expect(analysis.timings, isNot(contains('graph')));
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
+  });
+
   test('standard registry exposes every built-in language plugin', () {
     expect(
       LanguagePluginRegistry.standard().plugins.map(

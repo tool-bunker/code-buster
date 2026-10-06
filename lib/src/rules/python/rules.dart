@@ -40,8 +40,12 @@ final class PythonSourceRule extends SelfContainedRule {
     if (_disabledByPythonProjectPolicy(context.config.root, metadata.id)) {
       return const <Finding>[];
     }
-    return PythonRuleAnalysis()
-        .findings(context.sources, metadata.id)
+    final PythonRuleFindings? analysis =
+        context.languageAnalysis is PythonRuleFindings
+        ? context.languageAnalysis! as PythonRuleFindings
+        : null;
+    return (analysis?.forRule(metadata.id) ??
+            PythonRuleAnalysis().findings(context.sources, ruleId: metadata.id))
         .map(
           (Finding finding) => context.report(
             metadata: metadata,
