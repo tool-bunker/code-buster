@@ -113,6 +113,27 @@ void main() {
     );
   });
 
+  test('extracts multiline functions with nested parameter syntax', () {
+    final List<FunctionSource> functions = JavaScriptFunctionAnalysis()
+        .functions(<String, String>{
+          'src/main.ts': '''
+export function configure({
+  endpoint,
+  retry = resolveRetry({ attempts: 3 }),
+}: {
+  endpoint: string;
+  retry?: Retry;
+}): Result {
+  return createResult(endpoint, retry);
+}
+''',
+        });
+
+    expect(functions.map((FunctionSource function) => function.name), <String>[
+      'configure',
+    ]);
+  });
+
   test(
     'runner discovers JavaScript-family files and preserves reachability',
     () async {

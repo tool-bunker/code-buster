@@ -28,6 +28,7 @@ final class TypeScriptRuleAnalysis {
       final List<String> sinkCodeLines = _withoutStringLiteralText(
         uncommentedSource,
       ).split('\n');
+      final List<bool> insideLoopByLine = _insideLoopByLine(codeLines);
       for (var index = 0; index < lines.length; index++) {
         final String raw = lines[index];
         final String line = _strip(codeLines[index]).trim();
@@ -60,7 +61,8 @@ final class TypeScriptRuleAnalysis {
             line.contains(' as any')) {
           add('ts-any', RuleSeverity.info, 'explicit any type used');
         }
-        if (cachedRegExp(r'!\s*(?:\.|\)|;|,|\])').hasMatch(line) &&
+        if (line.contains('!') &&
+            cachedRegExp(r'!\s*(?:\.|\)|;|,|\])').hasMatch(line) &&
             !line.startsWith('if ')) {
           add(
             'ts-non-null-assertion',
@@ -81,57 +83,67 @@ final class TypeScriptRuleAnalysis {
             'debugger statement left in code',
           );
         }
-        if (((_directEvalCall.hasMatch(sinkLine) ||
-                    _globalEvalCall.hasMatch(sinkLine)) &&
+        if ((((sinkLine.contains('eval') &&
+                    (_directEvalCall.hasMatch(sinkLine) ||
+                        _globalEvalCall.hasMatch(sinkLine))) &&
                 !_evalFunctionDeclaration.hasMatch(sinkLine) &&
                 !_evalMethodDeclaration.hasMatch(sinkLine)) ||
-            (cachedRegExp(r'\bnew\s+Function\s*\(').hasMatch(sinkLine) &&
-                !_isStaticFunctionConstructor(uncommentedLines, index))) {
+            (sinkLine.contains('Function') &&
+                cachedRegExp(r'\bnew\s+Function\s*\(').hasMatch(sinkLine) &&
+                !_isStaticFunctionConstructor(uncommentedLines, index)))) {
           add(
             'ts-eval',
             RuleSeverity.error,
             'dynamic JavaScript execution used',
           );
         }
-        if (_hasStringTimerExecution(uncommentedLines, sinkLine, index)) {
+        if ((sinkLine.contains('setTimeout') ||
+                sinkLine.contains('setInterval')) &&
+            _hasStringTimerExecution(uncommentedLines, sinkLine, index)) {
           add(
             'ts-string-timer-code-execution',
             RuleSeverity.error,
             'timer executes source text as code',
           );
         }
-        if (_hasUnsafeInnerHtmlSink(uncommentedLines, sinkCodeLines, index)) {
+        if ((sinkLine.contains('innerHTML') ||
+                sinkLine.contains('dangerouslySetInnerHTML')) &&
+            _hasUnsafeInnerHtmlSink(uncommentedLines, sinkCodeLines, index)) {
           add(
             'ts-inner-html',
             RuleSeverity.warn,
             'raw HTML injection sink used',
           );
         }
-        final bool startsPromiseCall = _startsPromiseCall.hasMatch(line);
-        final String continuedExpression = _continuedExpression(
-          codeLines,
-          index,
-        );
+        final bool startsPromiseCall =
+            (line.startsWith('fetch') || line.startsWith('axios')) &&
+            _startsPromiseCall.hasMatch(line);
         if (startsPromiseCall &&
             !_functionBindCall.hasMatch(line) &&
             !_isInsideAwaitedWrapper(codeLines, index) &&
             !_isImplicitArrowReturn(codeLines, index) &&
             !cachedRegExp(
               r'\b(?:await|return|void)\b|\.(?:then|catch|subscribe)\s*\(',
-            ).hasMatch(continuedExpression)) {
+            ).hasMatch(_continuedExpression(codeLines, index))) {
           add(
             'ts-floating-promise',
             RuleSeverity.warn,
             'promise-returning call is not awaited or returned',
           );
         }
-        if (line.startsWith('await ') && _isInsideLoop(codeLines, index)) {
+        if (line.startsWith('await ') && insideLoopByLine[index]) {
           add('ts-await-in-loop', RuleSeverity.info, 'await inside loop');
         }
-        final RegExpMatch? secretAssignment = _hardcodedSecretAssignment(
-          uncommentedLines[index],
-          codeLines[index],
-        );
+        final String uncommentedLine = uncommentedLines[index];
+        final String codeLine = codeLines[index];
+        final RegExpMatch? secretAssignment =
+            _mightContainSecretIdentifier(lower) &&
+                codeLine.contains('=') &&
+                (uncommentedLine.contains('"') ||
+                    uncommentedLine.contains("'") ||
+                    uncommentedLine.contains('`'))
+            ? _hardcodedSecretAssignment(uncommentedLine, codeLine)
+            : null;
         if (secretAssignment != null &&
             _secretIdentifier.hasMatch(secretAssignment.requiredGroup(1)) &&
             secretAssignment.requiredGroup(2).trim().isNotEmpty &&
@@ -220,7 +232,8 @@ final class TypeScriptRuleAnalysis {
       final String code = _withoutStringLiteralText(
         _withoutTemplateLiterals(_withoutComments(entry.value)),
       );
-      for (final RegExpMatch match in callable.allMatches(code)) {
+      for (final candidate in _callableMatches(code, callable)) {
+        final RegExpMatch match = candidate.match;
         if (const <String>{
           'return',
           'if',
@@ -251,7 +264,7 @@ final class TypeScriptRuleAnalysis {
             .join(',');
         declarations.putIfAbsent(key, () => []).add((
           path: entry.key,
-          line: 1 + '\n'.allMatches(code.substring(0, match.start)).length,
+          line: candidate.line,
           names: values.map((value) => value.name).toList(),
         ));
       }
@@ -277,6 +290,38 @@ final class TypeScriptRuleAnalysis {
     }
     return findings;
   }
+
+  static Iterable<({RegExpMatch match, int line})> _callableMatches(
+    String source,
+    RegExp pattern,
+  ) sync* {
+    var line = 1;
+    var start = 0;
+    while (start < source.length) {
+      final int newline = source.indexOf('\n', start);
+      final int end = newline < 0 ? source.length : newline;
+      final int openingParenthesis = source.indexOf('(', start);
+      if (openingParenthesis >= 0 && openingParenthesis < end) {
+        final Match? match = pattern.matchAsPrefix(source, start);
+        if (match != null) {
+          yield (match: match as RegExpMatch, line: line);
+        }
+      }
+      if (newline < 0) return;
+      start = newline + 1;
+      line++;
+    }
+  }
+
+  static bool _mightContainSecretIdentifier(String lowerLine) =>
+      lowerLine.contains('token') ||
+      lowerLine.contains('secret') ||
+      lowerLine.contains('password') ||
+      lowerLine.contains('passwd') ||
+      lowerLine.contains('api_key') ||
+      lowerLine.contains('apikey') ||
+      lowerLine.contains('nonce') ||
+      lowerLine.contains('salt');
 
   static RegExpMatch? _hardcodedSecretAssignment(
     String uncommentedLine,
@@ -390,10 +435,21 @@ final class TypeScriptRuleAnalysis {
     return expression.toString();
   }
 
-  static bool _isInsideLoop(List<String> lines, int index) {
+  static List<bool> _insideLoopByLine(List<String> lines) {
     final List<({bool function, bool loop})> openBlocks =
         <({bool function, bool loop})>[];
-    for (var lineIndex = 0; lineIndex < index; lineIndex++) {
+    final List<bool> result = <bool>[];
+    for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      var insideLoop = false;
+      for (final block in openBlocks.reversed) {
+        if (block.function) break;
+        if (block.loop) {
+          insideLoop = true;
+          break;
+        }
+      }
+      result.add(insideLoop);
+
       final String code = _strip(lines[lineIndex]);
       for (var offset = 0; offset < code.length; offset++) {
         final String character = code[offset];
@@ -419,12 +475,7 @@ final class TypeScriptRuleAnalysis {
         ));
       }
     }
-
-    for (final ({bool function, bool loop}) block in openBlocks.reversed) {
-      if (block.function) return false;
-      if (block.loop) return true;
-    }
-    return false;
+    return result;
   }
 
   static bool _isInsideHandledTry(List<String> lines, int index) {

@@ -2,4 +2,4 @@
 // Do not edit by hand.
 
 /// Code Buster package version embedded in installed and native executables.
-const String codeBusterVersion = '0.7.4';
+const String codeBusterVersion = '0.7.5';

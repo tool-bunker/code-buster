@@ -214,21 +214,34 @@ final class IndexedAnalysis {
 
 /// Invokes every language plugin once over its discovered source set.
 final class LanguageIndexStage {
-  const LanguageIndexStage(this.plugins);
+  LanguageIndexStage(this.plugins);
 
   final LanguagePluginRegistry plugins;
+  final Map<String, int> _timings = <String, int>{};
 
-  IndexedAnalysis build(PreparedAnalysis prepared) => IndexedAnalysis(
-    prepared: prepared,
-    languages:
-        Map<String, LanguageAnalysis>.unmodifiable(<String, LanguageAnalysis>{
-          for (final LanguagePlugin plugin in plugins.plugins)
-            plugin.id: plugin.analyze(
-              prepared.sourcesFor(plugin.sourceLanguageIds),
-              prepared.config,
-            ),
-        }),
-  );
+  Map<String, int> get timings => Map<String, int>.unmodifiable(_timings);
+
+  IndexedAnalysis build(PreparedAnalysis prepared) {
+    _timings.clear();
+    final Map<String, LanguageAnalysis> languages =
+        <String, LanguageAnalysis>{};
+    for (final LanguagePlugin plugin in plugins.plugins) {
+      final Stopwatch stopwatch = Stopwatch()..start();
+      final LanguageAnalysis analysis = plugin.analyze(
+        prepared.sourcesFor(plugin.sourceLanguageIds),
+        prepared.config,
+      );
+      languages[plugin.id] = analysis;
+      _timings[plugin.id] = stopwatch.elapsedMilliseconds;
+      for (final MapEntry<String, int> timing in analysis.timings.entries) {
+        _timings['${plugin.id}.${timing.key}'] = timing.value;
+      }
+    }
+    return IndexedAnalysis(
+      prepared: prepared,
+      languages: Map<String, LanguageAnalysis>.unmodifiable(languages),
+    );
+  }
 }
 
 /// Builds one repository graph from indexed language results.
