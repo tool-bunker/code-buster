@@ -634,6 +634,28 @@ if (value == value) return false;
     expect(findings.single.line, 3);
   });
 
+  test('ignores Rust paths following casts while retaining self-comparisons', () {
+    final List<Finding> findings = const OperationOnSameValueRule()
+        .analyze(
+          const RuleContext(
+            config: AnalysisConfig(root: '.'),
+            sources: <String, String>{
+              'bounds.rs': '''
+assert!(fields.len() as u64 <= u64::from(u32::MAX));
+if value <= value {
+    reject();
+}
+''',
+            },
+            language: 'repository',
+          ),
+        )
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.line, 2);
+  });
+
   test('keeps boolean-return branches within one control-flow sequence', () {
     final List<Finding> findings = const NeedlessBoolBranchRule()
         .analyze(
