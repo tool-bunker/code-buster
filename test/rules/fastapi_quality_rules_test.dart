@@ -141,6 +141,43 @@ def save(items):
     }
   });
 
+  test('bounds query-in-loop scanning by indentation and nearby lines', () {
+    final String filler = List<String>.generate(
+      3000,
+      (int index) => '    value_$index = $index',
+    ).join('\n');
+    final String source =
+        '''
+def load(items):
+    for item in items:
+        prepare(item)
+        session.execute(select(Item))
+    session.query(Item).get(1)
+    for delayed in items:
+        prepare(delayed)
+        step_one()
+        step_two()
+        step_three()
+        step_four()
+        step_five()
+        step_six()
+        step_seven()
+        step_eight()
+        session.query(Item).get(delayed.id)
+$filler
+''';
+    final Stopwatch stopwatch = Stopwatch()..start();
+
+    final List<Finding> findings = run(
+      'fastapi-query-in-loop',
+      <String, String>{'app/db.py': source},
+    );
+
+    stopwatch.stop();
+    expect(findings.map((Finding finding) => finding.line), <int>[4]);
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
+  });
+
   test(
     'reports heavy background work, mutable cache, sprawl, and settings bypass',
     () {

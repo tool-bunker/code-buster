@@ -104,14 +104,32 @@ RuleMetadata _generatedMetadata(String id) {
   return metadata;
 }
 
-final RegExp _testPath = RegExp(
+final RegExp _testPath = cachedRegExp(
   r'(^|/)(?:test|tests|spec|specs|__tests__|fixture|fixtures)(?:/|$)|(?:_test|\.test|\.spec)\.',
 );
-final RegExp _generatedPath = RegExp(
+final RegExp _generatedPath = cachedRegExp(
   r'(^|/)(?:generated|gen)(?:/|$)|\.(?:g|freezed|gr)\.[^.]+$',
 );
-final RegExp _documentationPath = RegExp(
+final RegExp _documentationPath = cachedRegExp(
   r'(^|/)(?:doc|docs|documentation)(?:/|$)|\.(?:md|mdx|rst|txt)$',
+);
+final RegExp _commentDensityManifestPath = cachedRegExp(
+  r'(^|/)(?:go\.mod|package(?:-lock)?\.json|pubspec\.ya?ml|cargo\.toml)$',
+  caseSensitive: false,
+);
+final RegExp _hashCommentPath = cachedRegExp(
+  r'\.(?:py|pyi|rb|sh|bash|zsh|fish|pl|pm|r|jl|nim|toml|ya?ml)$',
+  caseSensitive: false,
+);
+final RegExp _dashCommentPath = cachedRegExp(
+  r'\.(?:lua|luau|sql|hs)$',
+  caseSensitive: false,
+);
+final RegExp _goDeclaration = cachedRegExp(
+  r'^\s*(?:package\s+\w+|(?:type|var|const)\s+(?:\w+|\()|func\s+(?:\([^)]*\)\s*)?\w+)',
+);
+final RegExp _goDeclarationBlock = cachedRegExp(
+  r'^\s*type\s+\w+\s+(?:interface|struct)\s*\{',
 );
 
 bool _excludedCommentPath(String path) =>
@@ -120,11 +138,7 @@ bool _excludedCommentPath(String path) =>
     _documentationPath.hasMatch(path);
 
 bool _excludedCommentDensityPath(String path) =>
-    _excludedCommentPath(path) ||
-    RegExp(
-      r'(^|/)(?:go\.mod|package(?:-lock)?\.json|pubspec\.ya?ml|cargo\.toml)$',
-      caseSensitive: false,
-    ).hasMatch(path);
+    _excludedCommentPath(path) || _commentDensityManifestPath.hasMatch(path);
 
 final class _LineFacts {
   const _LineFacts({
@@ -150,6 +164,11 @@ List<_LineFacts> _scanLines(String path, List<String> lines) {
   var inBlock = false;
   var inDocumentationBlock = false;
   String? multilineQuote;
+  final String lowerPath = path.toLowerCase();
+  final bool usesHashComments = _hashCommentPath.hasMatch(lowerPath);
+  final bool usesDashComments = _dashCommentPath.hasMatch(lowerPath);
+  final bool supportsTripleQuotes =
+      lowerPath.endsWith('.dart') || lowerPath.endsWith('.py');
   for (final String line in lines) {
     final StringBuffer code = StringBuffer();
     final StringBuffer comment = StringBuffer();
@@ -201,22 +220,21 @@ List<_LineFacts> _scanLines(String path, List<String> lines) {
         index += 2;
         continue;
       }
-      if (_usesHashComments(path) && line[index] == '#') {
+      if (usesHashComments && line[index] == '#') {
         if (index == 0 && line.startsWith('#!')) {
           break;
         }
         comment.write(line.substring(index + 1));
         break;
       }
-      if (_usesDashComments(path) && line.startsWith('--', index)) {
+      if (usesDashComments && line.startsWith('--', index)) {
         comment.write(line.substring(index + 2));
         break;
       }
       final String character = line[index];
       if (character == '"' || character == "'" || character == '`') {
         final String triple = '$character$character$character';
-        if ((path.endsWith('.dart') || path.endsWith('.py')) &&
-            line.startsWith(triple, index)) {
+        if (supportsTripleQuotes && line.startsWith(triple, index)) {
           final int end = line.indexOf(triple, index + 3);
           if (end < 0) {
             multilineQuote = triple;
@@ -262,12 +280,8 @@ List<_LineFacts> _scanLines(String path, List<String> lines) {
 }
 
 void _markGoDocumentationComments(List<_LineFacts> facts) {
-  final RegExp declaration = RegExp(
-    r'^\s*(?:package\s+\w+|(?:type|var|const)\s+(?:\w+|\()|func\s+(?:\([^)]*\)\s*)?\w+)',
-  );
-  final RegExp declarationBlock = RegExp(
-    r'^\s*type\s+\w+\s+(?:interface|struct)\s*\{',
-  );
+  final RegExp declaration = _goDeclaration;
+  final RegExp declarationBlock = _goDeclarationBlock;
   var braceDepth = 0;
   int? declarationBlockDepth;
   for (var index = 0; index < facts.length; index++) {
@@ -298,13 +312,6 @@ void _markGoDocumentationComments(List<_LineFacts> facts) {
     }
   }
 }
-
-bool _usesHashComments(String path) => RegExp(
-  r'\.(?:py|pyi|rb|sh|bash|zsh|fish|pl|pm|r|jl|nim|toml|ya?ml)$',
-).hasMatch(path.toLowerCase());
-
-bool _usesDashComments(String path) =>
-    RegExp(r'\.(?:lua|luau|sql|hs)$').hasMatch(path.toLowerCase());
 
 /// Reports repository-relative outliers rather than imposing a global ratio.
 final class ExcessiveCommentDensityRule extends SelfContainedRule {
