@@ -1053,6 +1053,66 @@ int _render(int value, RenderOptions options) {
     );
   });
 
+  test('scales call-site YAGNI analysis across large function sets', () {
+    final List<FunctionSource> functions = <FunctionSource>[
+      const FunctionSource(
+        path: 'lib/dispatch.dart',
+        name: '_dispatch',
+        line: 1,
+        source:
+            'int _dispatch(int value, bool enabled) => enabled ? value : 0;',
+      ),
+      for (var index = 0; index < 3; index++)
+        FunctionSource(
+          path: 'lib/dispatch.dart',
+          name: 'caller$index',
+          line: index + 2,
+          source: 'int caller$index() => _dispatch($index, true);',
+        ),
+      for (var index = 0; index < 3000; index++)
+        FunctionSource(
+          path: 'lib/noise_$index.dart',
+          name: '_noise$index',
+          line: 1,
+          source: 'int _noise$index(int value) => value + $index;',
+        ),
+    ];
+    final Stopwatch stopwatch = Stopwatch()..start();
+    final YagniCallIndex callIndex = YagniCallIndex(functions);
+
+    final List<Finding> findings = <Finding>[
+      ...repository.constantArgumentFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+        callIndex: callIndex,
+      ),
+      ...repository.unusedCustomizationHookFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+        callIndex: callIndex,
+      ),
+      ...repository.unusedOptionalParameterFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+        callIndex: callIndex,
+      ),
+      ...repository.unusedConfigurationOptionFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+        callIndex: callIndex,
+      ),
+    ];
+
+    stopwatch.stop();
+    expect(
+      findings.where(
+        (Finding finding) => finding.code == 'constant-argument-parameter',
+      ),
+      hasLength(1),
+    );
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
+  });
+
   test('scores flat dispatch switches with standard switch semantics', () {
     const FunctionSource function = FunctionSource(
       path: 'lib/action_dispatcher.dart',
