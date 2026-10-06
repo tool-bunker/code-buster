@@ -20,7 +20,7 @@ genericExecutableRuleMetadata = <String, RuleMetadata>{
     id: RuleMetadata(
       id: id,
       version: id == 'operation-on-same-value'
-          ? 10
+          ? 11
           : id == 'large-inline-list'
           ? 2
           : id == 'large-number-ungrouped'
@@ -148,7 +148,7 @@ final class OperationOnSameValueRule implements CodeBusterRule {
   const OperationOnSameValueRule();
 
   static final RegExp _comparison = cachedRegExp(
-    r'(?<!\.)\b([A-Za-z_]\w*)\s+(==|!=|<=|>=|<|>)\s+\1\b(?!\s*(?:[.\[]|->))',
+    r'(?<!\.)\b([A-Za-z_]\w*)\s+(==|!=|<=|>=|<|>)\s+\1\b(?!\s*(?:[.\[]|->|::))',
   );
   static final RegExp _leadingCast = cachedRegExp(
     r'(?:\(\s*(?:(?:const|volatile|signed|unsigned|struct)\s+)*[A-Za-z_]\w*(?:\s*[*&]\s*)*\s*\)\s*)+$',
@@ -936,6 +936,9 @@ List<String> maskGenericRuleStrings(
   List<String> lines, {
   required String sourcePath,
 }) {
+  if (sourcePath.endsWith('.rs')) {
+    return _maskRustStrings(lines);
+  }
   if (!sourcePath.endsWith('.dart') && !sourcePath.endsWith('.py')) {
     return lines.map(stripGenericRuleStrings).toList(growable: false);
   }
@@ -1017,6 +1020,54 @@ List<String> maskGenericRuleStrings(
     if (quote?.length == 1) {
       quote = null;
       raw = false;
+    }
+    masked.add(code.toString());
+  }
+  return masked;
+}
+
+List<String> _maskRustStrings(List<String> lines) {
+  final List<String> masked = <String>[];
+  String? rawTerminator;
+  for (final String line in lines) {
+    final StringBuffer code = StringBuffer();
+    var index = 0;
+    while (index < line.length) {
+      if (rawTerminator != null) {
+        final int end = line.indexOf(rawTerminator, index);
+        if (end < 0) {
+          code.write(' ' * (line.length - index));
+          index = line.length;
+        } else {
+          code.write(' ' * (end + rawTerminator.length - index));
+          index = end + rawTerminator.length;
+          rawTerminator = null;
+        }
+        continue;
+      }
+      final Match? rawStart = cachedRegExp(
+        r'(?:br|r)(#*)"',
+      ).matchAsPrefix(line, index);
+      if (rawStart != null) {
+        rawTerminator = '"${rawStart.group(1) ?? ''}';
+        code.write(' ' * (rawStart.end - rawStart.start));
+        index = rawStart.end;
+        continue;
+      }
+      final String character = line[index];
+      if (character == '"' || character == "'") {
+        final RegExp literal = character == '"'
+            ? cachedRegExp(r'"(?:\\.|[^"\\])*"')
+            : cachedRegExp(r"'(?:\\.|[^'\\])*'");
+        final Match? match = literal.matchAsPrefix(line, index);
+        if (match != null) {
+          code.write(' ' * (match.end - match.start));
+          index = match.end;
+          continue;
+        }
+      }
+      code.write(character);
+      index++;
     }
     masked.add(code.toString());
   }

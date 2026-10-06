@@ -219,6 +219,11 @@ final class RepositoryDefaults {
       return 'generated';
     }
     if (cachedRegExp(
+      r'^(?:test_?util|test_?helpers?)\.[^.]+$',
+    ).hasMatch(name)) {
+      return 'test';
+    }
+    if (cachedRegExp(
       r'(?:^|/)src/[^/]*test(?:fixtures)?(?:/|$)',
     ).hasMatch(normalized)) {
       return 'test';
@@ -235,6 +240,7 @@ final class RepositoryDefaults {
           'test',
           'tests',
           '__tests__',
+          'test_suite',
           'testassets',
           'testenv',
           'test_assets',
@@ -267,6 +273,7 @@ final class RepositoryDefaults {
           'demo',
           'demos',
           'docs_src',
+          'benches',
           'bench',
           'benchmark',
           'benchmarks',
@@ -319,7 +326,14 @@ final class RepositoryDefaults {
     '**/test/**',
     '**/*_test/**',
     '**/tests/**',
+    '**/test_suite/**',
     '**/testenv/**',
+    '**/testutil.*',
+    '**/test_util.*',
+    '**/testhelper.*',
+    '**/test_helper.*',
+    '**/testhelpers.*',
+    '**/test_helpers.*',
     '**/test.ts',
     '**/test.tsx',
     '**/test.js',
@@ -398,6 +412,7 @@ final class RepositoryDefaults {
     '**/demos/**',
     '**/Demo/**',
     '**/Demos/**',
+    '**/benches/**',
     '**/bench/**',
     '**/Bench/**',
     '**/benchmark/**',
