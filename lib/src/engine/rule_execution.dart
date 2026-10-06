@@ -484,18 +484,23 @@ final class RuleExecutionStage {
     );
     final List<Finding> repositoryRuleFindings = _findingFamily(
       'repositoryRules',
-      () =>
-          <CodeBusterRule>[
-                ..._repositoryRules.rules,
-                ...frameworkRepositoryRules(config.frameworks),
-              ]
-              .where(
-                (CodeBusterRule rule) =>
-                    plan.allows(rule.metadata.id) &&
-                    ruleFrameworksAreActive(rule.metadata, config),
-              )
-              .expand((CodeBusterRule rule) => rule.analyze(repositoryContext))
-              .toList(growable: false),
+      () {
+        final List<Finding> findings = <Finding>[];
+        for (final CodeBusterRule rule in <CodeBusterRule>[
+          ..._repositoryRules.rules,
+          ...frameworkRepositoryRules(config.frameworks),
+        ]) {
+          if (!plan.allows(rule.metadata.id) ||
+              !ruleFrameworksAreActive(rule.metadata, config)) {
+            continue;
+          }
+          final Stopwatch stopwatch = Stopwatch()..start();
+          findings.addAll(rule.analyze(repositoryContext));
+          _familyTimings['repositoryRules.${rule.metadata.id}'] =
+              stopwatch.elapsedMilliseconds;
+        }
+        return findings;
+      },
     );
     final List<Finding> styleFindings =
         <Finding>[
