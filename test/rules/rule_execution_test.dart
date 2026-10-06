@@ -596,4 +596,41 @@ builders:
       isEmpty,
     );
   });
+
+  test('shared generic masking preserves cross-language findings', () {
+    final Directory root = Directory.systemTemp.createTempSync(
+      'code-buster-shared-lexical-',
+    );
+    addTearDown(() => root.deleteSync(recursive: true));
+    File(
+      '${root.path}${Platform.pathSeparator}example.dart',
+    ).writeAsStringSync('const example = "public int value;";\n');
+    File(
+      '${root.path}${Platform.pathSeparator}helper.dart',
+    ).writeAsStringSync('void helper() {}\n');
+    File(
+      '${root.path}${Platform.pathSeparator}Example.cs',
+    ).writeAsStringSync('public class Example {\n  public int value;\n}\n');
+    File(
+      '${root.path}${Platform.pathSeparator}Helper.cs',
+    ).writeAsStringSync('public class Helper {}\n');
+
+    final AnalysisRun run = AnalysisRunner().run(
+      CodeBusterCliContract.parse(<String>[
+        'summary',
+        '--root',
+        root.path,
+        '--languages',
+        'dart,csharp',
+        '--no-cache',
+      ]),
+    );
+
+    expect(
+      run.findings
+          .where((Finding finding) => finding.code == 'public-mutable-state')
+          .map((Finding finding) => finding.path),
+      <String>['Example.cs'],
+    );
+  });
 }

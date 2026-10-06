@@ -15,6 +15,7 @@ final class RuleContext {
     required this.language,
     this.graph,
     this.sourceLines = const <String, List<String>>{},
+    this.maskedSourceLines = const <String, List<String>>{},
     this.languageAnalysis,
     this.changedPaths = const <String>{},
     this.baseSources = const <String, String>{},
@@ -26,6 +27,9 @@ final class RuleContext {
   final Map<String, String> sources;
 
   final Map<String, List<String>> sourceLines;
+
+  /// Source lines with language-neutral strings masked for shared generic rules.
+  final Map<String, List<String>> maskedSourceLines;
 
   final String language;
 
@@ -51,6 +55,9 @@ final class RuleContext {
     }
     return source.split('\n');
   }
+
+  /// Returns precomputed generic lexical lines for [path], when available.
+  List<String>? maskedLinesFor(String path) => maskedSourceLines[path];
 
   T requireLanguageAnalysis<T extends Object>() {
     final Object? analysis = languageAnalysis;

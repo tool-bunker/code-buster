@@ -45,6 +45,14 @@ class Session {
   private secret: string = '';
 }
 ''',
+            'src/docs.rs': r'''
+fn docs() -> &'static str {
+    r#"
+.BI "\-g " foo
+foo/bar and foo/**
+"#
+}
+''',
             'src/github.ts': '''
 class GitHubError {
   constructor(
@@ -84,6 +92,37 @@ function applyStyle(
 
     expect(findings, hasLength(1));
     expect(findings.single.line, 1);
+  });
+
+  test('accepts Rust interpolation and documented code examples', () {
+    final List<Finding> findings = CommentedOutCodeRule()
+        .analyze(
+          context(const <String, String>{
+            'src/generator.rs': '''
+quote! {
+    #func(&mut state)?;
+}
+// Expands to:
+//
+//     let value = deserialize(input)?;
+//     finish(value);
+fn current() {}
+// let disabled = legacy();
+''',
+            'src/generator.py': '''
+# return legacy();
+''',
+          }),
+        )
+        .toList();
+
+    expect(
+      findings.map((Finding finding) => (finding.path, finding.line)),
+      <(String, int)>[
+        ('src/generator.rs', 9),
+        ('src/generator.py', 1),
+      ],
+    );
   });
 
   test('reports exposed placeholder names but accepts tiny locals', () {
