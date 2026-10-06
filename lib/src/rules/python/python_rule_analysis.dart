@@ -2,15 +2,55 @@
 
 import '../../core/models.dart';
 import '../../core/regexp_cache.dart';
+import '../../languages/python/python_source_index.dart';
+
+/// Parse-once Python rule findings shared by independently configurable rules.
+final class PythonRuleFindings {
+  factory PythonRuleFindings(Iterable<Finding> findings) {
+    final Map<String, List<Finding>> grouped = <String, List<Finding>>{};
+    for (final Finding finding in findings) {
+      grouped.putIfAbsent(finding.code, () => <Finding>[]).add(finding);
+    }
+    return PythonRuleFindings._(
+      Map<String, List<Finding>>.unmodifiable(
+        grouped.map(
+          (String id, List<Finding> values) => MapEntry<String, List<Finding>>(
+            id,
+            List<Finding>.unmodifiable(values),
+          ),
+        ),
+      ),
+    );
+  }
+
+  const PythonRuleFindings._(this._byRule);
+
+  final Map<String, List<Finding>> _byRule;
+
+  Iterable<Finding> forRule(String ruleId) =>
+      _byRule[ruleId] ?? const <Finding>[];
+}
 
 /// Shared scan used by independently registered Python rules.
 final class PythonRuleAnalysis {
-  /// Emits findings for [ruleId] in source order.
+  /// Emits all findings, or only [ruleId] when a focused caller requests one.
   // code-buster-ignore complex-function: rule-ID dispatch shares indentation and import state while executing independent checks in one source pass.
-  List<Finding> findings(Map<String, String> sources, String ruleId) {
+  List<Finding> findings(
+    Map<String, String> sources, {
+    String? ruleId,
+    PythonSourceIndex? index,
+  }) {
     final List<Finding> result = <Finding>[];
-    for (final MapEntry<String, String> entry in sources.entries) {
-      final List<String> lines = entry.value.split('\n');
+    final PythonSourceIndex sourceIndex = index ?? PythonSourceIndex(sources);
+    for (final PythonSourceFacts facts in sourceIndex.files) {
+      final MapEntry<String, String> entry = MapEntry<String, String>(
+        facts.path,
+        facts.source,
+      );
+      final List<String> lines = facts.lines;
+      final Set<String> monkeyPatchReplacements = _monkeyPatchReplacements(
+        lines,
+      );
       var sawCode = false;
       var importContinuationDepth = 0;
       var typeCheckingIndent = -1;
@@ -61,7 +101,7 @@ final class PythonRuleAnalysis {
           asyncIndent = -1;
         }
         void add(String id, RuleSeverity severity, String message, {int? at}) {
-          if (id != ruleId) return;
+          if (ruleId != null && id != ruleId) return;
           result.add(
             _finding(id, severity, entry.key, at ?? index + 1, message),
           );
@@ -122,12 +162,12 @@ final class PythonRuleAnalysis {
           r'^(?:async\s+)?def\s+([A-Za-z_]\w*)',
         ).firstMatch(line);
         if (function != null &&
+            (function.requiredGroup(1).contains('-') ||
+                cachedRegExp(r'[A-Z]').hasMatch(function.requiredGroup(1))) &&
             !_httpRequestHandlerMethod.hasMatch(function.requiredGroup(1)) &&
             !_pythonTestLifecycleMethod.hasMatch(function.requiredGroup(1)) &&
             !_isComInterfaceMethod(lines, index, indent) &&
-            !_isMonkeyPatchReplacement(lines, function.requiredGroup(1)) &&
-            (function.requiredGroup(1).contains('-') ||
-                cachedRegExp(r'[A-Z]').hasMatch(function.requiredGroup(1)))) {
+            !monkeyPatchReplacements.contains(function.requiredGroup(1))) {
           add(
             'py-function-naming',
             RuleSeverity.info,
@@ -485,21 +525,30 @@ final class PythonRuleAnalysis {
     return false;
   }
 
-  static bool _isMonkeyPatchReplacement(List<String> lines, String name) {
-    final String escaped = RegExp.escape(name);
-    final RegExp directAssignment = cachedRegExp(
-      '\\.[A-Za-z_]\\w*\\s*=\\s*$escaped\\b',
-    );
-    final RegExp patchCall = cachedRegExp(
-      '\\bpatch(?:es)?\\.patch\\s*\\([^#\\n]*\\b$escaped\\b',
-    );
-    return lines
-        .map(_codeBeforeComment)
-        .any(
-          (String line) =>
-              directAssignment.hasMatch(line) || patchCall.hasMatch(line),
+  static Set<String> _monkeyPatchReplacements(List<String> lines) {
+    final Set<String> replacements = <String>{};
+    for (final String raw in lines) {
+      final String line = _codeBeforeComment(raw);
+      final RegExpMatch? assignment = _monkeyPatchAssignment.firstMatch(line);
+      if (assignment != null) replacements.add(assignment.requiredGroup(1));
+      for (final RegExpMatch patch in _monkeyPatchCall.allMatches(line)) {
+        replacements.addAll(
+          _pythonIdentifier
+              .allMatches(patch.requiredGroup(1))
+              .map((RegExpMatch identifier) => identifier.requiredGroup(0)),
         );
+      }
+    }
+    return replacements;
   }
+
+  static final RegExp _monkeyPatchAssignment = cachedRegExp(
+    r'\.[A-Za-z_]\w*\s*=\s*([A-Za-z_]\w*)\b',
+  );
+  static final RegExp _monkeyPatchCall = cachedRegExp(
+    r'\bpatch(?:es)?\.patch\s*\(([^#\n]*)',
+  );
+  static final RegExp _pythonIdentifier = cachedRegExp(r'\b[A-Za-z_]\w*\b');
 
   static bool _isTestPath(String path) {
     final String normalized = path.replaceAll(r'\', '/').toLowerCase();

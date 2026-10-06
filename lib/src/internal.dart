@@ -38,6 +38,7 @@ export 'languages/javascript/javascript_adapter.dart';
 export 'languages/lua/lua_adapter.dart';
 export 'languages/nim/nim_adapter.dart';
 export 'languages/python/python_adapter.dart';
+export 'languages/python/python_source_index.dart';
 export 'languages/wren/wren_adapter.dart';
 export 'plugins/language_plugin.dart';
 export 'plugins/languages.dart';
