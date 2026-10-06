@@ -28,6 +28,7 @@ final class CSharpOopProject {
 
   static CSharpOopProject parse(Map<String, String> sources) {
     final List<OopClass> classes = <OopClass>[];
+    final Map<String, String> maskedSources = <String, String>{};
     for (final MapEntry<String, String> source in sources.entries) {
       if (!source.key.endsWith('.cs') &&
           !source.key.endsWith('.java') &&
@@ -36,13 +37,15 @@ final class CSharpOopProject {
         continue;
       }
       final String code = _maskNonCode(source.value);
+      maskedSources[source.key] = code;
+      final Map<int, int> matchingBraces = _matchingBraces(code);
       for (final RegExpMatch declaration in _classDeclaration.allMatches(
         code,
       )) {
         final int open = declaration.end - 1;
         if (open < 0) continue;
-        final int close = _matchingBrace(code, open);
-        if (close < 0) continue;
+        final int? close = matchingBraces[open];
+        if (close == null) continue;
         final String kind = declaration.requiredGroup(1);
         final String name = declaration.requiredGroup(2);
         final List<String> bases = _baseTypes(
@@ -96,14 +99,7 @@ final class CSharpOopProject {
         .toList(growable: false);
     return CSharpOopProject(
       List<OopClass>.unmodifiable(resolved),
-      Map<String, String>.unmodifiable({
-        for (final entry in sources.entries)
-          if (entry.key.endsWith('.cs') ||
-              entry.key.endsWith('.java') ||
-              entry.key.endsWith('.ts') ||
-              entry.key.endsWith('.tsx'))
-            entry.key: _maskNonCode(entry.value),
-      }),
+      Map<String, String>.unmodifiable(maskedSources),
     );
   }
 }
@@ -486,6 +482,7 @@ bool _sameStrings(List<String> left, List<String> right) {
 
 List<OopMethod> _methods(String body, String path) {
   final List<OopMethod> methods = <OopMethod>[];
+  final List<int> depths = _braceDepths(body);
   final bool isTypeScript = path.endsWith('.ts') || path.endsWith('.tsx');
   final declarations = isTypeScript
       ? <({RegExp pattern, bool arrow})>[
@@ -497,7 +494,7 @@ List<OopMethod> _methods(String body, String path) {
         ];
   for (final declaration in declarations) {
     for (final RegExpMatch match in declaration.pattern.allMatches(body)) {
-      if (_braceDepth(body, match.start) != 0) continue;
+      if (depths[match.start] != 0) continue;
       final String modifiers = match.group(1) ?? '';
       final String name = match.requiredGroup(2);
       final List<({String type, String name})>? parameters = _parameters(
@@ -559,12 +556,13 @@ int _nextNonWhitespace(String source, int start) {
 
 Set<String> _fields(String body, String path) {
   final Set<String> fields = <String>{};
+  final List<int> depths = _braceDepths(body);
   final bool isTypeScript = path.endsWith('.ts') || path.endsWith('.tsx');
   final RegExp declaration = isTypeScript
       ? _typescriptFieldDeclaration
       : _fieldDeclaration;
   for (final RegExpMatch match in declaration.allMatches(body)) {
-    if (_braceDepth(body, match.start) == 0) {
+    if (depths[match.start] == 0) {
       fields.add(match.requiredGroup(1));
     }
   }
@@ -624,13 +622,29 @@ List<String> _baseTypes(String source) => source
     .where((value) => value.isNotEmpty)
     .toList(growable: false);
 
-int _braceDepth(String source, int end) {
+List<int> _braceDepths(String source) {
+  final List<int> depths = List<int>.filled(source.length + 1, 0);
   var depth = 0;
-  for (var index = 0; index < end; index++) {
-    if (source[index] == '{') depth++;
-    if (source[index] == '}') depth--;
+  for (var index = 0; index < source.length; index++) {
+    depths[index] = depth;
+    if (source.codeUnitAt(index) == 123) depth++;
+    if (source.codeUnitAt(index) == 125) depth--;
   }
-  return depth;
+  depths[source.length] = depth;
+  return depths;
+}
+
+Map<int, int> _matchingBraces(String source) {
+  final List<int> openings = <int>[];
+  final Map<int, int> result = <int, int>{};
+  for (var index = 0; index < source.length; index++) {
+    if (source.codeUnitAt(index) == 123) {
+      openings.add(index);
+    } else if (source.codeUnitAt(index) == 125 && openings.isNotEmpty) {
+      result[openings.removeLast()] = index;
+    }
+  }
+  return result;
 }
 
 int _matchingBrace(String source, int open) {

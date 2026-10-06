@@ -139,11 +139,17 @@ final class AnalysisRunner {
     final AnalysisConfig config = prepared.config;
     final List<SourceFile> files = prepared.files;
     final Map<String, String> sources = prepared.sources;
+    final LanguageIndexStage languageIndex = LanguageIndexStage(
+      _languagePlugins,
+    );
     final IndexedAnalysis indexed = _timed(
       stageDurations,
       'languageIndex',
-      () => LanguageIndexStage(_languagePlugins).build(prepared),
+      () => languageIndex.build(prepared),
     );
+    for (final MapEntry<String, int> timing in languageIndex.timings.entries) {
+      stageDurations['languageIndex.${timing.key}'] = timing.value;
+    }
     final SarifIngestionResult ingestion = _timed(
       stageDurations,
       'sarifIngestion',

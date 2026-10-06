@@ -423,7 +423,7 @@
       "id": "complex-function",
       "severity": "warn",
       "group": "core",
-      "version": 7,
+      "version": 8,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [

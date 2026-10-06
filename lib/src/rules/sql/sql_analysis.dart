@@ -356,15 +356,16 @@ final class SqlRuleAnalysis {
             trimmed.startsWith('*')) {
           continue;
         }
-        if (_isManagementObjectQuery(lines, index)) {
-          continue;
-        }
+        if (!statement.hasMatch(line)) continue;
+        if (_isManagementObjectQuery(lines, index)) continue;
         final bool interpolated =
             line.contains(r'${') ||
-            cachedRegExp(r'''\$"[^"\n]*\{''').hasMatch(line);
-        final bool taggedSqlTemplate = cachedRegExp(
-          r'\bsql\s*`',
-        ).hasMatch(line);
+            (line.contains(r'$"') &&
+                cachedRegExp(r'''\$"[^"\n]*\{''').hasMatch(line));
+        final bool taggedSqlTemplate =
+            interpolated &&
+            line.contains('sql') &&
+            cachedRegExp(r'\bsql\s*`').hasMatch(line);
         final bool safeSqlInterpolation =
             interpolated &&
             (taggedSqlTemplate ||
@@ -372,17 +373,19 @@ final class SqlRuleAnalysis {
                 _onlySafeCSharpNumericInterpolation(line, lines, index));
         final bool efCoreParameterizedInterpolation =
             interpolated && _isEfCoreParameterizedInterpolation(lines, index);
-        final bool concatenated = cachedRegExp(
-          r'''(?:["'][^"']*(?:select|insert|update|delete)[^"']*["']\s*\+\s*(?!["'])\w|\b\w[\w.()]*\s*\+\s*["'][^"']*(?:select|insert|update|delete))''',
-          caseSensitive: false,
-        ).hasMatch(line);
-        final bool sqlContext = _isSqlConstructionContext(lines, index);
-        if (sqlContext &&
-            statement.hasMatch(line) &&
-            ((interpolated &&
-                    !safeSqlInterpolation &&
-                    !efCoreParameterizedInterpolation) ||
-                concatenated)) {
+        final bool concatenated =
+            line.contains('+') &&
+            cachedRegExp(
+              r'''(?:["'][^"']*(?:select|insert|update|delete)[^"']*["']\s*\+\s*(?!["'])\w|\b\w[\w.()]*\s*\+\s*["'][^"']*(?:select|insert|update|delete))''',
+              caseSensitive: false,
+            ).hasMatch(line);
+        if ((!interpolated ||
+                safeSqlInterpolation ||
+                efCoreParameterizedInterpolation) &&
+            !concatenated) {
+          continue;
+        }
+        if (_isSqlConstructionContext(lines, index)) {
           result.add(
             Finding(
               code: 'sql-inline-string-concat',

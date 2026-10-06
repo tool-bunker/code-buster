@@ -34,6 +34,7 @@ final class LanguageAnalysis {
     required this.functions,
     required this.findings,
     this.diagnostics = const <ProcessingDiagnostic>[],
+    this.timings = const <String, int>{},
     this.representation,
   });
 
@@ -44,6 +45,9 @@ final class LanguageAnalysis {
   final List<Finding> findings;
 
   final List<ProcessingDiagnostic> diagnostics;
+
+  /// Wall-clock durations for this plugin's indexing components.
+  final Map<String, int> timings;
 
   final Object? representation;
 }
@@ -76,13 +80,33 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
 
   @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
-    final List<FunctionSource> extractedFunctions = functions(sources);
-    return LanguageAnalysis(
-      graph: buildGraph(sources, config),
-      functions: List<FunctionSource>.unmodifiable(extractedFunctions),
-      findings: List<Finding>.unmodifiable(
-        executeRegisteredRules(sources, config),
+    final Map<String, int> timings = <String, int>{};
+    T timed<T>(String name, T Function() operation) {
+      final Stopwatch stopwatch = Stopwatch()..start();
+      final T result = operation();
+      timings[name] = stopwatch.elapsedMilliseconds;
+      return result;
+    }
+
+    final List<FunctionSource> extractedFunctions = timed(
+      'functions',
+      () => functions(sources),
+    );
+    final DependencyGraph graph = timed(
+      'graph',
+      () => buildGraph(sources, config),
+    );
+    final List<Finding> findings = timed(
+      'rules',
+      () => List<Finding>.unmodifiable(
+        executeRegisteredRules(sources, config, timings: timings),
       ),
+    );
+    return LanguageAnalysis(
+      graph: graph,
+      functions: List<FunctionSource>.unmodifiable(extractedFunctions),
+      findings: findings,
+      timings: Map<String, int>.unmodifiable(timings),
     );
   }
 
@@ -92,7 +116,8 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
     Map<String, String> sources,
     AnalysisConfig config, {
     Object? representation,
-  }) {
+    Map<String, int>? timings,
+  }) sync* {
     final Map<String, List<String>> sourceLines =
         Map<String, List<String>>.unmodifiable(
           sources.map(
@@ -100,30 +125,32 @@ abstract base class BuiltInLanguagePlugin implements LanguagePlugin {
                 MapEntry<String, List<String>>(path, source.split('\n')),
           ),
         );
-    return <CodeBusterRule>[
-          ...registeredRules.rules,
-          ...frameworkLanguageRules(config.frameworks, id),
-        ]
-        .where(
-          (CodeBusterRule rule) =>
-              ruleFrameworksAreActive(rule.metadata, config) &&
-              (config.ruleGroups.contains(rule.metadata.group) ||
-                  config.ruleGroups.contains(
-                    RulePolicy.taxonomyGroupFor(rule.metadata.id),
-                  ) ||
-                  config.severityOverrides.containsKey(rule.metadata.id)),
-        )
-        .expand(
-          (CodeBusterRule rule) => rule.analyze(
-            RuleContext(
-              config: config,
-              sources: sources,
-              sourceLines: sourceLines,
-              language: id,
-              languageAnalysis: representation,
-            ),
-          ),
-        );
+    final RuleContext context = RuleContext(
+      config: config,
+      sources: sources,
+      sourceLines: sourceLines,
+      language: id,
+      languageAnalysis: representation,
+    );
+    for (final CodeBusterRule rule in <CodeBusterRule>[
+      ...registeredRules.rules,
+      ...frameworkLanguageRules(config.frameworks, id),
+    ]) {
+      if (!ruleFrameworksAreActive(rule.metadata, config) ||
+          !(config.ruleGroups.contains(rule.metadata.group) ||
+              config.ruleGroups.contains(
+                RulePolicy.taxonomyGroupFor(rule.metadata.id),
+              ) ||
+              config.severityOverrides.containsKey(rule.metadata.id))) {
+        continue;
+      }
+      final Stopwatch stopwatch = Stopwatch()..start();
+      final List<Finding> findings = rule
+          .analyze(context)
+          .toList(growable: false);
+      timings?['rules.${rule.metadata.id}'] = stopwatch.elapsedMilliseconds;
+      yield* findings;
+    }
   }
 }
 
@@ -207,10 +234,12 @@ final class CppLanguagePlugin extends BuiltInLanguagePlugin {
     Map<String, String> sources,
     AnalysisConfig config, {
     Object? representation,
+    Map<String, int>? timings,
   }) => super.executeRegisteredRules(
     _sourcesCompiledAsCpp(sources),
     config,
     representation: representation,
+    timings: timings,
   );
 
   Map<String, String> _sourcesCompiledAsCpp(Map<String, String> sources) {
@@ -515,14 +544,34 @@ final class JavaScriptLanguagePlugin extends BuiltInLanguagePlugin {
 
   @override
   LanguageAnalysis analyze(Map<String, String> sources, AnalysisConfig config) {
-    final CSharpOopProject project = CSharpOopProject.parse(sources);
+    final Map<String, int> timings = <String, int>{};
+    T timed<T>(String name, T Function() operation) {
+      final Stopwatch stopwatch = Stopwatch()..start();
+      final T result = operation();
+      timings[name] = stopwatch.elapsedMilliseconds;
+      return result;
+    }
+
+    final CSharpOopProject project = timed(
+      'oopProject',
+      () => CSharpOopProject.parse(sources),
+    );
     return LanguageAnalysis(
-      graph: _graph.build(sources),
-      functions: _functions.functions(sources),
-      findings: <Finding>[
-        ...executeRegisteredRules(sources, config, representation: project),
-      ],
+      graph: timed('graph', () => _graph.build(sources)),
+      functions: timed('functions', () => _functions.functions(sources)),
+      findings: timed(
+        'rules',
+        () => <Finding>[
+          ...executeRegisteredRules(
+            sources,
+            config,
+            representation: project,
+            timings: timings,
+          ),
+        ],
+      ),
       representation: project,
+      timings: Map<String, int>.unmodifiable(timings),
     );
   }
 
