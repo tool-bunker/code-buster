@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.0
+
 ### Added
 
 - Add Rust rules for undocumented unsafe blocks, mutable statics, raw ownership reconstruction, manual `Send` and `Sync` implementations, panic-capable exported FFI functions, blocking calls in async code, unbounded channels, and unpinned Cargo Git dependencies.
