@@ -6,6 +6,13 @@
 
 ### Improved
 
+## 0.7.5
+
+### Improved
+
+- Reduce large JavaScript and TypeScript repository analysis times by bounding function discovery, precomputing lexical context, prefiltering inline SQL candidates, and sharing comment scans.
+- Preserve Paperclip's 152 actionable findings while reducing a cold summary from about 24 minutes to about 3 minutes and a cache-hit summary to about 87 seconds.
+
 ## 0.7.4
 
 ### Added

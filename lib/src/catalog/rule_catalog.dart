@@ -301,7 +301,7 @@ final class RuleCatalog {
       why: 'A function exceeds configured complexity thresholds.',
       suggestion:
           'Split the function, simplify branching, or raise thresholds if intentional.',
-      version: 7,
+      version: 8,
       semanticMaturity: RuleSemanticMaturity.token,
       requirements: <RuleAnalysisRequirement>{
         RuleAnalysisRequirement.functions,

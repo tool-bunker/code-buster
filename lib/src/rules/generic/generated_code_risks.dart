@@ -138,6 +138,13 @@ final class _LineFacts {
   final bool documentation;
 }
 
+final Expando<Map<String, List<_LineFacts>>> _lineFactsBySources =
+    Expando<Map<String, List<_LineFacts>>>('generated-code-line-facts');
+
+List<_LineFacts> _lineFacts(RuleContext context, String path) =>
+    (_lineFactsBySources[context.sources] ??= <String, List<_LineFacts>>{})
+        .putIfAbsent(path, () => _scanLines(path, context.linesFor(path)));
+
 List<_LineFacts> _scanLines(String path, List<String> lines) {
   final List<_LineFacts> result = <_LineFacts>[];
   var inBlock = false;
@@ -313,10 +320,7 @@ final class ExcessiveCommentDensityRule extends SelfContainedRule {
     files = [];
     for (final MapEntry<String, String> source in context.sources.entries) {
       if (_excludedCommentDensityPath(source.key)) continue;
-      final List<_LineFacts> facts = _scanLines(
-        source.key,
-        context.linesFor(source.key),
-      );
+      final List<_LineFacts> facts = _lineFacts(context, source.key);
       final int leadingLicenseEnd = _leadingLicenseEnd(facts);
       var code = 0;
       var comments = 0;
@@ -405,10 +409,7 @@ final class NarratingImplementationCommentRule extends SelfContainedRule {
   Iterable<Finding> analyze(RuleContext context) sync* {
     for (final MapEntry<String, String> source in context.sources.entries) {
       if (_excludedCommentPath(source.key)) continue;
-      final List<_LineFacts> facts = _scanLines(
-        source.key,
-        context.linesFor(source.key),
-      );
+      final List<_LineFacts> facts = _lineFacts(context, source.key);
       for (var index = 0; index < facts.length; index++) {
         final _LineFacts fact = facts[index];
         if (!fact.documentation && _narration.hasMatch(fact.comment)) {
@@ -440,10 +441,7 @@ final class TrivialCommentRestatementRule extends SelfContainedRule {
   Iterable<Finding> analyze(RuleContext context) sync* {
     for (final MapEntry<String, String> source in context.sources.entries) {
       if (_excludedCommentPath(source.key)) continue;
-      final List<_LineFacts> facts = _scanLines(
-        source.key,
-        context.linesFor(source.key),
-      );
+      final List<_LineFacts> facts = _lineFacts(context, source.key);
       for (var index = 0; index < facts.length - 1; index++) {
         final _LineFacts fact = facts[index];
         if (fact.documentation || fact.code.trim().isNotEmpty) continue;
