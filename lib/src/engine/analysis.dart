@@ -38,6 +38,95 @@ final class FunctionSource {
   int get endLine => _endLine ?? line + '\n'.allMatches(source).length;
 }
 
+/// Shared lexical call and reference index for repository-wide YAGNI rules.
+final class YagniCallIndex {
+  /// Indexes function bodies once for all call-site-based YAGNI rules.
+  YagniCallIndex(Iterable<FunctionSource> functions)
+    : ordered = functions.toList(growable: false)
+        ..sort((FunctionSource left, FunctionSource right) {
+          final int path = left.path.compareTo(right.path);
+          return path != 0 ? path : left.line.compareTo(right.line);
+        }) {
+    for (final FunctionSource function in ordered) {
+      nameCounts.update(
+        function.name,
+        (int count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
+    final Set<String> names = nameCounts.keys.toSet();
+    for (final FunctionSource function in ordered) {
+      final String code = _codeWithoutCommentsAndStrings(function.source);
+      strippedSources.add(code);
+      for (final RegExpMatch match in _identifier.allMatches(code)) {
+        final String identifier = match.requiredGroup(1);
+        if (names.contains(identifier)) {
+          referenceCounts.update(
+            identifier,
+            (int count) => count + 1,
+            ifAbsent: () => 1,
+          );
+        }
+      }
+      for (final RegExpMatch match in _call.allMatches(code)) {
+        var cursor = match.start - 1;
+        while (cursor >= 0 && code[cursor].trim().isEmpty) {
+          cursor--;
+        }
+        if (cursor >= 0 && code[cursor] == '.') {
+          final String receiver = code.substring(0, cursor).trimRight();
+          if (!cachedRegExp(r'(?:this|self)$').hasMatch(receiver)) continue;
+        }
+        final int open = code.indexOf('(', match.start);
+        final int close = _matchingDelimiter(code, open, '(', ')');
+        if (close == -1) continue;
+        final String rawArguments = code.substring(open + 1, close);
+        final List<String> arguments = rawArguments.trim().isEmpty
+            ? const <String>[]
+            : _splitTopLevel(
+                rawArguments,
+              ).map((String value) => value.trim()).toList(growable: false);
+        calls
+            .putIfAbsent(
+              match.requiredGroup(1),
+              () => <({FunctionSource owner, List<String> arguments})>[],
+            )
+            .add((owner: function, arguments: arguments));
+      }
+    }
+  }
+
+  static final RegExp _identifier = cachedRegExp(r'\b([A-Za-z_$][\w$]*)\b');
+  static final RegExp _call = cachedRegExp(r'\b([A-Za-z_$][\w$]*)\s*\(');
+
+  /// Functions in stable report order.
+  final List<FunctionSource> ordered;
+
+  /// Number of declarations sharing each function name.
+  final Map<String, int> nameCounts = <String, int>{};
+
+  /// Function bodies with comments and strings masked.
+  final List<String> strippedSources = <String>[];
+
+  /// Visible identifier references grouped by function name.
+  final Map<String, int> referenceCounts = <String, int>{};
+
+  /// Calls grouped by callee name and owning function body.
+  final Map<String, List<({FunctionSource owner, List<String> arguments})>>
+  calls = <String, List<({FunctionSource owner, List<String> arguments})>>{};
+
+  /// Calls to [target] outside its own function body.
+  List<List<String>> visibleCalls(FunctionSource target) => <List<String>>[
+    for (final ({FunctionSource owner, List<String> arguments}) call
+        in calls[target.name] ??
+            const <({FunctionSource owner, List<String> arguments})>[])
+      if (!identical(call.owner, target)) call.arguments,
+  ];
+
+  /// Total visible lexical references to [identifier].
+  int referenceCount(String identifier) => referenceCounts[identifier] ?? 0;
+}
+
 /// Computed control-flow metrics for a function-like block.
 final class FunctionMetrics {
   /// Creates computed metrics.
@@ -342,49 +431,27 @@ final class RepositoryAnalysis {
   List<Finding> constantArgumentFindings({
     required Iterable<FunctionSource> functions,
     required AnalysisConfig config,
+    YagniCallIndex? callIndex,
   }) {
-    final List<FunctionSource> ordered = functions.toList(growable: false)
-      ..sort((FunctionSource left, FunctionSource right) {
-        final int path = left.path.compareTo(right.path);
-        return path != 0 ? path : left.line.compareTo(right.line);
-      });
-    final Map<String, int> nameCounts = <String, int>{};
-    for (final FunctionSource function in ordered) {
-      nameCounts.update(
-        function.name,
-        (int count) => count + 1,
-        ifAbsent: () => 1,
-      );
-    }
-    final List<String> strippedSources = ordered
-        .map(
-          (FunctionSource function) =>
-              _codeWithoutCommentsAndStrings(function.source),
-        )
-        .toList(growable: false);
-
+    final YagniCallIndex index = callIndex ?? YagniCallIndex(functions);
     final List<Finding> findings = <Finding>[];
-    for (final FunctionSource function in ordered) {
+    for (final FunctionSource function in index.ordered) {
       if (!_supportsLanguage(function.path, _constantArgumentLanguages) ||
           !_isPrivateFunction(function) ||
-          nameCounts[function.name] != 1 ||
+          index.nameCounts[function.name] != 1 ||
           _isOverride(function.source)) {
         continue;
       }
       final List<String>? parameters = _requiredParameterNames(function);
       if (parameters == null || parameters.isEmpty) continue;
-      final List<List<String>> calls = _visibleCalls(
-        ordered,
-        strippedSources,
-        function,
-      );
+      final List<List<String>> calls = index.visibleCalls(function);
       if (calls.length < 3 ||
           calls.any(
             (List<String> arguments) => arguments.length != parameters.length,
           )) {
         continue;
       }
-      final int references = _referenceCount(strippedSources, function.name);
+      final int references = index.referenceCount(function.name);
       if (references != calls.length + 1) continue;
 
       final String functionCode = _codeWithoutCommentsAndStrings(
@@ -430,32 +497,14 @@ final class RepositoryAnalysis {
   List<Finding> unusedCustomizationHookFindings({
     required Iterable<FunctionSource> functions,
     required AnalysisConfig config,
+    YagniCallIndex? callIndex,
   }) {
-    final List<FunctionSource> ordered = functions.toList(growable: false)
-      ..sort((FunctionSource left, FunctionSource right) {
-        final int path = left.path.compareTo(right.path);
-        return path != 0 ? path : left.line.compareTo(right.line);
-      });
-    final Map<String, int> nameCounts = <String, int>{};
-    for (final FunctionSource function in ordered) {
-      nameCounts.update(
-        function.name,
-        (int count) => count + 1,
-        ifAbsent: () => 1,
-      );
-    }
-    final List<String> strippedSources = ordered
-        .map(
-          (FunctionSource function) =>
-              _codeWithoutCommentsAndStrings(function.source),
-        )
-        .toList(growable: false);
-
+    final YagniCallIndex index = callIndex ?? YagniCallIndex(functions);
     final List<Finding> findings = <Finding>[];
-    for (final FunctionSource function in ordered) {
+    for (final FunctionSource function in index.ordered) {
       if (!_supportsLanguage(function.path, _customizationHookLanguages) ||
           !_isPrivateFunction(function) ||
-          nameCounts[function.name] != 1 ||
+          index.nameCounts[function.name] != 1 ||
           _isOverride(function.source)) {
         continue;
       }
@@ -465,13 +514,9 @@ final class RepositoryAnalysis {
           })
           .toList(growable: false);
       if (hooks.isEmpty) continue;
-      final List<List<String>> calls = _visibleCalls(
-        ordered,
-        strippedSources,
-        function,
-      );
+      final List<List<String>> calls = index.visibleCalls(function);
       if (calls.length < 3) continue;
-      final int references = _referenceCount(strippedSources, function.name);
+      final int references = index.referenceCount(function.name);
       if (references != calls.length + 1) continue;
 
       for (final _OptionalParameter hook in hooks) {
@@ -505,32 +550,14 @@ final class RepositoryAnalysis {
   List<Finding> unusedOptionalParameterFindings({
     required Iterable<FunctionSource> functions,
     required AnalysisConfig config,
+    YagniCallIndex? callIndex,
   }) {
-    final List<FunctionSource> ordered = functions.toList(growable: false)
-      ..sort((FunctionSource left, FunctionSource right) {
-        final int path = left.path.compareTo(right.path);
-        return path != 0 ? path : left.line.compareTo(right.line);
-      });
-    final Map<String, int> nameCounts = <String, int>{};
-    for (final FunctionSource function in ordered) {
-      nameCounts.update(
-        function.name,
-        (int count) => count + 1,
-        ifAbsent: () => 1,
-      );
-    }
-    final List<String> strippedSources = ordered
-        .map(
-          (FunctionSource function) =>
-              _codeWithoutCommentsAndStrings(function.source),
-        )
-        .toList(growable: false);
-
+    final YagniCallIndex index = callIndex ?? YagniCallIndex(functions);
     final List<Finding> findings = <Finding>[];
-    for (final FunctionSource function in ordered) {
+    for (final FunctionSource function in index.ordered) {
       if (!_supportsLanguage(function.path, _optionalParameterLanguages) ||
           !_isPrivateFunction(function) ||
-          nameCounts[function.name] != 1 ||
+          index.nameCounts[function.name] != 1 ||
           _isOverride(function.source)) {
         continue;
       }
@@ -540,13 +567,9 @@ final class RepositoryAnalysis {
           })
           .toList(growable: false);
       if (parameters.isEmpty) continue;
-      final List<List<String>> calls = _visibleCalls(
-        ordered,
-        strippedSources,
-        function,
-      );
+      final List<List<String>> calls = index.visibleCalls(function);
       if (calls.length < 3) continue;
-      final int references = _referenceCount(strippedSources, function.name);
+      final int references = index.referenceCount(function.name);
       if (references != calls.length + 1) continue;
 
       for (final _OptionalParameter parameter in parameters) {
@@ -579,49 +602,27 @@ final class RepositoryAnalysis {
   List<Finding> unusedConfigurationOptionFindings({
     required Iterable<FunctionSource> functions,
     required AnalysisConfig config,
+    YagniCallIndex? callIndex,
   }) {
-    final List<FunctionSource> ordered = functions.toList(growable: false)
-      ..sort((FunctionSource left, FunctionSource right) {
-        final int path = left.path.compareTo(right.path);
-        return path != 0 ? path : left.line.compareTo(right.line);
-      });
-    final Map<String, int> nameCounts = <String, int>{};
-    for (final FunctionSource function in ordered) {
-      nameCounts.update(
-        function.name,
-        (int count) => count + 1,
-        ifAbsent: () => 1,
-      );
-    }
-    final List<String> strippedSources = ordered
-        .map(
-          (FunctionSource function) =>
-              _codeWithoutCommentsAndStrings(function.source),
-        )
-        .toList(growable: false);
-
+    final YagniCallIndex index = callIndex ?? YagniCallIndex(functions);
     final List<Finding> findings = <Finding>[];
-    for (final FunctionSource function in ordered) {
+    for (final FunctionSource function in index.ordered) {
       if (!_supportsLanguage(function.path, _configurationOptionLanguages) ||
           !_isPrivateFunction(function) ||
-          nameCounts[function.name] != 1 ||
+          index.nameCounts[function.name] != 1 ||
           _isOverride(function.source)) {
         continue;
       }
       final List<String>? parameters = _requiredParameterNames(function);
       if (parameters == null || parameters.isEmpty) continue;
-      final List<List<String>> calls = _visibleCalls(
-        ordered,
-        strippedSources,
-        function,
-      );
+      final List<List<String>> calls = index.visibleCalls(function);
       if (calls.length < 3 ||
           calls.any(
             (List<String> arguments) => arguments.length != parameters.length,
           )) {
         continue;
       }
-      final int references = _referenceCount(strippedSources, function.name);
+      final int references = index.referenceCount(function.name);
       if (references != calls.length + 1) continue;
 
       final String body = _functionBodyCode(function);
@@ -1717,26 +1718,6 @@ Iterable<List<String>> _callArgumentsInCode(String code, String name) sync* {
     ).map((String argument) => argument.trim()).toList(growable: false);
   }
 }
-
-List<List<String>> _visibleCalls(
-  List<FunctionSource> functions,
-  List<String> strippedSources,
-  FunctionSource target,
-) {
-  final List<List<String>> result = <List<String>>[];
-  for (var index = 0; index < functions.length; index++) {
-    if (identical(functions[index], target)) continue;
-    result.addAll(_callArgumentsInCode(strippedSources[index], target.name));
-  }
-  return result;
-}
-
-int _referenceCount(List<String> strippedSources, String identifier) =>
-    strippedSources.fold(
-      0,
-      (int total, String source) =>
-          total + _identifierCount(source, identifier),
-    );
 
 String? _simpleConstant(String argument) {
   final String normalized = argument.replaceAll(cachedRegExp(r'\s+'), '');
