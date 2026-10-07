@@ -1,8 +1,16 @@
 name: Code Buster Release
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version already prepared on main, without the v prefix
+        required: true
+        type: string
+
+concurrency:
+  group: code-buster-release
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -11,16 +19,21 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
+      - name: Require the main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo 'Releases must be dispatched from main.' >&2
+          exit 1
       - uses: actions/checkout@v5
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
       - run: dart pub get
-      - run: dart run tool/release_version.dart '${{ github.ref_name }}'
+      - run: dart run tool/release_version.dart 'v${{ inputs.version }}'
       - run: dart format --output=none --set-exit-if-changed bin example lib tool/*.dart
       - run: dart analyze
       - run: dart run tool/default_contract.dart
-      - run: dart test
+      - run: dart test -j 1
       - run: dart doc --dry-run
       - run: dart pub publish --dry-run
       - name: Validate pub.dev package quality
@@ -34,8 +47,32 @@ jobs:
           dart compile exe bin/cb.dart -o build/cb
           python3 tool/precision_benchmark.py
 
-  artifacts:
+  create-tag:
     needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Create release tag
+        id: release-tag
+        env:
+          RELEASE_TAG: v${{ inputs.version }}
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Tag $RELEASE_TAG already exists." >&2
+            exit 1
+          fi
+          git tag "$RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "$RELEASE_TAG"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+  artifacts:
+    needs: create-tag
     permissions:
       contents: read
     strategy:
@@ -57,9 +94,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dart-lang/setup-dart@v1
         with:
-          sdk: stable
+          ref: ${{ needs.create-tag.outputs.tag }}
+      - uses: dart-lang/setup-dart@v1
       - run: dart pub get
       - name: Compile
         shell: bash
@@ -85,24 +122,27 @@ jobs:
           if-no-files-found: error
 
   publish-github-release:
-    needs: artifacts
+    needs: [create-tag, artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.create-tag.outputs.tag }}
       - uses: dart-lang/setup-dart@v1
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
       - name: Extract reviewed changelog notes
-        run: dart run tool/release_notes.dart '${{ github.ref_name }}' release-notes.md
+        run: dart run tool/release_notes.dart '${{ needs.create-tag.outputs.tag }}' release-notes.md
       - name: Create checksums
         run: cd dist && sha256sum * > SHA256SUMS
       - name: Publish GitHub release with changelog notes
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.create-tag.outputs.tag }}
           body_path: release-notes.md
           files: |
             dist/*
