@@ -179,10 +179,8 @@ explicit project decision.
 
 ## Pull requests
 
-Open pull requests against the `develop` branch. `develop` is the integration
-branch for ongoing work; `main` tracks reviewed release-ready changes. Direct
-pull requests to `main` are reserved for an explicitly coordinated release fix
-or hotfix.
+Open pull requests against `main`. Keep feature and fix branches short-lived.
+`main` is the single long-lived branch and must remain releasable.
 
 A pull request should:
 
@@ -196,6 +194,20 @@ A pull request should:
 
 Keep commits reviewable. A maintainer may request narrower matching or more
 negative fixtures when a rule's precision is not demonstrated.
+
+## Releases
+
+Prepare a release in a normal pull request targeting `main`. That pull request
+must update `pubspec.yaml`, the generated embedded version, `CHANGELOG.md`, and
+any changed contracts. Merge it only after the complete verification suite
+passes.
+
+After the release preparation pull request is merged, a maintainer triggers the
+`Code Buster Release` workflow from `main` and supplies the exact package
+version. The workflow validates version agreement, creates the corresponding
+`vX.Y.Z` tag, builds and smoke-tests native archives, writes checksums, and
+publishes the GitHub release. Publishing to pub.dev and updating the Homebrew
+tap remain explicit maintainer actions after the GitHub release succeeds.
 
 By contributing, you agree that your contribution is provided under the
 project's [MIT License](LICENSE).

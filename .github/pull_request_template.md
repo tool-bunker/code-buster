@@ -8,7 +8,7 @@ List the commands or scenarios used to verify the change.
 
 ## Checklist
 
-- [ ] This pull request targets `develop` rather than `main`.
+- [ ] This pull request targets `main`.
 - [ ] Changed behavior has regression coverage where appropriate.
 - [ ] Rule-count, schema, cache, CLI, or public-API changes are called out.
 - [ ] The change avoids unrelated formatting and generated-file churn.
