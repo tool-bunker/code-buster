@@ -17,15 +17,16 @@
   </p>
 </p>
 
-## Find what your AI agent missed
+## Keep your AI agent grounded
 
-Code Buster is a deterministic, offline repository-analysis CLI. It examines
-individual files and relationships across a repository, then reports potential
-issues for you or your AI agent to evaluate and fix.
+Code Buster gives AI coding agents a deterministic, offline feedback loop they
+can run while working. Context overload and hallucinations remain practical
+constraints, so Code Buster examines individual files and relationships across
+a repository to surface issues that prompts can miss.
 
-It does not upload source code, call an AI provider, or make semantic changes on
-its own. The executable is `cb`; optional repository configuration lives in
-`code-buster.toml`.
+It does not upload source code, call an AI provider, consume model tokens, or
+make semantic changes on its own. The executable is `cb`; optional repository
+configuration lives in `code-buster.toml`.
 
 - 18 recognized source languages
 - 450+ registered rules
@@ -99,17 +100,24 @@ evidence for review, not proof that the code is wrong.
 
 ## Use it with an AI coding agent
 
-Code Buster can give an agent focused repository evidence without placing the
-whole codebase in the model's context:
+Make Code Buster part of the agent's working loop rather than waiting for a
+final review:
+
+1. Let the agent implement a focused change.
+2. Run the narrowest relevant Code Buster command.
+3. Have the agent evaluate relevant findings and iterate.
+4. Review the resulting diff, run the project's tests, and exercise the changed
+   behavior.
+
+For a compact, repository-aware review signal without placing the whole
+codebase in the model's context:
 
 ```sh
 cb review --format json
 ```
 
-Pass relevant findings to the agent, ask it to evaluate each one against the
-intended behavior, review the proposed change, then run the project's own tests
-and exercise the changed path. Code Buster finds issues; the developer or agent
-decides what matters and makes the fix.
+Code Buster finds potential issues; the developer or agent decides what matters
+and makes the fix.
 
 ## Language and framework support
 
