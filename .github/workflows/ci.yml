@@ -27,7 +27,7 @@ jobs:
         run: |
           mkdir -p build
           dart compile exe bin/cb.dart -o build/cb-test
-      - run: dart test
+      - run: dart test -j 1
         env:
           CODE_BUSTER_TEST_EXECUTABLE: ${{ github.workspace }}/build/cb-test
       - run: dart doc --dry-run
@@ -49,7 +49,7 @@ jobs:
         run: |
           mkdir -p build
           dart compile exe bin/cb.dart -o build/cb-test
-      - run: dart test
+      - run: dart test -j 1
         env:
           CODE_BUSTER_TEST_EXECUTABLE: ${{ github.workspace }}/build/cb-test
 

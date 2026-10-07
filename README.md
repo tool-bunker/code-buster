@@ -150,6 +150,7 @@ dart compile exe bin/cb.dart -o build/cb
 ./build/cb version
 ```
 
-Open pull requests against `develop`. The `main` branch is reserved for reviewed
-release changes and coordinated hotfixes. Read [CONTRIBUTING.md](CONTRIBUTING.md)
-for the complete contribution and verification contract.
+Open pull requests against `main`. Keep branches short-lived; `main` is the
+single long-lived branch and must remain releasable. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) for the complete contribution, verification,
+and release contract.
