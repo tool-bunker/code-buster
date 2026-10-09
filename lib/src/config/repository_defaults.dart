@@ -175,115 +175,15 @@ final class RepositoryDefaults {
     final List<String> segments = normalized.split('/');
     final String name = segments.last;
     final Set<String> segmentSet = segments.toSet();
-    var hasUnderscoreTestSuffix = false;
-    var hasTestFlavor = false;
-    var hasExampleFlavor = false;
-    for (final String segment in segments) {
-      hasUnderscoreTestSuffix |= segment.endsWith('_test');
-      hasTestFlavor |=
-          segment.endsWith('.test') ||
-          segment.endsWith('.tests') ||
-          segment.endsWith('.unittest') ||
-          segment.endsWith('.unittests') ||
-          segment.endsWith('.integrationtest') ||
-          segment.endsWith('.integrationtests') ||
-          segment.contains('.tests.') ||
-          segment == 'test-unit' ||
-          segment == 'tests-unit' ||
-          segment == 'unit-tests';
-      hasExampleFlavor |=
-          segment.startsWith('example_') ||
-          segment.endsWith('_examples') ||
-          segment.endsWith('-examples') ||
-          segment.endsWith('.benchmark') ||
-          segment.endsWith('.benchmarks');
-    }
-    bool has(Set<String> names) => segmentSet.any(names.contains);
-    if (hasUnderscoreTestSuffix) {
+    final int flavors = _pathFlavors(segments);
+
+    if ((flavors & _underscoreTestFlavor) != 0 || _isTestFileName(name)) {
       return 'test';
     }
-    if (cachedRegExp(
-      r'(?:_test\.(?:dart|go|py|rs)|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$',
-    ).hasMatch(name)) {
-      return 'test';
-    }
-    if (name.contains('.generated.') ||
-        name.contains('_generated.') ||
-        cachedRegExp(
-          r'\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$',
-        ).hasMatch(name) ||
-        name.endsWith('.gen.go') ||
-        name.endsWith('.pb.go') ||
-        name.endsWith('.pb.cc') ||
-        name.endsWith('.pb.h')) {
-      return 'generated';
-    }
-    if (cachedRegExp(
-      r'^(?:test_?util|test_?helpers?)\.[^.]+$',
-    ).hasMatch(name)) {
-      return 'test';
-    }
-    if (cachedRegExp(
-      r'(?:^|/)src/[^/]*test(?:fixtures)?(?:/|$)',
-    ).hasMatch(normalized)) {
-      return 'test';
-    }
-    if (normalized.contains('/src/it/') ||
-        normalized.endsWith('/src/it') ||
-        normalized == 'src/it' ||
-        normalized.contains('/src/testfixtures/') ||
-        normalized.endsWith('/src/testfixtures') ||
-        normalized == 'src/testfixtures') {
-      return 'test';
-    }
-    if (has(const <String>{
-          'test',
-          'tests',
-          '__tests__',
-          'test_suite',
-          'testassets',
-          'testenv',
-          'test_assets',
-          'integration_test',
-          'integration_tests',
-          'test_integration',
-          'test_fixes',
-          'testcase',
-          'testcases',
-          '__testfixtures__',
-          'test_profile',
-          'test_release',
-          'automated_tests',
-          'testing',
-          'manual_tests',
-          'testresults',
-          '__fixtures__',
-          'fixture',
-          'fixtures',
-        }) ||
-        hasTestFlavor) {
-      return 'test';
-    }
-    if (segments.first == 'templates') return 'example';
-    if (has(const <String>{
-          'example',
-          'examples',
-          'sample',
-          'samples',
-          'demo',
-          'demos',
-          'docs_src',
-          'benches',
-          'bench',
-          'benchmark',
-          'benchmarks',
-          'storybook',
-          'evals',
-        }) ||
-        hasExampleFlavor) {
-      return 'example';
-    }
-    if (has(const <String>{
+    if (_isGeneratedFileName(name)) return 'generated';
+    if (_isTestPath(normalized, name, segmentSet, flavors)) return 'test';
+    if (_isExamplePath(segments, segmentSet, flavors)) return 'example';
+    if (_hasSegment(segmentSet, const <String>{
       'vendor',
       'vendored',
       'third_party',
@@ -292,7 +192,124 @@ final class RepositoryDefaults {
     })) {
       return 'vendored';
     }
-    final int buildIndex = segments.indexOf('build');
+    if (_isGeneratedDirectory(segments, segmentSet)) return 'generated';
+    return 'production';
+  }
+
+  static const int _underscoreTestFlavor = 1;
+  static const int _testFlavor = 2;
+  static const int _exampleFlavor = 4;
+
+  static int _pathFlavors(List<String> segments) {
+    var result = 0;
+    for (final String segment in segments) {
+      if (segment.endsWith('_test')) result |= _underscoreTestFlavor;
+      if (segment.endsWith('.test') ||
+          segment.endsWith('.tests') ||
+          segment.endsWith('.unittest') ||
+          segment.endsWith('.unittests') ||
+          segment.endsWith('.integrationtest') ||
+          segment.endsWith('.integrationtests') ||
+          segment.contains('.tests.') ||
+          segment == 'test-unit' ||
+          segment == 'tests-unit' ||
+          segment == 'unit-tests') {
+        result |= _testFlavor;
+      }
+      if (segment.startsWith('example_') ||
+          segment.endsWith('_examples') ||
+          segment.endsWith('-examples') ||
+          segment.endsWith('.benchmark') ||
+          segment.endsWith('.benchmarks')) {
+        result |= _exampleFlavor;
+      }
+    }
+    return result;
+  }
+
+  static bool _isTestFileName(String name) => cachedRegExp(
+    r'(?:_test\.(?:dart|go|py|rs)|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$',
+  ).hasMatch(name);
+
+  static bool _isGeneratedFileName(String name) =>
+      name.contains('.generated.') ||
+      name.contains('_generated.') ||
+      cachedRegExp(
+        r'\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$',
+      ).hasMatch(name) ||
+      name.endsWith('.gen.go') ||
+      name.endsWith('.pb.go') ||
+      name.endsWith('.pb.cc') ||
+      name.endsWith('.pb.h');
+
+  static bool _isTestPath(
+    String normalized,
+    String name,
+    Set<String> segments,
+    int flavors,
+  ) =>
+      cachedRegExp(r'^(?:test_?util|test_?helpers?)\.[^.]+$').hasMatch(name) ||
+      cachedRegExp(
+        r'(?:^|/)src/[^/]*test(?:fixtures)?(?:/|$)',
+      ).hasMatch(normalized) ||
+      normalized.contains('/src/it/') ||
+      normalized.endsWith('/src/it') ||
+      normalized == 'src/it' ||
+      normalized.contains('/src/testfixtures/') ||
+      normalized.endsWith('/src/testfixtures') ||
+      normalized == 'src/testfixtures' ||
+      _hasSegment(segments, const <String>{
+        'test',
+        'tests',
+        '__tests__',
+        'test_suite',
+        'testassets',
+        'testenv',
+        'test_assets',
+        'integration_test',
+        'integration_tests',
+        'test_integration',
+        'test_fixes',
+        'testcase',
+        'testcases',
+        '__testfixtures__',
+        'test_profile',
+        'test_release',
+        'automated_tests',
+        'testing',
+        'manual_tests',
+        'testresults',
+        '__fixtures__',
+        'fixture',
+        'fixtures',
+      }) ||
+      (flavors & _testFlavor) != 0;
+
+  static bool _isExamplePath(
+    List<String> path,
+    Set<String> segments,
+    int flavors,
+  ) =>
+      path.first == 'templates' ||
+      _hasSegment(segments, const <String>{
+        'example',
+        'examples',
+        'sample',
+        'samples',
+        'demo',
+        'demos',
+        'docs_src',
+        'benches',
+        'bench',
+        'benchmark',
+        'benchmarks',
+        'storybook',
+        'evals',
+      }) ||
+      (flavors & _exampleFlavor) != 0;
+
+  static bool _isGeneratedDirectory(List<String> path, Set<String> segments) {
+    final int buildIndex = path.indexOf('build');
     final bool sourceBuildDirectory =
         buildIndex > 0 &&
         const <String>{
@@ -300,13 +317,13 @@ final class RepositoryDefaults {
           'commands',
           'cmd',
           'cmds',
-        }.contains(segments[buildIndex - 1]);
-    if ((!sourceBuildDirectory && buildIndex >= 0) ||
-        has(const <String>{'dist', 'obj', '.dart_tool'})) {
-      return 'generated';
-    }
-    return 'production';
+        }.contains(path[buildIndex - 1]);
+    return (!sourceBuildDirectory && buildIndex >= 0) ||
+        _hasSegment(segments, const <String>{'dist', 'obj', '.dart_tool'});
   }
+
+  static bool _hasSegment(Set<String> segments, Set<String> names) =>
+      segments.any(names.contains);
 
   static bool _manifestExcluded(String relative) {
     final String normalized = '/${relative.toLowerCase()}/';

@@ -86,6 +86,152 @@ bool upload(String value) {
     expect(ChangedBehaviorWithoutTestRule().analyze(covered), isEmpty);
   });
 
+  test('reports stale references after a public contract is removed', () {
+    final RuleContext context = changed(
+      'String uploadAsset(String value) => value;',
+      'String upload(String value) => value;',
+      extraSources: const <String, String>{
+        'lib/caller.dart': "import 'upload.dart';\nvoid run() => upload('x');",
+      },
+      extraBase: const <String, String>{
+        'lib/caller.dart': "import 'upload.dart';\nvoid run() => upload('x');",
+      },
+    );
+
+    final List<Finding> findings = StaleContractReferenceRule()
+        .analyze(context)
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.code, 'stale-contract-reference');
+    expect(findings.single.path, 'lib/caller.dart');
+    expect(findings.single.line, 2);
+    expect(findings.single.confidence, 'high');
+    expect(findings.single.relatedFiles, <String>['lib/upload.dart']);
+  });
+
+  test('ignores private removals and references in comments or strings', () {
+    expect(
+      StaleContractReferenceRule().analyze(
+        changed(
+          'String renamed(String value) => value;',
+          'String _localOnly(String value) => value;',
+          extraSources: const <String, String>{
+            'lib/caller.dart': '_localOnly(value);',
+          },
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      StaleContractReferenceRule().analyze(
+        changed(
+          'String renamed(String value) => value;',
+          'String upload(String value) => value;',
+          extraSources: const <String, String>{
+            'lib/caller.dart':
+                "// upload(value);\nconst example = 'upload(value)';",
+          },
+        ),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports a single-line high-risk change without a related test', () {
+    final List<Finding> findings = RiskyChangeWithoutTestRule()
+        .analyze(
+          changed(
+            'double refund(double amount, double fee) => amount - fee;',
+            'double refund(double amount, double fee) => amount;',
+          ),
+        )
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.code, 'risky-change-without-test');
+    expect(findings.single.line, 1);
+    expect(findings.single.message, contains('money'));
+  });
+
+  test('accepts tested high-risk changes and low-risk or masked text', () {
+    final RuleContext covered = changed(
+      'Object decodeOrder(String source) => jsonDecode(source);',
+      'Object decodeOrder(String source) => source;',
+      paths: const <String>{'lib/upload.dart', 'test/upload_test.dart'},
+      extraSources: const <String, String>{
+        'test/upload_test.dart': 'void main() { testDecodeOrder(); }',
+      },
+      extraBase: const <String, String>{'test/upload_test.dart': ''},
+    );
+    expect(RiskyChangeWithoutTestRule().analyze(covered), isEmpty);
+    expect(
+      RiskyChangeWithoutTestRule().analyze(
+        changed(
+          "int count = oldCount + 1;\nconst note = 'parse(input)';",
+          'int count = oldCount;',
+        ),
+      ),
+      isEmpty,
+    );
+  });
+
+  test('reports new behavior duplicated from an unchanged function', () {
+    final RuleContext context = changed(
+      "String upload(String input) => input.trim().toLowerCase().replaceAll(' ', '-');",
+      '',
+      extraSources: const <String, String>{
+        'lib/slug.dart':
+            "String slugify(String value) => value.trim().toLowerCase().replaceAll(' ', '-');",
+      },
+      extraBase: const <String, String>{
+        'lib/slug.dart':
+            "String slugify(String value) => value.trim().toLowerCase().replaceAll(' ', '-');",
+      },
+    );
+
+    final List<Finding> findings = ChangedDuplicateImplementationRule()
+        .analyze(context)
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.code, 'changed-duplicate-implementation');
+    expect(findings.single.path, 'lib/upload.dart');
+    expect(findings.single.line, 1);
+    expect(findings.single.confidence, 'high');
+    expect(findings.single.relatedFiles, <String>['lib/slug.dart']);
+  });
+
+  test('accepts distinct and trivial new function bodies', () {
+    const Map<String, String> existing = <String, String>{
+      'lib/slug.dart':
+          "String slugify(String value) => value.trim().toLowerCase().replaceAll(' ', '-');",
+    };
+    expect(
+      ChangedDuplicateImplementationRule().analyze(
+        changed(
+          "String upload(String input) => input.trim().toUpperCase().replaceAll(' ', '_');",
+          '',
+          extraSources: existing,
+          extraBase: existing,
+        ),
+      ),
+      isEmpty,
+    );
+    expect(
+      ChangedDuplicateImplementationRule().analyze(
+        changed(
+          'int upload(int value) => value + 1;',
+          '',
+          extraSources: const <String, String>{
+            'lib/math.dart': 'int increment(int input) => input + 1;',
+          },
+        ),
+      ),
+      isEmpty,
+    );
+  });
+
   test('reports speculative optional feature bundles', () {
     const String after = '''
 void save({
@@ -319,6 +465,35 @@ export const code = leftPad('7', 3, '0');
 
     expect(findings, hasLength(1));
     expect(findings.single.message, contains('String.padStart'));
+  });
+
+  test('reports redundant Node dependencies only with runtime evidence', () {
+    RuleContext nodeFetch(String engine) => changed(
+      "import fetch from 'node-fetch';\nfetch(url);",
+      '',
+      paths: const <String>{'lib/upload.dart', 'package.json'},
+      auxiliaryFiles: <String, String>{
+        'package.json':
+            '{"engines":{"node":"$engine"},"dependencies":{"node-fetch":"^3.3.2"}}',
+        '@base/package.json':
+            '{"engines":{"node":"$engine"},"dependencies":{}}',
+      },
+    );
+
+    final List<Finding> findings = ThinDependencyForTrivialCapabilityRule()
+        .analyze(nodeFetch('>=18'))
+        .toList();
+
+    expect(findings, hasLength(1));
+    expect(findings.single.message, contains('global fetch'));
+    expect(
+      ThinDependencyForTrivialCapabilityRule().analyze(nodeFetch('>=16')),
+      isEmpty,
+    );
+    expect(
+      ThinDependencyForTrivialCapabilityRule().analyze(nodeFetch('*')),
+      isEmpty,
+    );
   });
 
   test('accepts existing reused and unmapped dependencies', () {

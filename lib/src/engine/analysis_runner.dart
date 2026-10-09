@@ -240,7 +240,7 @@ final class AnalysisRunner {
               prepared,
               effectiveCommand,
               analyzeRules,
-              cacheable: () => indexed!.languages.values.every(
+              cacheable: () => resolveIndexed().languages.values.every(
                 (LanguageAnalysis language) => language.diagnostics.isEmpty,
               ),
             )

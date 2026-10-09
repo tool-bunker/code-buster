@@ -1,5 +1,7 @@
 // Python adapters and rules share source lines and lexical masking through this repository-local index.
 
+import '../../core/models.dart';
+
 /// Immutable source facts for one Python file.
 final class PythonSourceFacts {
   /// Creates facts for [path] and [source].
@@ -27,8 +29,10 @@ final class PythonSourceIndex {
     return PythonSourceIndex._(
       List<PythonSourceFacts>.unmodifiable(
         paths.map(
-          (String path) =>
-              PythonSourceFacts(path: path, source: sources[path]!),
+          (String path) => PythonSourceFacts(
+            path: path,
+            source: sources.requiredValue(path),
+          ),
         ),
       ),
     );
