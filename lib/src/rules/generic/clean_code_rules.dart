@@ -50,7 +50,7 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'Disabled source in comments rots, obscures current behavior, and duplicates version-control history.',
     'Delete the disabled code and recover it from version control if it is needed later.',
     maturity: RuleSemanticMaturity.token,
-    version: 2,
+    version: 3,
   ),
   'placeholder-identifier': _metadata(
     'placeholder-identifier',
@@ -66,6 +66,7 @@ final Map<String, RuleMetadata> cleanCodeRuleMetadata = <String, RuleMetadata>{
     'One function coordinates several unrelated external boundaries, increasing coupling and change surface.',
     'Keep orchestration explicit, or move independently changing boundary work behind focused operations.',
     maturity: RuleSemanticMaturity.project,
+    version: 2,
   ),
   'repeated-policy-literal': _metadata(
     'repeated-policy-literal',
@@ -229,6 +230,9 @@ final class CommentedOutCodeRule extends _CleanCodeRule {
   static final RegExp _code = cachedRegExp(
     r'^(?:\s*(?:public|private|protected|internal|static|final|const|var|let|def|class|interface|return|throw|if\s*\(|for\s*\(|while\s*\(|[A-Za-z_$]\w*\s*[.(\[]).*(?:[;{}]|=>)\s*)$',
   );
+  static final RegExp _memberAccessProse = cachedRegExp(
+    r'^[A-Za-z_$]\w*(?:\.[A-Za-z_$]\w*)+\s+[A-Za-z]',
+  );
 
   static const Set<String> _hashCommentExtensions = <String>{
     '.mojo',
@@ -269,6 +273,7 @@ final class CommentedOutCodeRule extends _CleanCodeRule {
         final String body = comment.requiredGroup(1).trim();
         if (body.length >= 8 &&
             _code.hasMatch(body) &&
+            !_memberAccessProse.hasMatch(body) &&
             !_looksLikeDirective(body) &&
             !_isDocumentedExample(lines, index)) {
           yield finding(
@@ -344,13 +349,14 @@ final class MixedBoundaryResponsibilityRule extends _CleanCodeRule {
 
   static const Map<String, String> _boundaries = <String, String>{
     'persistence':
-        r'\b(?:insert|update|delete|save|repository|database|query|executeSql)\b',
-    'network': r'\b(?:http|client\.(?:get|post|put|send)|fetch|request)\b',
+        r'\b(?:(?:repository|database)\s*\.|(?:insert|update|delete|save|query|executeSql)\s*\()',
+    'network':
+        r'\b(?:https?\s*\.|fetch\s*\(|request\s*\(|client\s*\.\s*(?:get|post|put|send)\s*\()',
     'filesystem':
-        r'\b(?:File|Directory|readAs|writeAs|openSync|readFile|writeFile)\b',
-    'process': r'\b(?:Process\.(?:run|start)|exec|spawn|subprocess)\b',
-    'telemetry': r'\b(?:analytics|telemetry|metrics|track|logger?\.)\b',
-    'navigation': r'\b(?:Navigator|router\.|redirect|navigate)\b',
+        r'\b(?:File|Directory)\s*\(|\b(?:readAs|writeAs|openSync|readFile|writeFile)\s*\(',
+    'process': r'\b(?:Process\s*\.\s*(?:run|start)|exec|spawn|subprocess)\s*\(',
+    'telemetry': r'\b(?:analytics|telemetry|metrics|track|logger?)\s*\.',
+    'navigation': r'\b(?:Navigator\s*\.|(?:redirect|navigate)\s*\()',
   };
 
   @override

@@ -435,7 +435,7 @@
       "id": "commented-out-code",
       "severity": "info",
       "group": "maintainability",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -4966,7 +4966,7 @@
       "id": "mixed-boundary-responsibility",
       "severity": "info",
       "group": "maintainability",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -9061,7 +9061,7 @@
       "id": "rust-blocking-call-in-async",
       "severity": "warn",
       "group": "performance",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "ast",
       "securityKind": "none",
       "taxonomy": [
@@ -9085,7 +9085,7 @@
       "id": "rust-command-shell",
       "severity": "warn",
       "group": "security",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "token",
       "securityKind": "hotspot",
       "taxonomy": [
@@ -9109,7 +9109,7 @@
       "id": "rust-dbg-macro",
       "severity": "info",
       "group": "nim-style",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9132,7 +9132,7 @@
       "id": "rust-expect",
       "severity": "info",
       "group": "core",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9155,7 +9155,7 @@
       "id": "rust-manual-send-sync-impl",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9179,7 +9179,7 @@
       "id": "rust-mem-forget",
       "severity": "warn",
       "group": "core",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9202,7 +9202,7 @@
       "id": "rust-panic-across-ffi-boundary",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "ast",
       "securityKind": "none",
       "taxonomy": [
@@ -9226,7 +9226,7 @@
       "id": "rust-panic-macro",
       "severity": "warn",
       "group": "core",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9249,7 +9249,7 @@
       "id": "rust-raw-ownership-reconstruction",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9273,7 +9273,7 @@
       "id": "rust-static-mut",
       "severity": "warn",
       "group": "core",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9296,7 +9296,7 @@
       "id": "rust-todo-macro",
       "severity": "info",
       "group": "core",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9319,7 +9319,7 @@
       "id": "rust-unbounded-channel",
       "severity": "info",
       "group": "performance",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9342,7 +9342,7 @@
       "id": "rust-undocumented-unsafe-block",
       "severity": "warn",
       "group": "core",
-      "version": 2,
+      "version": 3,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9390,7 +9390,7 @@
       "id": "rust-unwrap",
       "severity": "info",
       "group": "core",
-      "version": 5,
+      "version": 6,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [
@@ -9490,7 +9490,7 @@
       "id": "single-use-trivial-wrapper",
       "severity": "info",
       "group": "yagni",
-      "version": 4,
+      "version": 5,
       "semanticMaturity": "token",
       "securityKind": "none",
       "taxonomy": [

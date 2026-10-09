@@ -45,10 +45,17 @@ impl Client {
       6,
     );
   });
-  test('excludes cfg-test functions from production complexity input', () {
+  test('excludes attributed test functions from production complexity input', () {
     final functions = RustAdapter().functions(<String, String>{
       'src/lib.rs': '''
 fn production() {}
+
+#[test]
+fn standalone_fixture() {
+    if true {
+        consume(value);
+    }
+}
 
 #[cfg(all(test, not(target_os = "macos")))]
 mod tests {

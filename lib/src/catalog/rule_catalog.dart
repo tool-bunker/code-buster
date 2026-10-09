@@ -269,7 +269,7 @@ final class RuleCatalog {
           'Single-use forwarding functions and chains add navigation without owning policy, transformation, validation, or resource lifetime.',
       suggestion:
           'Inline or collapse the wrappers unless they are intentional extension or compatibility boundaries.',
-      version: 4,
+      version: 5,
       semanticMaturity: RuleSemanticMaturity.token,
       requirements: <RuleAnalysisRequirement>{
         RuleAnalysisRequirement.functions,

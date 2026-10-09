@@ -734,8 +734,8 @@ final class DuplicationAnalysis {
     final List<String> lines = source.split('\n');
     final Set<int> dartForwardingConstructorLines =
         _dartForwardingConstructorLines(source, sourcePath);
-    final Set<int> rustTestLines = sourcePath.endsWith('.rs')
-        ? rustCfgTestLines(lines)
+    final Set<int> rustExcludedTestLines = sourcePath.endsWith('.rs')
+        ? rustTestLines(lines)
         : const <int>{};
     final bool hasHashLineComments = cachedRegExp(
       r'\.pyw?$',
@@ -761,7 +761,7 @@ final class DuplicationAnalysis {
         );
         continue;
       }
-      if (rustTestLines.contains(index)) continue;
+      if (rustExcludedTestLines.contains(index)) continue;
       if (hasHashLineComments && lines[index].trimLeft().startsWith('#')) {
         continue;
       }

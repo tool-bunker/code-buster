@@ -26,7 +26,7 @@ final class RustFileAnalysis {
     commentRanges = List<RustCommentRange>.unmodifiable(scan.comments);
     lines = List<String>.unmodifiable(masked.split('\n'));
     commentsMaskedLines = List<String>.unmodifiable(commentsMasked.split('\n'));
-    cfgTestLines = Set<int>.unmodifiable(_attributedLines(lines, _cfgTest));
+    testLines = Set<int>.unmodifiable(_attributedLines(lines, _testOnly));
   }
 
   final String source;
@@ -35,7 +35,7 @@ final class RustFileAnalysis {
   late final List<String> lines;
   late final List<String> commentsMaskedLines;
   late final List<RustCommentRange> commentRanges;
-  late final Set<int> cfgTestLines;
+  late final Set<int> testLines;
 
   int lineAt(int offset) =>
       1 +
@@ -122,9 +122,11 @@ bool _isSafetyComment(String text) => cachedRegExp(
   caseSensitive: false,
 ).hasMatch(text.replaceAll(RegExp(r'^\s*(?://+|/\*+|\*+|\*/)'), '').trim());
 
-bool _cfgTest(String line) => cachedRegExp(
-  r'#\s*\[\s*cfg\s*\([^\n]*\btest\b[^\n]*\)\s*\]',
-).hasMatch(line);
+bool _testOnly(String line) =>
+    cachedRegExp(
+      r'#\s*\[\s*cfg\s*\([^\n]*\btest\b[^\n]*\)\s*\]',
+    ).hasMatch(line) ||
+    cachedRegExp(r'#\s*\[\s*test\s*\]').hasMatch(line);
 
 Set<int> _attributedLines(
   List<String> lines,

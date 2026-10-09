@@ -53,7 +53,7 @@ fn run() {
       }),
     );
   });
-  test('ignores cfg-test bodies and explicitly allowed Clippy lints', () {
+  test('ignores attributed test bodies and explicitly allowed Clippy lints', () {
     const String allowedSource = '''
 #![allow(clippy::unwrap_used)]
 
@@ -66,6 +66,13 @@ fn production() {
     value.expect("required");
 }
 
+
+#[test]
+fn standalone_fixture() {
+    value.unwrap();
+    value.expect("fixture");
+    panic!("fixture failure");
+}
 #[cfg(test)]
 if diagnostic_failed {
     response.unwrap();

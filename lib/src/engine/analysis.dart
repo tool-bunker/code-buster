@@ -1743,7 +1743,6 @@ RegExpMatch? _directForwardingCall(String tail) {
   if (expression == null) return null;
   return cachedRegExp(
     r'^(?:(?:this|self)\.)?([A-Za-z_$][\w$]*)\s*\(([^()]*)\)$',
-    multiLine: true,
   ).firstMatch(expression);
 }
 

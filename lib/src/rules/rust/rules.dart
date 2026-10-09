@@ -28,7 +28,7 @@ final class RustSourceRule extends SelfContainedRule {
            group: group,
            title: title,
            why: why,
-           version: 5,
+           version: 6,
            suggestion: suggestion,
            semanticMaturity: RuleSemanticMaturity.token,
            taxonomy: <FindingTaxonomy>{taxonomy},
@@ -58,7 +58,7 @@ final class RustSourceRule extends SelfContainedRule {
           ? entry.value.commentsMaskedLines
           : entry.value.lines;
       final Set<int> excludedLines = <int>{
-        ...entry.value.cfgTestLines,
+        ...entry.value.testLines,
         ..._rustAllowedLines(lines, allowedLints),
       };
       for (var index = 0; index < lines.length; index++) {

@@ -18,7 +18,7 @@ abstract base class RustStructuredRule extends SelfContainedRule {
     Set<RuleAnalysisRequirement> requirements = const <RuleAnalysisRequirement>{
       RuleAnalysisRequirement.tokens,
     },
-    int version = 1,
+    int version = 2,
     SecurityFindingKind securityKind = SecurityFindingKind.none,
     List<String> limitations = const <String>[],
   }) : super(
@@ -45,7 +45,7 @@ abstract base class RustStructuredRule extends SelfContainedRule {
       : RustAnalysis(context.sources);
 
   bool excluded(RustFileAnalysis file, int offset) =>
-      file.cfgTestLines.contains(file.lineAt(offset) - 1);
+      file.testLines.contains(file.lineAt(offset) - 1);
 }
 
 final class RustUndocumentedUnsafeBlockRule extends RustStructuredRule {
@@ -58,7 +58,7 @@ final class RustUndocumentedUnsafeBlockRule extends RustStructuredRule {
         'Unsafe blocks transfer memory, aliasing, and lifetime obligations from the compiler to maintainers.',
         'Add an attached SAFETY comment that states the invariants making the block sound.',
         FindingTaxonomy.reliability,
-        version: 2,
+        version: 3,
         limitations: const <String>[
           'The rule verifies that a nonempty SAFETY rationale is attached, not that the rationale proves soundness.',
           'Macro-generated unsafe blocks are not visible in source text.',
@@ -230,7 +230,7 @@ final class RustCommandShellRule extends RustStructuredRule {
         'A shell command-string boundary interprets metacharacters and can turn untrusted data into commands.',
         'Invoke the target executable directly with separately supplied arguments.',
         FindingTaxonomy.security,
-        version: 5,
+        version: 6,
         securityKind: SecurityFindingKind.hotspot,
         limitations: const <String>[
           'The rule recognizes literal shell executables and command-string switches in one builder expression.',
