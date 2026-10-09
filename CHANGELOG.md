@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Improved
+
+- Simplify repository source-role classification without changing precedence, and replace provably safe null assertions with explicit invariant checks.
+- Add focused change-review findings for stale contract references, untested high-risk behavior, and new implementations duplicating unchanged repository behavior.
+- Recognize `node-fetch` and `abort-controller` as redundant native capabilities only when `package.json` declares Node.js 18 or newer.
+
 ## 0.8.0
 
 ### Added

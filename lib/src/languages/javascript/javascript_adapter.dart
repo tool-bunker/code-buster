@@ -269,7 +269,7 @@ final class JavaScriptFunctionAnalysis {
       if (nestedOpening > end) break;
       final int? nestedEnd = ends[nestedOpening];
       if (nestedEnd == null || nestedEnd > end) continue;
-      final int nestedStart = candidates[nestedOpening]!.start;
+      final int nestedStart = candidates.requiredValue(nestedOpening).start;
       for (
         var index = nestedStart - start;
         index <= nestedEnd - start;

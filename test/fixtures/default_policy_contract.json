@@ -387,6 +387,29 @@
       "enabledByDefault": true
     },
     {
+      "id": "changed-duplicate-implementation",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires a newly added one-line function with a non-trivial body matching an unchanged one-line production function after parameter normalization.",
+        "Intentional source-flavor variants and equivalent multiline implementations are not inferred.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "changed-public-api-without-test",
       "severity": "info",
       "group": "maintainability",
@@ -9012,6 +9035,29 @@
       "enabledByDefault": true
     },
     {
+      "id": "risky-change-without-test",
+      "severity": "info",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires changed-base evidence and explicit parser, authentication, authorization, money, signature, recipient, or path-operation syntax.",
+        "External tests and unchanged integration coverage cannot be resolved.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "rust-blocking-call-in-async",
       "severity": "warn",
       "group": "performance",
@@ -9690,6 +9736,29 @@
       "enabledByDefault": true
     },
     {
+      "id": "stale-contract-reference",
+      "severity": "warn",
+      "group": "yagni",
+      "version": 1,
+      "semanticMaturity": "project",
+      "securityKind": "none",
+      "taxonomy": [
+        "maintainability"
+      ],
+      "requirements": [
+        "sourceText"
+      ],
+      "languages": [],
+      "frameworks": [],
+      "languageVersions": {},
+      "limitations": [
+        "Requires changed-base evidence, a removed public declaration, and a remaining masked reference in another selected production file.",
+        "Dynamic references and declarations that do not use conventional language syntax cannot be resolved.",
+        "Runs only for focused changes touching at most five production source files."
+      ],
+      "enabledByDefault": true
+    },
+    {
       "id": "structure-missing-required-dir",
       "severity": "warn",
       "group": "core",
@@ -10006,7 +10075,7 @@
       "id": "thin-dependency-for-trivial-capability",
       "severity": "info",
       "group": "yagni",
-      "version": 1,
+      "version": 2,
       "semanticMaturity": "project",
       "securityKind": "none",
       "taxonomy": [
@@ -10020,7 +10089,8 @@
       "languageVersions": {},
       "limitations": [
         "Requires a newly added package.json production dependency, one import, one use, and an explicit semantics-preserving capability mapping.",
-        "Currently recognizes left-pad via String.padStart and object-assign via Object.assign in JavaScript and TypeScript.",
+        "Recognizes left-pad via String.padStart and object-assign via Object.assign.",
+        "Recognizes node-fetch and abort-controller globals only when package.json declares Node.js 18 or newer.",
         "Runs only for focused changes touching at most five production source files."
       ],
       "enabledByDefault": true

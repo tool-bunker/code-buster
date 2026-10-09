@@ -291,7 +291,7 @@ final class RepositoryAnalysis {
     }
 
     FunctionSource? nextWrapper(FunctionSource wrapper) {
-      final String target = eligible[wrapper]!.target;
+      final String target = eligible.requiredValue(wrapper).target;
       final List<FunctionSource> matches = eligible.keys
           .where(
             (FunctionSource function) =>
@@ -318,7 +318,7 @@ final class RepositoryAnalysis {
         if (next == null || reported.contains(next)) break;
         current = next;
       }
-      final String terminal = eligible[wrappers.last]!.target;
+      final String terminal = eligible.requiredValue(wrappers.last).target;
       final List<String> path = <String>[
         ...wrappers.map((FunctionSource wrapper) => wrapper.name),
         terminal,
