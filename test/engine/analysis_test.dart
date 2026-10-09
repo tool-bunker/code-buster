@@ -84,6 +84,43 @@ String _render(Project project) {
     expect(finding.message, contains('`_render`'));
   });
 
+  test('does not treat a multiline method chain as direct forwarding', () {
+    const List<FunctionSource> functions = <FunctionSource>[
+      FunctionSource(
+        path: 'src/mapping.rs',
+        name: 'caller',
+        line: 1,
+        source: 'fn caller() { all_mappings(); }',
+      ),
+      FunctionSource(
+        path: 'src/mapping.rs',
+        name: 'all_mappings',
+        line: 3,
+        source: '''
+fn all_mappings() -> impl Iterator<Item = Mapping> {
+  self.custom_mappings()
+      .iter()
+      .chain(self.builtin_mappings())
+}
+''',
+      ),
+      FunctionSource(
+        path: 'src/mapping.rs',
+        name: 'custom_mappings',
+        line: 10,
+        source: 'fn custom_mappings() -> Vec<Mapping> { mappings }',
+      ),
+    ];
+
+    expect(
+      repository.trivialWrapperFindings(
+        functions: functions,
+        config: const AnalysisConfig(root: '/project'),
+      ),
+      isEmpty,
+    );
+  });
+
   test('reports one finding for a maximal forwarding chain', () {
     const List<FunctionSource> functions = <FunctionSource>[
       FunctionSource(

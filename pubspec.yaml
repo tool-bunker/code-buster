@@ -1,6 +1,6 @@
 name: code_buster
 description: Deterministic offline repository architecture and multi-language static-analysis CLI.
-version: 0.8.0
+version: 0.8.1
 repository: https://github.com/tool-bunker/code-buster
 
 environment:

@@ -59,7 +59,7 @@ final class RustAdapter {
         in parsed.files.entries) {
       final RustFileAnalysis file = entry.value;
       final String code = file.masked;
-      final Set<int> testLines = file.cfgTestLines;
+      final Set<int> testLines = file.testLines;
       for (final RegExpMatch match in _function.allMatches(code)) {
         final RegExpMatch? functionName = cachedRegExp(
           r'\bfn\s+',
@@ -106,9 +106,9 @@ final class RustAdapter {
   );
 }
 
-/// Returns zero-based lines controlled by a `cfg` predicate containing `test`.
-Set<int> rustCfgTestLines(List<String> lines) =>
-    RustFileAnalysis(lines.join('\n')).cfgTestLines;
+/// Returns zero-based lines belonging to Rust test-only attributed items.
+Set<int> rustTestLines(List<String> lines) =>
+    RustFileAnalysis(lines.join('\n')).testLines;
 
 int _lineAt(String source, int offset) =>
     1 + '\n'.allMatches(source.substring(0, offset)).length;

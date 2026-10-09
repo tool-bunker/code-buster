@@ -85,6 +85,7 @@ function applyStyle(
 // final result = legacy.load();
 // Keep this ordering because the server requires it.
 // Example: call load before save.
+// ContentType.toString already handles the trailing ;
 ''',
           }),
         )
@@ -164,6 +165,31 @@ void registerUser() {
       findings.single.message,
       contains('persistence, network, filesystem'),
     );
+  });
+
+  test('ignores HTTP router vocabulary without boundary operations', () {
+    final List<Finding> findings = MixedBoundaryResponsibilityRule()
+        .analyze(
+          context(const <String, String>{
+            'lib/server.js': '''
+function buildRouting(options) {
+  // HTTP methods include DELETE and QUERY.
+  const router = createRouter(options);
+  router.prepareRoute(request);
+  logger.info('router ready');
+  const methods = ['DELETE', 'QUERY'];
+  return {
+    routing: router.lookup.bind(router),
+    request,
+    methods,
+  };
+}
+''',
+          }),
+        )
+        .toList();
+
+    expect(findings, isEmpty);
   });
 
   test('reports repeated policy literals across production files', () {

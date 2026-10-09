@@ -516,12 +516,12 @@ final class LargeInlineListRule implements CodeBusterRule {
     for (final MapEntry<String, String> source in context.sources.entries) {
       final List<String> lines = context.linesFor(source.key);
       if (_isGeneratedSource(lines)) continue;
-      final Set<int> rustTestLines = source.key.endsWith('.rs')
-          ? rustCfgTestLines(lines)
+      final Set<int> rustExcludedTestLines = source.key.endsWith('.rs')
+          ? rustTestLines(lines)
           : const <int>{};
       var inBlockComment = false;
       for (var index = 0; index < lines.length; index++) {
-        if (rustTestLines.contains(index)) continue;
+        if (rustExcludedTestLines.contains(index)) continue;
         final ({String code, bool inBlockComment}) scanned =
             _stripGenericComments(
               stripGenericRuleStrings(lines[index]),
