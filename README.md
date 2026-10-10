@@ -33,6 +33,12 @@ configuration lives in `code-buster.toml`.
 - 7 report formats
 - 0 required cloud services
 
+## See it in action
+
+<p align="center">
+  <img src="assets/media/code-buster-demo.gif" width="900" alt="Code Buster CLI analyzing a repository">
+</p>
+
 ## Quickstart
 
 Install the native Apple Silicon macOS build with Homebrew:
