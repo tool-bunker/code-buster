@@ -16,7 +16,31 @@ permissions:
   contents: read
 
 jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Resolve release tag
+        id: release-tag
+        env:
+          RELEASE_TAG: v${{ inputs.version }}
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Using existing tag $RELEASE_TAG."
+          else
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+            git push origin "$RELEASE_TAG"
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
   verify:
+    needs: resolve-tag
     runs-on: ubuntu-latest
     steps:
       - name: Require the main branch
@@ -25,6 +49,8 @@ jobs:
           echo 'Releases must be dispatched from main.' >&2
           exit 1
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
@@ -47,32 +73,8 @@ jobs:
           dart compile exe bin/cb.dart -o build/cb
           python3 tool/precision_benchmark.py
 
-  create-tag:
-    needs: verify
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      tag: ${{ steps.release-tag.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Create release tag
-        id: release-tag
-        env:
-          RELEASE_TAG: v${{ inputs.version }}
-        run: |
-          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
-            echo "Tag $RELEASE_TAG already exists." >&2
-            exit 1
-          fi
-          git tag "$RELEASE_TAG" "$GITHUB_SHA"
-          git push origin "$RELEASE_TAG"
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-
   artifacts:
-    needs: create-tag
+    needs: [resolve-tag, verify]
     permissions:
       contents: read
     strategy:
@@ -95,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.create-tag.outputs.tag }}
+          ref: ${{ needs.resolve-tag.outputs.tag }}
       - uses: dart-lang/setup-dart@v1
       - run: dart pub get
       - name: Compile
@@ -122,27 +124,27 @@ jobs:
           if-no-files-found: error
 
   publish-github-release:
-    needs: [create-tag, artifacts]
+    needs: [resolve-tag, artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.create-tag.outputs.tag }}
+          ref: ${{ needs.resolve-tag.outputs.tag }}
       - uses: dart-lang/setup-dart@v1
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
       - name: Extract reviewed changelog notes
-        run: dart run tool/release_notes.dart '${{ needs.create-tag.outputs.tag }}' release-notes.md
+        run: dart run tool/release_notes.dart '${{ needs.resolve-tag.outputs.tag }}' release-notes.md
       - name: Create checksums
         run: cd dist && sha256sum * > SHA256SUMS
       - name: Publish GitHub release with changelog notes
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.create-tag.outputs.tag }}
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
           body_path: release-notes.md
           files: |
             dist/*

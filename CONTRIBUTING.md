@@ -204,8 +204,9 @@ passes.
 
 After the release preparation pull request is merged, a maintainer triggers the
 `Code Buster Release` workflow from `main` and supplies the exact package
-version. The workflow validates version agreement, creates the corresponding
-`vX.Y.Z` tag, builds and smoke-tests native archives, writes checksums, and
+version. The workflow reuses an existing matching `vX.Y.Z` tag or creates it
+from the selected `main` revision, then validates that tagged source, builds
+and smoke-tests native archives, writes checksums, and
 publishes the GitHub release. Publishing to pub.dev and updating the Homebrew
 tap remain explicit maintainer actions after the GitHub release succeeds.
 
