@@ -7,7 +7,7 @@ use regex::Regex;
 use std::process::Command;
 use std::time::Instant;
 
-use crate::analysis_cache::AnalysisCache;
+use crate::analysis_cache::{AnalysisCache, FindingCacheInputs};
 use crate::analysis_engine;
 use crate::cli::PreviewOptions;
 use crate::discovery::{AnalysisProfile, PreparedPreview, is_builtin_production_path, prepare};
@@ -76,27 +76,14 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
         options.changed_base.is_some(),
         &auxiliary,
     );
-    let mut cache_sources = analysis_prepared.sources.clone();
-    cache_sources.extend(
-        base_sources
-            .iter()
-            .map(|(path, source)| (format!("@base/{path}"), source.clone())),
-    );
-    cache_sources.extend(
-        changed_paths
-            .iter()
-            .map(|path| (format!("@changed/{path}"), String::new())),
-    );
-    cache_sources.extend(
-        auxiliary
-            .iter()
-            .map(|(path, source)| (format!("@aux/{path}"), source.clone())),
-    );
     stage_durations.insert("preparation".to_owned(), started.elapsed().as_millis());
 
     progress.set_phase("Building dependency graph…");
     let graph_started = Instant::now();
-    let mut cache = AnalysisCache::new(options, Path::new(&analysis_prepared.root));
+    let mut cache =
+        AnalysisCache::new(options, Path::new(&analysis_prepared.root)).with_finding_inputs(
+            FindingCacheInputs::new(&base_sources, &changed_paths, &auxiliary),
+        );
     let graph = cache.graph(analysis_prepared);
     stage_durations.insert("graph".to_owned(), graph_started.elapsed().as_millis());
 
@@ -120,22 +107,21 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
     );
     let mut rule_family_durations = BTreeMap::new();
     let mut analysis_profile = AnalysisProfile::default();
-    let mut findings =
-        if let Some(findings) = cache.findings(analysis_prepared, &cache_sources, &family) {
-            findings
-        } else {
-            let output = analysis_engine::analyze(
-                analysis_prepared,
-                &context,
-                &graph,
-                &plan,
-                options.verbose || options.profile,
-            )?;
-            cache.store_findings(analysis_prepared, &cache_sources, &family, &output.findings);
-            rule_family_durations = output.family_durations_milliseconds;
-            analysis_profile = output.profile;
-            output.findings
-        };
+    let mut findings = if let Some(findings) = cache.findings(analysis_prepared, &family) {
+        findings
+    } else {
+        let output = analysis_engine::analyze(
+            analysis_prepared,
+            &context,
+            &graph,
+            &plan,
+            options.verbose || options.profile,
+        )?;
+        cache.store_findings(analysis_prepared, &family, &output.findings);
+        rule_family_durations = output.family_durations_milliseconds;
+        analysis_profile = output.profile;
+        output.findings
+    };
     stage_durations.insert("rules".to_owned(), rules_started.elapsed().as_millis());
 
     progress.set_phase("Preparing report…");

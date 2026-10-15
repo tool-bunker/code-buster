@@ -274,6 +274,86 @@ fn summary_reuses_and_invalidates_the_persistent_analysis_cache() {
 }
 
 #[test]
+fn summary_cache_tracks_auxiliary_and_style_inputs() {
+    let root = TempDirectory::new("cbr-summary-cache-inputs-root");
+    let cache = TempDirectory::new("cbr-summary-cache-inputs-directory");
+    root.write("src/main.js", b"export const ready = true;\n");
+    root.write("package.json", br#"{"version":"1"}"#);
+    let cache_path = cache.path.to_str().expect("cache path must be UTF-8");
+    let arguments = ["--format", "json", "--verbose", "--cache-dir", cache_path];
+
+    let run = || {
+        let output = run_summary(&root.path, &arguments);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stderr.is_empty());
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .expect("summary must emit JSON")
+    };
+
+    assert_eq!(
+        run()["manifest"]["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": false})
+    );
+    assert_eq!(
+        run()["manifest"]["cache"],
+        serde_json::json!({"graphHit": true, "findingsHit": true})
+    );
+
+    root.write("package.json", br#"{"version":"2"}"#);
+    assert_eq!(
+        run()["manifest"]["cache"],
+        serde_json::json!({"graphHit": true, "findingsHit": false})
+    );
+    assert_eq!(
+        run()["manifest"]["cache"],
+        serde_json::json!({"graphHit": true, "findingsHit": true})
+    );
+
+    root.write(".editorconfig", b"root = true\n");
+    assert_eq!(
+        run()["manifest"]["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": false})
+    );
+}
+
+#[test]
+fn summary_cache_reuses_findings_with_malformed_source_diagnostics() {
+    let root = TempDirectory::new("cbr-summary-cache-malformed-root");
+    let cache = TempDirectory::new("cbr-summary-cache-malformed-directory");
+    root.write("src/main.js", b"export const value = '\xff';\n");
+    let cache_path = cache.path.to_str().expect("cache path must be UTF-8");
+    let arguments = ["--format", "json", "--verbose", "--cache-dir", cache_path];
+
+    let run = || {
+        let output = run_summary(&root.path, &arguments);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stderr.is_empty());
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .expect("summary must emit JSON")
+    };
+
+    let first = run();
+    assert_eq!(
+        first["manifest"]["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": false})
+    );
+    assert_eq!(
+        first["processingDiagnostics"][0]["code"],
+        "malformed-utf8"
+    );
+
+    let second = run();
+    assert_eq!(
+        second["manifest"]["cache"],
+        serde_json::json!({"graphHit": true, "findingsHit": true})
+    );
+    assert_eq!(
+        second["processingDiagnostics"][0]["code"],
+        "malformed-utf8"
+    );
+}
+
+#[test]
 fn summary_keeps_filtered_findings_out_of_the_full_analysis_cache() {
     let root = TempDirectory::new("cbr-summary-only-cache-root");
     let cache = TempDirectory::new("cbr-summary-only-cache-directory");

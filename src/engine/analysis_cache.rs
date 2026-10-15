@@ -12,16 +12,60 @@ use crate::discovery::PreparedPreview;
 use crate::findings::{CodeFlowStep, Finding, Severity};
 use crate::report::cache_material;
 
-const CACHE_SCHEMA_VERSION: u64 = 1;
+const CACHE_SCHEMA_VERSION: u64 = 2;
+const STYLE_CONFIG_NAMES: [&str; 6] = [
+    ".prettierrc",
+    ".prettierrc.json",
+    ".prettierrc.js",
+    "prettier.config.js",
+    ".editorconfig",
+    "biome.json",
+];
 
-pub(crate) struct AnalysisCache {
+#[derive(Clone, Copy)]
+pub(crate) struct FindingCacheInputs<'source> {
+    base_sources: &'source BTreeMap<String, String>,
+    changed_paths: &'source BTreeSet<String>,
+    auxiliary: &'source BTreeMap<String, String>,
+}
+
+impl<'source> FindingCacheInputs<'source> {
+    pub fn new(
+        base_sources: &'source BTreeMap<String, String>,
+        changed_paths: &'source BTreeSet<String>,
+        auxiliary: &'source BTreeMap<String, String>,
+    ) -> Self {
+        Self {
+            base_sources,
+            changed_paths,
+            auxiliary,
+        }
+    }
+
+    fn hash_into(self, hasher: &mut Sha256) {
+        for (path, source) in self.auxiliary {
+            hash_entry(hasher, b"auxiliary", path.as_bytes(), source.as_bytes());
+        }
+        for (path, source) in self.base_sources {
+            hash_entry(hasher, b"base", path.as_bytes(), source.as_bytes());
+        }
+        for path in self.changed_paths {
+            hash_entry(hasher, b"changed", path.as_bytes(), b"");
+        }
+    }
+}
+
+pub(crate) struct AnalysisCache<'source> {
     enabled: bool,
     directory: PathBuf,
+    finding_inputs: Option<FindingCacheInputs<'source>>,
+    source_fingerprint: Option<[u8; 32]>,
+    finding_paths: BTreeMap<String, PathBuf>,
     pub graph_hit: bool,
     pub findings_hit: bool,
 }
 
-impl AnalysisCache {
+impl<'source> AnalysisCache<'source> {
     pub fn new(options: &PreviewOptions, project_root: &Path) -> Self {
         let directory = options
             .cache_directory
@@ -31,16 +75,24 @@ impl AnalysisCache {
         Self {
             enabled: options.cache_enabled,
             directory,
+            finding_inputs: None,
+            source_fingerprint: None,
+            finding_paths: BTreeMap::new(),
             graph_hit: false,
             findings_hit: false,
         }
+    }
+
+    pub fn with_finding_inputs(mut self, inputs: FindingCacheInputs<'source>) -> Self {
+        self.finding_inputs = Some(inputs);
+        self
     }
 
     pub fn graph(&mut self, prepared: &PreparedPreview) -> DependencyGraph {
         if !self.enabled {
             return DependencyGraph::build(prepared);
         }
-        let key = cache_key(prepared, &prepared.sources, "graph");
+        let key = self.cache_key(prepared, "graph", false);
         let path = self.directory.join(format!("graph-{key}.json"));
         if let Some(graph) = load_graph(&path) {
             self.graph_hit = true;
@@ -52,17 +104,11 @@ impl AnalysisCache {
         graph
     }
 
-    pub fn findings(
-        &mut self,
-        prepared: &PreparedPreview,
-        sources: &BTreeMap<String, String>,
-        family: &str,
-    ) -> Option<Vec<Finding>> {
-        if !self.enabled || !prepared.diagnostics.is_empty() {
+    pub fn findings(&mut self, prepared: &PreparedPreview, family: &str) -> Option<Vec<Finding>> {
+        if !self.enabled {
             return None;
         }
-        let key = cache_key(prepared, sources, &format!("findings-family:{family}"));
-        let path = self.directory.join(format!("findings-{key}.json"));
+        let path = self.finding_path(prepared, family);
         let findings = match load_findings(&path) {
             Some(findings) => findings,
             None => {
@@ -75,17 +121,15 @@ impl AnalysisCache {
     }
 
     pub fn store_findings(
-        &self,
+        &mut self,
         prepared: &PreparedPreview,
-        sources: &BTreeMap<String, String>,
         family: &str,
         findings: &[Finding],
     ) {
-        if !self.enabled || !prepared.diagnostics.is_empty() {
+        if !self.enabled {
             return;
         }
-        let key = cache_key(prepared, sources, &format!("findings-family:{family}"));
-        let path = self.directory.join(format!("findings-{key}.json"));
+        let path = self.finding_path(prepared, family);
         let entries = findings.iter().map(cache_finding).collect::<Vec<_>>();
         store_value(
             &path,
@@ -95,6 +139,40 @@ impl AnalysisCache {
                 "entries": entries,
             }),
         );
+    }
+
+    fn finding_path(&mut self, prepared: &PreparedPreview, family: &str) -> PathBuf {
+        if let Some(path) = self.finding_paths.get(family) {
+            return path.clone();
+        }
+        let kind = format!("findings-family:{family}");
+        let key = self.cache_key(prepared, &kind, true);
+        let path = self.directory.join(format!("findings-{key}.json"));
+        self.finding_paths.insert(family.to_owned(), path.clone());
+        path
+    }
+
+    fn cache_key(
+        &mut self,
+        prepared: &PreparedPreview,
+        kind: &str,
+        include_finding_inputs: bool,
+    ) -> String {
+        let source_fingerprint = *self
+            .source_fingerprint
+            .get_or_insert_with(|| fingerprint_sources(prepared));
+        let material = cache_material(&prepared.config, kind);
+        let mut hasher = Sha256::new();
+        hash_bytes(&mut hasher, b"schema");
+        hash_bytes(&mut hasher, &CACHE_SCHEMA_VERSION.to_le_bytes());
+        hash_bytes(&mut hasher, b"configuration");
+        hash_bytes(&mut hasher, material.as_bytes());
+        hash_bytes(&mut hasher, b"sources");
+        hash_bytes(&mut hasher, &source_fingerprint);
+        if include_finding_inputs && let Some(inputs) = self.finding_inputs {
+            inputs.hash_into(&mut hasher);
+        }
+        format!("{:x}", hasher.finalize())
     }
 }
 
@@ -152,32 +230,53 @@ pub(crate) fn default_directory(project_root: &Path) -> PathBuf {
         .join(format!("{project_name}-{}", &fingerprint[..16]))
 }
 
-fn cache_key(prepared: &PreparedPreview, sources: &BTreeMap<String, String>, kind: &str) -> String {
-    let mut material = cache_material(&prepared.config, kind);
-    let root = Path::new(&prepared.root);
-    let mut style_configs = BTreeSet::new();
-    for (path, source) in sources {
-        material.push_str(path);
-        material.push('\n');
-        material.push_str(&format!("{:x}", Sha256::digest(source.as_bytes())));
-        material.push('\n');
+fn fingerprint_sources(prepared: &PreparedPreview) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    for (path, source) in &prepared.sources {
+        hash_entry(&mut hasher, b"source", path.as_bytes(), source.as_bytes());
+    }
 
-        let mut directory = root.join(path).parent().map(Path::to_path_buf);
+    let root = Path::new(&prepared.root);
+    for path in style_config_paths(root, prepared.sources.keys().map(String::as_str)) {
+        let Ok(source) = fs::read(&path) else {
+            continue;
+        };
+        let relative = path.strip_prefix(root).unwrap_or(&path);
+        hash_entry(
+            &mut hasher,
+            b"style",
+            relative.to_string_lossy().as_bytes(),
+            &source,
+        );
+    }
+    hasher.finalize().into()
+}
+
+fn style_config_paths<'path>(
+    root: &Path,
+    source_paths: impl Iterator<Item = &'path str>,
+) -> BTreeSet<PathBuf> {
+    let mut visited_directories = BTreeSet::new();
+    let mut style_configs = BTreeSet::new();
+    visited_directories.insert(root.to_path_buf());
+    for name in STYLE_CONFIG_NAMES {
+        let candidate = root.join(name);
+        if candidate.is_file() {
+            style_configs.insert(candidate);
+        }
+    }
+    for source_path in source_paths {
+        let mut directory = root.join(source_path).parent().map(Path::to_path_buf);
         while let Some(current) = directory {
             if !current.starts_with(root) {
                 break;
             }
-            for name in [
-                ".prettierrc",
-                ".prettierrc.json",
-                ".prettierrc.js",
-                "prettier.config.js",
-                ".editorconfig",
-                "biome.json",
-            ] {
-                let candidate = current.join(name);
-                if candidate.is_file() {
-                    style_configs.insert(candidate);
+            if visited_directories.insert(current.clone()) {
+                for name in STYLE_CONFIG_NAMES {
+                    let candidate = current.join(name);
+                    if candidate.is_file() {
+                        style_configs.insert(candidate);
+                    }
                 }
             }
             if current == root {
@@ -186,16 +285,18 @@ fn cache_key(prepared: &PreparedPreview, sources: &BTreeMap<String, String>, kin
             directory = current.parent().map(Path::to_path_buf);
         }
     }
-    for path in style_configs {
-        let Ok(source) = fs::read_to_string(&path) else {
-            continue;
-        };
-        material.push_str(&path.to_string_lossy());
-        material.push('\n');
-        material.push_str(&source);
-        material.push('\n');
-    }
-    format!("{:x}", Sha256::digest(material.as_bytes()))
+    style_configs
+}
+
+fn hash_entry(hasher: &mut Sha256, kind: &[u8], path: &[u8], source: &[u8]) {
+    hash_bytes(hasher, kind);
+    hash_bytes(hasher, path);
+    hash_bytes(hasher, source);
+}
+
+fn hash_bytes(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update(bytes.len().to_le_bytes());
+    hasher.update(bytes);
 }
 
 fn load_findings(path: &Path) -> Option<Vec<Finding>> {

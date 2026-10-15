@@ -23,18 +23,17 @@ pub fn execute(options: &PreviewOptions) -> Result<DeadOutcome, String> {
     }
     let mut cache = AnalysisCache::new(options, Path::new(&prepared.root));
     let graph = cache.graph(&prepared);
-    let mut findings =
-        if let Some(findings) = cache.findings(&prepared, &prepared.sources, "command.dead") {
-            findings
-        } else {
-            let mut findings = dead_analysis::analyze(&prepared, &graph);
-            findings.extend(export_analysis::analyze(
-                Path::new(&prepared.root),
-                &prepared.sources,
-            ));
-            cache.store_findings(&prepared, &prepared.sources, "command.dead", &findings);
-            findings
-        };
+    let mut findings = if let Some(findings) = cache.findings(&prepared, "command.dead") {
+        findings
+    } else {
+        let mut findings = dead_analysis::analyze(&prepared, &graph);
+        findings.extend(export_analysis::analyze(
+            Path::new(&prepared.root),
+            &prepared.sources,
+        ));
+        cache.store_findings(&prepared, "command.dead", &findings);
+        findings
+    };
     prepared.graph_cache_hit = cache.graph_hit;
     prepared.findings_cache_hit = cache.findings_hit;
     let ingestion = sarif_ingestion::read(&options.ingest_sarif, Path::new(&prepared.root));

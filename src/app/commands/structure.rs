@@ -21,14 +21,13 @@ pub fn execute(options: &PreviewOptions) -> Result<StructureOutcome, String> {
         return Ok(StructureOutcome::Empty);
     }
     let mut cache = AnalysisCache::new(options, Path::new(&prepared.root));
-    let mut findings =
-        if let Some(findings) = cache.findings(&prepared, &prepared.sources, "command.structure") {
-            findings
-        } else {
-            let findings = structure::analyze(&prepared.files, &prepared.config);
-            cache.store_findings(&prepared, &prepared.sources, "command.structure", &findings);
-            findings
-        };
+    let mut findings = if let Some(findings) = cache.findings(&prepared, "command.structure") {
+        findings
+    } else {
+        let findings = structure::analyze(&prepared.files, &prepared.config);
+        cache.store_findings(&prepared, "command.structure", &findings);
+        findings
+    };
     prepared.findings_cache_hit = cache.findings_hit;
     let ingestion = sarif_ingestion::read(&options.ingest_sarif, Path::new(&prepared.root));
     findings.extend(ingestion.findings);

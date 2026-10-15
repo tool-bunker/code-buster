@@ -22,19 +22,12 @@ pub fn execute(options: &PreviewOptions) -> Result<ComplexityOutcome, String> {
         return Ok(ComplexityOutcome::Empty);
     }
     let mut cache = AnalysisCache::new(options, Path::new(&prepared.root));
-    let mut findings = if let Some(findings) =
-        cache.findings(&prepared, &prepared.sources, "command.complexity")
-    {
+    let mut findings = if let Some(findings) = cache.findings(&prepared, "command.complexity") {
         findings
     } else {
         let functions = function_sources::extract(&prepared.sources);
         let findings = complexity::analyze(&functions, &prepared.sources, &prepared.config);
-        cache.store_findings(
-            &prepared,
-            &prepared.sources,
-            "command.complexity",
-            &findings,
-        );
+        cache.store_findings(&prepared, "command.complexity", &findings);
         findings
     };
     prepared.findings_cache_hit = cache.findings_hit;

@@ -21,14 +21,13 @@ pub fn execute(options: &PreviewOptions) -> Result<FlagsOutcome, String> {
         return Ok(FlagsOutcome::Empty);
     }
     let mut cache = AnalysisCache::new(options, Path::new(&prepared.root));
-    let mut findings =
-        if let Some(findings) = cache.findings(&prepared, &prepared.sources, "command.flags") {
-            findings
-        } else {
-            let findings = feature_flags::analyze(&prepared.sources);
-            cache.store_findings(&prepared, &prepared.sources, "command.flags", &findings);
-            findings
-        };
+    let mut findings = if let Some(findings) = cache.findings(&prepared, "command.flags") {
+        findings
+    } else {
+        let findings = feature_flags::analyze(&prepared.sources);
+        cache.store_findings(&prepared, "command.flags", &findings);
+        findings
+    };
     prepared.findings_cache_hit = cache.findings_hit;
     let ingestion = sarif_ingestion::read(&options.ingest_sarif, Path::new(&prepared.root));
     findings.extend(ingestion.findings);

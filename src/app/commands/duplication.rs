@@ -40,8 +40,7 @@ fn execute_named(
     }
     let mut cache = AnalysisCache::new(options, Path::new(&prepared.root));
     let family = format!("command.{command}");
-    let mut findings = if let Some(findings) = cache.findings(&prepared, &prepared.sources, &family)
-    {
+    let mut findings = if let Some(findings) = cache.findings(&prepared, &family) {
         findings
     } else {
         let mut findings =
@@ -61,7 +60,7 @@ fn execute_named(
                 &prepared.sources,
             ));
         }
-        cache.store_findings(&prepared, &prepared.sources, &family, &findings);
+        cache.store_findings(&prepared, &family, &findings);
         findings
     };
     prepared.findings_cache_hit = cache.findings_hit;
