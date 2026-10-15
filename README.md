@@ -80,8 +80,11 @@ Analysis caches live in the operating system's user-cache directory, not in the
 analyzed repository. Use `--no-cache` for one-off runs or `--cache-dir PATH`
 when a CI job or local workflow needs an explicit cache location.
 Focused commands and `--only RULE` execute only the required analysis families.
-Finding-family caches are reused independently, and `--verbose` JSON manifests
-include pipeline and rule-family durations for performance diagnosis.
+Use `cb summary --profile` for an automatically uncached, slowest-first terminal
+profile of rule packs, shared analysis, and independently measurable rule
+checks. Add `--format json` for structured microsecond measurements.
+`--verbose` JSON manifests continue to include pipeline and rule-family
+durations for performance diagnosis.
 
 See the [installation guide](https://toolbunker.dev/codebuster/docs/getting-started/installation)
 and [quickstart](https://toolbunker.dev/codebuster/docs/getting-started/quickstart)
@@ -164,7 +167,7 @@ See the [command reference](https://toolbunker.dev/codebuster/docs/reference/com
 
 ## Current status
 
-Code Buster 0.9 remains pre-1.0 and under active development. The `cb` command
+Code Buster remains pre-1.0 and under active development. The `cb` command
 uses `code-buster.toml` configuration and performs deterministic offline
 analysis with text and machine-readable report formats. Do not yet rely on it
 as a blocking production quality gate; evaluate CI and report integrations

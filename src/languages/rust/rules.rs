@@ -4,14 +4,27 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::findings::{Finding, Severity};
+#[cfg(test)]
+use crate::function_sources;
+use crate::function_sources::FunctionSource;
+use crate::object_soup_rules;
 use crate::rule_catalog;
 
 use super::panic_guards;
 use super::regex_contracts::RegexContracts;
 use super::test_scopes;
 
+#[cfg(test)]
 pub fn analyze(sources: &BTreeMap<String, String>) -> Vec<Finding> {
-    let mut findings = Vec::new();
+    let functions = function_sources::extract(sources);
+    analyze_with_functions(sources, &functions)
+}
+
+pub fn analyze_with_functions(
+    sources: &BTreeMap<String, String>,
+    functions: &[FunctionSource],
+) -> Vec<Finding> {
+    let mut findings = object_soup_rules::rust(functions);
     for (path, source) in sources.iter().filter(|(path, _)| path.ends_with(".rs")) {
         let file = RustFile::new(source);
         analyze_simple_rules(path, &file, &mut findings);

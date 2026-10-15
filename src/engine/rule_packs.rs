@@ -82,19 +82,22 @@ pub struct RulePackContext<'call, 'source, 'functions> {
     pub dart_index: Option<&'call DartSourceIndex<'source>>,
     pub yagni_index: Option<&'call YagniCallIndex<'functions>>,
     pub prior_findings: &'call [Finding],
+    pub collect_timings: bool,
 }
 
 #[derive(Default)]
 pub struct RulePackOutput {
     pub findings: Vec<Finding>,
-    pub durations_milliseconds: BTreeMap<String, u128>,
+    pub shared_durations_microseconds: BTreeMap<String, u128>,
+    pub rule_durations_microseconds: BTreeMap<String, u128>,
 }
 
 impl RulePackOutput {
     pub fn findings(findings: Vec<Finding>) -> Self {
         Self {
             findings,
-            durations_milliseconds: BTreeMap::new(),
+            shared_durations_microseconds: BTreeMap::new(),
+            rule_durations_microseconds: BTreeMap::new(),
         }
     }
 }

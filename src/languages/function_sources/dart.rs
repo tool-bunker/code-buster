@@ -121,6 +121,7 @@ fn dart_functions(path: &str, source: &str) -> Vec<FunctionSource> {
             name,
             line: attached_declaration_line(source, declaration_line),
             end_line: line_at(source, body_end),
+            contract_signature: false,
             source: normalize_dart_function_source(&source[start..=body_end]),
         });
     }

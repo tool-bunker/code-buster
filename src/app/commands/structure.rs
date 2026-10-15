@@ -51,6 +51,7 @@ pub fn execute(options: &PreviewOptions) -> Result<StructureOutcome, String> {
             actionable_count,
             advisory_summary: &advisory_summary,
             verbose: options.verbose,
+            profile: options.profile,
         },
     )?;
     println!("{output}");

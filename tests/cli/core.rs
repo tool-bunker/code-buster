@@ -27,6 +27,7 @@ fn help_lists_the_implemented_commands() {
     assert!(stdout.contains("-r, --root"));
     assert!(stdout.contains("--include-tests"));
     assert!(stdout.contains("--all-findings"));
+    assert!(stdout.contains("--profile"));
     assert!(stdout.contains("--dry-run"));
     assert!(output.stderr.is_empty());
 }
@@ -64,6 +65,102 @@ fn verbose_summary_exposes_scope_and_analysis_stages() {
     assert!(stdout.contains("\nPerformance\n"));
     assert!(stdout.contains("  graph             "));
     assert!(stdout.contains("  rules             "));
+}
+
+#[test]
+fn profile_summary_reports_sorted_uncached_rule_pack_timings() {
+    let root = TempDirectory::new("cbr-profile-summary");
+    root.write(
+        "src/lib.rs",
+        b"pub fn ready(value: bool) -> bool { value }\n",
+    );
+
+    let output = run_summary(&root.path, &["--profile", "--format", "json"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("profile must emit JSON");
+    let manifest = &report["manifest"];
+    assert_eq!(
+        manifest["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": false})
+    );
+    assert!(manifest.get("selectedFiles").is_none());
+    let profile = &manifest["profile"];
+    assert_eq!(profile["cacheBypassed"], true);
+    assert_eq!(profile["measurementUnit"], "microseconds");
+    let packs = profile["rulePacks"]
+        .as_array()
+        .expect("profile must contain rule packs");
+    assert!(packs.iter().any(|pack| pack["id"] == "rust"));
+    assert!(packs.windows(2).all(|pair| {
+        pair[0]["durationMicroseconds"].as_u64().unwrap()
+            >= pair[1]["durationMicroseconds"].as_u64().unwrap()
+    }));
+    assert!(
+        profile["sharedAnalysis"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|timing| timing["name"] == "function-extraction")
+    );
+}
+
+#[test]
+fn profile_text_is_readable_and_rejects_cache_reuse() {
+    let root = TempDirectory::new("cbr-profile-text");
+    root.write("src/lib.rs", b"pub fn ready() -> bool { true }\n");
+
+    let output = run_summary(&root.path, &["--profile"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be UTF-8");
+    assert!(stdout.contains("\nPerformance\n"));
+    assert!(stdout.contains("\nRule profile\n"));
+    assert!(stdout.contains("  Pack execution"));
+    assert!(stdout.contains("  rust"));
+    assert!(stdout.contains('%'));
+
+    let incompatible = run_summary(&root.path, &["--profile", "--cache"]);
+    assert_eq!(incompatible.status.code(), Some(2));
+    assert!(
+        String::from_utf8(incompatible.stderr)
+            .unwrap()
+            .contains("--profile cannot be combined with --cache")
+    );
+}
+
+#[test]
+fn profile_reports_independent_oop_rule_checks_separately() {
+    let root = TempDirectory::new("cbr-profile-oop-rules");
+    root.write(
+        "src/Example.cs",
+        b"class Example { int value; int Read() { return value; } }\n",
+    );
+
+    let output = run_summary(&root.path, &["--profile", "--format", "json"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("profile must emit JSON");
+    let profile = &report["manifest"]["profile"];
+    assert!(
+        profile["individualRules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|timing| timing["name"] == "oop.data-clumps")
+    );
+    assert!(
+        profile["sharedAnalysis"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|timing| timing["name"] == "oop.parse")
+    );
 }
 
 

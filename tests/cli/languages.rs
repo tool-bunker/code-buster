@@ -1553,7 +1553,7 @@ fn summary_manifest_uses_the_stable_cb_config_hash_contract() {
 
     assert_eq!(
         report["manifest"]["configHash"],
-        "23f9bc8ab7276640e40758f9a04a71922c7105feb1307bb16d71c315b7459937"
+        "b58d967308b87b8ef488bb2fe81b579392a51e2b294dfc8b848fa98032a439e9"
     );
 }
 
@@ -1889,5 +1889,111 @@ fn summary_reports_files_above_the_configured_line_limit() {
     assert_eq!(
         finding["suggestion"],
         "Split the file along cohesive module responsibilities."
+    );
+}
+
+#[test]
+fn summary_reports_distributed_python_and_rust_object_soup() {
+    let root = TempDirectory::new("cbr-object-soup");
+    root.write(
+        "code-buster.toml",
+        b"languages = [\"python\", \"rust\"]\n",
+    );
+    root.write(
+        "python/user.py",
+        b"def display(user: dict[str, object]):\n    return user[\"id\"], user[\"email\"], user[\"role\"], user[\"active\"]\n\ndef authorize(user):\n    return user.get(\"id\"), user.get(\"email\"), user.get(\"role\"), user.get(\"active\")\n\ndef render_profile(name: str, email: str, role: str, active: bool):\n    return name, email, role, active\n\ndef validate_profile(active: bool, role: str, email: str, name: str):\n    return active, role, email, name\n",
+    );
+    root.write(
+        "python/audit.py",
+        b"def audit(user: dict):\n    return user[\"id\"], user[\"email\"], user[\"role\"], user[\"active\"]\n\ndef audit_profile(name: str, email: str, role: str, active: bool):\n    return name, email, role, active\n",
+    );
+    root.write(
+        "tests/test_users.py",
+        b"def test_user(user):\n    return user[\"id\"], user[\"email\"], user[\"role\"], user[\"active\"]\n",
+    );
+    root.write(
+        "src/user.rs",
+        br#"fn display(user: &HashMap<String, Value>) {
+    let _ = (&user["id"], &user["email"], &user["role"], &user["active"]);
+}
+fn authorize(user: &HashMap<String, Value>) {
+    let _ = (user.get("id"), user.get("email"), user.get("role"), user.get("active"));
+}
+fn render_profile(name: &str, email: &str, role: &str, active: bool) {
+    let _ = (name, email, role, active);
+}
+fn validate_profile(active: bool, role: &str, email: &str, name: &str) {
+    let _ = (active, role, email, name);
+}
+"#,
+    );
+    root.write(
+        "src/audit.rs",
+        br#"fn audit(user: &BTreeMap<String, serde_json::Value>) {
+    let _ = (&user["id"], &user["email"], &user["role"], &user["active"]);
+}
+fn audit_profile(name: &str, email: &str, role: &str, active: bool) {
+    let _ = (name, email, role, active);
+}
+"#,
+    );
+
+    let output = run_summary(
+        &root.path,
+        &["--format", "json", "--no-cache", "--advisory", "--all-findings"],
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+    let findings = report["findings"]
+        .as_array()
+        .expect("findings must be an array");
+    let finding = |code: &str| {
+        findings
+            .iter()
+            .find(|finding| finding["code"] == code)
+            .unwrap_or_else(|| panic!("{code} must be reported"))
+    };
+
+    assert_eq!(
+        findings
+            .iter()
+            .filter(|finding| {
+                matches!(
+                    finding["code"].as_str(),
+                    Some(
+                        "py-object-soup"
+                            | "py-repeated-dictionary-shape"
+                            | "rust-object-soup"
+                            | "rust-repeated-dynamic-map-shape"
+                    )
+                )
+            })
+            .count(),
+        4
+    );
+    for code in [
+        "py-object-soup",
+        "py-repeated-dictionary-shape",
+        "rust-object-soup",
+        "rust-repeated-dynamic-map-shape",
+    ] {
+        assert_eq!(finding(code)["confidence"], "medium");
+        assert_eq!(
+            finding(code)["related_files"].as_array().unwrap().len(),
+            2
+        );
+    }
+    assert_eq!(finding("py-object-soup")["path"], "python/audit.py");
+    assert_eq!(
+        finding("py-repeated-dictionary-shape")["path"],
+        "python/audit.py"
+    );
+    assert_eq!(finding("rust-object-soup")["path"], "src/audit.rs");
+    assert_eq!(
+        finding("rust-repeated-dynamic-map-shape")["path"],
+        "src/audit.rs"
     );
 }

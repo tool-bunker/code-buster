@@ -10,7 +10,7 @@ use std::time::Instant;
 use crate::analysis_cache::AnalysisCache;
 use crate::analysis_engine;
 use crate::cli::PreviewOptions;
-use crate::discovery::{PreparedPreview, prepare};
+use crate::discovery::{AnalysisProfile, PreparedPreview, is_builtin_production_path, prepare};
 use crate::engine::execution_plan::ExecutionPlan;
 use crate::finding_controls;
 use crate::findings::Finding;
@@ -119,13 +119,21 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
             .map(|file| file.language.as_str()),
     );
     let mut rule_family_durations = BTreeMap::new();
+    let mut analysis_profile = AnalysisProfile::default();
     let mut findings =
         if let Some(findings) = cache.findings(analysis_prepared, &cache_sources, &family) {
             findings
         } else {
-            let output = analysis_engine::analyze(analysis_prepared, &context, &graph, &plan)?;
+            let output = analysis_engine::analyze(
+                analysis_prepared,
+                &context,
+                &graph,
+                &plan,
+                options.verbose || options.profile,
+            )?;
             cache.store_findings(analysis_prepared, &cache_sources, &family, &output.findings);
             rule_family_durations = output.family_durations_milliseconds;
+            analysis_profile = output.profile;
             output.findings
         };
     stage_durations.insert("rules".to_owned(), rules_started.elapsed().as_millis());
@@ -175,6 +183,7 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
     prepared.duration_milliseconds = started.elapsed().as_millis();
     prepared.stage_durations_milliseconds = stage_durations;
     prepared.rule_family_durations_milliseconds = rule_family_durations;
+    prepared.analysis_profile = analysis_profile;
     progress.finish();
     Ok(AnalysisRun {
         prepared,
@@ -217,6 +226,7 @@ pub(crate) fn execute_report(
             actionable_count: run.actionable_count,
             advisory_summary: &run.advisory_summary,
             verbose: options.verbose,
+            profile: options.profile,
         },
     )?;
     println!("{output}");
@@ -281,18 +291,6 @@ fn classify_auxiliary_entry(
         return Ok(AuxiliaryEntryKind::Ignore);
     }
 
-    let name = entry.file_name();
-    if file_type.is_dir() {
-        let ignored = [".git", ".dart_tool", "node_modules", "target", "build"]
-            .iter()
-            .any(|ignored| name == *ignored);
-        return Ok(if ignored {
-            AuxiliaryEntryKind::Ignore
-        } else {
-            AuxiliaryEntryKind::Directory
-        });
-    }
-
     let relative = path.strip_prefix(root).map_err(|error| {
         format!(
             "failed to make {} relative to {}: {error}",
@@ -300,6 +298,19 @@ fn classify_auxiliary_entry(
             root.display()
         )
     })?;
+    let relative_normalized = relative.to_string_lossy().replace('\\', "/");
+    let name = entry.file_name();
+    if file_type.is_dir() {
+        let ignored = [".git", ".dart_tool", "node_modules", "target", "build"]
+            .iter()
+            .any(|ignored| name == *ignored)
+            || !is_builtin_production_path(&relative_normalized);
+        return Ok(if ignored {
+            AuxiliaryEntryKind::Ignore
+        } else {
+            AuxiliaryEntryKind::Directory
+        });
+    }
     let named_auxiliary = [
         "Cargo.lock",
         "Cargo.toml",
@@ -351,8 +362,9 @@ fn collect_auxiliary_file(
         })?
         .to_string_lossy()
         .replace('\\', "/");
-    let source = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let bytes =
+        fs::read(path).map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let source = String::from_utf8_lossy(&bytes).into_owned();
     files.insert(relative, source);
     Ok(())
 }
@@ -477,5 +489,27 @@ mod tests {
                 "package.json",
             ]
         );
+    }
+
+    #[test]
+    fn skips_test_manifests_and_tolerates_malformed_production_metadata() {
+        let root = tempfile::tempdir().expect("temporary repository must be created");
+        let member = root.path().join("member");
+        let tests = root.path().join("tests/registry");
+        let tests_common = root.path().join("devel-common/src/tests_common");
+        fs::create_dir_all(&member).unwrap();
+        fs::create_dir_all(&tests).unwrap();
+        fs::create_dir_all(&tests_common).unwrap();
+        fs::write(member.join("package.json"), [0xff, b'{']).unwrap();
+        fs::write(tests.join("package.json"), [0xff]).unwrap();
+        fs::write(tests_common.join("package.json"), [0xff]).unwrap();
+
+        let files = collect_auxiliary_files(root.path()).unwrap();
+
+        assert_eq!(
+            files.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["member/package.json"]
+        );
+        assert_eq!(files["member/package.json"], "\u{fffd}{");
     }
 }

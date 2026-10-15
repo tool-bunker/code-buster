@@ -297,6 +297,7 @@ fn render_quality_json(
         actionable_count: run.actionable_count,
         advisory_summary: &run.advisory_summary,
         verbose: options.verbose,
+        profile: options.profile,
     };
     let mut result = Map::new();
     result.insert("schemaVersion".to_owned(), json!(3));

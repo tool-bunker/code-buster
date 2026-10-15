@@ -58,6 +58,7 @@ pub fn execute(options: &PreviewOptions) -> Result<DeadOutcome, String> {
             actionable_count,
             advisory_summary: &advisory_summary,
             verbose: options.verbose,
+            profile: options.profile,
         },
     )?;
     println!("{output}");

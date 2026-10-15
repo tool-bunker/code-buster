@@ -119,6 +119,7 @@ fn javascript_source_from_candidate(
         name: name.to_owned(),
         line: line_at(source, start),
         end_line: line_at(source, end),
+        contract_signature: false,
         source: String::from_utf8(bytes).expect("masked JavaScript functions remain UTF-8"),
     })
 }

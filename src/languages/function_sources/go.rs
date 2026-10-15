@@ -42,6 +42,7 @@ fn go_functions(path: &str, source: &str) -> Vec<FunctionSource> {
             name,
             line: start_line,
             end_line,
+            contract_signature: false,
             source: source[start..end].to_owned(),
         });
         if end == source.len() {

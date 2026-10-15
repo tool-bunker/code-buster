@@ -7,7 +7,7 @@ use std::process::Command;
 use super::terminal;
 use crate::cli::ReportFormat;
 use crate::config::{Config, PatternRule};
-use crate::discovery::{PreparedPreview, ProcessingDiagnostic};
+use crate::discovery::{AnalysisProfile, PreparedPreview, ProcessingDiagnostic, RulePackTiming};
 use crate::findings::{Finding, Severity, rule_suggestion, rule_why};
 use crate::rule_catalog;
 
@@ -18,6 +18,7 @@ pub struct FindingReport<'a> {
     pub actionable_count: usize,
     pub advisory_summary: &'a BTreeMap<String, usize>,
     pub verbose: bool,
+    pub profile: bool,
 }
 
 pub fn render(format: ReportFormat, report: &FindingReport<'_>) -> Result<String, String> {
@@ -76,14 +77,27 @@ fn text(report: &FindingReport<'_>, color: bool) -> String {
 
     write_text_statistics(&mut output, report, palette);
     write_text_language_summary(&mut output, report, palette);
-    if report.verbose {
-        write_text_scope(&mut output, report, palette);
-        write_text_performance(&mut output, report, palette);
-    }
+    write_text_diagnostics(&mut output, report, palette);
     write_text_advisory_summary(&mut output, report, palette);
     write_text_findings(&mut output, report, palette);
     write_text_next_step(&mut output, report, palette);
     output
+}
+
+fn write_text_diagnostics(
+    output: &mut String,
+    report: &FindingReport<'_>,
+    palette: TerminalPalette,
+) {
+    if report.verbose {
+        write_text_scope(output, report, palette);
+    }
+    if report.verbose || report.profile {
+        write_text_performance(output, report, palette);
+    }
+    if report.profile {
+        write_text_rule_profile(output, report, palette);
+    }
 }
 
 fn write_text_statistics(
@@ -226,6 +240,140 @@ fn write_text_performance(
         palette.write(output, "2", format_args!("{stage:<18}"));
         output.push_str(&formatted_duration(*duration));
     }
+}
+
+fn write_text_rule_profile(
+    output: &mut String,
+    report: &FindingReport<'_>,
+    palette: TerminalPalette,
+) {
+    let profile = &report.prepared.analysis_profile;
+    if profile.rule_packs.is_empty() {
+        return;
+    }
+    let pack_total = profile
+        .rule_packs
+        .iter()
+        .map(|timing| timing.duration_microseconds)
+        .sum();
+    output.push_str("\n\n");
+    palette.write(output, "1", "Rule profile");
+    write_profile_total(output, palette, "Pack execution", pack_total);
+    for timing in sorted_pack_timings(profile) {
+        write_profile_entry(
+            output,
+            palette,
+            &timing.id,
+            timing.duration_microseconds,
+            pack_total,
+            Some(&timing.family),
+        );
+    }
+    write_profile_group(
+        output,
+        palette,
+        "Shared analysis",
+        &profile.shared_durations_microseconds,
+    );
+    write_profile_group(
+        output,
+        palette,
+        "Individual rule checks",
+        &profile.rule_durations_microseconds,
+    );
+}
+
+fn write_profile_group(
+    output: &mut String,
+    palette: TerminalPalette,
+    title: &str,
+    durations: &BTreeMap<String, u128>,
+) {
+    if durations.is_empty() {
+        return;
+    }
+    let total = durations.values().sum();
+    output.push_str("\n\n");
+    palette.write(output, "1", title);
+    write_profile_total(output, palette, "Measured total", total);
+    for (name, duration) in sorted_durations(durations) {
+        write_profile_entry(output, palette, name, duration, total, None);
+    }
+}
+
+fn write_profile_total(
+    output: &mut String,
+    palette: TerminalPalette,
+    label: &str,
+    duration_microseconds: u128,
+) {
+    output.push_str("\n  ");
+    palette.write(output, "2", format_args!("{label:<26}"));
+    output.push_str(&formatted_profile_duration(duration_microseconds));
+}
+
+fn write_profile_entry(
+    output: &mut String,
+    palette: TerminalPalette,
+    name: &str,
+    duration_microseconds: u128,
+    total_microseconds: u128,
+    family: Option<&str>,
+) {
+    output.push_str("\n  ");
+    palette.write(output, "2", format_args!("{name:<26}"));
+    let _ = write!(
+        output,
+        "{:>9}  {:>5.1}%",
+        formatted_profile_duration(duration_microseconds),
+        percentage(duration_microseconds, total_microseconds)
+    );
+    if let Some(family) = family
+        && family != name
+    {
+        let _ = write!(output, "  {family}");
+    }
+}
+
+fn sorted_pack_timings(profile: &AnalysisProfile) -> Vec<&RulePackTiming> {
+    let mut timings = profile.rule_packs.iter().collect::<Vec<_>>();
+    timings.sort_by(|left, right| {
+        right
+            .duration_microseconds
+            .cmp(&left.duration_microseconds)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    timings
+}
+
+fn sorted_durations(durations: &BTreeMap<String, u128>) -> Vec<(&str, u128)> {
+    let mut timings = durations
+        .iter()
+        .map(|(name, duration)| (name.as_str(), *duration))
+        .collect::<Vec<_>>();
+    timings.sort_by(|(left_name, left_duration), (right_name, right_duration)| {
+        right_duration
+            .cmp(left_duration)
+            .then_with(|| left_name.cmp(right_name))
+    });
+    timings
+}
+
+fn formatted_profile_duration(microseconds: u128) -> String {
+    if microseconds < 1_000 {
+        format!("{microseconds}µs")
+    } else if microseconds < 1_000_000 {
+        format!("{:.1}ms", microseconds as f64 / 1_000.0)
+    } else {
+        format!("{:.2}s", microseconds as f64 / 1_000_000.0)
+    }
+}
+
+fn percentage(duration: u128, total: u128) -> f64 {
+    if total == 0 {
+        return 0.0;
+    }
+    (duration as f64 * 1_000.0 / total as f64).round() / 10.0
 }
 
 fn write_text_advisory_summary(
@@ -628,7 +776,7 @@ pub(crate) fn manifest(report: &FindingReport<'_>) -> Value {
             json!(report.prepared.language_versions),
         );
     }
-    if report.verbose {
+    if report.verbose || report.profile {
         object.insert(
             "cache".to_owned(),
             json!({
@@ -649,7 +797,60 @@ pub(crate) fn manifest(report: &FindingReport<'_>) -> Value {
             json!(report.prepared.rule_family_durations_milliseconds),
         );
     }
+    if report.profile {
+        object.insert(
+            "profile".to_owned(),
+            profile_json(&report.prepared.analysis_profile),
+        );
+    }
     Value::Object(object)
+}
+
+fn profile_json(profile: &AnalysisProfile) -> Value {
+    let pack_total = profile
+        .rule_packs
+        .iter()
+        .map(|timing| timing.duration_microseconds)
+        .sum();
+    let shared_total = profile.shared_durations_microseconds.values().sum();
+    let rule_total = profile.rule_durations_microseconds.values().sum();
+    json!({
+        "cacheBypassed": true,
+        "measurementUnit": "microseconds",
+        "rulePackTotalMicroseconds": pack_total,
+        "rulePacks": sorted_pack_timings(profile)
+            .into_iter()
+            .map(|timing| json!({
+                "id": timing.id,
+                "family": timing.family,
+                "durationMicroseconds": timing.duration_microseconds,
+                "percentageOfPackTime": percentage(timing.duration_microseconds, pack_total),
+            }))
+            .collect::<Vec<_>>(),
+        "sharedAnalysisTotalMicroseconds": shared_total,
+        "sharedAnalysis": json_profile_durations(
+            &profile.shared_durations_microseconds,
+            shared_total,
+        ),
+        "individualRuleTotalMicroseconds": rule_total,
+        "individualRules": json_profile_durations(
+            &profile.rule_durations_microseconds,
+            rule_total,
+        ),
+    })
+}
+
+fn json_profile_durations(durations: &BTreeMap<String, u128>, total: u128) -> Vec<Value> {
+    sorted_durations(durations)
+        .into_iter()
+        .map(|(name, duration)| {
+            json!({
+                "name": name,
+                "durationMicroseconds": duration,
+                "percentage": percentage(duration, total),
+            })
+        })
+        .collect()
 }
 
 fn source_hash(prepared: &PreparedPreview) -> String {
@@ -673,7 +874,7 @@ fn config_hash(config: &Config) -> String {
 pub(crate) fn cache_material(config: &Config, kind: &str) -> String {
     let mut material = String::new();
     for line in [
-        "code-buster-cache-v4".to_owned(),
+        "code-buster-cache-v5".to_owned(),
         rule_version_signature(),
         kind.to_owned(),
         config.language.clone(),

@@ -5,12 +5,25 @@ use regex::Regex;
 use toml::Value;
 
 use crate::findings::{Finding, Severity};
+#[cfg(test)]
+use crate::function_sources;
+use crate::function_sources::FunctionSource;
+use crate::object_soup_rules;
 use crate::rule_catalog;
 use crate::source_analysis_context::SourceAnalysisContext;
 
+#[cfg(test)]
 pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
+    let functions = function_sources::extract(context.sources());
+    analyze_with_functions(context, &functions)
+}
+
+pub fn analyze_with_functions(
+    context: &SourceAnalysisContext<'_>,
+    functions: &[FunctionSource],
+) -> Vec<Finding> {
     let disabled = disabled_by_project_policy(context);
-    let mut findings = Vec::new();
+    let mut findings = object_soup_rules::python(functions);
     for (path, source) in context
         .sources()
         .iter()

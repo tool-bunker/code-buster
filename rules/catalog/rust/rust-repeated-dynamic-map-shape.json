@@ -1,0 +1,36 @@
+{
+  "id": "rust-repeated-dynamic-map-shape",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Replace a repeated dynamic map shape with a struct",
+  "title": "Replace a repeated dynamic map shape with a struct",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A stable domain shape passed through string-keyed dynamic maps gives up Rust's ability to encode field names, value contracts, and valid construction in the type system.",
+  "suggestion": "Introduce a struct with typed fields and validated construction when these keys represent one domain concept.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations",
+    "sourceText"
+  ],
+  "packs": [
+    "rust"
+  ],
+  "implementation": "src/rules/object_soup.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires the same complete set of four to twelve literal keys on an explicit HashMap, BTreeMap, serde_json::Map, or qualified serde_json::Value parameter in at least three functions across two files, or at least four functions in one file.",
+    "Only direct string-literal indexing and get, get_mut, contains_key, or remove calls are recognized; type aliases, computed keys, partial shape overlap, and interprocedural value flow are not resolved.",
+    "Typed structs, inline test functions, comments, string examples, local maps, non-dynamic map value types, and shapes below the project-level repetition threshold are excluded."
+  ]
+}

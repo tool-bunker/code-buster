@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::dependency_graph::DependencyGraph;
-use crate::discovery::PreparedPreview;
+use crate::discovery::{AnalysisProfile, PreparedPreview, RulePackTiming};
 use crate::finding_controls;
 use crate::findings::Finding;
 use crate::function_sources::{self, FunctionSource};
@@ -17,6 +17,8 @@ use super::rule_packs::{RULE_PACKS, RulePack, RulePackContext, RulePackOutput, R
 pub struct AnalysisOutput {
     pub findings: Vec<Finding>,
     pub family_durations_milliseconds: BTreeMap<String, u128>,
+    pub profile: AnalysisProfile,
+    collect_timings: bool,
 }
 
 struct AnalysisResources<'source> {
@@ -29,6 +31,7 @@ pub fn analyze<'source>(
     context: &'source SourceAnalysisContext<'source>,
     graph: &DependencyGraph,
     plan: &ExecutionPlan<'_>,
+    collect_timings: bool,
 ) -> Result<AnalysisOutput, String> {
     validate_duplication_mode(prepared)?;
 
@@ -36,20 +39,12 @@ pub fn analyze<'source>(
     let mut output = AnalysisOutput {
         findings: Vec::new(),
         family_durations_milliseconds: BTreeMap::new(),
+        profile: AnalysisProfile::default(),
+        collect_timings,
     };
-    let resources = prepare_analysis_resources(
-        prepared,
-        context,
-        sources,
-        plan,
-        &mut output.family_durations_milliseconds,
-    );
-    let yagni_call_index = prepare_yagni_call_index(
-        prepared,
-        plan,
-        &resources.functions,
-        &mut output.family_durations_milliseconds,
-    );
+    let resources = prepare_analysis_resources(prepared, context, sources, plan, &mut output);
+    let yagni_call_index =
+        prepare_yagni_call_index(prepared, plan, &resources.functions, &mut output);
 
     run_rule_pack_schedule(
         prepared,
@@ -78,23 +73,28 @@ fn prepare_analysis_resources<'source>(
     context: &'source SourceAnalysisContext<'source>,
     sources: &BTreeMap<String, String>,
     plan: &ExecutionPlan<'_>,
-    family_durations: &mut BTreeMap<String, u128>,
+    output: &mut AnalysisOutput,
 ) -> AnalysisResources<'source> {
+    let collect_timings = output.collect_timings;
     let needs_functions = RULE_PACKS
         .iter()
         .any(|pack| pack_enabled(pack, prepared, plan) && pack.needs_functions);
     let functions = if needs_functions {
-        let started = Instant::now();
+        let started = collect_timings.then(Instant::now);
         let functions = function_sources::extract(sources);
-        record_duration(family_durations, "function-extraction", started);
+        if let Some(started) = started {
+            record_shared_duration(output, "function-extraction", started.elapsed());
+        }
         functions
     } else {
         Vec::new()
     };
     let dart_index = plan.selects_language("dart").then(|| {
-        let started = Instant::now();
+        let started = collect_timings.then(Instant::now);
         let index = DartSourceIndex::new(context);
-        record_duration(family_durations, "dart-index", started);
+        if let Some(started) = started {
+            record_shared_duration(output, "dart-index", started.elapsed());
+        }
         index
     });
     AnalysisResources {
@@ -107,15 +107,18 @@ fn prepare_yagni_call_index<'functions>(
     prepared: &PreparedPreview,
     plan: &ExecutionPlan<'_>,
     functions: &'functions [FunctionSource],
-    family_durations: &mut BTreeMap<String, u128>,
+    output: &mut AnalysisOutput,
 ) -> Option<YagniCallIndex<'functions>> {
+    let collect_timings = output.collect_timings;
     let needs_yagni_index = RULE_PACKS
         .iter()
         .any(|pack| pack_enabled(pack, prepared, plan) && pack.needs_yagni_index);
     needs_yagni_index.then(|| {
-        let started = Instant::now();
+        let started = collect_timings.then(Instant::now);
         let index = YagniCallIndex::new(functions);
-        record_duration(family_durations, "yagni-index", started);
+        if let Some(started) = started {
+            record_shared_duration(output, "yagni-index", started.elapsed());
+        }
         index
     })
 }
@@ -138,8 +141,7 @@ fn run_rule_pack_schedule<'source, 'functions>(
         resources.dart_index.as_ref(),
         yagni_call_index,
         plan,
-        &mut output.findings,
-        &mut output.family_durations_milliseconds,
+        output,
     )?;
     run_rule_packs(
         RulePackPhase::AfterMain,
@@ -150,8 +152,7 @@ fn run_rule_pack_schedule<'source, 'functions>(
         resources.dart_index.as_ref(),
         yagni_call_index,
         plan,
-        &mut output.findings,
-        &mut output.family_durations_milliseconds,
+        output,
     )
 }
 
@@ -161,17 +162,15 @@ fn post_process_findings(
     sources: &BTreeMap<String, String>,
     output: &mut AnalysisOutput,
 ) -> Result<(), String> {
-    let started = Instant::now();
+    let started = output.collect_timings.then(Instant::now);
     let flutter = project_uses_flutter(context, sources);
     output
         .findings
         .retain(|finding| finding_is_enabled(finding, prepared, flutter));
     order_findings(&mut output.findings)?;
-    record_duration(
-        &mut output.family_durations_milliseconds,
-        "post-processing",
-        started,
-    );
+    if let Some(started) = started {
+        record_shared_duration(output, "post-processing", started.elapsed());
+    }
     Ok(())
 }
 
@@ -238,17 +237,18 @@ fn run_rule_packs<'source, 'functions>(
     dart_index: Option<&DartSourceIndex<'source>>,
     yagni_index: Option<&YagniCallIndex<'functions>>,
     plan: &ExecutionPlan<'_>,
-    findings: &mut Vec<Finding>,
-    family_durations: &mut BTreeMap<String, u128>,
+    output: &mut AnalysisOutput,
 ) -> Result<(), String> {
+    let collect_timings = output.collect_timings;
     for pack in RULE_PACKS
         .iter()
         .filter(|pack| pack.phase == phase && pack_enabled(pack, prepared, plan))
     {
-        let started = Instant::now();
+        let started = collect_timings.then(Instant::now);
         let RulePackOutput {
             findings: pack_findings,
-            durations_milliseconds,
+            shared_durations_microseconds,
+            rule_durations_microseconds,
         } = (pack.analyze)(&RulePackContext {
             prepared,
             source_context,
@@ -256,19 +256,62 @@ fn run_rule_packs<'source, 'functions>(
             functions,
             dart_index,
             yagni_index,
-            prior_findings: findings,
+            prior_findings: &output.findings,
+            collect_timings,
         })?;
-        record_duration(family_durations, pack.family, started);
-        for (name, duration) in durations_milliseconds {
-            *family_durations.entry(name).or_default() += duration;
+        if let Some(started) = started {
+            record_pack_duration(output, pack, started.elapsed());
+            merge_detail_durations(
+                &mut output.family_durations_milliseconds,
+                &mut output.profile.shared_durations_microseconds,
+                shared_durations_microseconds,
+            );
+            merge_detail_durations(
+                &mut output.family_durations_milliseconds,
+                &mut output.profile.rule_durations_microseconds,
+                rule_durations_microseconds,
+            );
         }
-        findings.extend(pack_findings);
+        output.findings.extend(pack_findings);
     }
     Ok(())
 }
 
-fn record_duration(durations: &mut BTreeMap<String, u128>, family: &str, started: Instant) {
-    *durations.entry(family.to_owned()).or_default() += started.elapsed().as_millis();
+fn record_pack_duration(output: &mut AnalysisOutput, pack: &RulePack, elapsed: Duration) {
+    record_family_duration(
+        &mut output.family_durations_milliseconds,
+        pack.family,
+        elapsed,
+    );
+    output.profile.rule_packs.push(RulePackTiming {
+        id: pack.id.to_owned(),
+        family: pack.family.to_owned(),
+        duration_microseconds: elapsed.as_micros(),
+    });
+}
+
+fn record_shared_duration(output: &mut AnalysisOutput, name: &str, elapsed: Duration) {
+    record_family_duration(&mut output.family_durations_milliseconds, name, elapsed);
+    *output
+        .profile
+        .shared_durations_microseconds
+        .entry(name.to_owned())
+        .or_default() += elapsed.as_micros();
+}
+
+fn record_family_duration(durations: &mut BTreeMap<String, u128>, name: &str, elapsed: Duration) {
+    *durations.entry(name.to_owned()).or_default() += elapsed.as_millis();
+}
+
+fn merge_detail_durations(
+    family_durations: &mut BTreeMap<String, u128>,
+    profile_durations: &mut BTreeMap<String, u128>,
+    details: BTreeMap<String, u128>,
+) {
+    for (name, duration_microseconds) in details {
+        *family_durations.entry(name.clone()).or_default() += duration_microseconds / 1_000;
+        *profile_durations.entry(name).or_default() += duration_microseconds;
+    }
 }
 
 fn duplicate_finding(left: &Finding, right: &Finding) -> bool {

@@ -60,8 +60,9 @@ use rules::{
         fastapi as fastapi_rules, flutter as flutter_quality_rules, pixijs as pixijs_rules,
         svelte as svelte_rules,
     },
-    generated_code_risks, generic as generic_rules, layout as layout_rules, oop as oop_rules,
-    pattern as pattern_rules, regex as regex_rules, runtime_bootstrap as runtime_bootstrap_rule,
+    generated_code_risks, generic as generic_rules, layout as layout_rules,
+    object_soup as object_soup_rules, oop as oop_rules, pattern as pattern_rules,
+    regex as regex_rules, runtime_bootstrap as runtime_bootstrap_rule,
     sql_inline as sql_inline_rule, structure, trivial_wrappers, ui_consistency,
     yagni as yagni_rules, yagni_call_index, yagni_concentration,
 };

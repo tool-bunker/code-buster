@@ -1,0 +1,36 @@
+{
+  "id": "py-repeated-dictionary-shape",
+  "language": "python",
+  "group": "maintainability",
+  "listingTitle": "Replace a repeated dictionary shape with a type",
+  "title": "Replace a repeated dictionary shape with a type",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A stable domain shape passed through generic dictionaries distributes field names, validation, and evolution across callers instead of giving the concept one explicit contract.",
+  "suggestion": "Introduce a dataclass, TypedDict, Pydantic model, or domain class when these keys share identity and lifecycle.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations",
+    "sourceText"
+  ],
+  "packs": [
+    "python"
+  ],
+  "implementation": "src/rules/object_soup.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires the same complete set of four to twelve literal keys on a generic or untyped parameter in at least three functions across two files, or at least four functions in one file.",
+    "Only direct string-literal indexing and get, pop, or setdefault calls are recognized; aliases, computed keys, partial shape overlap, and interprocedural value flow are not resolved.",
+    "Explicitly typed non-mapping parameters, test functions, comments, string examples, local dictionaries, and shapes below the project-level repetition threshold are excluded."
+  ]
+}

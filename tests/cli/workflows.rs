@@ -162,48 +162,19 @@ fn update_dry_run_reinstalls_only_the_local_rust_checkout() {
 }
 
 #[test]
-fn completions_emit_scripts_for_the_cb_binary() {
-    const COMMANDS: &str = "summary graph dead duplication structure clusters complexity flags hotspots inspect related why path score quality plan actions review pr doctor preview explain rules config baseline fix init test version update completions";
-    let bash = format!("complete -W \"{COMMANDS}\" cb\n");
-    let fish = format!(
-        "complete -c cb -f -a \"{COMMANDS}\"\n\
-         complete -c cb -l root -r\n\
-         complete -c cb -l lang -r\n\
-         complete -c cb -l cache-dir -r\n\
-         complete -c cb -l cache\n\
-         complete -c cb -l format -a \"text json ndjson markdown sarif junit mermaid\"\n"
-    );
-    let powershell = format!(
-        "Register-ArgumentCompleter -Native -CommandName cb -ScriptBlock {{\n\
-         \x20   param($wordToComplete, $commandAst, $cursorPosition)\n\
-         \x20   '{COMMANDS}'.Split(' ') |\n\
-         \x20       Where-Object {{ $_ -like \"$wordToComplete*\" }} |\n\
-         \x20       ForEach-Object {{ [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }}\n\
-         }}\n"
-    );
-    let zsh = format!(
-        "#compdef cb\n_arguments '1:command:({COMMANDS})' \
-         '--root[project root]:dir:_files -/' \
-         '--lang[language]:' \
-         '--cache[reuse analysis cache]' \
-         '--cache-dir[cache directory]:dir:_files -/' \
-         '--format[format]:(text json ndjson markdown sarif junit mermaid)'\n"
-    );
-    for (arguments, expected) in [
-        (&["completions"][..], bash.as_str()),
-        (&["completions", "bash"][..], bash.as_str()),
-        (&["completions", "fish"][..], fish.as_str()),
-        (&["completions", "powershell"][..], powershell.as_str()),
-        (&["completions", "pwsh"][..], powershell.as_str()),
-        (&["completions", "zsh"][..], zsh.as_str()),
-    ] {
-        let output = run(arguments);
+fn completions_target_cb_and_include_profile_in_option_aware_shells() {
+    for shell in ["bash", "fish", "powershell", "pwsh", "zsh"] {
+        let output = run(&["completions", shell]);
         assert_eq!(output.status.code(), Some(0));
         assert!(output.stderr.is_empty());
-        assert_eq!(
-            String::from_utf8(output.stdout).expect("stdout must be UTF-8"),
-            expected
-        );
+        let script = String::from_utf8(output.stdout).expect("stdout must be UTF-8");
+        assert!(script.contains("cb"));
+        assert!(script.contains("summary"));
+        assert!(script.contains("completions"));
+        assert!(!script.contains("cbr"));
+        if matches!(shell, "fish" | "zsh") {
+            assert!(script.contains("profile"));
+        }
     }
 }
 

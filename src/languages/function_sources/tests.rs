@@ -20,6 +20,48 @@ mod tests {
     }
 
     #[test]
+    fn preserves_multiline_python_signatures_and_body_scope() {
+        let functions = extract(&BTreeMap::from([(
+            "service.py".to_owned(),
+            "def render(\n    name: str,\n    template: str = \")\",\n):\n    return name, template\n\ndef after():\n    return 2\n"
+                .to_owned(),
+        )]));
+
+        assert_eq!(functions.len(), 2);
+        assert_eq!(functions[0].name, "render");
+        assert!(functions[0].source.contains("template: str"));
+        assert!(functions[0].source.contains("return name, template"));
+        assert_eq!(functions[1].name, "after");
+    }
+
+    #[test]
+    fn ignores_python_function_examples_inside_docstrings() {
+        let functions = extract(&BTreeMap::from([(
+            "service.py".to_owned(),
+            "\"\"\"Usage:\n    def phantom(alpha, beta, gamma, delta):\n        return alpha\n\"\"\"\n\ndef actual():\n    return 1\n"
+                .to_owned(),
+        )]));
+
+        assert_eq!(functions.len(), 1);
+        assert_eq!(functions[0].name, "actual");
+        assert_eq!(functions[0].line, 6);
+    }
+
+    #[test]
+    fn preserves_multiline_python_return_annotations() {
+        let functions = extract(&BTreeMap::from([(
+            "contracts.py".to_owned(),
+            "def contract(\n    alpha: str,\n    beta: str,\n    gamma: str,\n    delta: str,\n) -> Result[\n    tuple[str, str, str, str]\n]: ...\n\ndef after():\n    return 1\n"
+                .to_owned(),
+        )]));
+
+        assert_eq!(functions.len(), 2);
+        assert_eq!(functions[0].name, "contract");
+        assert!(functions[0].source.contains("]: ..."));
+        assert_eq!(functions[1].name, "after");
+    }
+
+    #[test]
     fn normalizes_dart_functions_like_analyzer_ast_sources() {
         let functions = extract(&BTreeMap::from([(
             "lib/main.dart".to_owned(),

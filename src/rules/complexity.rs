@@ -336,6 +336,7 @@ mod tests {
             name: "logic".to_owned(),
             line: 3,
             end_line: 11,
+            contract_signature: false,
             source: "void logic() {\n  if (first && second) {\n    for (final item in items) {\n      if (item.ready) {\n        save(item);\n      }\n    }\n  }\n}".to_owned(),
         };
         assert_eq!(
@@ -354,6 +355,7 @@ mod tests {
             name: "write".to_owned(),
             line: 1,
             end_line: 1,
+            contract_signature: false,
             source: r#"Future<void> write() async { try { if (ready) run(); final normalized = path.replaceAll(r'\', '/'); } on Exception catch (error) { if (error != null) rethrow; } }"#.to_owned(),
         };
 

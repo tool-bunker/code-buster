@@ -119,6 +119,7 @@ fn cpp_function_and_lambdas(
         name,
         line,
         end_line: line + source.matches('\n').count(),
+        contract_signature: false,
         source: mask_nested_cpp_lambdas(source, 0, None, source.len() - 1, &lambdas),
     }];
     for (opening, (start, end)) in &lambdas {
@@ -127,6 +128,7 @@ fn cpp_function_and_lambdas(
             name: "<lambda>".to_owned(),
             line: line + source[..*start].matches('\n').count(),
             end_line: line + source[..=*end].matches('\n').count(),
+            contract_signature: false,
             source: mask_nested_cpp_lambdas(source, *start, Some(*opening), *end, &lambdas),
         });
     }

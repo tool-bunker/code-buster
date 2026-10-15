@@ -194,7 +194,10 @@ cargo package --allow-dirty --locked
 cargo run --locked -- version
 ```
 
-For performance-sensitive changes, compare the affected real repository with `--no-cache` and verify exact finding parity unless behavior intentionally changed.
+For performance-sensitive changes, run `cb summary --profile` on the affected
+real repository and compare the slowest rule packs and shared analysis stages.
+The profiler bypasses analysis caches automatically. Verify exact finding
+parity unless behavior intentionally changed.
 
 ## Preparing a release
 

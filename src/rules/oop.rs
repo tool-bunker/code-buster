@@ -60,18 +60,23 @@ struct Project {
 }
 pub struct OopAnalysisOutput {
     pub findings: Vec<Finding>,
-    pub durations_milliseconds: BTreeMap<String, u128>,
+    pub shared_durations_microseconds: BTreeMap<String, u128>,
+    pub rule_durations_microseconds: BTreeMap<String, u128>,
 }
 
 #[cfg(test)]
 pub fn analyze(sources: &BTreeMap<String, String>) -> Vec<Finding> {
-    analyze_profiled(sources).findings
+    analyze_profiled(sources, false).findings
 }
 
-pub fn analyze_profiled(sources: &BTreeMap<String, String>) -> OopAnalysisOutput {
+pub fn analyze_profiled(
+    sources: &BTreeMap<String, String>,
+    collect_timings: bool,
+) -> OopAnalysisOutput {
     let partitions: [&[&str]; 3] = [&[".cs"], &[".java"], &[".ts", ".tsx"]];
     let mut findings = Vec::new();
-    let mut durations = BTreeMap::new();
+    let mut shared_durations = BTreeMap::new();
+    let mut rule_durations = BTreeMap::new();
     for extensions in partitions {
         let selected = sources
             .iter()
@@ -79,24 +84,39 @@ pub fn analyze_profiled(sources: &BTreeMap<String, String>) -> OopAnalysisOutput
         if selected.clone().next().is_none() {
             continue;
         }
-        let started = Instant::now();
+        let started = collect_timings.then(Instant::now);
         let project = parse_project(selected);
-        record_oop_duration(&mut durations, "oop.parse", started);
-        findings.extend(analyze_project(&project, &mut durations));
+        if let Some(started) = started {
+            record_oop_duration(&mut shared_durations, "oop.parse", started);
+        }
+        findings.extend(analyze_project(
+            &project,
+            &mut rule_durations,
+            collect_timings,
+        ));
     }
     OopAnalysisOutput {
         findings,
-        durations_milliseconds: durations,
+        shared_durations_microseconds: shared_durations,
+        rule_durations_microseconds: rule_durations,
     }
 }
 
-fn analyze_project(project: &Project, durations: &mut BTreeMap<String, u128>) -> Vec<Finding> {
+fn analyze_project(
+    project: &Project,
+    durations: &mut BTreeMap<String, u128>,
+    collect_timings: bool,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
     macro_rules! run {
         ($name:literal, $analysis:expr) => {{
-            let started = Instant::now();
-            findings.extend($analysis);
-            record_oop_duration(durations, $name, started);
+            if collect_timings {
+                let started = Instant::now();
+                findings.extend($analysis);
+                record_oop_duration(durations, $name, started);
+            } else {
+                findings.extend($analysis);
+            }
         }};
     }
     run!("oop.data-clumps", data_clumps(project));
@@ -126,7 +146,7 @@ fn analyze_project(project: &Project, durations: &mut BTreeMap<String, u128>) ->
 }
 
 fn record_oop_duration(durations: &mut BTreeMap<String, u128>, name: &str, started: Instant) {
-    *durations.entry(name.to_owned()).or_default() += started.elapsed().as_millis();
+    *durations.entry(name.to_owned()).or_default() += started.elapsed().as_micros();
 }
 
 fn parse_project<'a>(sources: impl Iterator<Item = (&'a String, &'a String)>) -> Project {

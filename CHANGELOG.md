@@ -16,11 +16,20 @@
 - Add Cargo workspace, Rust public API, dependency, unsafe, panic, conversion, reproducibility, and security policy rules with conservative project and source-role handling.
 - Add persistent external analysis caching, focused execution plans, grouped advisory findings, release rehearsal, and cross-platform native artifacts.
 - Add one-command release preparation that updates Cargo metadata and promotes `Unreleased` changelog notes without tagging or publishing.
+- Add an opt-in uncached rule execution profiler with slowest-first terminal output, structured microsecond measurements, and honest separation of rule packs, shared analysis, and independently measurable checks.
+- Add conservative project-level object-soup rules for repeated loose parameter groups in Python and Rust.
+- Classify repeated fixed Python dictionary shapes and Rust dynamic-map shapes under precise dedicated rule IDs instead of treating every map shape as object soup.
 
 ### Improved
 
 - Refine multi-language rule precision, test and generated-source classification, finding grouping, YAGNI concentration, dependency analysis, and performance across large real-world repositories.
 - Set the minimum supported Rust version to 1.88, validate release documentation in CI, and pin the starter GitHub integration to the release tag.
+- Exclude Rust trait methods and recognized JNI, N-API, op2, PyO3, wasm-bindgen, and exported ABI functions from object-soup parameter-clump findings because their signatures are fixed by contracts, while still analyzing their dynamic-map usage.
+- Exclude declaration-only Python signatures and compiler-lowering callbacks from object-soup parameter clumps while preserving findings for ordinary decorated functions.
+- Ignore function-like text inside Python docstrings and follow bracketed multiline return annotations so documentation examples and declaration stubs do not influence function-based findings.
+- Exclude standard Python overload, override, abstract-method, pass-only, and `NotImplementedError` hook signatures from object-soup evidence.
+- Classify packaged `tests_common` trees as tests, skip test-only auxiliary manifests, and tolerate malformed UTF-8 in selected project metadata.
+- Refresh the README animation with the Rust 0.9 zero-argument `cb` flow, progress spinner, colored structured summary, and a reproducible Pillow renderer.
 
 ## 0.8.1
 

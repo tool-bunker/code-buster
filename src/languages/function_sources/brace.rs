@@ -29,6 +29,7 @@ fn brace_functions(path: &str, source: &str, patterns: &[&Regex]) -> Vec<Functio
                 name: normalized_name.to_owned(),
                 line,
                 end_line: line_at(source, closing),
+                contract_signature: false,
                 source: source[complete.start()..=closing].to_owned(),
             });
         }
@@ -59,6 +60,7 @@ fn java_functions(path: &str, source: &str) -> Vec<FunctionSource> {
             name,
             line: index + 1,
             end_line: end + 1,
+            contract_signature: false,
             source: lines[index..=end].join("\n"),
         });
         index = end + 1;
@@ -142,6 +144,7 @@ fn build_csharp_function(
         name: candidate.name,
         line: candidate.start + 1,
         end_line: end + 1,
+        contract_signature: false,
         source: lines[candidate.start..=end].join("\n"),
     }
 }

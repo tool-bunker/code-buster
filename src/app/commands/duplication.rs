@@ -86,6 +86,7 @@ fn execute_named(
             actionable_count,
             advisory_summary: &advisory_summary,
             verbose: options.verbose,
+            profile: options.profile,
         },
     )?;
     println!("{output}");

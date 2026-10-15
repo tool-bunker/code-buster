@@ -59,6 +59,7 @@ pub fn execute(options: &PreviewOptions) -> Result<ComplexityOutcome, String> {
             actionable_count,
             advisory_summary: &advisory_summary,
             verbose: options.verbose,
+            profile: options.profile,
         },
     )?;
     println!("{output}");

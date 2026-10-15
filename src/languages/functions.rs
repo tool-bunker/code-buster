@@ -16,6 +16,7 @@ pub struct FunctionSource {
     pub name: String,
     pub line: usize,
     pub end_line: usize,
+    pub contract_signature: bool,
     pub source: String,
 }
 

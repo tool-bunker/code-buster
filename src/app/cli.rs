@@ -27,6 +27,10 @@ pub fn argument_usage() -> String {
         ("    --changed-lines", ""),
         ("    --fail-on-issues", ""),
         ("    --verbose", ""),
+        (
+            "    --profile",
+            "Measure uncached rule-pack execution and print a timing profile.",
+        ),
         ("    --ci", ""),
         ("    --allow-empty", ""),
         (
@@ -143,6 +147,7 @@ pub struct PreviewOptions {
     pub excludes: Vec<String>,
     pub changed_base: Option<String>,
     pub verbose: bool,
+    pub profile: bool,
     pub include_all: bool,
     pub include_tests: bool,
     pub include_examples: bool,
@@ -177,6 +182,7 @@ impl Default for PreviewOptions {
             excludes: Vec::new(),
             changed_base: None,
             verbose: false,
+            profile: false,
             include_all: false,
             include_tests: false,
             include_examples: false,
@@ -242,6 +248,8 @@ struct ParsedArguments {
     #[arg(long)]
     verbose: bool,
     #[arg(long)]
+    profile: bool,
+    #[arg(long)]
     ci: bool,
     #[arg(long)]
     allow_empty: bool,
@@ -291,6 +299,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
     let parsed =
         ParsedArguments::try_parse_from(std::iter::once(OsString::from("cb")).chain(arguments))
             .map_err(|error| error.to_string().trim_end().to_owned())?;
+    let cache_enabled = analysis_cache_enabled(&parsed)?;
     let command = parsed.command;
     let targets = parsed.targets;
     let changed_base = if parsed.changed {
@@ -298,8 +307,6 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
     } else {
         parsed.changed_base
     };
-    let cache_enabled = !parsed.no_cache;
-    let _explicit_cache = parsed.cache;
     let mut options = PreviewOptions {
         root: PathBuf::from(parsed.root),
         language: parsed.language,
@@ -310,6 +317,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         excludes: parsed.exclude,
         changed_base,
         verbose: parsed.verbose,
+        profile: parsed.profile,
         include_all: parsed.include_all,
         include_tests: parsed.include_tests,
         include_examples: parsed.include_examples,
@@ -331,9 +339,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         cache_directory: parsed.cache_dir.map(PathBuf::from),
         ingest_sarif: parsed.ingest_sarif,
     };
-    if !options.cache_enabled && options.cache_directory.is_some() {
-        return Err("--no-cache cannot be combined with --cache-dir".to_owned());
-    }
+    validate_analysis_options(&options, command.as_deref())?;
 
     match command.as_deref() {
         Some("version") => Ok(Command::Version),
@@ -415,6 +421,32 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         Some(value) => Err(format!("Unknown Code Buster command: {value}")),
         None => Ok(Command::Summary(options)),
     }
+}
+
+fn analysis_cache_enabled(parsed: &ParsedArguments) -> Result<bool, String> {
+    if parsed.profile && parsed.cache {
+        return Err("--profile cannot be combined with --cache".to_owned());
+    }
+    if parsed.profile && parsed.cache_dir.is_some() {
+        return Err("--profile cannot be combined with --cache-dir".to_owned());
+    }
+    Ok(!parsed.no_cache && !parsed.profile)
+}
+
+fn validate_analysis_options(
+    options: &PreviewOptions,
+    command: Option<&str>,
+) -> Result<(), String> {
+    if !options.cache_enabled && options.cache_directory.is_some() {
+        return Err("--no-cache cannot be combined with --cache-dir".to_owned());
+    }
+    if options.profile && !matches!(command, None | Some("summary")) {
+        return Err("--profile is only supported by cb summary".to_owned());
+    }
+    if options.profile && !matches!(&options.format, ReportFormat::Text | ReportFormat::Json) {
+        return Err("--profile requires --format text or --format json".to_owned());
+    }
+    Ok(())
 }
 
 fn report_format(value: &str) -> Result<ReportFormat, String> {

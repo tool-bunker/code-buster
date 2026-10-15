@@ -12,6 +12,7 @@ pub(crate) mod frameworks;
 pub(crate) mod generated_code_risks;
 pub(crate) mod generic;
 pub(crate) mod layout;
+pub(crate) mod object_soup;
 pub(crate) mod oop;
 pub(crate) mod pattern;
 pub(crate) mod regex;

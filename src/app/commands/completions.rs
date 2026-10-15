@@ -8,6 +8,7 @@ pub fn execute(shell: &str) {
              complete -c cb -l lang -r\n\
              complete -c cb -l cache-dir -r\n\
              complete -c cb -l cache\n\
+             complete -c cb -l profile\n\
              complete -c cb -l format -a \"text json ndjson markdown sarif junit mermaid\""
         ),
         "powershell" | "pwsh" => format!(
@@ -23,6 +24,7 @@ pub fn execute(shell: &str) {
              '--root[project root]:dir:_files -/' \
              '--lang[language]:' \
              '--cache[reuse analysis cache]' \
+             '--profile[measure uncached rule-pack execution]' \
              '--cache-dir[cache directory]:dir:_files -/' \
              '--format[format]:(text json ndjson markdown sarif junit mermaid)'"
         ),
