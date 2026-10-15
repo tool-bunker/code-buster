@@ -29,7 +29,7 @@ output
 ## Environment
 
 - Code Buster version (`cb version`):
-- Dart version (`dart --version`):
+- Rust toolchain (`rustc --version`), when built from source:
 - Operating system:
 - Installation method:
 

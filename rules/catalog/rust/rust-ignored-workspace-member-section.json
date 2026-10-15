@@ -1,0 +1,26 @@
+{
+  "id": "rust-ignored-workspace-member-section",
+  "language": "rust",
+  "group": "correctness",
+  "listingTitle": "Move root-only Cargo settings",
+  "title": "Move root-only Cargo settings",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "correctness",
+  "why": "Cargo ignores profile, patch, and replace tables in workspace member manifests, so checked-in configuration can appear active while having no effect.",
+  "suggestion": "Move profile, patch, and replace configuration to the owning workspace root manifest.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["correctness"],
+  "requirements": ["declarations"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/rules/cargo/workspace.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Workspace membership is resolved from checked-in members and exclude patterns.",
+    "Independent nested workspaces are excluded."
+  ]
+}

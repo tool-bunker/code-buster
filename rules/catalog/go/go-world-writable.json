@@ -1,0 +1,31 @@
+{
+  "id": "go-world-writable",
+  "language": "go",
+  "group": "security",
+  "listingTitle": "Go world writable",
+  "title": "Avoid world-writable permissions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "World-writable files can be modified by unrelated local users.",
+  "suggestion": "Use the least permissive mode required by the application.",
+  "version": 5,
+  "semanticMaturity": "text",
+  "securityKind": "vulnerability",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "go"
+  ],
+  "implementation": "src/languages/go/rules.rs",
+  "languages": [
+    "go"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

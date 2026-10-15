@@ -1,0 +1,31 @@
+{
+  "id": "lua-pcall-swallow",
+  "language": "lua",
+  "group": "style",
+  "listingTitle": "Lua pcall swallow",
+  "title": "Review pcall swallow",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
+  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "lua"
+  ],
+  "implementation": "src/languages/lua/rules.rs",
+  "languages": [
+    "lua"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

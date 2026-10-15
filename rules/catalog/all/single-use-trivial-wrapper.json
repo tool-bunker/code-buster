@@ -1,0 +1,45 @@
+{
+  "id": "single-use-trivial-wrapper",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Single use trivial wrapper",
+  "title": "Inline a single-use trivial wrapper",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "Single-use forwarding functions and chains add navigation without owning policy, transformation, validation, or resource lifetime.",
+  "suggestion": "Inline or collapse the wrappers unless they are intentional extension or compatibility boundaries.",
+  "version": 5,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "trivial-wrappers",
+    "yagni-concentration"
+  ],
+  "implementation": "src/rules/trivial_wrappers.rs",
+  "languages": [
+    "cpp",
+    "csharp",
+    "dart",
+    "go",
+    "java",
+    "javascript",
+    "typescript",
+    "python",
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.",
+    "Requires unchanged positional arguments and a uniquely named local target function.",
+    "Maximal chains are consolidated only within one source file; cross-file forwarding chains are reported as separately resolved local segments.",
+    "Method tear-offs, reflective calls, overload ownership, and framework-discovered private hooks are not resolved."
+  ]
+}

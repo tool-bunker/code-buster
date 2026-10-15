@@ -1,0 +1,35 @@
+{
+  "id": "rust-unpinned-git-dependency",
+  "language": "rust",
+  "group": "security",
+  "listingTitle": "Pin Rust Git dependencies to immutable revisions",
+  "title": "Pin Rust Git dependencies to immutable revisions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "A branch or tag can move after review and silently change the dependency source selected by a future resolution.",
+  "suggestion": "Set rev to a full commit identifier or use a reviewed registry release with a committed lockfile.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule verifies that a rev field exists but cannot establish upstream trust or repository integrity.",
+    "Cargo source replacement and organization-specific trust policy are not resolved."
+  ]
+}

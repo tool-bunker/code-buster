@@ -1,0 +1,34 @@
+{
+  "id": "tab-indent",
+  "language": "all",
+  "group": "style",
+  "listingTitle": "Replace tabs",
+  "title": "Replace tabs",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A line contains a tab character.",
+  "suggestion": "Replace indentation tabs with spaces.",
+  "version": 5,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "layout"
+  ],
+  "implementation": "src/rules/layout.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "At most 50 deterministic file findings are retained per run.",
+    "Dart tabs inside string values are not indentation findings.",
+    "EditorConfig section ordering and extension overrides are honored.",
+    "Other languages require formatter or editor evidence that spaces are enforced."
+  ]
+}

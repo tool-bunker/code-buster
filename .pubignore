@@ -1,8 +1,0 @@
-.dart_tool/
-.code-buster-cache/
-build/
-coverage/
-doc/
-test/
-tool/
-code-buster.toml

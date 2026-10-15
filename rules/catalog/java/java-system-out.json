@@ -1,0 +1,31 @@
+{
+  "id": "java-system-out",
+  "language": "java",
+  "group": "style",
+  "listingTitle": "Java system out",
+  "title": "Review system out",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "Direct console output is hard to route, filter, or correlate in services.",
+  "suggestion": "Use the project's logging framework.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

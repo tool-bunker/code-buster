@@ -1,0 +1,42 @@
+{
+  "id": "dart-bad-certificate-callback",
+  "language": "dart",
+  "group": "security",
+  "listingTitle": "Review bad certificate callback",
+  "title": "Review bad certificate callback",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "This Dart construct can weaken static safety, reliability, or security.",
+  "suggestion": "Use the safer typed asynchronous Dart pattern described by the rule.",
+  "version": 3,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "dart-config",
+    "dart-core",
+    "dart-package-cycle",
+    "dart-flutter-build",
+    "dart-lifecycle",
+    "dart-model-contracts",
+    "dart-mvvm",
+    "dart-oop",
+    "dart-performance",
+    "dart-null-assertion",
+    "dart-reliability",
+    "dart-security"
+  ],
+  "implementation": "src/languages/dart/security.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

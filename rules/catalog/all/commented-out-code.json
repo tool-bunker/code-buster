@@ -1,0 +1,29 @@
+{
+  "id": "commented-out-code",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Remove commented-out code",
+  "title": "Remove commented-out code",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Disabled source in comments rots, obscures current behavior, and duplicates version-control history.",
+  "suggestion": "Delete the disabled code and recover it from version control if it is needed later.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

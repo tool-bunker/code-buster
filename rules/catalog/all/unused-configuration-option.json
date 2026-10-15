@@ -1,0 +1,40 @@
+{
+  "id": "unused-configuration-option",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Unused configuration option",
+  "title": "Remove an unused configuration option",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A configuration option that every caller supplies but the implementation never reads adds misleading variation and maintenance cost.",
+  "suggestion": "Remove the option from callers and its configuration type until the implementation needs it.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "yagni",
+    "yagni-concentration"
+  ],
+  "implementation": "src/rules/yagni.rs",
+  "languages": [
+    "csharp",
+    "dart",
+    "javascript",
+    "typescript",
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Reports identifier-named options supplied through inline object literals or named constructor arguments to private functions with at least three visible call sites.",
+    "Requires a configuration-like parameter name, a project-unique function name, complete direct-call evidence, and property-only reads of the configuration parameter.",
+    "String-keyed maps, positional configuration constructors, aliases, destructuring, computed property access, reflection, overload ownership, and framework-discovered private hooks are not resolved."
+  ]
+}

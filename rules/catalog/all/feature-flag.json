@@ -1,0 +1,31 @@
+{
+  "id": "feature-flag",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Review flag",
+  "title": "Review feature flag",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A feature flag-like reference was found.",
+  "suggestion": "Review whether the flag is still needed and documented.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "feature-flags"
+  ],
+  "implementation": "src/rules/feature_flags.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Generic Flags, flags, and Config members require feature lifecycle terminology."
+  ]
+}

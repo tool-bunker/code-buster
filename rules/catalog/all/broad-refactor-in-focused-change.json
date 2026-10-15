@@ -1,0 +1,32 @@
+{
+  "id": "broad-refactor-in-focused-change",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Keep focused changes surgical",
+  "title": "Keep focused changes surgical",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "One behavior change accompanied by broad style-only edits increases review surface and hides the functional change.",
+  "suggestion": "Revert unrelated edits or move an intentional mechanical cleanup into a separate change.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires changed-base snapshots and reports only when one file mixes behavior changes with at least six style-equivalent edits.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

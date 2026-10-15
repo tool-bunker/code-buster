@@ -1,0 +1,32 @@
+{
+  "id": "style-drift-in-diff",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Avoid unrelated style drift",
+  "title": "Avoid unrelated style drift",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "Quote, whitespace, typing, or local declaration-style churn obscures the behavior being reviewed.",
+  "suggestion": "Match the surrounding style and retain only formatting required by the behavioral edit.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires changed-base snapshots and reports only repeated style-equivalent line replacements alongside behavior changes.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "id": "css-duplicate-declaration-set",
+  "language": "css",
+  "group": "maintainability",
+  "listingTitle": "Share repeated CSS declaration sets",
+  "title": "Share repeated CSS declaration sets",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Independent selectors with the same substantial style can drift instead of evolving as one component.",
+  "suggestion": "Extract a shared component class, utility, or custom property set when the selectors represent one visual role.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "css",
+    "ui"
+  ],
+  "implementation": "src/rules/ui_consistency.rs",
+  "languages": [
+    "css"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Nested CSS blocks and semantically equivalent shorthand declarations are not compared."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "rust-public-anyhow-result",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Expose typed library errors",
+  "title": "Expose typed library errors",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "An opaque anyhow error in a public library API prevents callers from matching stable error variants without downcasting or inspecting text.",
+  "suggestion": "Expose a typed error enum from the library and convert it to anyhow only at an application or binary boundary.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["maintainability"],
+  "requirements": ["declarations"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/rules/cargo/public_api.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only public functions owned by publishable Cargo library targets with explicit publication metadata are inspected; application, binary, unpublished, and explicitly internal packages are excluded.",
+    "Direct anyhow types and locally declared aliases to anyhow Result or Error are recognized; cross-crate aliases are not resolved."
+  ]
+}

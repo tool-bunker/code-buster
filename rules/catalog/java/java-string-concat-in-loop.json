@@ -1,0 +1,33 @@
+{
+  "id": "java-string-concat-in-loop",
+  "language": "java",
+  "group": "performance",
+  "listingTitle": "Avoid Java String concatenation in loops",
+  "title": "Avoid Java String concatenation in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Repeated immutable String concatenation can copy the growing prefix on every iteration.",
+  "suggestion": "Accumulate with StringBuilder and convert to String after the loop.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "performance"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicitly declared String variables and braced loops are checked."
+  ]
+}

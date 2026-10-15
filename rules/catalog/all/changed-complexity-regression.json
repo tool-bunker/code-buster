@@ -1,0 +1,32 @@
+{
+  "id": "changed-complexity-regression",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Reduce changed-code complexity growth",
+  "title": "Reduce changed-code complexity growth",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A changed function added several decision points and crossed a high-complexity threshold.",
+  "suggestion": "Split independent decisions or simplify the changed control flow before it becomes harder to test.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Runs only with changed-base source snapshots and compares brace-delimited named functions.",
+    "Macro expansion, generated functions, overload identity, and parser recovery are not resolved."
+  ]
+}

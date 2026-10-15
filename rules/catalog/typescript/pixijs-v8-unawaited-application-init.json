@@ -1,0 +1,37 @@
+{
+  "id": "pixijs-v8-unawaited-application-init",
+  "language": "typescript",
+  "group": "correctness",
+  "listingTitle": "Await PixiJS application initialization",
+  "title": "Await PixiJS application initialization",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "Application.init is asynchronous in PixiJS v8; using the application before completion can race renderer setup.",
+  "suggestion": "Await app.init(options) before accessing the canvas, renderer, stage, or ticker.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "pixijs"
+  ],
+  "implementation": "src/rules/frameworks/pixijs.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "pixijs"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+    "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+  ]
+}

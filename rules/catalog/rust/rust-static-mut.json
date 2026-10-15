@@ -1,0 +1,34 @@
+{
+  "id": "rust-static-mut",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Avoid mutable Rust statics",
+  "title": "Avoid mutable Rust statics",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A mutable static permits aliased unsynchronized global mutation behind unsafe access.",
+  "suggestion": "Use an atomic, Mutex, RwLock, OnceLock, or immutable initialization.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "tokens"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The declaration is reported as a review boundary; the rule does not prove an access is unsound."
+  ]
+}

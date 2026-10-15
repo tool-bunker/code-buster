@@ -1,0 +1,31 @@
+{
+  "id": "lua-loadstring",
+  "language": "lua",
+  "group": "security",
+  "listingTitle": "Lua loadstring",
+  "title": "Review loadstring",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "security",
+  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
+  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "lua"
+  ],
+  "implementation": "src/languages/lua/rules.rs",
+  "languages": [
+    "lua"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

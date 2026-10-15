@@ -1,0 +1,29 @@
+{
+  "id": "regex-repeated-compile",
+  "language": "all",
+  "group": "suspicious",
+  "listingTitle": "Regex repeated compile",
+  "title": "Review repeated compile",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "regex",
+  "why": "This regular expression can be invalid, inefficient, misleading, or unsafe for validation.",
+  "suggestion": "Simplify, anchor, precompile, or test the expression against adversarial input.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "regex"
+  ],
+  "implementation": "src/rules/regex.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

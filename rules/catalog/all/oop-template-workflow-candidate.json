@@ -1,0 +1,41 @@
+{
+  "id": "oop-template-workflow-candidate",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Share a stable sibling workflow",
+  "title": "Share a stable sibling workflow",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Sibling overrides repeating an ordered workflow duplicate invariant behavior.",
+  "suggestion": "Consider a shared workflow with one varying step.",
+  "version": 7,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires sibling overrides with four to ten calls and exactly one differing call; analyzer execution hooks named `analyze` and AST visitor hooks named `visit...` are excluded.",
+    "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
+  ]
+}

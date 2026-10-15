@@ -1,0 +1,37 @@
+{
+  "id": "pixijs-v8-cache-as-bitmap",
+  "language": "typescript",
+  "group": "correctness",
+  "listingTitle": "Use PixiJS v8 cacheAsTexture",
+  "title": "Use PixiJS v8 cacheAsTexture",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "PixiJS v8 replaced cacheAsBitmap with the cacheAsTexture API.",
+  "suggestion": "Use cacheAsTexture() and update or disable the cache deliberately when content changes.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "pixijs"
+  ],
+  "implementation": "src/rules/frameworks/pixijs.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "pixijs"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+    "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+  ]
+}

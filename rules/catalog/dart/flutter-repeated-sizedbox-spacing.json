@@ -1,0 +1,39 @@
+{
+  "id": "flutter-repeated-sizedbox-spacing",
+  "language": "dart",
+  "group": "style",
+  "listingTitle": "Use parent layout spacing for uniform gaps",
+  "title": "Use parent layout spacing for uniform gaps",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Repeated spacer widgets obscure the layout spacing policy and make design-system changes harder.",
+  "suggestion": "Remove identical spacer children and set Row.spacing or Column.spacing, preferably with a shared spacing token.",
+  "version": 2,
+  "semanticMaturity": "ast",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability",
+    "style"
+  ],
+  "requirements": [
+    "ast"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit Row and Column list literals with a spacer in every gap are analyzed.",
+    "Conditional, spread, loop-produced, leading, trailing, and mixed-size gaps are skipped.",
+    "The spacing property requires a Flutter SDK version that provides Row.spacing and Column.spacing."
+  ]
+}

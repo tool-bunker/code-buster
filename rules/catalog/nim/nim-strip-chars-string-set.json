@@ -1,0 +1,29 @@
+{
+  "id": "nim-strip-chars-string-set",
+  "language": "nim",
+  "group": "style",
+  "listingTitle": "Nim strip chars string set",
+  "title": "Review Nim strip chars string set",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "strings",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/advanced.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

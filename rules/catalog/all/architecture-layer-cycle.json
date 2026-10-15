@@ -1,0 +1,29 @@
+{
+  "id": "architecture-layer-cycle",
+  "language": "all",
+  "group": "architecture",
+  "listingTitle": "Architecture layer cycle",
+  "title": "Enforce architecture dependency direction",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "Architecture boundaries keep dependency direction and ownership explicit.",
+  "suggestion": "Move, invert, or extract the dependency to satisfy declared policy.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "architecture"
+  ],
+  "requirements": [
+    "graph"
+  ],
+  "packs": [
+    "dead"
+  ],
+  "implementation": "src/graph/dead_analysis.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

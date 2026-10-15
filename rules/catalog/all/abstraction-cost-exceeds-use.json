@@ -1,0 +1,32 @@
+{
+  "id": "abstraction-cost-exceeds-use",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Reduce abstraction scaffolding",
+  "title": "Reduce abstraction scaffolding",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A change dominated by declarations and delegation can cost more to understand than the behavior it owns.",
+  "suggestion": "Keep the behavior local until multiple real callers or implementations justify the abstraction.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Reports changed files adding at least three type declarations but no more than two behavioral lines.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "flutter-unlocalized-user-text",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Localize user-visible text",
+  "title": "Localize user-visible text",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A literal shown by an application with localization infrastructure cannot be translated consistently.",
+  "suggestion": "Read the message from the established localization API.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

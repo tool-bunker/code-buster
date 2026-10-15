@@ -1,0 +1,45 @@
+{
+  "id": "dart-package-cycle",
+  "language": "dart",
+  "group": "architecture",
+  "listingTitle": "Break Dart package dependency cycles",
+  "title": "Break Dart package dependency cycles",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Mutually dependent packages cannot be versioned or reused independently.",
+  "suggestion": "Move shared contracts into a lower-level package or invert one dependency.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "architecture"
+  ],
+  "requirements": [
+    "imports",
+    "graph"
+  ],
+  "packs": [
+    "dart-config",
+    "dart-core",
+    "dart-package-cycle",
+    "dart-flutter-build",
+    "dart-lifecycle",
+    "dart-model-contracts",
+    "dart-mvvm",
+    "dart-oop",
+    "dart-performance",
+    "dart-null-assertion",
+    "dart-reliability",
+    "dart-security"
+  ],
+  "implementation": "src/languages/dart/package_cycle.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Package ownership is inferred from packages/* and the nearest lib directory."
+  ]
+}

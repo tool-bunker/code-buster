@@ -1,0 +1,4 @@
+{
+  "engines": { "node": ">=22" },
+  "devDependencies": { "typescript": "^5.0.0" }
+}

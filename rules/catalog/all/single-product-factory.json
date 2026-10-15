@@ -1,0 +1,42 @@
+{
+  "id": "single-product-factory",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Single product factory",
+  "title": "Inline a single-product factory",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A one-caller factory with one fixed product and no owned policy, lifecycle, or transformation adds indirection without current variation.",
+  "suggestion": "Construct the product at the caller until selection, lifecycle, or shared creation policy is needed.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "yagni",
+    "yagni-concentration"
+  ],
+  "implementation": "src/rules/yagni.rs",
+  "languages": [
+    "cpp",
+    "csharp",
+    "dart",
+    "java",
+    "javascript",
+    "typescript",
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Reports only static C/C++ functions, private C#/Java methods, and underscore-prefixed Dart/JavaScript/TypeScript/Python factories with exactly one visible caller.",
+    "Requires a factory-like name and a body consisting only of direct construction with unchanged positional arguments.",
+    "Factories that select products, own lifecycle, cache, validate, decorate, transform arguments, or expose public composition boundaries are excluded."
+  ]
+}

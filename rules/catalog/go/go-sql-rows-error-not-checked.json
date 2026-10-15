@@ -1,0 +1,36 @@
+{
+  "id": "go-sql-rows-error-not-checked",
+  "language": "go",
+  "group": "correctness",
+  "listingTitle": "Check Go SQL row iteration errors",
+  "title": "Check Go SQL row iteration errors",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "correctness",
+  "why": "Rows.Next can stop because iteration failed, and omitting Rows.Err can convert a partial result into apparent success.",
+  "suggestion": "After the iteration loop, check rows.Err() and propagate or handle the error.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "go"
+  ],
+  "implementation": "src/languages/go/rules.rs",
+  "languages": [
+    "go"
+  ],
+  "frameworks": [],
+  "languageVersions": [
+    [
+      "go",
+      ">=1.13"
+    ]
+  ],
+  "limitations": []
+}

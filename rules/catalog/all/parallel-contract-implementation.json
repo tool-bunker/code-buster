@@ -1,0 +1,32 @@
+{
+  "id": "parallel-contract-implementation",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Consolidate external contract handling",
+  "title": "Consolidate external contract handling",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Separate implementations of one external contract can drift independently.",
+  "suggestion": "Choose one owner for the contract and share or delegate decoding and policy.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "advanced-duplication"
+  ],
+  "implementation": "src/rules/advanced_duplication.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Semantic mode currently compares HTTP endpoints, JSON key sets, SQL table operations, and configuration key sets.",
+    "A shared external contract can be intentional; findings require review."
+  ]
+}

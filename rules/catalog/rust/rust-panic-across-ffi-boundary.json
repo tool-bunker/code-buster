@@ -1,0 +1,35 @@
+{
+  "id": "rust-panic-across-ffi-boundary",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Contain panics at exported Rust FFI boundaries",
+  "title": "Contain panics at exported Rust FFI boundaries",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A panic escaping a non-unwind foreign ABI can abort the process or violate the caller contract.",
+  "suggestion": "Convert failures to an ABI-safe result and contain Rust panics with catch_unwind where unwinding is possible.",
+  "version": 2,
+  "semanticMaturity": "ast",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit panic-capable sites in the exported function body are detected; indirect panics through callees are not resolved.",
+    "catch_unwind recognition is structural and does not prove that every panic path is contained."
+  ]
+}

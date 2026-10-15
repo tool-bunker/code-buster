@@ -1,0 +1,32 @@
+{
+  "id": "narrating-implementation-comment",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Remove implementation narration",
+  "title": "Remove implementation narration",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Step-by-step narration duplicates control flow rather than explaining a constraint or design decision.",
+  "suggestion": "Delete the narration or replace it with the non-obvious reason the implementation is necessary.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "generated-code"
+  ],
+  "implementation": "src/rules/generated_code_risks.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit first-person sequencing phrases are reported.",
+    "Documentation comments and test sources are excluded."
+  ]
+}

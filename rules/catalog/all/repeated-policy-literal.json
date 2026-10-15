@@ -1,0 +1,31 @@
+{
+  "id": "repeated-policy-literal",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Name a repeated policy literal",
+  "title": "Name a repeated policy literal",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A repeated threshold, duration, or capacity literal can drift because its purpose is not named.",
+  "suggestion": "Define one purpose-named constant near the behavior that owns this policy.",
+  "version": 7,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Collection length comparisons and bare `count` identifiers are excluded because generic receiver names do not establish a shared policy concept across files."
+  ]
+}

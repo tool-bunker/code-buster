@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Package version already prepared on main, without the v prefix
+        description: Cargo package version already prepared on main, without the v prefix
         required: true
         type: string
 
@@ -18,6 +18,8 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Require the main branch
         if: github.ref != 'refs/heads/main'
@@ -25,92 +27,101 @@ jobs:
           echo 'Releases must be dispatched from main.' >&2
           exit 1
       - uses: actions/checkout@v5
-      - uses: dart-lang/setup-dart@v1
         with:
-          sdk: stable
-      - run: dart pub get
-      - run: dart run tool/release_version.dart 'v${{ inputs.version }}'
-      - run: dart format --output=none --set-exit-if-changed bin example lib tool/*.dart
-      - run: dart analyze
-      - run: dart run tool/default_contract.dart
-      - run: dart test -j 1
-      - run: dart doc --dry-run
-      - run: dart pub publish --dry-run
-      - name: Validate pub.dev package quality
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy,rustfmt
+      - name: Validate release version
+        id: release
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          dart pub global activate pana
-          pana --no-warning .
-      - run: python3 tool/release_evidence.py
-      - name: Rebuild precision evidence
-        run: |
-          mkdir -p build
-          dart compile exe bin/cb.dart -o build/cb
-          python3 tool/precision_benchmark.py
+          if ! [[ "$REQUESTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "invalid semantic version: $REQUESTED_VERSION" >&2
+            exit 1
+          fi
+          PACKAGE_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "code-buster") | .version')"
+          if [[ "$PACKAGE_VERSION" != "$REQUESTED_VERSION" ]]; then
+            echo "Cargo version $PACKAGE_VERSION does not match requested version $REQUESTED_VERSION" >&2
+            exit 1
+          fi
+          if ! grep -Fqx "## $REQUESTED_VERSION" CHANGELOG.md; then
+            echo "CHANGELOG.md has no release heading for $REQUESTED_VERSION" >&2
+            exit 1
+          fi
+          if ! grep -Fq -- "--tag v$REQUESTED_VERSION --locked" README.md; then
+            echo "README.md does not pin the v$REQUESTED_VERSION source install" >&2
+            exit 1
+          fi
+          echo "tag=v$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --all-targets --all-features --locked
+      - run: cargo package --locked
 
-  create-tag:
+  resolve-tag:
     needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      tag: ${{ steps.release-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Create release tag
-        id: release-tag
+      - name: Resolve release tag
         env:
-          RELEASE_TAG: v${{ inputs.version }}
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
         run: |
           if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
-            echo "Tag $RELEASE_TAG already exists." >&2
-            exit 1
+            TAG_REVISION="$(git rev-list -n 1 "$RELEASE_TAG")"
+            if [[ "$TAG_REVISION" != "$GITHUB_SHA" ]]; then
+              echo "$RELEASE_TAG already points to $TAG_REVISION instead of $GITHUB_SHA" >&2
+              exit 1
+            fi
+            echo "Using existing tag $RELEASE_TAG."
+          else
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+            git push origin "$RELEASE_TAG"
           fi
-          git tag "$RELEASE_TAG" "$GITHUB_SHA"
-          git push origin "$RELEASE_TAG"
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
   artifacts:
-    needs: create-tag
-    permissions:
-      contents: read
+    needs: [verify, resolve-tag]
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             platform: linux-x64
-            executable: cb
+            executable: target/release/cb
             archive: code-buster-linux-x64.tar.gz
           - os: macos-15
             platform: macos-arm64
-            executable: cb
+            executable: target/release/cb
             archive: code-buster-macos-arm64.tar.gz
           - os: windows-latest
             platform: windows-x64
-            executable: cb.exe
+            executable: target/release/cb.exe
             archive: code-buster-windows-x64.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.create-tag.outputs.tag }}
-      - uses: dart-lang/setup-dart@v1
-      - run: dart pub get
-      - name: Compile
-        shell: bash
-        run: dart compile exe bin/cb.dart -o '${{ matrix.executable }}'
-      - name: Smoke test
+          ref: ${{ needs.verify.outputs.tag }}
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - run: cargo build --release --locked
+      - name: Smoke release binary
         shell: bash
         run: |
-          './${{ matrix.executable }}' version
-          './${{ matrix.executable }}' preview --root test/fixtures/mixed_realistic --format json > preview.json
-          './${{ matrix.executable }}' summary --root test/fixtures/mixed_realistic --format json > summary.json
+          '${{ matrix.executable }}' version
+          '${{ matrix.executable }}' preview --root tests/fixtures/preview --format json > preview.json
+          '${{ matrix.executable }}' summary --root tests/fixtures/preview --format json --advisory --allow-empty > summary.json
       - name: Archive Unix artifact
         if: runner.os != 'Windows'
         shell: bash
-        run: tar -czf '${{ matrix.archive }}' '${{ matrix.executable }}' LICENSE README.md
+        run: |
+          cp '${{ matrix.executable }}' cb
+          tar -czf '${{ matrix.archive }}' cb LICENSE README.md
       - name: Archive Windows artifact
         if: runner.os == 'Windows'
         shell: pwsh
@@ -122,27 +133,21 @@ jobs:
           if-no-files-found: error
 
   publish-github-release:
-    needs: [create-tag, artifacts]
+    needs: [verify, artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.create-tag.outputs.tag }}
-      - uses: dart-lang/setup-dart@v1
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
-      - name: Extract reviewed changelog notes
-        run: dart run tool/release_notes.dart '${{ needs.create-tag.outputs.tag }}' release-notes.md
       - name: Create checksums
         run: cd dist && sha256sum * > SHA256SUMS
-      - name: Publish GitHub release with changelog notes
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.create-tag.outputs.tag }}
-          body_path: release-notes.md
+          tag_name: ${{ needs.verify.outputs.tag }}
+          generate_release_notes: true
           files: |
             dist/*

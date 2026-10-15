@@ -1,0 +1,37 @@
+{
+  "id": "pixijs-ticker-listener-without-removal",
+  "language": "typescript",
+  "group": "reliability",
+  "listingTitle": "Remove owned ticker listeners",
+  "title": "Remove owned ticker listeners",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "An owned ticker callback that is never removed can retain objects and continue updating after its feature is disposed.",
+  "suggestion": "Remove the same callback during feature or component disposal, or stop/destroy the owning application.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "pixijs"
+  ],
+  "implementation": "src/rules/frameworks/pixijs.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "pixijs"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+    "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+  ]
+}

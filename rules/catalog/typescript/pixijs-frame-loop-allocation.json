@@ -1,0 +1,37 @@
+{
+  "id": "pixijs-frame-loop-allocation",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Avoid display-object allocation per frame",
+  "title": "Avoid display-object allocation per frame",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Allocating display objects every frame creates avoidable garbage and GPU/resource churn.",
+  "suggestion": "Create and attach display objects outside the ticker callback, then mutate or pool them per frame.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "performance"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "pixijs"
+  ],
+  "implementation": "src/rules/frameworks/pixijs.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "pixijs"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "PixiJS v8 migration checks require an explicit version 8 pixi.js or @pixi dependency in package.json.",
+    "Ticker ownership is resolved only for direct receiver.ticker.add/remove calls and inline frame callbacks."
+  ]
+}

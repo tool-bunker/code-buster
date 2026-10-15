@@ -1,0 +1,29 @@
+{
+  "id": "dead-file",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Remove or connect file",
+  "title": "Remove or connect file",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "A source file is not reachable from configured entry points.",
+  "suggestion": "Remove the file, add an entry point, or add the missing dependency edge.",
+  "version": 9,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "dead"
+  ],
+  "implementation": "src/graph/dead_analysis.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

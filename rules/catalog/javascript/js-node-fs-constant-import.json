@@ -1,0 +1,40 @@
+{
+  "id": "js-node-fs-constant-import",
+  "language": "javascript",
+  "group": "correctness",
+  "listingTitle": "Js node fs constant import",
+  "title": "Import file access modes through fs.constants",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "Node does not export F_OK, R_OK, W_OK, or X_OK directly from node:fs.",
+  "suggestion": "Import constants from node:fs and reference constants.R_OK and related modes.",
+  "version": 1,
+  "semanticMaturity": "typeAware",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "imports",
+    "types"
+  ],
+  "packs": [
+    "typescript"
+  ],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [
+    [
+      "node",
+      ">=12"
+    ]
+  ],
+  "limitations": [
+    "Validation currently covers Node file-access constants from node:fs."
+  ]
+}

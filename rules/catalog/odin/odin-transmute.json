@@ -1,0 +1,33 @@
+{
+  "id": "odin-transmute",
+  "language": "odin",
+  "group": "reliability",
+  "listingTitle": "Review Odin transmute boundaries",
+  "title": "Review Odin transmute boundaries",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "core",
+  "why": "transmute reinterprets bits under caller-owned size and representation invariants.",
+  "suggestion": "Prefer a checked conversion or document the representation invariant.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "odin"
+  ],
+  "implementation": "src/languages/odin/rules.rs",
+  "languages": [
+    "odin"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule masks nested comments and literals but does not perform Odin type resolution."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "css-universal-selector",
+  "language": "css",
+  "group": "style",
+  "listingTitle": "Css universal selector",
+  "title": "Review universal selector",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This frontend construct can weaken accessibility, security, or maintainability.",
+  "suggestion": "Use the safer accessible frontend pattern described by the rule.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "css",
+    "ui"
+  ],
+  "implementation": "src/languages/css/rules.rs",
+  "languages": [
+    "css"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

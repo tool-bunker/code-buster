@@ -1,0 +1,43 @@
+{
+  "id": "oop-single-use-abstraction",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Review a speculative extension point",
+  "title": "Review a speculative extension point",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A one-method contract with one stateless implementation constructed once is usually scaffolding for variation that does not exist yet.",
+  "suggestion": "Keep the operation at its only caller until a second implementation or a real external, dependency-injection, testing, plugin, or platform boundary requires the contract.",
+  "version": 3,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "csharp",
+    "dart",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires one contract method, exactly one stateless direct implementation with one matching small method, one construction, and no additional contract references.",
+    "Public or exported contracts may have consumers outside the analyzed repository; findings are advisory and medium confidence.",
+    "Reflection, generated implementations, dependency-injection registrations, partial types, and indirect implementations are not resolved.",
+    "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
+  ]
+}

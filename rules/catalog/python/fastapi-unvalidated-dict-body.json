@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-unvalidated-dict-body",
+  "language": "python",
+  "group": "maintainability",
+  "listingTitle": "Review unvalidated dict body",
+  "title": "Review unvalidated dict body",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "An untyped dictionary bypasses Pydantic field validation and API schema detail.",
+  "suggestion": "Use a typed Pydantic request model.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

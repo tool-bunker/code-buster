@@ -1,0 +1,32 @@
+{
+  "id": "py-requests-timeout",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Py requests timeout",
+  "title": "Review requests timeout",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "HTTP calls without timeouts can hang indefinitely and exhaust workers.",
+  "suggestion": "Pass an explicit timeout, e.g. `timeout=10` or a connect/read tuple.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "python",
+    "fastapi"
+  ],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

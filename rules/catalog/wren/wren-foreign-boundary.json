@@ -1,0 +1,31 @@
+{
+  "id": "wren-foreign-boundary",
+  "language": "wren",
+  "group": "style",
+  "listingTitle": "Wren foreign boundary",
+  "title": "Review foreign boundary",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This Wren construct can weaken reliability, performance, or module boundaries.",
+  "suggestion": "Use the safer explicit Wren pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "wren"
+  ],
+  "implementation": "src/languages/wren/rules.rs",
+  "languages": [
+    "wren"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

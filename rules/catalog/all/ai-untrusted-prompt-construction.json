@@ -1,0 +1,31 @@
+{
+  "id": "ai-untrusted-prompt-construction",
+  "language": "all",
+  "group": "security",
+  "listingTitle": "Separate untrusted data from AI instructions",
+  "title": "Separate untrusted data from AI instructions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Interpolating request or retrieved content into privileged instructions creates a prompt-injection boundary.",
+  "suggestion": "Pass untrusted content in a clearly delimited data field and keep authorization and tool policy outside model-controlled text.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "ai-security"
+  ],
+  "implementation": "src/rules/ai_security.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Uses conservative prompt-target and untrusted-input naming evidence."
+  ]
+}

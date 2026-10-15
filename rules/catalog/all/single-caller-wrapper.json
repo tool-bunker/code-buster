@@ -1,0 +1,32 @@
+{
+  "id": "single-caller-wrapper",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Inline a single-caller forwarding wrapper",
+  "title": "Inline a single-caller forwarding wrapper",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A new private wrapper used once and only forwarding arguments adds navigation without owning policy.",
+  "suggestion": "Call the underlying operation directly until the wrapper owns behavior or has multiple callers.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires a newly added expression-bodied or one-line private forwarding function with exactly one caller.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

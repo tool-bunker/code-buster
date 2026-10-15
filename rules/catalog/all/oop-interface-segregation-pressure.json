@@ -1,0 +1,42 @@
+{
+  "id": "oop-interface-segregation-pressure",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Split a contract implementations cannot fully support",
+  "title": "Split a contract implementations cannot fully support",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Several implementations rejecting different interface operations indicates that clients depend on a contract broader than those implementations can honor.",
+  "suggestion": "Consider capability-specific interfaces or composition so each implementation exposes only supported operations.",
+  "version": 4,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires a contract with at least four methods and at least two direct implementors.",
+    "At least two implementors must explicitly reject contract methods, with three rejected implementations across two operations.",
+    "Inherited implementations, partial types, mixins, and indirect interface inheritance are not resolved."
+  ]
+}

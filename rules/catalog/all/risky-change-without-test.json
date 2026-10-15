@@ -1,0 +1,33 @@
+{
+  "id": "risky-change-without-test",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Test a high-risk behavioral change",
+  "title": "Test a high-risk behavioral change",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A changed parser, trust boundary, money calculation, or path operation has no related changed test.",
+  "suggestion": "Add or update a focused regression test for the changed boundary behavior.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires changed-base evidence and explicit parser, authentication, authorization, money, signature, recipient, or path-operation syntax.",
+    "External tests and unchanged integration coverage cannot be resolved.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

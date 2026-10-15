@@ -1,0 +1,43 @@
+{
+  "id": "yagni-concentration",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Review concentrated speculative design",
+  "title": "Review concentrated speculative design",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "Several independent YAGNI findings in one file can indicate a broader pattern of speculative flexibility and one-use indirection.",
+  "suggestion": "Review the file from its callers inward, remove unused variation, and collapse layers that do not own behavior.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [],
+  "packs": [
+    "constant-arguments",
+    "trivial-wrappers",
+    "yagni",
+    "yagni-concentration"
+  ],
+  "implementation": "src/rule_packs/550-yagni-concentration.rs",
+  "languages": [
+    "cpp",
+    "csharp",
+    "dart",
+    "go",
+    "java",
+    "javascript",
+    "typescript",
+    "python",
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires at least three active YAGNI findings from two distinct rule IDs in one file.",
+    "Concentration is advisory evidence for holistic review, not proof that every abstraction should be removed."
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "lua-global-assignment",
+  "language": "lua",
+  "group": "style",
+  "listingTitle": "Lua global assignment",
+  "title": "Review global assignment",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
+  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "lua"
+  ],
+  "implementation": "src/languages/lua/rules.rs",
+  "languages": [
+    "lua"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

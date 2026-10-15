@@ -1,0 +1,41 @@
+{
+  "id": "oop-repeated-observer-notification",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Centralize repeated observer notification",
+  "title": "Centralize repeated observer notification",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Repeated observer traversal distributes notification ordering and failure policy.",
+  "suggestion": "Consider one notification boundary or event dispatcher.",
+  "version": 4,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires add/remove registration symmetry and the same callback loop in three methods.",
+    "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
+  ]
+}

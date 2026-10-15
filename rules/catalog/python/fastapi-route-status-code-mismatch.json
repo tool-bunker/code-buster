@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-route-status-code-mismatch",
+  "language": "python",
+  "group": "maintainability",
+  "listingTitle": "Review route status code mismatch",
+  "title": "Review route status code mismatch",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A 204 response must not carry a response body.",
+  "suggestion": "Use the explicit FastAPI contract or boundary appropriate to this finding.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

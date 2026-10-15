@@ -1,0 +1,29 @@
+{
+  "id": "nim-type-prefix-proc-naming",
+  "language": "nim",
+  "group": "style",
+  "listingTitle": "Use overloaded proc naming",
+  "title": "Review Use overloaded proc naming",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "idiomatic",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/advanced.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

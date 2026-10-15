@@ -1,0 +1,29 @@
+{
+  "id": "nim-unordered-table-output",
+  "language": "nim",
+  "group": "security",
+  "listingTitle": "Nim unordered table output",
+  "title": "Review Nim unordered table output",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/runtime.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

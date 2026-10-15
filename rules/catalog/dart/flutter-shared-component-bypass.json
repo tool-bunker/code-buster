@@ -1,0 +1,37 @@
+{
+  "id": "flutter-shared-component-bypass",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Reuse established Flutter components",
+  "title": "Reuse established Flutter components",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Direct framework controls can drift from a shared component already used as the project convention.",
+  "suggestion": "Confirm the direct control is an intentional variant; otherwise use the established shared component.",
+  "version": 3,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/ui_consistency.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "A convention requires at least three external uses across two production files.",
+    "Shared widgets are inferred from StatelessWidget or StatefulWidget classes that contain a known Flutter control."
+  ]
+}

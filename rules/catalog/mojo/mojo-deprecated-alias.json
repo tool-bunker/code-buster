@@ -1,0 +1,33 @@
+{
+  "id": "mojo-deprecated-alias",
+  "language": "mojo",
+  "group": "style",
+  "listingTitle": "Use comptime for Mojo aliases",
+  "title": "Use comptime for Mojo aliases",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "Alias declarations were replaced by comptime values and type aliases.",
+  "suggestion": "Replace alias with a comptime declaration.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule follows current Mojo syntax but does not perform compiler type resolution."
+  ]
+}

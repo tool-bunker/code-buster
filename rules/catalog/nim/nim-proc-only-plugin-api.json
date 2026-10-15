@@ -1,0 +1,29 @@
+{
+  "id": "nim-proc-only-plugin-api",
+  "language": "nim",
+  "group": "maintainability",
+  "listingTitle": "Nim proc only plugin api",
+  "title": "Review Nim proc only plugin api",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-advanced",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/advanced.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

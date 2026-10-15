@@ -1,0 +1,35 @@
+{
+  "id": "rust-blocking-call-in-async",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Keep blocking Rust APIs off async executors",
+  "title": "Keep blocking Rust APIs off async executors",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Blocking an executor thread delays unrelated tasks and can exhaust the runtime under load.",
+  "suggestion": "Use the runtime-native async API or move blocking work to spawn_blocking, unblock, or a dedicated thread.",
+  "version": 2,
+  "semanticMaturity": "ast",
+  "securityKind": "none",
+  "taxonomy": [
+    "performance"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only fully qualified known-blocking APIs are recognized; aliases and wrappers require type resolution.",
+    "Runtime scheduling and actual operation cost are not inferred."
+  ]
+}

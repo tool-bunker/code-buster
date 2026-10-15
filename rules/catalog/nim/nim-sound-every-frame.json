@@ -1,0 +1,29 @@
+{
+  "id": "nim-sound-every-frame",
+  "language": "nim",
+  "group": "domain",
+  "listingTitle": "Nim sound every frame",
+  "title": "Review Nim sound every frame",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "game-engine",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/runtime.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

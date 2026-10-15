@@ -1,0 +1,33 @@
+{
+  "id": "test-repeated-runtime-bootstrap",
+  "language": "all",
+  "group": "performance",
+  "listingTitle": "Reuse compiled test executables",
+  "title": "Reuse compiled test executables",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Each test process can repeat runtime startup, dependency loading, or compilation for the same entrypoint.",
+  "suggestion": "Compile or prepare the target once in shared test setup, then reuse that executable or artifact.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "performance"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "runtime-bootstrap"
+  ],
+  "implementation": "src/rules/runtime_bootstrap.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only literal process commands in selected test sources are checked.",
+    "Tests must be included in analysis with --include-tests or --all.",
+    "A repeated launch is evidence of bootstrap cost, not proof that every tool recompiles on every invocation."
+  ]
+}

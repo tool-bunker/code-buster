@@ -1,0 +1,33 @@
+{
+  "id": "odin-raw-pointer",
+  "language": "odin",
+  "group": "reliability",
+  "listingTitle": "Review Odin raw pointer boundaries",
+  "title": "Review Odin raw pointer boundaries",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "core",
+  "why": "rawptr removes pointee type information and shifts memory validity checks to the implementation.",
+  "suggestion": "Keep raw pointer use narrow and document lifetime, alignment, and ownership invariants.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "odin"
+  ],
+  "implementation": "src/languages/odin/rules.rs",
+  "languages": [
+    "odin"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule masks nested comments and literals but does not perform Odin type resolution."
+  ]
+}

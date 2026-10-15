@@ -1,0 +1,29 @@
+{
+  "id": "inconsistent-peer-file-naming",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Follow the local file naming convention",
+  "title": "Follow the local file naming convention",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A lone naming-style outlier makes related files harder to scan and discover.",
+  "suggestion": "Rename the file to the dominant convention used by its peers.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

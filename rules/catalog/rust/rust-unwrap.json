@@ -1,0 +1,35 @@
+{
+  "id": "rust-unwrap",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Handle Rust failure explicitly",
+  "title": "Handle Rust failure explicitly",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "core",
+  "why": "unwrap terminates the process when a Result or Option is not successful.",
+  "suggestion": "Propagate the error, handle each variant, or document why failure is impossible.",
+  "version": 7,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule uses masked source tokens and does not perform Rust type resolution.",
+    "Conventional test modules, lint-allowed items, literal or fully escaped regex construction, regex capture group zero, generated catalog invariants, and documented UTF-8 masking invariants are excluded."
+  ]
+}

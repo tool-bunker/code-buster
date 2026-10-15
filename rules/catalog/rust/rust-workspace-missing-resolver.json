@@ -1,0 +1,26 @@
+{
+  "id": "rust-workspace-missing-resolver",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Declare the Cargo workspace resolver",
+  "title": "Declare the Cargo workspace resolver",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "A virtual workspace cannot infer its dependency resolver from a root package edition and may retain resolver behavior older than its members expect.",
+  "suggestion": "Set workspace.resolver to 2 for edition 2021 members or 3 for edition 2024 members.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability"],
+  "requirements": ["declarations"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/rules/cargo/workspace.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only virtual workspaces with an edition 2021 or newer production member are reported.",
+    "Code Buster recommends the resolver associated with the newest declared member or workspace package edition."
+  ]
+}

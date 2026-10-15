@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-route-body-with-get",
+  "language": "python",
+  "group": "maintainability",
+  "listingTitle": "Review route body with get",
+  "title": "Review route body with get",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "GET request bodies are inconsistently supported by clients, proxies, and documentation tools.",
+  "suggestion": "Use query/path parameters or a non-GET operation for a request body.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

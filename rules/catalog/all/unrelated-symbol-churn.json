@@ -1,0 +1,32 @@
+{
+  "id": "unrelated-symbol-churn",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Separate unrelated symbol changes",
+  "title": "Separate unrelated symbol changes",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "Changing several disconnected functions in one focused diff increases review scope and couples independent work.",
+  "suggestion": "Keep independently changing symbols in separate changes unless their call relationships require one edit.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires at least four changed named functions and reports only symbols disconnected from every other changed function.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

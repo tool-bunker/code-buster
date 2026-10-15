@@ -1,0 +1,26 @@
+{
+  "id": "rust-repeated-workspace-dependency",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Centralize repeated workspace dependencies",
+  "title": "Centralize repeated workspace dependencies",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Repeating the same dependency requirement across several members creates multiple update sites for one workspace-wide policy.",
+  "suggestion": "Declare the version once in workspace.dependencies and use workspace = true from each member.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability"],
+  "requirements": ["declarations"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/rules/cargo/workspace.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule requires the same direct registry requirement in at least three internal or private production members; published packages are excluded.",
+    "Member-specific feature additions remain compatible with workspace inheritance and do not need to be centralized."
+  ]
+}

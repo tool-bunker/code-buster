@@ -1,51 +1,55 @@
 ---
 name: code-buster-rule-development
-description: Add or change Code Buster rules with explicit evidence contracts, correct metadata and cache invalidation, conservative source handling, focused regressions, and native self-analysis.
+description: Add or change Code Buster rules with explicit evidence contracts, canonical catalog metadata, automatic pack discovery, conservative source handling, focused regressions, and native self-analysis.
 ---
 
 # Code Buster rule development
 
-Use this skill when adding a rule or changing detection, severity, taxonomy, confidence, deduplication, source-role handling, safe-pattern handling, or reported evidence.
-
-Run all commands from the `code-buster/` directory.
+Use this skill when changing detection, severity, taxonomy, confidence,
+deduplication, source-role handling, safe-pattern handling, or reported
+evidence. Run commands from the `code-buster/` repository root.
 
 ## Define the observable contract
 
 Before editing, write down:
 
 - the exact risky construct and why it matters;
-- affected languages, language versions, and frameworks;
+- affected languages, versions, and frameworks;
 - whether the result is actionable or advisory;
-- for security results, whether evidence proves a vulnerability or only a hotspot;
 - the minimum semantic evidence and expected confidence;
 - known safe and intentional forms;
-- applicable production, test, generated, example, benchmark, and vendored source roles;
+- applicable production, test, generated, example, benchmark, and vendored roles;
 - deduplication scope: occurrence, function, file, package, component, or repository;
 - limitations that remain after implementation.
 
-A token match is not automatically a defect. Prefer evidence from API boundaries, ownership, sinks, control flow, configuration, AST structure, or framework conventions.
+A token match is not automatically a defect. Prefer evidence from API
+boundaries, ownership, sinks, control flow, configuration, parsed structure, or
+framework conventions.
 
 ## Research before editing
 
-1. Locate the owning language registry, rule implementation, metadata, and focused tests.
+1. Locate the owning analyzer, canonical JSON definition, execution pack, and focused tests.
 2. Use language-server references before changing exported symbols.
-3. Reuse existing lexical masks, cached regular expressions, AST representations, graph facts, and source classifiers.
-4. Check whether the language plugin parses once and exposes a shared representation. Do not add a second parser or masking convention.
-5. Check how `RulePolicy` maps groups, taxonomy, advisory modes, security hotspots, and source roles.
-6. Run the exact current detector against the motivating source and record representative findings, not only a count.
+3. Reuse `SourceAnalysisContext`, lexical masks, source indexes, cached regular expressions, graph facts, and path classifiers.
+4. Check whether the language already parses once and exposes a shared representation.
+5. Check how effective policy maps groups, taxonomy, advisory modes, baselines, and source roles.
+6. Run the current detector against the motivating source and inspect representative findings.
 
-Fix the general semantic cause. Never add repository-name, repository-path, filename, or one-off source-text exceptions.
+Fix the general semantic cause. Never add repository-name, repository-path,
+filename, or one-off source-text exceptions.
 
 ## Choose the strongest available analysis
 
 Prefer, in order:
 
-1. resolved language or framework semantics already exposed by a plugin;
-2. AST structure and ownership;
+1. resolved language or framework semantics already exposed by an analyzer;
+2. parsed structure and ownership;
 3. token streams with established masking;
 4. conservative lexical evidence.
 
-Do not replace available structured evidence with regular expressions. For lexical rules, use `cachedRegExp` rather than repeatedly constructing `RegExp` objects. Use mandatory capture accessors when the pattern contract guarantees a group.
+Do not replace available structured evidence with regular expressions. Define
+fixed regular expressions in `LazyLock`, and avoid rescanning the same source
+for every rule when a shared index can compute the evidence once.
 
 ## Handle source text deliberately
 
@@ -58,9 +62,10 @@ Every rule must decide how it treats:
 - tests and embedded test modules;
 - examples, fixtures, and benchmarks;
 - vendored code;
-- user configuration, baselines, and suppression controls.
+- user configuration, baselines, and suppressions.
 
-If a rule examines string contents, preserve strings while masking comments. Never switch to raw-line matching merely to expose literals.
+If a rule examines string contents, preserve strings while masking comments.
+Never switch to raw-line matching merely to expose literals.
 
 ## Design for precision
 
@@ -69,39 +74,32 @@ If a rule examines string contents, preserve strings while masking comments. Nev
 - Honor project configuration before enforcing style.
 - Distinguish parameterized SQL APIs from raw query construction.
 - Distinguish public documentation from implementation narration.
-- Treat visitor hooks, analyzer orchestration, projections, adapters, and reporting boundaries according to their architectural role rather than their superficial member-access counts.
-- Coalesce repeated evidence when additional occurrences do not add a new decision.
+- Coalesce repeated evidence when additional occurrences do not add a decision.
 - Prefer abstaining over a medium-confidence result whose concept cannot be identified reliably.
 
-Before adding an exclusion, state the general semantic category it represents. If the explanation names only one repository symbol, the exclusion is too narrow.
+Before adding an exclusion, state the general semantic category it represents.
+If the explanation names only one repository symbol, the exclusion is too narrow.
 
-## Metadata and cache contract
+## Catalog and execution contracts
 
-When observable behavior changes, increment `RuleMetadata.version`, even when the rule ID and severity remain unchanged. This invalidates cached findings.
+Add one canonical definition at
+`rules/catalog/<language>/<rule-id>.json`. The filename must equal `id`, and the
+definition must declare severity, taxonomy, semantic maturity, requirements,
+packs, implementation source, applicable languages or frameworks, and concrete
+limitations.
 
-Metadata must accurately declare:
+Increment `version` when observable behavior changes in a way that must
+invalidate caches or baselines.
 
-- default severity and group;
-- taxonomy and semantic maturity;
-- analysis requirements;
-- languages, language versions, and frameworks;
-- security kind;
-- concrete limitations.
-
-Use `SecurityFindingKind.hotspot` for a capability or trust boundary needing review when exploitation is not proven.
-
-After metadata changes, update and inspect the generated contract:
-
-```sh
-dart run tool/default_contract.dart
-dart run tool/default_contract.dart --update
-```
-
-The first command exposes drift; run the update only when the metadata change is intentional.
+`build.rs` validates and sorts catalog files and execution packs. Do not edit a
+generated registry. For a new family, add one
+`src/rule_packs/NNN-kebab-case.rs` file and point each owning rule's `packs`
+field at that family. Adding a normal rule must not require parallel edits in
+the catalog loader, engine, execution planner, and CLI.
 
 ## Regression requirements
 
-Add tests that defend observable behavior rather than implementation details:
+Add permanent tests that defend behavior rather than implementation details:
 
 1. A positive case that fails if the detector disappears.
 2. At least two plausible negative cases.
@@ -110,41 +108,45 @@ Add tests that defend observable behavior rather than implementation details:
 5. Source-role behavior when classification matters.
 6. Configuration behavior when policy matters.
 7. Deduplication behavior when multiple occurrences are possible.
-8. The motivating false positive or real-world construct reduced to a stable fixture.
+8. The motivating false positive reduced to a stable fixture.
 
-Assert finding code, path, line, confidence, related files, and count where those are contractual. Do not assert private helper wiring or source text.
+Assert finding ID, path, line, confidence, related files, and count where those
+are contractual. Do not assert private helper wiring or source text.
 
 ## Verify in escalating order
 
-Run focused tests first:
+Run the narrowest affected Rust test first:
 
 ```sh
-dart test path/to/focused_test.dart
+cargo test path_or_test_filter
 ```
 
-Then run repository verification without competing Dart processes:
+Then run the complete repository checks:
 
 ```sh
-dart analyze --fatal-infos
-dart test
-dart compile exe bin/cb.dart -o build/cb
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --all-targets --all-features --locked
+cargo package --allow-dirty --locked
+cargo build --release --locked
 ```
 
-Clear the analysis cache before final native self-analysis so stale findings cannot hide a metadata or invalidation mistake:
+Run the changed native path and fresh self-analysis:
 
 ```sh
-rm -rf .code-buster-cache
-build/cb summary --advisory --format json
+./target/release/cb version
+./target/release/cb summary --advisory --no-cache --format json
 ```
 
-Inspect every remaining finding. A lower count is not proof of precision, and zero self-findings is not proof that positive detection still works.
-
-If a real repository motivated the change, rerun the same compiled binary, root, configuration, and command against that repository. Compare representative findings and remaining false positives, not only totals.
+Inspect every relevant remaining finding. A lower count is not proof of
+precision, and zero self-findings is not proof that positive detection still
+works. If a real repository motivated the change, rerun the same binary, root,
+configuration, and command against that repository.
 
 ## Finish the change
 
 - Remove obsolete helpers, aliases, suppressions, and comments.
-- Update the changelog when user-visible behavior changes.
-- Keep metadata limitations and `test/fixtures/default_policy_contract.json` synchronized.
-- Confirm no generated cache directory or throwaway fixture is included.
+- Update `CHANGELOG.md` for user-visible behavior.
+- Keep catalog limitations and focused regression coverage synchronized.
+- Confirm no cache, build output, external corpus, or throwaway fixture is tracked.
 - Record verification commands and exact outcomes.

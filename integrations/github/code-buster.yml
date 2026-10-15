@@ -10,11 +10,11 @@ jobs:
   analyse:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Install Code Buster
-        run: dart pub global activate code_buster
+        run: cargo install --git https://github.com/tool-bunker/code-buster.git --tag v0.9.0 --locked
       - name: Analyse changed production code
         run: cb pr --changed-base '${{ github.event.pull_request.base.sha || github.event.before }}' --format sarif --output code-buster.sarif --fail-on-issues
       - name: Upload SARIF

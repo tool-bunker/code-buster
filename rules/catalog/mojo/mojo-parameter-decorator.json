@@ -1,0 +1,33 @@
+{
+  "id": "mojo-parameter-decorator",
+  "language": "mojo",
+  "group": "style",
+  "listingTitle": "Use Mojo comptime control flow",
+  "title": "Use Mojo comptime control flow",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "The @parameter decorator was replaced by comptime if and comptime for.",
+  "suggestion": "Replace @parameter control flow with comptime syntax.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule follows current Mojo syntax but does not perform compiler type resolution."
+  ]
+}

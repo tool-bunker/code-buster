@@ -1,0 +1,33 @@
+{
+  "id": "mojo-legacy-argument-convention",
+  "language": "mojo",
+  "group": "style",
+  "listingTitle": "Use current Mojo argument conventions",
+  "title": "Use current Mojo argument conventions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "borrowed, inout, and owned were replaced by read, mut, and var conventions.",
+  "suggestion": "Use read/default borrowing, mut references, or var ownership as appropriate.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule follows current Mojo syntax but does not perform compiler type resolution."
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "structure-missing-source-root",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Structure missing source root",
+  "title": "Create source root",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A configured source root is missing.",
+  "suggestion": "Create the root or remove it from the structure configuration.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "structure"
+  ],
+  "implementation": "src/rules/structure.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

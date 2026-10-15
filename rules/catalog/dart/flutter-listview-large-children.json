@@ -1,0 +1,37 @@
+{
+  "id": "flutter-listview-large-children",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Build large lists lazily",
+  "title": "Build large lists lazily",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A large ListView children literal eagerly creates every child even when most are off screen.",
+  "suggestion": "Use ListView.builder or ListView.separated for a dynamic or substantial list.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

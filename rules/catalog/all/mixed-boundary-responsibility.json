@@ -1,0 +1,29 @@
+{
+  "id": "mixed-boundary-responsibility",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Split mixed boundary responsibilities",
+  "title": "Split mixed boundary responsibilities",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "One function coordinates several unrelated external boundaries, increasing coupling and change surface.",
+  "suggestion": "Keep orchestration explicit, or move independently changing boundary work behind focused operations.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

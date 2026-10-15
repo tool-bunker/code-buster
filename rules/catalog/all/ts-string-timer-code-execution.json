@@ -1,0 +1,32 @@
+{
+  "id": "ts-string-timer-code-execution",
+  "language": "all",
+  "group": "security",
+  "listingTitle": "Review string timer code execution",
+  "title": "Review string timer code execution",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "security",
+  "why": "Passing source text to a timer evaluates it as code and can turn untrusted data into code execution.",
+  "suggestion": "Pass a function or closure to the timer instead of source text.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "typescript"
+  ],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

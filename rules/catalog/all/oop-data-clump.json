@@ -1,0 +1,44 @@
+{
+  "id": "oop-data-clump",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Group a repeated parameter concept",
+  "title": "Group a repeated parameter concept",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "The same typed parameter group crossing several APIs usually represents one domain concept whose validation and evolution are otherwise distributed.",
+  "suggestion": "Consider a value object or parameter object if these values share invariants and lifecycle.",
+  "version": 5,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires the same complete signature of at least three explicitly typed parameters in three declarations across at least two files.",
+    "Parameter names and normalized types must match; inferred parameters and partial parameter subsets are not analyzed.",
+    "TypeScript destructured, inferred, and nested generic parameters are not analyzed.",
+    "C# partial types, aliases, and generic parameter splitting are not resolved.",
+    "Local closures and rule registration or finding-emission signatures are excluded because they do not represent shared domain data."
+  ]
+}

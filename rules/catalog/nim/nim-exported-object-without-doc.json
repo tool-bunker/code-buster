@@ -1,0 +1,29 @@
+{
+  "id": "nim-exported-object-without-doc",
+  "language": "nim",
+  "group": "style",
+  "listingTitle": "Document exported type",
+  "title": "Review Document exported type",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/rules.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

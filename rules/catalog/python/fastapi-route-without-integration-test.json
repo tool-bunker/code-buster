@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-route-without-integration-test",
+  "language": "python",
+  "group": "maintainability",
+  "listingTitle": "Review route without integration test",
+  "title": "Review route without integration test",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A changed route has no concept-related changed integration or API test.",
+  "suggestion": "Add or update an API-level test for the changed route behavior.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "rust-unlocked-ci-command",
+  "language": "rust",
+  "group": "security",
+  "listingTitle": "Honor Cargo.lock in Rust CI",
+  "title": "Honor Cargo.lock in Rust CI",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "A CI command that permits dependency re-resolution can build code different from the reviewed lockfile.",
+  "suggestion": "Pass --locked or --frozen to direct Cargo build, check, test, and Clippy commands.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct commands in supported checked-in CI files are inspected.",
+    "Commands hidden behind scripts, reusable workflows, aliases, or nonstandard shell wrappers are not resolved."
+  ]
+}

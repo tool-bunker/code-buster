@@ -1,0 +1,29 @@
+{
+  "id": "cycle",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Break cycle",
+  "title": "Break cycle",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "A circular dependency exists in the module graph.",
+  "suggestion": "Extract shared code into a third module or invert one dependency.",
+  "version": 6,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "graph"
+  ],
+  "packs": [
+    "dead"
+  ],
+  "implementation": "src/graph/dead_analysis.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

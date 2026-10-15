@@ -1,0 +1,37 @@
+{
+  "id": "flutter-getit-lookup-in-widget",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Inject widget dependencies",
+  "title": "Inject widget dependencies",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Service-locator calls inside widgets hide dependencies and couple rendering to global state.",
+  "suggestion": "Resolve the dependency at the composition root and pass it through a constructor or provider.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

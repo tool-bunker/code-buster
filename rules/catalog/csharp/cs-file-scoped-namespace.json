@@ -1,0 +1,31 @@
+{
+  "id": "cs-file-scoped-namespace",
+  "language": "csharp",
+  "group": "style",
+  "listingTitle": "Cs file scoped namespace",
+  "title": "Review file scoped namespace",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This C# construct can weaken clarity, reliability, or security.",
+  "suggestion": "Use the safer modern .NET alternative described by the rule.",
+  "version": 5,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "csharp"
+  ],
+  "implementation": "src/languages/csharp/rules.rs",
+  "languages": [
+    "csharp"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,37 @@
+{
+  "id": "flutter-setstate-in-build",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Do not call setState during build",
+  "title": "Do not call setState during build",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Mutating widget state while the framework is building can trigger build-phase exceptions or loops.",
+  "suggestion": "Move the transition to an event, lifecycle callback, listener, or post-frame action with an explicit reason.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

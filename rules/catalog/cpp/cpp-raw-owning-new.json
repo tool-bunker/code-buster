@@ -1,0 +1,31 @@
+{
+  "id": "cpp-raw-owning-new",
+  "language": "cpp",
+  "group": "style",
+  "listingTitle": "Cpp raw owning new",
+  "title": "Represent ownership with RAII",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "This construct weakens C++ type, lifetime, or interface safety.",
+  "suggestion": "Use the safer typed C++ alternative described by the rule.",
+  "version": 3,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "cpp"
+  ],
+  "implementation": "src/languages/cpp/rules.rs",
+  "languages": [
+    "cpp"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

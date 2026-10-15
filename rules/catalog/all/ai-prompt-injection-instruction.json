@@ -1,0 +1,31 @@
+{
+  "id": "ai-prompt-injection-instruction",
+  "language": "all",
+  "group": "security",
+  "listingTitle": "Review a likely prompt-injection instruction",
+  "title": "Review a likely prompt-injection instruction",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Instructions that override trusted prompts can redirect an AI agent or disclose privileged context.",
+  "suggestion": "Treat the content as untrusted data, delimit it from instructions, and enforce the trusted policy outside the prompt.",
+  "version": 3,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "ai-security"
+  ],
+  "implementation": "src/rules/ai_security.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires AI-framework context and an explicit override-style instruction."
+  ]
+}

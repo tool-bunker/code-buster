@@ -21,7 +21,7 @@ cb <command>
 ## Environment
 
 - Code Buster version (`cb version`):
-- Dart version (`dart --version`), if relevant:
+- Rust toolchain (`rustc --version`), if relevant:
 - Operating system:
 - Installation method:
 

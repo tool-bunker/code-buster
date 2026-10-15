@@ -1,0 +1,32 @@
+{
+  "id": "html-form-method",
+  "language": "html",
+  "group": "style",
+  "listingTitle": "Html form method",
+  "title": "Review form method",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This frontend construct can weaken accessibility, security, or maintainability.",
+  "suggestion": "Use the safer accessible frontend pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "html",
+    "ui"
+  ],
+  "implementation": "src/languages/html/rules.rs",
+  "languages": [
+    "html"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

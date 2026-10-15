@@ -1,0 +1,41 @@
+{
+  "id": "oop-feature-envy",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Keep behavior with the data it uses",
+  "title": "Keep behavior with the data it uses",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A method dominated by one parameter’s members may own misplaced behavior.",
+  "suggestion": "Consider moving the behavior to the foreign type or its API.",
+  "version": 9,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires five accesses across three members and sixty percent of received accesses; Dart direct and null-aware accesses contribute to that denominator, while parameters matching the enclosing class type, AST visitor implementations, and accesses solely composing a returned Flutter Widget are excluded.",
+    "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
+  ]
+}

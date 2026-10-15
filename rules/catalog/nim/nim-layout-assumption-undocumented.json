@@ -1,0 +1,29 @@
+{
+  "id": "nim-layout-assumption-undocumented",
+  "language": "nim",
+  "group": "maintainability",
+  "listingTitle": "Nim layout assumption undocumented",
+  "title": "Review Nim layout assumption undocumented",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-advanced",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/runtime.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

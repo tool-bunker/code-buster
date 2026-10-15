@@ -1,0 +1,37 @@
+{
+  "id": "flutter-platform-branch-without-adaptation",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Use Flutter adaptive controls",
+  "title": "Use Flutter adaptive controls",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A platform branch around a control duplicates selection logic while bypassing the adaptive widget API.",
+  "suggestion": "Use the control’s adaptive constructor or a focused platform component.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "public-mutable-state",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Encapsulate public mutable state",
+  "title": "Encapsulate public mutable state",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Publicly writable state lets callers bypass invariants and couples them to representation details.",
+  "suggestion": "Make the field private and expose behavior or a deliberately constrained immutable view.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

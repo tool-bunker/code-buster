@@ -1,0 +1,29 @@
+{
+  "id": "large-file",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Split file",
+  "title": "Review large file",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
+  "suggestion": "Clarify the intent or replace the suspicious construct.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "structure"
+  ],
+  "implementation": "src/rules/complexity.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

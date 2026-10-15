@@ -1,0 +1,35 @@
+{
+  "id": "rust-wildcard-dependency-version",
+  "language": "rust",
+  "group": "security",
+  "listingTitle": "Constrain Rust registry dependencies",
+  "title": "Constrain Rust registry dependencies",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "A wildcard registry requirement accepts every published version and makes dependency selection change without an intentional manifest update.",
+  "suggestion": "Declare the reviewed compatible version range or inherit a constrained workspace dependency.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Direct string requirements and single-line inline tables are reported.",
+    "Registry aliases and organization-specific version policy are not resolved."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "changed-behavior-without-test",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Add regression evidence for changed behavior",
+  "title": "Add regression evidence for changed behavior",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "Changed control flow without a related changed test leaves the intended outcome unverifiable during review.",
+  "suggestion": "Add or update a behavior-focused test sharing the changed production concept.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires changed-base evidence; external tests and unchanged integration coverage cannot be resolved.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

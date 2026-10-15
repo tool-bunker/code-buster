@@ -1,0 +1,35 @@
+{
+  "id": "rust-raw-ownership-reconstruction",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Review Rust raw ownership reconstruction",
+  "title": "Review Rust raw ownership reconstruction",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Reconstructing an owner from a raw pointer requires matching provenance, allocator, layout, and exactly-once ownership.",
+  "suggestion": "Keep the transfer local and document the originating into_raw contract, allocator, layout, and unique ownership.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "tokens"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule cannot prove pointer provenance, allocator compatibility, uniqueness, or lifetime correctness.",
+    "Aliases and wrapper functions around ownership reconstruction are not resolved."
+  ]
+}

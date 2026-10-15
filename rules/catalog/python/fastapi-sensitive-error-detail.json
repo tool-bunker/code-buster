@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-sensitive-error-detail",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Review sensitive error detail",
+  "title": "Review sensitive error detail",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "Returning exception text can expose credentials, queries, paths, and internal implementation details.",
+  "suggestion": "Use the explicit FastAPI contract or boundary appropriate to this finding.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

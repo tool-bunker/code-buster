@@ -1,0 +1,31 @@
+{
+  "id": "wren-number-parse-unchecked",
+  "language": "wren",
+  "group": "style",
+  "listingTitle": "Wren number parse unchecked",
+  "title": "Review number parse unchecked",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "Num.fromString can return null for invalid input.",
+  "suggestion": "Check for null and report invalid external input before using the value.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "wren"
+  ],
+  "implementation": "src/languages/wren/rules.rs",
+  "languages": [
+    "wren"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

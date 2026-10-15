@@ -1,0 +1,37 @@
+{
+  "id": "flutter-bloc-side-effect-in-builder",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Move BLoC side effects out of builders",
+  "title": "Move BLoC side effects out of builders",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Builders may run repeatedly and should not navigate, show transient UI, persist data, or emit telemetry.",
+  "suggestion": "Use BlocListener or BlocConsumer listener for the side effect.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

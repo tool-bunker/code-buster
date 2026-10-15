@@ -1,0 +1,31 @@
+{
+  "id": "java-random-security",
+  "language": "java",
+  "group": "security",
+  "listingTitle": "Java random security",
+  "title": "Review random security",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "This Java construct can weaken correctness, observability, or security.",
+  "suggestion": "Use the safer Java API or pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

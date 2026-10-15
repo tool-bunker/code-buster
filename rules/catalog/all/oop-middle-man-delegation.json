@@ -1,0 +1,42 @@
+{
+  "id": "oop-middle-man-delegation",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Review a predominantly forwarding class",
+  "title": "Review a predominantly forwarding class",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A class whose public API mostly forwards unchanged operations adds navigation and maintenance without clearly owning policy.",
+  "suggestion": "Consider exposing the collaborator directly or moving real policy into the boundary; retain the wrapper when it intentionally isolates an external contract.",
+  "version": 4,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires at least five public instance methods, with at least four and eighty percent directly forwarding to the same private typed field.",
+    "Forwarded methods must call the same method name with unchanged parameters using an expression body or one statement.",
+    "Classes with inheritance or implemented contracts are excluded because proxy, adapter, and framework boundaries may require forwarding."
+  ]
+}

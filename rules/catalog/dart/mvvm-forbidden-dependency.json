@@ -1,0 +1,31 @@
+{
+  "id": "mvvm-forbidden-dependency",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Enforce MVVM dependency direction",
+  "title": "Enforce MVVM dependency direction",
+  "mvvm": true,
+  "defaultSeverity": "error",
+  "legacyGroup": "architecture",
+  "why": "MVVM layers remain testable when presentation, state, domain, and data dependencies point in deliberate directions.",
+  "suggestion": "Move the dependency behind a ViewModel or invert it through a model/repository abstraction.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "architecture"
+  ],
+  "requirements": [
+    "graph"
+  ],
+  "packs": [
+    "dead"
+  ],
+  "implementation": "src/graph/dead_analysis.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

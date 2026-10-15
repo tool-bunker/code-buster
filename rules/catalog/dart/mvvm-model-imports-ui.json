@@ -1,0 +1,33 @@
+{
+  "id": "mvvm-model-imports-ui",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Keep Models independent of Flutter UI",
+  "title": "Keep Models independent of Flutter UI",
+  "mvvm": true,
+  "defaultSeverity": "error",
+  "legacyGroup": "architecture",
+  "why": "Models should remain independent of Flutter presentation concerns.",
+  "suggestion": "Move UI conversion into the View or ViewModel.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "architecture"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "dart-mvvm"
+  ],
+  "implementation": "src/languages/dart/mvvm.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": []
+}

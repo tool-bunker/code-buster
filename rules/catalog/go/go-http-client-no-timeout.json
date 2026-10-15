@@ -1,0 +1,31 @@
+{
+  "id": "go-http-client-no-timeout",
+  "language": "go",
+  "group": "reliability",
+  "listingTitle": "Go http client no timeout",
+  "title": "Set an HTTP client timeout",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "A client without a timeout can wait indefinitely and exhaust resources.",
+  "suggestion": "Set http.Client.Timeout or enforce a request context deadline.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "go"
+  ],
+  "implementation": "src/languages/go/rules.rs",
+  "languages": [
+    "go"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

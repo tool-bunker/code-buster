@@ -1,0 +1,37 @@
+{
+  "id": "flutter-form-without-validation",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Validate submitted form input",
+  "title": "Validate submitted form input",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A submitted form containing editable fields has no visible validation path.",
+  "suggestion": "Add validators and invoke FormState.validate before processing the submission.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

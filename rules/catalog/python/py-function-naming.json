@@ -1,0 +1,32 @@
+{
+  "id": "py-function-naming",
+  "language": "python",
+  "group": "style",
+  "listingTitle": "Py function naming",
+  "title": "Review function naming",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
+  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "version": 4,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "python",
+    "fastapi"
+  ],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

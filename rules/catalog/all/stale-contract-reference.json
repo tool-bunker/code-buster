@@ -1,0 +1,33 @@
+{
+  "id": "stale-contract-reference",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Update callers after a contract change",
+  "title": "Update callers after a contract change",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "yagni",
+  "why": "An externally visible declaration was removed while another production file still references its name.",
+  "suggestion": "Migrate or remove the stale reference, or restore the declaration when compatibility is required.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires changed-base evidence, a removed public declaration, and a remaining masked reference in another selected production file.",
+    "Dynamic references and declarations that do not use conventional language syntax cannot be resolved.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

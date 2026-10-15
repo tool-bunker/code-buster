@@ -1,0 +1,33 @@
+{
+  "id": "mojo-missing-raises",
+  "language": "mojo",
+  "group": "correctness",
+  "listingTitle": "Declare Mojo raises effects",
+  "title": "Declare Mojo raises effects",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Mojo functions must declare raises when an error can leave the function.",
+  "suggestion": "Add raises to the signature or handle the error inside the function.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule checks explicit raise statements and does not resolve transitive throwing calls."
+  ]
+}

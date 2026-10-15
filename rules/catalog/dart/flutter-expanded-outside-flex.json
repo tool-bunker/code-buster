@@ -1,0 +1,34 @@
+{
+  "id": "flutter-expanded-outside-flex",
+  "language": "dart",
+  "group": "correctness",
+  "listingTitle": "Review er expanded outside flex",
+  "title": "Review er expanded outside flex",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "style",
+  "why": "This Dart construct can weaken static safety, reliability, or security.",
+  "suggestion": "Use the safer typed asynchronous Dart pattern described by the rule.",
+  "version": 4,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/languages/dart/flutter_build.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": []
+}

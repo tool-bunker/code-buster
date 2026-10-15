@@ -1,0 +1,33 @@
+{
+  "id": "mojo-string-index",
+  "language": "mojo",
+  "group": "correctness",
+  "listingTitle": "Use explicit Mojo string indexing",
+  "title": "Use explicit Mojo string indexing",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "Current Mojo strings require byte= indexing or codepoint iteration.",
+  "suggestion": "Use value[byte=index] for bytes or codepoint_slices() for Unicode text.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule follows current Mojo syntax but does not perform compiler type resolution."
+  ]
+}

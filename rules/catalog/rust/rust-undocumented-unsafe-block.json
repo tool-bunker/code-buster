@@ -1,0 +1,35 @@
+{
+  "id": "rust-undocumented-unsafe-block",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Document Rust unsafe invariants",
+  "title": "Document Rust unsafe invariants",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Unsafe blocks transfer memory, aliasing, and lifetime obligations from the compiler to maintainers.",
+  "suggestion": "Add an attached SAFETY comment that states the invariants making the block sound.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "tokens"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule verifies that a nonempty SAFETY rationale is attached, not that the rationale proves soundness.",
+    "Macro-generated unsafe blocks are not visible in source text."
+  ]
+}

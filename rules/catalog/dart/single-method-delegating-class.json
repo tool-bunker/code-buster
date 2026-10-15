@@ -1,0 +1,34 @@
+{
+  "id": "single-method-delegating-class",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Review pass-through abstraction",
+  "title": "Review pass-through abstraction",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A class with one dependency and one method that forwards unchanged arguments may add indirection without owning policy.",
+  "suggestion": "Call the dependency directly unless this type owns a deliberate boundary, lifecycle, or future compatibility contract.",
+  "version": 1,
+  "semanticMaturity": "ast",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "generated-code"
+  ],
+  "implementation": "src/rules/generated_code_risks.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only compact Dart classes whose complete body is a field, constructor, and expression-bodied method are reported.",
+    "Framework annotations and abstract or implementing classes are excluded."
+  ]
+}

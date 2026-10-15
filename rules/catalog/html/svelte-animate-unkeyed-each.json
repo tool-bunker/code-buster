@@ -1,0 +1,38 @@
+{
+  "id": "svelte-animate-unkeyed-each",
+  "language": "html",
+  "group": "correctness",
+  "listingTitle": "Key animated each blocks",
+  "title": "Key animated each blocks",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "Svelte animation directives require stable keyed identity to match DOM nodes across list updates.",
+  "suggestion": "Add a stable key expression to the each block.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "svelte"
+  ],
+  "implementation": "src/rules/frameworks/svelte.rs",
+  "languages": [
+    "html",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "svelte"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit syntax inside discovered .svelte components is analyzed.",
+    "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+  ]
+}

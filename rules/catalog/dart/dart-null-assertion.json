@@ -1,0 +1,31 @@
+{
+  "id": "dart-null-assertion",
+  "language": "dart",
+  "group": "style",
+  "listingTitle": "Dart null assertion",
+  "title": "Review null assertion",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "style",
+  "why": "This Dart construct can weaken static safety, reliability, or security.",
+  "suggestion": "Use the safer typed asynchronous Dart pattern described by the rule.",
+  "version": 4,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "dart-null-assertion"
+  ],
+  "implementation": "src/languages/dart/null_assertion.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

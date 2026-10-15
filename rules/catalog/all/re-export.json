@@ -1,0 +1,37 @@
+{
+  "id": "re-export",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Review re-export",
+  "title": "Review facade re-export",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Re-export facades can hide ownership and increase coupling.",
+  "suggestion": "Keep the facade intentional and documented, or import the owner directly.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "dead"
+  ],
+  "implementation": "src/graph/export_analysis.rs",
+  "languages": [
+    "dart",
+    "javascript",
+    "rust",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Runs only for the explicit dead-code command.",
+    "The rule recognizes single-line explicit re-export syntax and does not resolve whether a facade is architecturally intentional."
+  ]
+}

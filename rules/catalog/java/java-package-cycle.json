@@ -1,0 +1,32 @@
+{
+  "id": "java-package-cycle",
+  "language": "java",
+  "group": "correctness",
+  "listingTitle": "Break Java package dependency cycle",
+  "title": "Break Java package dependency cycle",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Package cycles blur ownership and prevent one-way architecture boundaries.",
+  "suggestion": "Extract shared contracts or invert one package dependency.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "imports",
+    "graph"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

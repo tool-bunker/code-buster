@@ -1,0 +1,35 @@
+{
+  "id": "sql-create-index-nonconcurrent",
+  "language": "sql",
+  "group": "suspicious",
+  "listingTitle": "Sql create index nonconcurrent",
+  "title": "Review create index nonconcurrent",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "sql",
+  "why": "This SQL construct can create correctness, safety, or performance risk.",
+  "suggestion": "Use the safer SQL pattern described by the rule.",
+  "version": 3,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "sql",
+    "sql-inline"
+  ],
+  "implementation": "src/languages/sql/rules.rs",
+  "languages": [
+    "sql"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Opt-in because transactional migration runners cannot use CONCURRENTLY.",
+    "Dialect inference recognizes explicit PostgreSQL paths and repeated sibling MySQL syntax."
+  ]
+}

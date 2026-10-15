@@ -1,0 +1,33 @@
+{
+  "id": "mojo-legacy-stdlib-import",
+  "language": "mojo",
+  "group": "style",
+  "listingTitle": "Use std-prefixed Mojo imports",
+  "title": "Use std-prefixed Mojo imports",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "Current Mojo standard-library imports use the std package prefix.",
+  "suggestion": "Import the module from std, for example from std.pathlib import Path.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule follows current Mojo syntax but does not perform compiler type resolution."
+  ]
+}

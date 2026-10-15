@@ -1,0 +1,29 @@
+{
+  "id": "nim-generic-hook-cross-module-call",
+  "language": "nim",
+  "group": "maintainability",
+  "listingTitle": "Nim generic hook cross module call",
+  "title": "Review Nim generic hook cross module call",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-advanced",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/aggregate.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

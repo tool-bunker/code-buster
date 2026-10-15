@@ -1,0 +1,32 @@
+{
+  "id": "trivial-comment-restatement",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Remove code-restating comment",
+  "title": "Remove code-restating comment",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A comment that repeats the adjacent statement adds maintenance cost without explaining intent.",
+  "suggestion": "Remove the comment or explain the constraint, tradeoff, or reason instead.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "generated-code"
+  ],
+  "implementation": "src/rules/generated_code_risks.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only narrow return, assignment, increment, and invocation restatements are reported.",
+    "Documentation comments and test sources are excluded."
+  ]
+}

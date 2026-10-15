@@ -1,0 +1,31 @@
+{
+  "id": "repeated-condition",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Repeated condition",
+  "title": "Consolidate condition",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "design",
+  "why": "A complex condition is repeated across multiple locations.",
+  "suggestion": "Extract a named predicate or document the intentional repetition.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "duplication"
+  ],
+  "implementation": "src/rules/duplication.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Repeated byte-scanner cursor conditions are treated as parser mechanics and excluded."
+  ]
+}

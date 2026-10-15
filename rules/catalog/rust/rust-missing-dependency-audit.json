@@ -1,0 +1,35 @@
+{
+  "id": "rust-missing-dependency-audit",
+  "language": "rust",
+  "group": "security",
+  "listingTitle": "Audit locked Rust dependencies in CI",
+  "title": "Audit locked Rust dependencies in CI",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "A committed Cargo lockfile can retain dependencies with published security advisories unless CI checks it against an advisory database.",
+  "suggestion": "Run cargo audit or cargo deny check in CI, or add the RustSec audit-check or cargo-deny action.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
+    "Commands hidden behind repository scripts, reusable workflows, aliases, or nonstandard shell wrappers are not resolved.",
+    "The rule recognizes audit configuration but does not validate advisory database freshness or enforcement settings."
+  ]
+}

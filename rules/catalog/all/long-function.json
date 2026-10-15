@@ -1,0 +1,29 @@
+{
+  "id": "long-function",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Long function",
+  "title": "Split long function",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A function exceeds the configured source line threshold.",
+  "suggestion": "Extract focused helpers or raise the threshold if intentional.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "complexity"
+  ],
+  "implementation": "src/rules/complexity.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,33 @@
+{
+  "id": "mojo-deprecated-let",
+  "language": "mojo",
+  "group": "style",
+  "listingTitle": "Use var for Mojo bindings",
+  "title": "Use var for Mojo bindings",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "The let keyword was removed from current Mojo syntax.",
+  "suggestion": "Replace let with var.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule follows current Mojo syntax but does not perform compiler type resolution."
+  ]
+}

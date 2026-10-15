@@ -1,0 +1,32 @@
+{
+  "id": "css-important",
+  "language": "css",
+  "group": "style",
+  "listingTitle": "Css important",
+  "title": "Review important",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "!important makes cascade/specificity harder to reason about.",
+  "suggestion": "Fix selector structure or ordering instead of forcing priority.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "css",
+    "ui"
+  ],
+  "implementation": "src/languages/css/rules.rs",
+  "languages": [
+    "css"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,40 @@
+{
+  "id": "unused-customization-hook",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Unused customization hook",
+  "title": "Remove an unused customization hook",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "An unused callback hook adds branching and API surface for variation that has no current caller.",
+  "suggestion": "Remove the hook and its fallback path until a concrete caller needs customization.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "yagni",
+    "yagni-concentration"
+  ],
+  "implementation": "src/rules/yagni.rs",
+  "languages": [
+    "csharp",
+    "dart",
+    "javascript",
+    "typescript",
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Reports optional callback-like parameters on private C# methods and underscore-prefixed Dart, JavaScript, TypeScript, or Python functions with at least three visible call sites and a project-unique name.",
+    "Requires the function body to invoke the hook and complete evidence that no visible caller supplies it.",
+    "Reflective calls, method tear-offs, overload ownership, forwarded callback parameters, and framework-discovered private hooks are not resolved."
+  ]
+}

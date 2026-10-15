@@ -1,0 +1,31 @@
+{
+  "id": "java-weak-crypto",
+  "language": "java",
+  "group": "security",
+  "listingTitle": "Java weak crypto",
+  "title": "Review weak crypto",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "Obsolete cryptography can make credentials, signatures, or encrypted data recoverable.",
+  "suggestion": "Use a current password KDF, digest, MAC, or authenticated cipher.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

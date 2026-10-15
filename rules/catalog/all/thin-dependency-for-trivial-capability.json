@@ -1,0 +1,34 @@
+{
+  "id": "thin-dependency-for-trivial-capability",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Prefer the native trivial capability",
+  "title": "Prefer the native trivial capability",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A new dependency used once for an operation already provided by the declared runtime adds supply-chain and maintenance cost without owning behavior.",
+  "suggestion": "Use the named native operation unless the dependency supplies behavior the call site actually requires.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires a newly added package.json production dependency, one import, one use, and an explicit semantics-preserving capability mapping.",
+    "Recognizes left-pad via String.padStart and object-assign via Object.assign.",
+    "Recognizes node-fetch and abort-controller globals only when package.json declares Node.js 18 or newer.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

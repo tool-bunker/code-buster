@@ -1,0 +1,38 @@
+{
+  "id": "svelte-dynamic-html",
+  "language": "html",
+  "group": "security",
+  "listingTitle": "Review dynamic Svelte HTML",
+  "title": "Review dynamic Svelte HTML",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "Svelte inserts {@html} content without escaping; data crossing an unverified trust boundary can execute markup or script.",
+  "suggestion": "Render structured Svelte markup or sanitize the value at a documented trust boundary before {@html}.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "svelte"
+  ],
+  "implementation": "src/rules/frameworks/svelte.rs",
+  "languages": [
+    "html",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "svelte"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit syntax inside discovered .svelte components is analyzed.",
+    "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+  ]
+}

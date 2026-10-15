@@ -1,0 +1,26 @@
+{
+  "id": "rust-redundant-member-lockfile",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Remove ignored member lockfiles",
+  "title": "Remove ignored member lockfiles",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Cargo resolves a workspace through the root Cargo.lock, so a member lockfile is ignored and can become misleading stale state.",
+  "suggestion": "Remove the member Cargo.lock and retain the lockfile at the owning workspace root.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability"],
+  "requirements": ["declarations"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/rules/cargo/workspace.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only lockfiles belonging to resolved production workspace members are reported.",
+    "Excluded packages and independent nested workspaces retain their own lockfile policy."
+  ]
+}

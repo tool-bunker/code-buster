@@ -1,0 +1,38 @@
+{
+  "id": "svelte-interval-without-cleanup",
+  "language": "html",
+  "group": "reliability",
+  "listingTitle": "Clear component intervals",
+  "title": "Clear component intervals",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "An interval that survives component destruction continues work against stale component state.",
+  "suggestion": "Retain the interval handle and clear it from returned onMount/$effect cleanup.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "svelte"
+  ],
+  "implementation": "src/rules/frameworks/svelte.rs",
+  "languages": [
+    "html",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "svelte"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit syntax inside discovered .svelte components is analyzed.",
+    "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+  ]
+}

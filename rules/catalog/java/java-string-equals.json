@@ -1,0 +1,31 @@
+{
+  "id": "java-string-equals",
+  "language": "java",
+  "group": "style",
+  "listingTitle": "Java string equals",
+  "title": "Review string equals",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This Java construct can weaken correctness, observability, or security.",
+  "suggestion": "Use the safer Java API or pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

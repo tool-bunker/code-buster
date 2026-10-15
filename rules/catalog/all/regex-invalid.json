@@ -1,0 +1,31 @@
+{
+  "id": "regex-invalid",
+  "language": "all",
+  "group": "suspicious",
+  "listingTitle": "Regex invalid",
+  "title": "Review invalid",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "regex",
+  "why": "This regular expression can be invalid, inefficient, misleading, or unsafe for validation.",
+  "suggestion": "Simplify, anchor, precompile, or test the expression against adversarial input.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "regex"
+  ],
+  "implementation": "src/rules/regex.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Dart syntax validation is limited to raw non-interpolated literals."
+  ]
+}

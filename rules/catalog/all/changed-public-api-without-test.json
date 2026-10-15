@@ -1,0 +1,32 @@
+{
+  "id": "changed-public-api-without-test",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Cover a changed public API",
+  "title": "Cover a changed public API",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A changed public declaration without a related changed test has no review-visible regression evidence.",
+  "suggestion": "Add or update a behavior-focused test for the changed public contract.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Runs only with changed-base evidence and reports only when no changed test path shares the production file concept.",
+    "Tests in external repositories and unchanged broad integration suites cannot be resolved."
+  ]
+}

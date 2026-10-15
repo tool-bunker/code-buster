@@ -1,0 +1,26 @@
+{
+  "id": "rust-workspace-dependency-version-drift",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Align workspace dependency versions",
+  "title": "Align workspace dependency versions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "Different version requirements for the same registry crate make workspace dependency policy inconsistent and can resolve duplicate major versions.",
+  "suggestion": "Choose one reviewed requirement in workspace.dependencies and inherit it from production members unless version divergence is intentional.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability"],
+  "requirements": ["declarations"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/rules/cargo/workspace.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Direct production dependencies in internal or private workspace packages are compared textually; Cargo's complete semantic-version intersection is not resolved.",
+    "Published package manifests, and renamed, path, Git, build, development, target-specific, or inherited dependencies are excluded."
+  ]
+}

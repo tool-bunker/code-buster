@@ -1,0 +1,44 @@
+{
+  "id": "constant-argument-parameter",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Constant argument parameter",
+  "title": "Remove a constant argument parameter",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A parameter whose callers always supply one value advertises flexibility that the current code does not use.",
+  "suggestion": "Move the constant into the private function and remove the parameter until callers need real variation.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "constant-arguments",
+    "yagni-concentration"
+  ],
+  "implementation": "src/rules/constant_arguments.rs",
+  "languages": [
+    "cpp",
+    "csharp",
+    "dart",
+    "go",
+    "java",
+    "javascript",
+    "typescript",
+    "python",
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Visibility support is limited to static C/C++ functions, private C#/Java methods, underscore-prefixed Dart/JavaScript/TypeScript/Python functions, unexported Go functions, and non-public Rust functions.",
+    "Supports required positional parameters whose values are booleans, null sentinels, numeric literals, enum values, or uppercase constants.",
+    "String constants, named and optional parameters, reflective calls, method tear-offs, overload ownership, and framework-discovered private hooks are not resolved."
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "oop-refused-bequest",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Narrow an inheritance contract subclasses reject",
+  "title": "Narrow an inheritance contract subclasses reject",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Several subclasses rejecting inherited operations indicates that the base class promises behavior those subtypes cannot honor.",
+  "suggestion": "Consider composition or smaller capability-specific base contracts so subclasses inherit only supported behavior.",
+  "version": 4,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires a directly declared base class with at least four instance methods and at least two direct subclasses.",
+    "Each qualifying subclass must override and explicitly reject at least two inherited methods; at least three distinct operations must be rejected.",
+    "Indirect inheritance, partial types, mixins, and resolved overrides are not analyzed."
+  ]
+}

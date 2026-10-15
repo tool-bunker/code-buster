@@ -1,10 +1,11 @@
 # macOS Finder metadata
 .DS_Store
 
-# Dart package state
-.dart_tool/
-build/
-coverage/
+# Rust and release output
+/target/
+/build/
+/dist/
+/coverage/
 
 # Code Buster must never commit its own analysis caches.
 .code-buster-cache/

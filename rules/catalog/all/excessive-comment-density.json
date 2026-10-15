@@ -1,0 +1,32 @@
+{
+  "id": "excessive-comment-density",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Reduce disproportionate commentary",
+  "title": "Reduce disproportionate commentary",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A source file has substantially more commentary than comparable files in the same repository, which can obscure the implementation and become stale.",
+  "suggestion": "Keep comments that explain constraints or intent and remove narration or restatements of the code.",
+  "version": 7,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "generated-code"
+  ],
+  "implementation": "src/rules/generated_code_risks.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires at least five source files with twenty or more substantive lines.",
+    "Generated files, tests, documentation comments, and files with fewer than eight implementation-comment lines are excluded."
+  ]
+}

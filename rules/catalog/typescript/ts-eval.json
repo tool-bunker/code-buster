@@ -1,0 +1,32 @@
+{
+  "id": "ts-eval",
+  "language": "typescript",
+  "group": "security",
+  "listingTitle": "Ts eval",
+  "title": "Review eval",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "security",
+  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
+  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "version": 4,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "typescript"
+  ],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

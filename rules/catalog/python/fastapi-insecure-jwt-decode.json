@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-insecure-jwt-decode",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Review insecure jwt decode",
+  "title": "Review insecure jwt decode",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "JWT decoding without an explicit algorithm policy can accept unintended token configurations.",
+  "suggestion": "Pass a fixed algorithms allowlist and keep signature verification enabled.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

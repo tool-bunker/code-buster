@@ -1,12 +1,10 @@
-<h1>
-<p align="center">
-  <img src="assets/branding/code-buster.png" width="720" alt="Code Buster Symbol">
-  <br>Code Buster
-</h1>
-  <p align="center">
-    The AI Improver for code
-    <br />
-    <br />
+<div align="center">
+  <img src="assets/branding/code-buster.png" width="720" alt="Code Buster pixel-art analysis machine">
+  <h1>Code Buster</h1>
+  <p>
+    Repository-aware static analysis for AI-assisted development
+    <br>
+    <br>
     <a href="https://toolbunker.dev/codebuster/">Overview</a>
     ·
     <a href="https://toolbunker.dev/codebuster/docs/getting-started/installation">Installation</a>
@@ -15,7 +13,7 @@
     ·
     <a href="CONTRIBUTING.md">Contributing</a>
   </p>
-</p>
+</div>
 
 ## Keep your AI agent grounded
 
@@ -29,9 +27,15 @@ make semantic changes on its own. The executable is `cb`; optional repository
 configuration lives in `code-buster.toml`.
 
 - 18 recognized source languages
-- 450+ registered rules
+- 480+ registered rules
 - 7 report formats
 - 0 required cloud services
+
+## See it in action
+
+<p align="center">
+  <img src="assets/media/code-buster-demo.gif" width="900" alt="Code Buster CLI analyzing a repository">
+</p>
 
 ## Quickstart
 
@@ -55,10 +59,10 @@ On x86-64 Windows PowerShell:
 irm https://toolbunker.dev/codebuster/install.ps1 | iex
 ```
 
-When Dart 3.11 or newer is already installed:
+When Rust 1.88 or newer is installed, build the current release from source:
 
 ```sh
-dart pub global activate code_buster
+cargo install --git https://github.com/tool-bunker/code-buster.git --tag v0.9.0 --locked
 cb version
 ```
 
@@ -98,6 +102,25 @@ Findings can include a stable rule ID, severity, confidence, location,
 rationale, remediation guidance, related files, and fingerprint. A finding is
 evidence for review, not proof that the code is wrong.
 
+## Where it fits
+
+Code Buster is a static-analysis CLI. It complements rather than replaces a
+language compiler, type checker, formatter, linter, test suite, or specialist
+security scanner. Those tools usually have deeper knowledge of their own
+language or domain and should remain part of the project's verification.
+
+Code Buster's intended role is one local interface for repository-level and
+cross-file evidence across supported languages: dependency structure,
+architecture policy, reachability, duplication, change-review signals, and a
+broad catalog of language and framework checks. Coverage and precision vary by
+language and rule; unsupported or partial analysis is reported rather than
+treated as proof that the repository is clean.
+
+Good prompts, project instructions, and focused context should guide an agent
+before it edits. Code Buster adds deterministic checks before, during, or after
+the change because instructions do not guarantee that either AI-generated or
+human-written code matches the rest of the repository.
+
 ## Use it with an AI coding agent
 
 Make Code Buster part of the agent's working loop rather than waiting for a
@@ -132,8 +155,8 @@ See the current [language support matrix](https://toolbunker.dev/codebuster/docs
 ## Reports and integrations
 
 Available formats are text, JSON, NDJSON, Markdown, SARIF 2.1.0, Mermaid, and
-JUnit XML. The repository also includes starting integrations for GitHub Actions,
-Gradle, Maven, VS Code, and Code Climate conversion.
+JUnit XML. The repository also includes starting integrations for GitHub
+Actions, Gradle, Maven, VS Code, and pre-commit.
 
 See the [command reference](https://toolbunker.dev/codebuster/docs/reference/commands),
 [report reference](https://toolbunker.dev/codebuster/docs/reference/reports), and
@@ -141,21 +164,19 @@ See the [command reference](https://toolbunker.dev/codebuster/docs/reference/com
 
 ## Current status
 
-Code Buster 0.8.1 is pre-1.0 and under active development. It improves focused
-change review with stale-contract, high-risk test-coverage, and duplicate
-implementation evidence; tightens Rust test classification and forwarding
-analysis; and expands conservative Node.js native-capability guidance. Do not
-yet rely on it as a blocking production quality gate; evaluate CI and report
-integrations with explicit policy and preserved coverage.
+Code Buster 0.9 remains pre-1.0 and under active development. The `cb` command
+uses `code-buster.toml` configuration and performs deterministic offline
+analysis with text and machine-readable report formats. Do not yet rely on it
+as a blocking production quality gate; evaluate CI and report integrations
+with explicit policy and preserved coverage.
 
 ## Development and contributing
 
-Build the canonical Dart implementation from source:
+Build Code Buster from source:
 
 ```sh
-dart pub get
-dart compile exe bin/cb.dart -o build/cb
-./build/cb version
+cargo build --release --locked
+./target/release/cb version
 ```
 
 Open pull requests against `main`. Keep branches short-lived; `main` is the

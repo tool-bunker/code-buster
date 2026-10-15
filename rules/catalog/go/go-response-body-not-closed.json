@@ -1,0 +1,36 @@
+{
+  "id": "go-response-body-not-closed",
+  "language": "go",
+  "group": "reliability",
+  "listingTitle": "Close Go HTTP response bodies",
+  "title": "Close Go HTTP response bodies",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "An unclosed response body leaks connections and prevents transport reuse.",
+  "suggestion": "After checking the request error, defer response.Body.Close().",
+  "version": 5,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "go"
+  ],
+  "implementation": "src/languages/go/rules.rs",
+  "languages": [
+    "go"
+  ],
+  "frameworks": [],
+  "languageVersions": [
+    [
+      "go",
+      ">=1.13"
+    ]
+  ],
+  "limitations": []
+}

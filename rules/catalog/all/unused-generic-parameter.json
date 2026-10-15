@@ -1,0 +1,30 @@
+{
+  "id": "unused-generic-parameter",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Remove speculative generic parameter",
+  "title": "Remove unused generic",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "yagni",
+  "why": "A generic parameter does not affect the API or implementation.",
+  "suggestion": "Remove it unless phantom typing is an intentional documented requirement.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "yagni",
+    "yagni-concentration"
+  ],
+  "implementation": "src/app/commands/baseline.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,26 @@
+{
+  "id": "rust-partial-workspace-ci",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Test the complete Cargo workspace",
+  "title": "Test the complete Cargo workspace",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "An unscoped Cargo command at a non-virtual workspace root selects the root or default packages and can leave member crates unbuilt and untested.",
+  "suggestion": "Use --workspace, configure default-members to cover every production member, or run an explicitly scoped command for each member.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability"],
+  "requirements": ["declarations"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/rules/cargo/workspace.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct commands in supported checked-in CI files are inspected.",
+    "Workflow steps with working-directory and commands scoped by package or manifest are conservatively excluded."
+  ]
+}

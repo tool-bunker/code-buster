@@ -1,0 +1,32 @@
+{
+  "id": "ts-console",
+  "language": "typescript",
+  "group": "style",
+  "listingTitle": "Ts console",
+  "title": "Review console",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "Console logging in app/library code can leak data and create noisy production output.",
+  "suggestion": "Use a structured logger or remove debug logging before release.",
+  "version": 7,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "typescript"
+  ],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

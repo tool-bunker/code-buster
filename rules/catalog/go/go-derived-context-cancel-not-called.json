@@ -1,0 +1,36 @@
+{
+  "id": "go-derived-context-cancel-not-called",
+  "language": "go",
+  "group": "reliability",
+  "listingTitle": "Cancel derived Go contexts",
+  "title": "Cancel derived Go contexts",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "A derived context retains timers and parent references until its cancel function runs or its deadline expires.",
+  "suggestion": "Call the returned cancel function, normally with defer immediately after creating the context.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "go"
+  ],
+  "implementation": "src/languages/go/rules.rs",
+  "languages": [
+    "go"
+  ],
+  "frameworks": [],
+  "languageVersions": [
+    [
+      "go",
+      ">=1.13"
+    ]
+  ],
+  "limitations": []
+}

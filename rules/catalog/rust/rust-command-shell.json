@@ -1,0 +1,35 @@
+{
+  "id": "rust-command-shell",
+  "language": "rust",
+  "group": "security",
+  "listingTitle": "Review Rust command-string shell execution",
+  "title": "Review Rust command-string shell execution",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "A shell command-string boundary interprets metacharacters and can turn untrusted data into commands.",
+  "suggestion": "Invoke the target executable directly with separately supplied arguments.",
+  "version": 6,
+  "semanticMaturity": "token",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "tokens"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule recognizes literal shell executables and command-string switches in one builder expression.",
+    "It does not resolve variables that contain a shell executable or follow a builder across statements."
+  ]
+}

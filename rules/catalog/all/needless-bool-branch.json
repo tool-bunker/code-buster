@@ -1,0 +1,29 @@
+{
+  "id": "needless-bool-branch",
+  "language": "all",
+  "group": "suspicious",
+  "listingTitle": "Needless bool branch",
+  "title": "Review needless bool branch",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "suspicious",
+  "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
+  "suggestion": "Clarify the intent or replace the suspicious construct.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "generic"
+  ],
+  "implementation": "src/rules/generic.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

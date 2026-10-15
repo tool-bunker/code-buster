@@ -1,0 +1,33 @@
+{
+  "id": "complex-function",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Reduce complexity",
+  "title": "Reduce complexity",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A function exceeds configured complexity thresholds.",
+  "suggestion": "Split the function, simplify branching, or raise thresholds if intentional.",
+  "version": 8,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "functions",
+    "tokens"
+  ],
+  "packs": [
+    "complexity"
+  ],
+  "implementation": "src/rules/complexity.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "JavaScript and TypeScript extraction covers named declarations, methods, and block-bodied variable arrow functions.",
+    "Anonymous callbacks and expression-bodied arrow functions are not measured."
+  ]
+}

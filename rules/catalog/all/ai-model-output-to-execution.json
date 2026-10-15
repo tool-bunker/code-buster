@@ -1,0 +1,31 @@
+{
+  "id": "ai-model-output-to-execution",
+  "language": "all",
+  "group": "security",
+  "listingTitle": "Do not execute AI model output directly",
+  "title": "Do not execute AI model output directly",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "Prompt-injected model output reaching a command runner can turn text manipulation into arbitrary code execution.",
+  "suggestion": "Replace free-form execution with a typed allowlisted action schema and independently validate every argument.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "ai-security"
+  ],
+  "implementation": "src/rules/ai_security.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Tracks a named model-output variable to a nearby command-execution sink."
+  ]
+}

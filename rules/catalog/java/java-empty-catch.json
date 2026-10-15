@@ -1,0 +1,33 @@
+{
+  "id": "java-empty-catch",
+  "language": "java",
+  "group": "reliability",
+  "listingTitle": "Handle or document Java exceptions",
+  "title": "Handle or document Java exceptions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "An empty catch block silently loses failures and the context needed to diagnose them.",
+  "suggestion": "Recover, rethrow, or record the exception instead of discarding it.",
+  "version": 4,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only catch declarations whose parameter list has no nested parentheses are checked."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "html-blank-no-rel",
+  "language": "html",
+  "group": "security",
+  "listingTitle": "Html blank no rel",
+  "title": "Review blank no rel",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "This frontend construct can weaken accessibility, security, or maintainability.",
+  "suggestion": "Use the safer accessible frontend pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "html",
+    "ui"
+  ],
+  "implementation": "src/languages/html/rules.rs",
+  "languages": [
+    "html"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

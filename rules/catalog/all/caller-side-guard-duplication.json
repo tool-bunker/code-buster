@@ -1,0 +1,33 @@
+{
+  "id": "caller-side-guard-duplication",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Move repeated guards to the shared callee",
+  "title": "Move repeated guards to the shared callee",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "Equivalent precondition guards added around one project-owned callee in several callers duplicate an invariant and leave sibling callers exposed.",
+  "suggestion": "Validate the shared precondition once in the callee when it belongs to that operation.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires at least two newly added single-line conditional calls with the same null, empty, or length guard around a directly declared project function.",
+    "Caller-specific authorization, feature policy, and intentionally different fallback behavior cannot be inferred.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

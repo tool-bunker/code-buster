@@ -1,0 +1,34 @@
+{
+  "id": "rust-missing-clippy-ci",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Run Clippy in Rust CI",
+  "title": "Run Clippy in Rust CI",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "A Rust project that builds and tests in CI without Clippy misses compiler-integrated diagnostics for common correctness, performance, and maintainability problems.",
+  "suggestion": "Add a cargo clippy command to a checked-in CI workflow and configure the lint level appropriate for the project.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
+    "Commands hidden behind repository scripts, reusable workflows, aliases, or nonstandard shell wrappers are not resolved."
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "svelte-async-onmount-cleanup",
+  "language": "html",
+  "group": "reliability",
+  "listingTitle": "Keep onMount cleanup synchronous",
+  "title": "Keep onMount cleanup synchronous",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "An async onMount callback returns a Promise, so Svelte cannot use its returned cleanup function.",
+  "suggestion": "Keep the onMount callback synchronous, start async work inside it, and return cleanup directly.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "svelte"
+  ],
+  "implementation": "src/rules/frameworks/svelte.rs",
+  "languages": [
+    "html",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "svelte"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit syntax inside discovered .svelte components is analyzed.",
+    "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+  ]
+}

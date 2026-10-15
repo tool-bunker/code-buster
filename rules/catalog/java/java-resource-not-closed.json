@@ -1,0 +1,38 @@
+{
+  "id": "java-resource-not-closed",
+  "language": "java",
+  "group": "reliability",
+  "listingTitle": "Close Java resources in their creating method",
+  "title": "Close Java resources in their creating method",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Unclosed streams and database resources leak file descriptors or connections.",
+  "suggestion": "Use try-with-resources or close the resource in a finally block.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [
+    [
+      "java",
+      ">=7"
+    ]
+  ],
+  "limitations": [
+    "Only direct local allocations of common closeable types are checked."
+  ]
+}

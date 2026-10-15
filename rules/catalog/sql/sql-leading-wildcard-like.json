@@ -1,0 +1,32 @@
+{
+  "id": "sql-leading-wildcard-like",
+  "language": "sql",
+  "group": "suspicious",
+  "listingTitle": "Sql leading wildcard like",
+  "title": "Review leading wildcard like",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "sql",
+  "why": "This SQL construct can create correctness, safety, or performance risk.",
+  "suggestion": "Use the safer SQL pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "sql",
+    "sql-inline"
+  ],
+  "implementation": "src/languages/sql/rules.rs",
+  "languages": [
+    "sql"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

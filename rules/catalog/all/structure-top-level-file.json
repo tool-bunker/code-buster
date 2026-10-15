@@ -1,0 +1,29 @@
+{
+  "id": "structure-top-level-file",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Structure top level file",
+  "title": "Reduce top-level files",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A source root has more top-level files than configured.",
+  "suggestion": "Move implementation into subsystem folders or allow intentional facade files.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "structure"
+  ],
+  "implementation": "src/rules/structure.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

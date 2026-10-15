@@ -1,0 +1,35 @@
+{
+  "id": "rust-manual-send-sync-impl",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Document manual Rust Send and Sync contracts",
+  "title": "Document manual Rust Send and Sync contracts",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A manual Send or Sync implementation asserts thread-safety properties the compiler could not derive.",
+  "suggestion": "Attach a SAFETY rationale covering every field, generic bound, aliasing invariant, and thread-affinity constraint.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "tokens"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule verifies documentation presence and cannot prove the implementation is sound.",
+    "Send and Sync implementations separated by unrelated items are reported independently."
+  ]
+}

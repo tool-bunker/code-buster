@@ -1,0 +1,32 @@
+{
+  "id": "py-insecure-tls",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Py insecure tls",
+  "title": "Review insecure tls",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "Disabling certificate verification permits network attackers to impersonate the remote service.",
+  "suggestion": "Keep verification enabled or pass a trusted CA bundle through `verify`.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "python",
+    "fastapi"
+  ],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

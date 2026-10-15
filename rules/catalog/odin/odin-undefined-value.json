@@ -1,0 +1,33 @@
+{
+  "id": "odin-undefined-value",
+  "language": "odin",
+  "group": "correctness",
+  "listingTitle": "Initialize Odin values before use",
+  "title": "Initialize Odin values before use",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "The undefined value marker bypasses normal zero initialization and can expose indeterminate data.",
+  "suggestion": "Initialize the value explicitly unless immediate complete initialization is proven.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "odin"
+  ],
+  "implementation": "src/languages/odin/rules.rs",
+  "languages": [
+    "odin"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule masks nested comments and literals but does not perform Odin type resolution."
+  ]
+}

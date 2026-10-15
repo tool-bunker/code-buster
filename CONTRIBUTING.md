@@ -1,213 +1,211 @@
 # Contributing to Code Buster
-Thank you for improving Code Buster. Contribution should preserve the core.
 
-## Before you start
-- For a bug, include a minimal repository or source fixture that reproduces it.
-- For a new rule, explain the unsafe or costly behavior it detects and the cases
-  that must not be reported.
-- Report suspected vulnerabilities privately as described in
-  [SECURITY_ASSURANCE.md](SECURITY_ASSURANCE.md#security-reporting). Do not
-  open a public issue before maintainers have assessed the report.
+Contributions should keep rule behavior precise, deterministic, and easy to review.
 
 ## Development setup
 
-Code Buster requires Dart 3.11 or newer. Run commands from the `code-buster/`
-directory:
+Code Buster requires Rust 1.88 or newer.
 
 ```sh
-dart pub get
-dart run bin/cb.dart version
+cargo build --locked
+cargo run -- version
 ```
 
-Build the native executable with:
+## Project layout
 
-```sh
-mkdir -p build
-dart compile exe bin/cb.dart -o build/cb
-./build/cb version
+- Language analyzers: `src/languages/<language>/`
+- Repository-wide analyzers: `src/rules/`
+- Auto-discovered execution packs: `src/rule_packs/`
+- Canonical rule definitions: `rules/catalog/<language>/<rule-id>.json`
+- CLI argument contract: `src/app/cli.rs` (`clap` declarations)
+- CLI command implementations: `src/app/commands/`
+- Integration tests: `tests/`
+
+`build.rs` discovers every JSON file below `rules/catalog/` and every Rust file below `src/rule_packs/`. It validates and sorts both registries before generating build artifacts under `target/`; never edit those artifacts.
+
+Declare new options once on `ParsedArguments`; do not add a parallel argument
+scanner. A bare `cb` invocation is `summary`: it reports actionable findings
+in detail and summarizes count-mode advisory findings unless `--advisory` or
+`--all-findings` is supplied. The default text report keeps scope and stage
+timings behind `--verbose`; machine-readable report contracts are unchanged.
+
+Shared summary analysis uses the delayed progress renderer in
+`src/reporting/progress.rs`. Progress is written to stderr only after 180 ms and
+is cleared before the final report. It is disabled for redirected streams,
+machine formats, `--ci`, `--output`, `CI`, `NO_COLOR`, and `TERM=dumb`.
+Human-readable reports use ANSI color only when stdout is interactive.
+
+`dead-export` and `re-export` are command-scoped rules: `cb dead` invokes `src/graph/export_analysis.rs`. They must not run in the default summary pack because explicit dead-code analysis can be substantially noisier than the default review surface.
+
+## Adding a rule to an existing family
+
+1. Add the detector to the matching analyzer, or keep a focused detector beside that analyzer and expose it from the family module.
+2. Add `rules/catalog/<language>/<rule-id>.json`. The filename must equal `id`, its parent directory must equal `language`, `packs` must name the execution family that calls the detector, and `implementation` must point to the Rust source that declares the emitted rule ID.
+3. Add focused regression coverage for positive, negative, and plausible false-positive cases.
+4. Run the focused test, then the complete checks below.
+
+No edits are required in `src/rules/catalog.rs`, `src/engine/analysis_engine.rs`, `src/engine/execution_plan.rs`, the `rules` command, or a generated registry.
+
+A canonical definition has this shape:
+
+```json
+{
+  "id": "rust-example",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Review the example",
+  "title": "Review the example",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "The detected behavior can fail under the stated conditions.",
+  "suggestion": "Use the safe alternative.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["rust"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": ["State the important precision boundary."]
+}
 ```
 
-The workspace installer builds the current checkout and installs `cb` under
-`~/.local/bin` by default:
+`listingTitle` is the short title shown by `cb rules`. `title`, `why`, and `suggestion` are the explanatory contract used by findings and `cb explain`.
 
-```sh
-../install-code-buster.sh
+`build.rs` watches every `implementation` source and rejects definitions whose file is missing, points outside `src/`, points at a standalone test file, or does not contain the exact rule ID. Dynamically selected rules must therefore declare their complete IDs beside the detector rather than constructing undocumented IDs with `format!`. When implementations share a helper, pass the literal ID from each catalog-listed implementation source.
+
+Increment `version` whenever behavior changes in a way that should invalidate persistent baselines or analysis caches.
+
+## Adding an execution family
+
+Add one `src/rule_packs/NNN-kebab-case.rs` file. `NNN` determines deterministic execution order; `kebab-case` must equal the pack's `id`. The file declares its family, applicable languages or framework, shared-index requirements, and analyzer callback:
+
+```rust
+use super::*;
+
+pub(super) const PACK: RulePack = RulePack::main(
+    "rust-example",
+    "rust-example",
+    &["rust"],
+    None,
+    false,
+    false,
+    analyze,
+);
+
+fn analyze(context: &RulePackContext<'_, '_, '_>) -> Result<RulePackOutput, String> {
+    Ok(RulePackOutput::findings(find_examples(
+        context.source_context,
+    )))
+}
 ```
 
-## Making changes
+Point each owning rule definition's `packs` field at the pack's family. The build discovers the file automatically; do not add module declarations, engine branches, prefix routing, or registry entries. Keep a standalone detector in the pack file, or call a reusable analyzer module when several packs share it.
 
-Keep changes focused and follow existing module boundaries:
+Use `RulePack::after_main` only when a pack consumes earlier findings. Set `needs_functions` or `needs_yagni_index` only when the callback uses those shared indexes.
 
-- CLI commands live under `lib/src/cli/`.
-- Language adapters live under `lib/src/languages/<language>/`.
-- Language rules live under `lib/src/rules/<language>/`.
-- Repository-wide rules live under `lib/src/rules/`.
-- Tests mirror the relevant implementation area under `test/`.
-- Public integrations must import `package:code_buster/code_buster.dart`, not
-  private files under `lib/src/`.
+## Adding a language
 
-Do not manually edit generated rule catalogs. `RuleCatalog` derives metadata
-from executable rules and language manifests. When rule behavior changes,
-increment that rule's metadata version so persistent analysis caches are
-invalidated.
+Add extensions and aliases to `src/languages/registry.rs`, then add auto-discovered packs for its analyzers. Language recognition remains the only central integration because discovery must map files to a language before any pack can run.
 
-If the CLI command enum changes, refresh the live command inventory:
+## Rule tests
 
-```sh
-tool/update_inventories.py
-```
-
-## Adding or changing a rule
-
-A rule contribution must establish useful precision, not merely match a source
-pattern.
-
-For a language rule:
-
-1. Add `lib/src/rules/<language>/<rule_name>.dart`.
-2. Extend `SelfContainedRule`, `SourcePatternRule`, or `SemanticRule<T>`.
-3. Keep canonical `RuleMetadata` beside the implementation.
-4. Register the rule once in `lib/src/rules/<language>/rules.dart`.
-5. Add a mirrored test under `test/rules/<language>/`.
-
-Repository-wide rules are registered in
-`lib/src/rules/repository_rules.dart`. Use `RuleContext.report` so findings take
-their identifier, severity, explanation, and remediation from canonical
-metadata.
-
-Every rule test should cover:
+Every new rule should cover:
 
 - a real positive case;
 - a nearby negative case;
-- at least one plausible false-positive case;
-- stable finding location and message data when these are part of the contract;
-- comments and string literals when a textual matcher could encounter them.
+- at least one plausible false positive;
+- stable path, line, and message data where applicable;
+- comments and string literals when textual matching could encounter them.
 
-Prefer parsed or semantic analysis when text matching cannot distinguish those
-cases reliably. `SourcePatternRule` already ignores comments and quoted strings
-by default.
+Prefer parsed or semantic evidence when text matching cannot distinguish safe and unsafe cases reliably.
 
-`JavaResourceNotClosedRule` and its test are the representative built-in rule
-example.
+### Rust panic-rule precision
 
-## Writing tests and source fixtures
+`rust-unwrap` and `rust-expect` analyze production code. Discovery excludes conventional Rust test modules named `test.rs` or `tests.rs`; inline `#[test]` items and `#[cfg(test)]` modules are also excluded. A targeted `#[allow(clippy::unwrap_used)]` or `#[allow(clippy::expect_used)]` is the explicit escape hatch for a project-specific invariant.
 
-Keep the assertion and the smallest input that explains it close together. A
-one- to five-line lexical example may remain inline when the test varies a
-single token or expression. Use a source fixture when the sample is longer,
-contains substantial escaping, represents a complete declaration, or depends
-on formatting, comments, imports, line numbers, or multiple files.
+The detector ignores only invariants it can establish from source structure: literal regexes, formatted regexes whose dynamic arguments all use `regex::escape`, regex capture group zero, generated catalog lookups, catalog severity parsing, and UTF-8 reconstruction whose message documents the byte-preserving invariant. Dynamic regexes, optional or unchecked capture groups, and runtime `Option` or `Result` values remain reportable.
 
-Store language samples under
-`test/fixtures/languages/<language>/<test_scenario>/`. Use the scenario name
-from the test and preserve normal source extensions, for example:
+### Rust repository-policy rules
 
-```text
-test/fixtures/languages/cpp/cpp_adapter_test/
-  main.cpp
-  widget.hpp
-```
+Rust repositories with checked-in CI should run `cargo fmt --all -- --check`
+or an equivalent direct `rustfmt --check`, and Clippy alongside their normal
+Cargo build or test command. Code Buster accepts toolchain-qualified commands such as
+`cargo +stable clippy`; it does not require the version-sensitive `pedantic`,
+`nursery`, or beta lint sets.
 
-Load these files with `sourceFixture` from
-`test/support/source_fixture.dart`. The map key passed to an adapter or rule
-must be the repository-relative path the analyzer should observe; it does not
-have to match the fixture's path on disk:
+Repositories with a committed `Cargo.lock` should audit resolved dependencies
+in CI and pass `--locked` or `--frozen` to direct build, check, test, and Clippy
+commands. Code Buster recognizes `cargo audit`, `cargo deny check`, the RustSec
+audit action, and the cargo-deny action. Code Buster only checks for these gates;
+it does not execute networked audit tools during analysis.
 
-```dart
-final Map<String, String> sources = <String, String>{
-  'src/main.cpp': sourceFixture('cpp/cpp_adapter_test/main.cpp'),
-  'src/widget.hpp': sourceFixture(
-    'cpp/cpp_adapter_test/widget.hpp',
-  ),
-};
-```
+Binary packages should commit an applicable lockfile. Production packages
+should declare `package.rust-version`, directly or through workspace
+inheritance, and registry dependencies should use reviewed version ranges
+rather than `*`. Test, fuzz, example, benchmark, generated, and vendored
+manifests follow the shared path classification and are excluded. Manifests
+that opt into unstable `cargo-features` are exempt from the stable MSRV check.
 
-Fixture files are read exactly as stored. Do not run a language formatter over
-fixtures that intentionally exercise malformed syntax, unusual indentation,
-line endings, trailing whitespace, or parser recovery. Put such cases in a
-clearly named scenario and add a short comment in the fixture when its purpose
-would otherwise be mistaken for an error. Dart fixture filenames must not end
-in `_test.dart`, because `dart test` discovers that suffix as an executable test.
+Workspace analysis resolves production members from `members` and `exclude`
+patterns while treating nested `[workspace]` manifests independently. Virtual
+workspaces should declare the resolver matching their newest member edition.
+Cargo root-only profile, patch, and replace tables must stay at the owning
+workspace root, as must the effective lockfile. Non-virtual multi-package
+workspaces should make CI scope explicit with `--workspace`, complete
+`default-members`, or per-package commands.
 
-Prefer one scenario directory per behavior. Reuse a fixture only when multiple
-assertions intentionally describe the same source contract; unrelated tests
-should not share a large catch-all sample. For dependency resolution, module
-wiring, classification, or repository discovery behavior, use a multi-file
-fixture rather than an inline map so the test exercises realistic paths.
+Code Buster groups dependency policy by crate instead of emitting one finding per
+member: differing direct registry requirements in internal or private members
+produce one drift finding, and the same requirement repeated in at least three
+such members produces one advisory to use `workspace.dependencies`. Published
+workspace packages are excluded because their dependency floors can diverge
+intentionally.
 
-Run the narrowest affected test while developing:
+Public functions in publishable library packages should expose typed errors.
+`rust-public-anyhow-result` reports direct `anyhow` return types and locally
+declared aliases, while allowing applications, binary-only packages, and
+explicitly internal or unpublished libraries to use `anyhow`.
 
-```sh
-dart test test/languages/<language>_adapter_test.dart
-dart test test/rules/<language>/<rule_name>_test.dart
-```
+Keep credentials outside Rust source. `rust-hardcoded-secret` intentionally
+limits itself to direct string literals assigned to credential-shaped `const`,
+`static`, or `let` names and excludes placeholders and conventional non-secret
+token identifiers.
 
-Before submitting, run the complete verification commands below. A fixture
-migration is incomplete if the focused test passes but `dart test` discovers a
-fixture as a test file or another suite depends on the old inline sample.
+Implement `From<Source> for Target` rather than `Into<Target> for Source` when
+the conversion is owned by either type. Rust supplies the corresponding `Into`
+implementation automatically.
 
-## Formatting and verification
+`repeated-condition` ignores byte-scanner cursor mechanics. Repeated business-policy predicates remain findings and should usually become a named predicate.
 
-Format production Dart sources exactly as CI does:
+## Verification
+
+Run the narrowest affected test while developing. Before committing:
 
 ```sh
-dart format bin example lib tool/*.dart
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --all-targets --all-features --locked
+cargo package --allow-dirty --locked
+cargo run --locked -- version
 ```
 
-Run the focused test for the changed behavior first, then the complete checks:
+For performance-sensitive changes, compare the affected real repository with `--no-cache` and verify exact finding parity unless behavior intentionally changed.
+
+## Preparing a release
+
+Add user-visible changes under `## Unreleased`, then prepare the Cargo package
+version, lockfile, pinned README install command, and changelog heading together:
 
 ```sh
-dart analyze
-dart run tool/default_contract.dart
-dart test
-dart doc --dry-run
-dart compile exe bin/cb.dart -o build/cb
-./build/cb version
-python3 tool/precision_benchmark.py
+./tool/prepare-release.sh 0.10.0
 ```
 
-For performance-sensitive analysis changes, also run the repeatable mixed
-language benchmark:
-
-```sh
-dart run tool/benchmark.dart test/fixtures/mixed_realistic 5
-```
-
-Code Buster supports Dart 3.11 as its minimum SDK. Avoid language or dependency
-changes that break the `3.11.0` CI job unless the minimum-version change is an
-explicit project decision.
-
-## Pull requests
-
-Open pull requests against `main`. Keep feature and fix branches short-lived.
-`main` is the single long-lived branch and must remain releasable.
-
-A pull request should:
-
-- state the user-visible problem and the chosen solution;
-- list the commands used to verify it;
-- include regression coverage for changed behavior;
-- call out rule-count, schema, cache, CLI, or public-API changes;
-- avoid unrelated formatting or generated-file churn;
-- preserve machine-readable output compatibility unless the change explicitly
-  updates the corresponding schema contract.
-
-Keep commits reviewable. A maintainer may request narrower matching or more
-negative fixtures when a rule's precision is not demonstrated.
-
-## Releases
-
-Prepare a release in a normal pull request targeting `main`. That pull request
-must update `pubspec.yaml`, the generated embedded version, `CHANGELOG.md`, and
-any changed contracts. Merge it only after the complete verification suite
-passes.
-
-After the release preparation pull request is merged, a maintainer triggers the
-`Code Buster Release` workflow from `main` and supplies the exact package
-version. The workflow validates version agreement, creates the corresponding
-`vX.Y.Z` tag, builds and smoke-tests native archives, writes checksums, and
-publishes the GitHub release. Publishing to pub.dev and updating the Homebrew
-tap remain explicit maintainer actions after the GitHub release succeeds.
-
-By contributing, you agree that your contribution is provided under the
-project's [MIT License](LICENSE).
+The script requires Python 3 and is idempotent for an already-prepared version.
+It does not create a tag, push commits, or publish a release. Run the
+verification commands above, commit the prepared sources, and dispatch the
+release workflow from `main`.

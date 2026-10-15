@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.9.0
+
+### Changed
+
+- Ship Code Buster 0.9 with the `cb` executable, `code-buster.toml` configuration, deterministic offline analysis, complete command surface, and text and machine-readable report formats.
+- Move canonical rule metadata into validated JSON definitions and discover execution packs from their source files so contributors do not maintain parallel registries.
+- Build, test, audit, package, and release Code Buster through Cargo on Linux, macOS, and Windows.
+
+### Added
+
+- Add delayed interactive analysis progress, terminal colors, a structured summary, and verbose scope and stage timing diagnostics without contaminating redirected or machine-readable output.
+- Add Cargo workspace, Rust public API, dependency, unsafe, panic, conversion, reproducibility, and security policy rules with conservative project and source-role handling.
+- Add persistent external analysis caching, focused execution plans, grouped advisory findings, release rehearsal, and cross-platform native artifacts.
+- Add one-command release preparation that updates Cargo metadata and promotes `Unreleased` changelog notes without tagging or publishing.
+
+### Improved
+
+- Refine multi-language rule precision, test and generated-source classification, finding grouping, YAGNI concentration, dependency analysis, and performance across large real-world repositories.
+- Set the minimum supported Rust version to 1.88, validate release documentation in CI, and pin the starter GitHub integration to the release tag.
+
 ## 0.8.1
 
 ### Improved

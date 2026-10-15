@@ -1,0 +1,32 @@
+{
+  "id": "html-duplicate-id",
+  "language": "html",
+  "group": "style",
+  "listingTitle": "Html duplicate id",
+  "title": "Review duplicate id",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "This frontend construct can weaken accessibility, security, or maintainability.",
+  "suggestion": "Use the safer accessible frontend pattern described by the rule.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "html",
+    "ui"
+  ],
+  "implementation": "src/languages/html/rules.rs",
+  "languages": [
+    "html"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

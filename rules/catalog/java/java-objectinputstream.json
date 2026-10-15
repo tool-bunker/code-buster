@@ -1,0 +1,31 @@
+{
+  "id": "java-objectinputstream",
+  "language": "java",
+  "group": "security",
+  "listingTitle": "Java objectinputstream",
+  "title": "Review objectinputstream",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "This Java construct can weaken correctness, observability, or security.",
+  "suggestion": "Use the safer Java API or pattern described by the rule.",
+  "version": 3,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,32 @@
+{
+  "id": "optional-feature-bundle",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Remove speculative optional features",
+  "title": "Remove speculative optional features",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "Several newly introduced optional switches and collaborators often implement unrequested future behavior.",
+  "suggestion": "Keep only the currently required behavior; add options when a concrete caller needs them.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Reports changed files that add at least three optional feature controls and speculative cache, validation, notification, retry, or callback vocabulary.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

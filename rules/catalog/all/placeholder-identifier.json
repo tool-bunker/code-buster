@@ -1,0 +1,29 @@
+{
+  "id": "placeholder-identifier",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Replace a placeholder identifier",
+  "title": "Replace a placeholder identifier",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A placeholder name hides the role of a declaration once it escapes a tiny local scope.",
+  "suggestion": "Rename the declaration for the domain concept or responsibility it represents.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "clean-code"
+  ],
+  "implementation": "src/rules/clean_code.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

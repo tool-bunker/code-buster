@@ -1,0 +1,31 @@
+{
+  "id": "java-thread-sleep",
+  "language": "java",
+  "group": "style",
+  "listingTitle": "Java thread sleep",
+  "title": "Review thread sleep",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This Java construct can weaken correctness, observability, or security.",
+  "suggestion": "Use the safer Java API or pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

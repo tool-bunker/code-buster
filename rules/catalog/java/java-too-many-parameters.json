@@ -1,0 +1,33 @@
+{
+  "id": "java-too-many-parameters",
+  "language": "java",
+  "group": "maintainability",
+  "listingTitle": "Reduce Java method parameters",
+  "title": "Reduce Java method parameters",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A wide signature is difficult to call correctly and often combines unrelated responsibilities.",
+  "suggestion": "Split the responsibility or introduce a cohesive parameter object.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "functions"
+  ],
+  "packs": [
+    "java"
+  ],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": [
+    "java"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only method declarations recognized by the Java callable extractor are checked."
+  ]
+}

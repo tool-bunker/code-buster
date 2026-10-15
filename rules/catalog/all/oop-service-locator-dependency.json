@@ -1,0 +1,41 @@
+{
+  "id": "oop-service-locator-dependency",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Make distributed service dependencies explicit",
+  "title": "Make distributed service dependencies explicit",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Shared locator access hides collaborators and couples behavior to global state.",
+  "suggestion": "Consider constructor injection at the application boundary.",
+  "version": 4,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires three classes across two files resolving three service types from one conventionally named locator.",
+    "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
+  ]
+}

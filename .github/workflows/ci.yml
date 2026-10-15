@@ -5,79 +5,56 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: stable
-      - run: dart pub get
-      - name: Check production formatting
-        run: dart format --output=none --set-exit-if-changed bin example lib tool/*.dart
-      - run: dart analyze
-      - name: Check default compatibility contract
-        run: dart run tool/default_contract.dart
-      - name: Compile test CLI
-        run: |
-          mkdir -p build
-          dart compile exe bin/cb.dart -o build/cb-test
-      - run: dart test -j 1
-        env:
-          CODE_BUSTER_TEST_EXECUTABLE: ${{ github.workspace }}/build/cb-test
-      - run: dart doc --dry-run
-      - name: Smoke-test Code Buster
-        run: |
-          build/cb-test version
-          python3 tool/precision_benchmark.py --executable build/cb-test
-
-  minimum-sdk:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: 3.11.0
-      - run: dart pub get
-      - run: dart analyze
-      - name: Compile test CLI
-        run: |
-          mkdir -p build
-          dart compile exe bin/cb.dart -o build/cb-test
-      - run: dart test -j 1
-        env:
-          CODE_BUSTER_TEST_EXECUTABLE: ${{ github.workspace }}/build/cb-test
-
-  compile:
-    needs: [verify, minimum-sdk]
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            suffix: ''
-          - os: macos-latest
-            suffix: ''
+            binary: target/release/cb
+            completion-shell: bash
+          - os: macos-15
+            binary: target/release/cb
+            completion-shell: zsh
           - os: windows-latest
-            suffix: '.exe'
+            binary: target/release/cb.exe
+            completion-shell: powershell
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dart-lang/setup-dart@v1
+      - uses: dtolnay/rust-toolchain@1.88.0
         with:
-          sdk: stable
-      - run: dart pub get
-      - name: Compile Code Buster
+          components: clippy,rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --all-targets --all-features --locked
+      - run: cargo build --release --locked
+      - name: Smoke release binary
         shell: bash
         run: |
-          mkdir -p build
-          dart compile exe bin/cb.dart -o "build/cb${{ matrix.suffix }}"
-      - uses: actions/upload-artifact@v7
+          '${{ matrix.binary }}' version
+          '${{ matrix.binary }}' preview --root tests/fixtures/preview --format json > preview.json
+          '${{ matrix.binary }}' summary --root tests/fixtures/preview --format json --advisory --allow-empty > summary.json
+          '${{ matrix.binary }}' completions '${{ matrix.completion-shell }}' > completion.txt
+
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: rustsec/audit-check@v2.0.0
         with:
-          name: cb-${{ matrix.os }}
-          path: build/cb${{ matrix.suffix }}
-          if-no-files-found: error
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - run: cargo package --locked
+      - run: ./tool/rehearse-release.sh "$RUNNER_TEMP/cb-rehearsal"

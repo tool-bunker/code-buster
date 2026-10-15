@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-missing-auth-dependency",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Review missing auth dependency",
+  "title": "Review missing auth dependency",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "A mutating route in an authenticated API has no visible authentication dependency.",
+  "suggestion": "Attach the established authentication dependency with Depends or Security.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

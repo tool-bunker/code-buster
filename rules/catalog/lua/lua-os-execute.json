@@ -1,0 +1,31 @@
+{
+  "id": "lua-os-execute",
+  "language": "lua",
+  "group": "security",
+  "listingTitle": "Lua os execute",
+  "title": "Review os execute",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "Shell execution can introduce command injection when command text includes input.",
+  "suggestion": "Avoid shelling out or validate/allow-list arguments carefully.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "lua"
+  ],
+  "implementation": "src/languages/lua/rules.rs",
+  "languages": [
+    "lua"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,38 @@
+{
+  "id": "duplicate-block",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Extract shared logic",
+  "title": "Extract shared logic",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "The same normalized code block appears in more than one location.",
+  "suggestion": "Extract shared logic or raise min_duplication_lines if the duplication is intentional.",
+  "version": 12,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "duplication"
+  ],
+  "implementation": "src/rules/duplication.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "At most 32 deterministic locations are retained per fingerprint.",
+    "Predominantly literal data tables are excluded.",
+    "Block-comment license headers are excluded.",
+    "Python hash-comment license headers are excluded.",
+    "SQL migration and archive history is excluded from duplication comparison.",
+    "Mutually exclusive single-tag Go build flavors are excluded.",
+    "Dart constructors composed only of field- and super-formal parameter forwarding are excluded.",
+    "Rust multiline string content is excluded from code-duplication windows."
+  ]
+}

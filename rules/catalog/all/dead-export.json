@@ -1,0 +1,36 @@
+{
+  "id": "dead-export",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Remove dead export",
+  "title": "Remove or privatize unused export",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Unused public declarations expand API surface and maintenance burden.",
+  "suggestion": "Remove it, make it private, or document external/framework use.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "dead"
+  ],
+  "implementation": "src/graph/export_analysis.rs",
+  "languages": [
+    "javascript",
+    "rust",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Runs only for the explicit dead-code command.",
+    "The rule analyzes explicit Rust and JavaScript-family exports only in repositories marked private, and repository-local references cannot prove external API use."
+  ]
+}

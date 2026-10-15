@@ -13,7 +13,7 @@ Code Buster is an offline CLI that reads a repository, invokes Git with fixed ar
 | Configuration → regex/globs | Semi-trusted | schema/type validation, known-key validation, constrained rule contracts |
 | Cache/baseline → analysis | Semi-trusted | content/config/version cache keys, corrupt-cache rejection, stable fingerprints |
 | Findings → file writes | Untrusted metadata | writes use configured local destinations; safe fixes only support known transformations |
-| Build → installed artifact | Trusted release boundary | Dart package lock, CI on three operating systems, parity and benchmark release gates |
+| Build → installed artifact | Trusted release boundary | Cargo lockfile, RustSec audit, strict Clippy, CI on three operating systems, and release rehearsal |
 
 ## Threats and controls
 
@@ -23,7 +23,7 @@ Code Buster invokes Git through direct process argument arrays and never interpo
 
 ### Hostile source text
 
-Analysis never imports, compiles, evaluates, or executes project code. Language adapters operate on text or Dart ASTs. Generated, minified, vendored, and auxiliary sources are classified before normal production analysis. Rule implementations must avoid super-linear unbounded matching; repository-local benchmarks and focused pathological fixtures detect major regressions.
+Analysis never imports, compiles, evaluates, or executes project code. Language adapters operate on source text, bounded lexical indexes, and deterministic parsers. Generated, minified, vendored, and auxiliary sources are classified before normal production analysis. Rule implementations must avoid super-linear unbounded matching; repository-local benchmarks and focused pathological fixtures detect major regressions.
 
 ### Path traversal and symlinks
 
@@ -62,12 +62,12 @@ Code Buster has no LLM provider, telemetry exporter, or source upload path. It d
 
 | Control | Verification |
 |---|---|
-| Static correctness | `dart analyze` |
-| Regression suite | `dart test` |
-| Public API docs | `dart doc --dry-run` |
-| Contract stability | Default-policy, CLI-contract, and report-schema tests |
-| Precision/performance | `tool/precision_benchmark.py` and repository-local performance tests |
-| Package contents | clean-tree `dart pub publish --dry-run` |
+| Static correctness | `cargo clippy --all-targets --all-features --locked -- -D warnings` |
+| Regression suite | `cargo test --all-targets --all-features --locked` |
+| Formatting | `cargo fmt --all -- --check` |
+| Contract stability | CLI, configuration, rule-catalog, and report-schema tests |
+| Dependency safety | RustSec audit in CI with a committed Cargo lockfile |
+| Package contents | `cargo package --locked` and release rehearsal from a Git archive |
 | Cross-platform compilation | GitHub Actions Linux, macOS, Windows matrix |
 | Self-hosting | Code Buster production self-analysis with reviewed complexity findings and zero processing diagnostics |
 
@@ -76,8 +76,8 @@ Code Buster has no LLM provider, telemetry exporter, or source upload path. It d
 1. Add canonical-path revalidation immediately before every baseline, report, and fix write.
 2. Add bounded execution for project-provided regex rules.
 3. Emit a signed/versioned run manifest with complete, partial, failed, and skipped states.
-4. Add dependency vulnerability scanning for Dart packages to CI.
-5. Archive checksums and parity/benchmark evidence with tagged artifacts.
+4. Add an explicit dependency-license policy alongside RustSec advisory checks.
+5. Archive signed provenance alongside release artifacts and checksums.
 
 ## Security reporting
 

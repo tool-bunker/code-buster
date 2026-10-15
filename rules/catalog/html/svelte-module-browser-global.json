@@ -1,0 +1,38 @@
+{
+  "id": "svelte-module-browser-global",
+  "language": "html",
+  "group": "reliability",
+  "listingTitle": "Keep browser globals out of module initialization",
+  "title": "Keep browser globals out of module initialization",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "Module scripts can execute during server rendering, where browser-only globals are unavailable.",
+  "suggestion": "Move browser work to instance onMount/$effect or guard it with the SvelteKit browser environment.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "svelte"
+  ],
+  "implementation": "src/rules/frameworks/svelte.rs",
+  "languages": [
+    "html",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [
+    "svelte"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit syntax inside discovered .svelte components is analyzed.",
+    "Custom lifecycle wrappers, aliased browser globals, and behavior in generated components are not resolved."
+  ]
+}

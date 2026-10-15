@@ -1,0 +1,34 @@
+{
+  "id": "rust-todo-macro",
+  "language": "rust",
+  "group": "correctness",
+  "listingTitle": "Finish Rust placeholder behavior",
+  "title": "Finish Rust placeholder behavior",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "core",
+  "why": "todo! compiles but panics whenever the unfinished path executes.",
+  "suggestion": "Implement the path or return an explicit unsupported error.",
+  "version": 6,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule uses masked source tokens and does not perform Rust type resolution."
+  ]
+}

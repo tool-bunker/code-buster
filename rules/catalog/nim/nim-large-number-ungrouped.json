@@ -1,0 +1,33 @@
+{
+  "id": "nim-large-number-ungrouped",
+  "language": "nim",
+  "group": "style",
+  "listingTitle": "Nim large number ungrouped",
+  "title": "Review Nim large number ungrouped",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "idiomatic",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/rules.rs",
+  "languages": [
+    "nim"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule inspects decimal integer literals and ignores grouped values, strings, decimals, and identifiers."
+  ]
+}

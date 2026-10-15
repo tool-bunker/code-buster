@@ -1,0 +1,29 @@
+{
+  "id": "regex-a-z-range",
+  "language": "all",
+  "group": "suspicious",
+  "listingTitle": "Regex a z range",
+  "title": "Review a z range",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "regex",
+  "why": "This regular expression can be invalid, inefficient, misleading, or unsafe for validation.",
+  "suggestion": "Simplify, anchor, precompile, or test the expression against adversarial input.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "regex"
+  ],
+  "implementation": "src/rules/regex.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

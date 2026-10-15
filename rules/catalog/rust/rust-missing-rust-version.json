@@ -1,0 +1,35 @@
+{
+  "id": "rust-missing-rust-version",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Declare the minimum Rust version",
+  "title": "Declare the minimum Rust version",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Without rust-version, Cargo cannot reject unsupported compilers or apply MSRV-aware dependency resolution for the package.",
+  "suggestion": "Set package.rust-version directly or inherit it from workspace.package.rust-version.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule checks declaration presence but does not run the declared minimum toolchain.",
+    "Virtual workspaces, non-production manifests, and manifests that require unstable Cargo features are excluded."
+  ]
+}

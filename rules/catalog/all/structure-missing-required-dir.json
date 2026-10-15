@@ -1,0 +1,29 @@
+{
+  "id": "structure-missing-required-dir",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Structure missing required dir",
+  "title": "Create required directory",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "A configured source subdirectory is missing.",
+  "suggestion": "Create the directory or update the structure configuration.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "structure"
+  ],
+  "implementation": "src/rules/structure.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

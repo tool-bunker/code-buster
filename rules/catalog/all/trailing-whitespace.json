@@ -1,0 +1,32 @@
+{
+  "id": "trailing-whitespace",
+  "language": "all",
+  "group": "style",
+  "listingTitle": "Trim whitespace",
+  "title": "Trim whitespace",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "core",
+  "why": "A line has trailing whitespace.",
+  "suggestion": "Trim trailing spaces before committing.",
+  "version": 3,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "layout"
+  ],
+  "implementation": "src/rules/layout.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "At most 50 deterministic file findings are retained per run.",
+    "Non-Dart source requires applicable EditorConfig or Prettier evidence."
+  ]
+}

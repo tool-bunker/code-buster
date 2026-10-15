@@ -1,0 +1,29 @@
+{
+  "id": "goto-statement",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Goto statement",
+  "title": "Review goto statement",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
+  "suggestion": "Clarify the intent or replace the suspicious construct.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "complexity"
+  ],
+  "implementation": "src/rules/complexity.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

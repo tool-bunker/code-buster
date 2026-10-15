@@ -1,0 +1,32 @@
+{
+  "id": "new-unused-declaration",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Remove a newly unused declaration",
+  "title": "Remove a newly unused declaration",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A new private declaration with no reference adds code that cannot contribute to current behavior.",
+  "suggestion": "Remove it or connect it to the behavior that required it.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires a newly added private function or method whose name appears only at its declaration.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

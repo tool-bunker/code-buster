@@ -1,0 +1,33 @@
+{
+  "id": "odin-panic-call",
+  "language": "odin",
+  "group": "reliability",
+  "listingTitle": "Avoid unexpected Odin panics",
+  "title": "Avoid unexpected Odin panics",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "panic terminates normal control flow instead of returning an error.",
+  "suggestion": "Return an error value unless this is a documented unrecoverable invariant.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "odin"
+  ],
+  "implementation": "src/languages/odin/rules.rs",
+  "languages": [
+    "odin"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule masks nested comments and literals but does not perform Odin type resolution."
+  ]
+}

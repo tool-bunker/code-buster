@@ -1,0 +1,36 @@
+{
+  "id": "flutter-repeated-inline-style",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Share repeated Flutter styles",
+  "title": "Share repeated Flutter styles",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Repeated inline visual definitions can drift instead of evolving through one theme or component.",
+  "suggestion": "Extract a shared style, theme entry, or widget when the repeated definitions represent one visual role.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/ui_consistency.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only exact normalized style constructors with at least three named arguments are compared."
+  ]
+}

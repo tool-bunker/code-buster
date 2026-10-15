@@ -1,0 +1,34 @@
+{
+  "id": "rust-unbounded-channel",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Bound Rust channel capacity",
+  "title": "Bound Rust channel capacity",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "An unbounded producer can grow queued messages until the process exhausts memory.",
+  "suggestion": "Use a bounded channel with an explicit capacity or document the finite producer invariant.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "tokens"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule cannot infer producer rate, message size, consumer throughput, or process lifetime."
+  ]
+}

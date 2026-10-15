@@ -1,0 +1,33 @@
+{
+  "id": "mvvm-viewmodel-performs-navigation",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Review viewmodel performs navigation",
+  "title": "Review viewmodel performs navigation",
+  "mvvm": true,
+  "defaultSeverity": "warn",
+  "legacyGroup": "architecture",
+  "why": "ViewModels should remain independent of Flutter presentation context.",
+  "suggestion": "Expose typed state or events and let the View handle presentation.",
+  "version": 2,
+  "semanticMaturity": "ast",
+  "securityKind": "none",
+  "taxonomy": [
+    "architecture"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "dart-mvvm"
+  ],
+  "implementation": "src/languages/dart/mvvm.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": []
+}

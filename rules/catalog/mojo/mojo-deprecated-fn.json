@@ -1,0 +1,33 @@
+{
+  "id": "mojo-deprecated-fn",
+  "language": "mojo",
+  "group": "style",
+  "listingTitle": "Use def for Mojo functions",
+  "title": "Use def for Mojo functions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "nim-style",
+  "why": "The fn keyword is deprecated and removed from current Mojo syntax.",
+  "suggestion": "Replace fn with def and declare raises explicitly when needed.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "mojo"
+  ],
+  "implementation": "src/languages/mojo/rules.rs",
+  "languages": [
+    "mojo"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule follows current Mojo syntax but does not perform compiler type resolution."
+  ]
+}

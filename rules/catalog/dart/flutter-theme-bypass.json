@@ -1,0 +1,36 @@
+{
+  "id": "flutter-theme-bypass",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Use existing Flutter theme tokens",
+  "title": "Use existing Flutter theme tokens",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "Repeating a raw visual value bypasses the project abstraction that keeps the interface consistent.",
+  "suggestion": "Use the existing project color token when it represents the same visual role.",
+  "version": 3,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/ui_consistency.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only exact Color or Colors expressions matching a declared project constant are compared."
+  ]
+}

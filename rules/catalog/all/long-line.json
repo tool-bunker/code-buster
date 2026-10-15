@@ -1,0 +1,31 @@
+{
+  "id": "long-line",
+  "language": "all",
+  "group": "style",
+  "listingTitle": "Wrap line",
+  "title": "Wrap line",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "core",
+  "why": "A line exceeds the recommended style length.",
+  "suggestion": "Wrap the expression using the language formatter.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "layout"
+  ],
+  "implementation": "src/rules/layout.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Dart is excluded because dart format may intentionally exceed its page width."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "css-duplicate-property",
+  "language": "css",
+  "group": "style",
+  "listingTitle": "Css duplicate property",
+  "title": "Review duplicate property",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This frontend construct can weaken accessibility, security, or maintainability.",
+  "suggestion": "Use the safer accessible frontend pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "css",
+    "ui"
+  ],
+  "implementation": "src/languages/css/rules.rs",
+  "languages": [
+    "css"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

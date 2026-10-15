@@ -1,0 +1,36 @@
+{
+  "id": "fastapi-permissive-cors",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Review permissive cors",
+  "title": "Review permissive cors",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "Wildcard origins can expose authenticated or sensitive APIs to untrusted sites.",
+  "suggestion": "List trusted origins explicitly and avoid wildcard credentials.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "fastapi"
+  ],
+  "implementation": "src/rules/frameworks/fastapi.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [
+    "fastapi"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+  ]
+}

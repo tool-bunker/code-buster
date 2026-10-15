@@ -1,0 +1,29 @@
+{
+  "id": "nim-home-dir-strip",
+  "language": "nim",
+  "group": "style",
+  "listingTitle": "Nim home dir strip",
+  "title": "Review Nim home dir strip",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "strings",
+  "why": "This Nim construct can weaken correctness, clarity, portability, or runtime performance.",
+  "suggestion": "Use the safer explicit Nim pattern documented by this rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "nim"
+  ],
+  "implementation": "src/languages/nim/advanced.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

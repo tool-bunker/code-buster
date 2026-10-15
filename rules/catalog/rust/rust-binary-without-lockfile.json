@@ -1,0 +1,35 @@
+{
+  "id": "rust-binary-without-lockfile",
+  "language": "rust",
+  "group": "security",
+  "listingTitle": "Commit a lockfile for Rust binaries",
+  "title": "Commit a lockfile for Rust binaries",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "A binary without an applicable Cargo.lock can resolve different transitive dependencies across builds and miss review of the deployed dependency set.",
+  "suggestion": "Generate and commit Cargo.lock at the package or workspace root, then build with --locked or --frozen.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Default src/main.rs targets and explicit Cargo bin targets are recognized.",
+    "Workspace membership is approximated by accepting a lockfile in an ancestor directory."
+  ]
+}

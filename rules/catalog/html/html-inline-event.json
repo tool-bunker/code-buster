@@ -1,0 +1,32 @@
+{
+  "id": "html-inline-event",
+  "language": "html",
+  "group": "security",
+  "listingTitle": "Html inline event",
+  "title": "Review inline event",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "This frontend construct can weaken accessibility, security, or maintainability.",
+  "suggestion": "Use the safer accessible frontend pattern described by the rule.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "html",
+    "ui"
+  ],
+  "implementation": "src/languages/html/rules.rs",
+  "languages": [
+    "html"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,29 @@
+{
+  "id": "near-duplicate-function",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Near duplicate function",
+  "title": "Consolidate similar functions",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "core",
+  "why": "Two function bodies are structurally similar.",
+  "suggestion": "Extract shared behavior if their distinction is not intentional.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "advanced-duplication"
+  ],
+  "implementation": "src/rules/advanced_duplication.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

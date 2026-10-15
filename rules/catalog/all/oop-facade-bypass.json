@@ -1,0 +1,41 @@
+{
+  "id": "oop-facade-bypass",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Do not bypass an established facade",
+  "title": "Do not bypass an established facade",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A dominant boundary loses policy ownership when callers access its implementations directly.",
+  "suggestion": "Route direct access through the established boundary.",
+  "version": 4,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "dart-oop",
+    "oop",
+    "csharp",
+    "typescript"
+  ],
+  "implementation": "src/languages/dart/oop/smells.rs",
+  "languages": [
+    "dart",
+    "csharp",
+    "java",
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires three external boundary users and dominant use over direct implementation access.",
+    "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
+  ]
+}

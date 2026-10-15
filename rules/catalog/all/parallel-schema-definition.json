@@ -1,0 +1,33 @@
+{
+  "id": "parallel-schema-definition",
+  "language": "all",
+  "group": "architecture",
+  "listingTitle": "Consolidate parallel schema definitions",
+  "title": "Consolidate parallel schema definitions",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "The same substantial string-key contract is declared in multiple files, creating competing sources of truth.",
+  "suggestion": "Give the schema one owner and derive serializers, validators, or adapters from it where practical.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "architecture",
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "generated-code"
+  ],
+  "implementation": "src/rules/generated_code_risks.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only map or object literals with at least five identical identifier-like string keys are compared.",
+    "Test, fixture, generated, localization, and manifest files are excluded."
+  ]
+}

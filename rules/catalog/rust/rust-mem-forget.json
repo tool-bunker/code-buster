@@ -1,0 +1,34 @@
+{
+  "id": "rust-mem-forget",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Review deliberately forgotten Rust values",
+  "title": "Review deliberately forgotten Rust values",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "mem::forget skips destruction and can permanently retain memory or external resources.",
+  "suggestion": "Use normal ownership, ManuallyDrop, or an explicit resource transfer contract.",
+  "version": 6,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule uses masked source tokens and does not perform Rust type resolution."
+  ]
+}

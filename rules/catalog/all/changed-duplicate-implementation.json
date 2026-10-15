@@ -1,0 +1,33 @@
+{
+  "id": "changed-duplicate-implementation",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Reuse existing repository behavior",
+  "title": "Reuse existing repository behavior",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A newly added function repeats an unchanged production function instead of reusing the existing implementation.",
+  "suggestion": "Call or extend the existing implementation when both functions represent the same behavior.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "diff-quality"
+  ],
+  "implementation": "src/rules/diff_quality.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires a newly added one-line function with a non-trivial body matching an unchanged one-line production function after parameter normalization.",
+    "Intentional source-flavor variants and equivalent multiline implementations are not inferred.",
+    "Runs only for focused changes touching at most five production source files."
+  ]
+}

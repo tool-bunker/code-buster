@@ -1,0 +1,37 @@
+{
+  "id": "flutter-widget-missing-const-constructor",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Use a const widget constructor",
+  "title": "Use a const widget constructor",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "An immutable widget without a const constructor prevents canonicalization at const call sites.",
+  "suggestion": "Make the constructor const when every instance field is final.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/frameworks/flutter.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Generated, test, example, and vendored sources follow normal source classification controls.",
+    "Framework wrappers and behavior outside the analyzed repository cannot be resolved."
+  ]
+}

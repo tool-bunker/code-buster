@@ -1,0 +1,35 @@
+{
+  "id": "rust-missing-format-ci",
+  "language": "rust",
+  "group": "maintainability",
+  "listingTitle": "Check rustfmt in Rust CI",
+  "title": "Check rustfmt in Rust CI",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "Without a checked formatting gate, style drift creates avoidable review noise and inconsistent generated patches.",
+  "suggestion": "Run cargo fmt --all -- --check in a checked-in CI workflow.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "declarations"
+  ],
+  "packs": [
+    "rust",
+    "cargo"
+  ],
+  "implementation": "src/rules/cargo.rs",
+  "languages": [
+    "rust"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct commands in supported checked-in CI files are inspected.",
+    "Formatting delegated to repository scripts or reusable workflows is not resolved."
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "flutter-parallel-control-component",
+  "language": "dart",
+  "group": "maintainability",
+  "listingTitle": "Consolidate parallel Flutter controls",
+  "title": "Consolidate parallel Flutter controls",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "maintainability",
+  "why": "A custom pointer-driven control beside semantic buttons can create a second implementation of the same interaction role.",
+  "suggestion": "Confirm the variation is intentional; otherwise reuse a semantic button or shared project control.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "design"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "flutter",
+    "dart-flutter-build"
+  ],
+  "implementation": "src/rules/ui_consistency.rs",
+  "languages": [
+    "dart"
+  ],
+  "frameworks": [
+    "flutter"
+  ],
+  "languageVersions": [],
+  "limitations": [
+    "Button-like pointer trees are inferred from GestureDetector or InkWell containing both Container and Text."
+  ]
+}

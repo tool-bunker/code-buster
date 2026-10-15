@@ -1,0 +1,32 @@
+{
+  "id": "regex-catastrophic-backtracking-risk",
+  "language": "all",
+  "group": "suspicious",
+  "listingTitle": "Regex catastrophic backtracking risk",
+  "title": "Review catastrophic backtracking risk",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "regex",
+  "why": "This regular expression can be invalid, inefficient, misleading, or unsafe for validation.",
+  "suggestion": "Simplify, anchor, precompile, or test the expression against adversarial input.",
+  "version": 3,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "regex"
+  ],
+  "implementation": "src/rules/regex.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Bounded optional outer groups are excluded from risk findings.",
+    "Escaped literal parentheses are not treated as group boundaries."
+  ]
+}

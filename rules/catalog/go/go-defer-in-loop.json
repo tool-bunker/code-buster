@@ -1,0 +1,31 @@
+{
+  "id": "go-defer-in-loop",
+  "language": "go",
+  "group": "correctness",
+  "listingTitle": "Go defer in loop",
+  "title": "Avoid defer inside long-running loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Deferred calls accumulate until the surrounding function returns.",
+  "suggestion": "Extract one iteration into a function or release resources explicitly.",
+  "version": 4,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "maintainability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "go"
+  ],
+  "implementation": "src/languages/go/rules.rs",
+  "languages": [
+    "go"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,32 @@
+{
+  "id": "ts-non-null-assertion",
+  "language": "typescript",
+  "group": "style",
+  "listingTitle": "Ts non null assertion",
+  "title": "Review non null assertion",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
+  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "style"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "typescript"
+  ],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}

@@ -1,0 +1,32 @@
+{
+  "id": "py-sql-string-build",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Py sql string build",
+  "title": "Review sql string build",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
+  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "python",
+    "fastapi"
+  ],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": [
+    "python"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": []
+}
