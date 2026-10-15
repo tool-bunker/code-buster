@@ -819,7 +819,7 @@ fn init_creates_valid_starter_config_and_requires_force_to_replace_it() {
     assert_eq!(created.status.code(), Some(0));
     assert_eq!(
         String::from_utf8(created.stdout).expect("stdout must be UTF-8"),
-        format!("created {}/code-buster.toml\n", root.path.display())
+        format!("created {}\n", root.path.join("code-buster.toml").display())
     );
     assert!(created.stderr.is_empty());
     let expected = "# Optional repository-specific overrides.\n\

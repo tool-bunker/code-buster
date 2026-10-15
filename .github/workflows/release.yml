@@ -55,6 +55,10 @@ jobs:
             exit 1
           fi
           echo "tag=v$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Verify reviewed changelog release notes
+        run: |
+          python3 -B -m unittest tool/test_release_notes.py
+          python3 tool/release_notes.py "v${{ inputs.version }}" "$RUNNER_TEMP/release-notes.md"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - run: cargo test --all-targets --all-features --locked
@@ -138,16 +142,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+      - name: Extract reviewed changelog notes
+        run: python3 tool/release_notes.py '${{ needs.verify.outputs.tag }}' release-notes.md
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
       - name: Create checksums
         run: cd dist && sha256sum * > SHA256SUMS
-      - name: Publish GitHub release
+      - name: Publish GitHub release with changelog notes
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.verify.outputs.tag }}
-          generate_release_notes: true
+          body_path: release-notes.md
           files: |
             dist/*

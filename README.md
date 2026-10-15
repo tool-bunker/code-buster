@@ -62,7 +62,7 @@ irm https://toolbunker.dev/codebuster/install.ps1 | iex
 When Rust 1.88 or newer is installed, build the current release from source:
 
 ```sh
-cargo install --git https://github.com/tool-bunker/code-buster.git --tag v0.9.0 --locked
+cargo install --git https://github.com/tool-bunker/code-buster.git --tag v0.9.0 --locked code-buster
 cb version
 ```
 

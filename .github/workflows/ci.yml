@@ -45,6 +45,9 @@ jobs:
 
   security-audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v5
       - uses: rustsec/audit-check@v2.0.0
@@ -56,5 +59,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.88.0
+      - run: python3 -B -m unittest tool/test_release_notes.py
       - run: cargo package --locked
       - run: ./tool/rehearse-release.sh "$RUNNER_TEMP/cb-rehearsal"

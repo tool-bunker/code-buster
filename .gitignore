@@ -10,3 +10,7 @@
 # Code Buster must never commit its own analysis caches.
 .code-buster-cache/
 **/.code-buster-cache/
+
+# Python helper bytecode
+__pycache__/
+*.py[cod]
