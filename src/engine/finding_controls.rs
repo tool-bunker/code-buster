@@ -22,6 +22,8 @@ pub fn apply(
     taxonomy_group: fn(&str) -> &'static str,
 ) -> Result<ControlledFindings, String> {
     let baseline = read_baseline(options.baseline.as_deref())?;
+    let has_baseline = !baseline.is_empty();
+    let mut suppressions = SuppressionIndex::new(sources);
     let mut active = Vec::new();
     let mut actionable = Vec::new();
     let mut actionable_count = 0;
@@ -31,9 +33,9 @@ pub fn apply(
             continue;
         }
         if config.disabled_rules.contains(&finding.code)
-            || baseline.contains(&finding.key())
-            || baseline.contains(&finding.fingerprint())
-            || is_suppressed(&finding, sources.get(&finding.path).map(String::as_str))
+            || (has_baseline
+                && (baseline.contains(&finding.key()) || baseline.contains(&finding.fingerprint())))
+            || suppressions.suppresses(&finding)
         {
             continue;
         }
@@ -88,28 +90,69 @@ pub fn detailed(
     )
 }
 
-fn is_suppressed(finding: &Finding, source: Option<&str>) -> bool {
-    let Some(source) = source else {
-        return false;
-    };
-    for (index, line) in source.split('\n').enumerate() {
-        let Some(directive) = comment_text(line) else {
-            continue;
-        };
-        if let Some(rest) = directive.strip_prefix("code-buster-ignore-file")
-            && targets_rule(rest, &finding.code)
-        {
-            return true;
-        }
-        if (index + 1).abs_diff(finding.line) <= 1
-            && let Some(rest) = directive.strip_prefix("code-buster-ignore")
-            && !directive.starts_with("code-buster-ignore-file")
-            && targets_rule(rest, &finding.code)
-        {
-            return true;
+struct SuppressionIndex<'source> {
+    sources: &'source BTreeMap<String, String>,
+    directives: BTreeMap<&'source str, Vec<SuppressionDirective>>,
+}
+
+impl<'source> SuppressionIndex<'source> {
+    fn new(sources: &'source BTreeMap<String, String>) -> Self {
+        Self {
+            sources,
+            directives: BTreeMap::new(),
         }
     }
-    false
+
+    fn suppresses(&mut self, finding: &Finding) -> bool {
+        let Some((path, source)) = self.sources.get_key_value(&finding.path) else {
+            return false;
+        };
+        let directives = self
+            .directives
+            .entry(path)
+            .or_insert_with(|| suppression_directives(source));
+        directives_suppress(directives, finding)
+    }
+}
+
+struct SuppressionDirective {
+    line: usize,
+    file: bool,
+    target: String,
+}
+
+fn suppression_directives(source: &str) -> Vec<SuppressionDirective> {
+    if !source.contains("code-buster-ignore") {
+        return Vec::new();
+    }
+    source
+        .split('\n')
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let directive = comment_text(line)?;
+            if let Some(target) = directive.strip_prefix("code-buster-ignore-file") {
+                return Some(SuppressionDirective {
+                    line: index + 1,
+                    file: true,
+                    target: target.to_owned(),
+                });
+            }
+            directive
+                .strip_prefix("code-buster-ignore")
+                .map(|target| SuppressionDirective {
+                    line: index + 1,
+                    file: false,
+                    target: target.to_owned(),
+                })
+        })
+        .collect()
+}
+
+fn directives_suppress(directives: &[SuppressionDirective], finding: &Finding) -> bool {
+    directives.iter().any(|directive| {
+        (directive.file || directive.line.abs_diff(finding.line) <= 1)
+            && targets_rule(&directive.target, &finding.code)
+    })
 }
 
 fn targets_rule(rest: &str, code: &str) -> bool {
@@ -186,19 +229,20 @@ mod tests {
         let source = "// code-buster-ignore complex-function\nvoid large() {}\n\
                       // code-buster-ignore-file dart-print\nvoid other() {}\n";
 
-        assert!(is_suppressed(&finding("complex-function", 2), Some(source)));
-        assert!(is_suppressed(&finding("dart-print", 40), Some(source)));
-        assert!(!is_suppressed(&finding("duplicate-block", 2), Some(source)));
+        assert!(suppressed(source, &finding("complex-function", 2)));
+        assert!(suppressed(source, &finding("dart-print", 40)));
+        assert!(!suppressed(source, &finding("duplicate-block", 2)));
     }
 
     #[test]
     fn ignores_directive_text_inside_strings() {
         let source = "const value = '// code-buster-ignore';\nrun();\n";
 
-        assert!(!is_suppressed(
-            &finding("complex-function", 2),
-            Some(source)
-        ));
+        assert!(!suppressed(source, &finding("complex-function", 2)));
+    }
+
+    fn suppressed(source: &str, finding: &Finding) -> bool {
+        directives_suppress(&suppression_directives(source), finding)
     }
 
     fn finding(code: &str, line: usize) -> Finding {

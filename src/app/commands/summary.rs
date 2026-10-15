@@ -69,13 +69,6 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
     {
         auxiliary.insert("@base/package.json".to_owned(), package);
     }
-    let context = SourceAnalysisContext::with_auxiliary(
-        &analysis_prepared.sources,
-        &base_sources,
-        &changed_paths,
-        options.changed_base.is_some(),
-        &auxiliary,
-    );
     stage_durations.insert("preparation".to_owned(), started.elapsed().as_millis());
 
     progress.set_phase("Building dependency graph…");
@@ -97,19 +90,26 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
     } else {
         format!("command.{cache_command}.only.{}", options.only)
     };
-    let plan = ExecutionPlan::new(
-        options,
-        &analysis_prepared.config,
-        analysis_prepared
-            .files
-            .iter()
-            .map(|file| file.language.as_str()),
-    );
     let mut rule_family_durations = BTreeMap::new();
     let mut analysis_profile = AnalysisProfile::default();
     let mut findings = if let Some(findings) = cache.findings(analysis_prepared, &family) {
         findings
     } else {
+        let context = SourceAnalysisContext::with_auxiliary(
+            &analysis_prepared.sources,
+            &base_sources,
+            &changed_paths,
+            options.changed_base.is_some(),
+            &auxiliary,
+        );
+        let plan = ExecutionPlan::new(
+            options,
+            &analysis_prepared.config,
+            analysis_prepared
+                .files
+                .iter()
+                .map(|file| file.language.as_str()),
+        );
         let output = analysis_engine::analyze(
             analysis_prepared,
             &context,
