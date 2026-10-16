@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
 use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
@@ -16,6 +17,7 @@ use crate::finding_controls;
 use crate::findings::Finding;
 use crate::report::{FindingReport, render};
 use crate::reporting::progress::AnalysisProgress;
+use crate::repository_defaults::RepositoryMetadataFile;
 use crate::rule_catalog;
 use crate::sarif_ingestion;
 use crate::source_analysis_context::SourceAnalysisContext;
@@ -58,7 +60,7 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
         &changed_paths,
     );
     progress.set_phase("Loading project metadata…");
-    let mut auxiliary = collect_auxiliary_files(Path::new(&analysis_prepared.root))?;
+    let mut auxiliary = collect_auxiliary_files(&analysis_prepared.metadata_files);
     collect_flutter_asset_existence(
         Path::new(&analysis_prepared.root),
         &analysis_prepared.sources,
@@ -253,66 +255,37 @@ fn git_file(root: &Path, revision: &str, path: &str) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn collect_auxiliary_files(root: &Path) -> Result<BTreeMap<String, String>, String> {
-    let mut files = BTreeMap::new();
-    collect_auxiliary_directory(root, root, &mut files)?;
-    Ok(files)
+fn collect_auxiliary_files(metadata_files: &[RepositoryMetadataFile]) -> BTreeMap<String, String> {
+    metadata_files
+        .iter()
+        .filter(|file| is_auxiliary_metadata_file(&file.relative))
+        .map(|file| (file.relative.clone(), file.source.clone()))
+        .collect()
 }
 
-enum AuxiliaryEntryKind {
-    Ignore,
-    Directory,
-    File,
-}
-
-fn classify_auxiliary_entry(
-    root: &Path,
-    entry: &fs::DirEntry,
-) -> Result<AuxiliaryEntryKind, String> {
-    let path = entry.path();
-    let file_type = entry
-        .file_type()
-        .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
-    if file_type.is_symlink() {
-        return Ok(AuxiliaryEntryKind::Ignore);
+fn is_auxiliary_metadata_file(relative: &str) -> bool {
+    let path = Path::new(relative);
+    let production_parent = path.parent().is_none_or(|parent| {
+        parent.as_os_str().is_empty()
+            || is_builtin_production_path(&parent.to_string_lossy().replace('\\', "/"))
+    });
+    if !production_parent {
+        return false;
     }
-
-    let relative = path.strip_prefix(root).map_err(|error| {
-        format!(
-            "failed to make {} relative to {}: {error}",
-            path.display(),
-            root.display()
-        )
-    })?;
-    let relative_normalized = relative.to_string_lossy().replace('\\', "/");
-    let name = entry.file_name();
-    if file_type.is_dir() {
-        let ignored = [".git", ".dart_tool", "node_modules", "target", "build"]
-            .iter()
-            .any(|ignored| name == *ignored)
-            || !is_builtin_production_path(&relative_normalized);
-        return Ok(if ignored {
-            AuxiliaryEntryKind::Ignore
-        } else {
-            AuxiliaryEntryKind::Directory
-        });
-    }
-    let named_auxiliary = [
-        "Cargo.lock",
-        "Cargo.toml",
-        "analysis_options.yaml",
-        "l10n.yaml",
-        "package.json",
-        "pubspec.yaml",
-        "pyproject.toml",
-    ]
-    .iter()
-    .any(|auxiliary| name == *auxiliary);
-    Ok(if named_auxiliary || is_ci_auxiliary_path(relative) {
-        AuxiliaryEntryKind::File
-    } else {
-        AuxiliaryEntryKind::Ignore
-    })
+    let name = path.file_name().and_then(|name| name.to_str());
+    let named_auxiliary = name.is_some_and(|name| {
+        [
+            "Cargo.lock",
+            "Cargo.toml",
+            "analysis_options.yaml",
+            "l10n.yaml",
+            "package.json",
+            "pubspec.yaml",
+            "pyproject.toml",
+        ]
+        .contains(&name)
+    });
+    named_auxiliary || is_ci_auxiliary_path(path)
 }
 
 fn is_ci_auxiliary_path(relative: &Path) -> bool {
@@ -330,53 +303,6 @@ fn is_ci_auxiliary_path(relative: &Path) -> bool {
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| matches!(extension, "yml" | "yaml"));
     root_ci || github_workflow
-}
-
-fn collect_auxiliary_file(
-    root: &Path,
-    path: &Path,
-    files: &mut BTreeMap<String, String>,
-) -> Result<(), String> {
-    let relative = path
-        .strip_prefix(root)
-        .map_err(|error| {
-            format!(
-                "failed to make {} relative to {}: {error}",
-                path.display(),
-                root.display()
-            )
-        })?
-        .to_string_lossy()
-        .replace('\\', "/");
-    let bytes =
-        fs::read(path).map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    let source = String::from_utf8_lossy(&bytes).into_owned();
-    files.insert(relative, source);
-    Ok(())
-}
-
-fn collect_auxiliary_directory(
-    root: &Path,
-    directory: &Path,
-    files: &mut BTreeMap<String, String>,
-) -> Result<(), String> {
-    let mut entries = fs::read_dir(directory)
-        .map_err(|error| format!("failed to read {}: {error}", directory.display()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("failed to read {}: {error}", directory.display()))?;
-    entries.sort_by_key(std::fs::DirEntry::path);
-    for entry in entries {
-        match classify_auxiliary_entry(root, &entry)? {
-            AuxiliaryEntryKind::Ignore => {}
-            AuxiliaryEntryKind::Directory => {
-                collect_auxiliary_directory(root, &entry.path(), files)?;
-            }
-            AuxiliaryEntryKind::File => {
-                collect_auxiliary_file(root, &entry.path(), files)?;
-            }
-        }
-    }
-    Ok(())
 }
 
 fn collect_flutter_asset_existence(
@@ -458,7 +384,7 @@ mod tests {
         )
         .unwrap();
 
-        let files = collect_auxiliary_files(root.path()).unwrap();
+        let files = auxiliary_files(root.path());
 
         assert_eq!(
             files.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -490,12 +416,18 @@ mod tests {
         fs::write(tests.join("package.json"), [0xff]).unwrap();
         fs::write(tests_common.join("package.json"), [0xff]).unwrap();
 
-        let files = collect_auxiliary_files(root.path()).unwrap();
+        let files = auxiliary_files(root.path());
 
         assert_eq!(
             files.keys().map(String::as_str).collect::<Vec<_>>(),
             ["member/package.json"]
         );
         assert_eq!(files["member/package.json"], "\u{fffd}{");
+    }
+
+    fn auxiliary_files(root: &Path) -> BTreeMap<String, String> {
+        let inspection =
+            crate::repository_defaults::RepositoryDefaults::inspect(root, true, true, true);
+        collect_auxiliary_files(&inspection.metadata_files)
     }
 }

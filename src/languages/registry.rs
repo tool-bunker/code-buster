@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use crate::repository_defaults::RepositoryMetadataFile;
 use regex::Regex;
 
 #[derive(Clone, Copy, Debug)]
@@ -169,88 +168,35 @@ pub fn by_extension(selected: &[Language], extension: &str) -> Option<Language> 
         .find(|language| language.owns_extension(extension))
 }
 
-pub fn detect_versions(root: &Path) -> BTreeMap<String, String> {
-    detect_versions_ordered(root).into_iter().collect()
+pub fn detect_versions(metadata_files: &[RepositoryMetadataFile]) -> BTreeMap<String, String> {
+    detect_versions_ordered(metadata_files)
+        .into_iter()
+        .collect()
 }
 
-pub fn detect_versions_ordered(root: &Path) -> Vec<(String, String)> {
-    let mut manifests = Vec::new();
-    collect_manifests(root, &mut manifests);
-    manifests.sort();
+pub fn detect_versions_ordered(metadata_files: &[RepositoryMetadataFile]) -> Vec<(String, String)> {
     let mut versions = Vec::new();
-    for path in manifests {
-        let Ok(source) = fs::read(&path) else {
-            continue;
-        };
-        let source = String::from_utf8_lossy(&source);
-        match path.file_name().and_then(|name| name.to_str()) {
-            Some("pubspec.yaml") => put(&mut versions, "dart", capture(&YAML_SDK_REGEX, &source)),
-            Some("package.json") => package_json(&mut versions, &source),
-            Some("go.mod") => put(&mut versions, "go", capture(&GO_REGEX, &source)),
+    for file in metadata_files {
+        let name = file.relative.rsplit('/').next();
+        let source = file.source.as_str();
+        match name {
+            Some("pubspec.yaml") => put(&mut versions, "dart", capture(&YAML_SDK_REGEX, source)),
+            Some("package.json") => package_json(&mut versions, source),
+            Some("go.mod") => put(&mut versions, "go", capture(&GO_REGEX, source)),
             Some("Cargo.toml") => {
-                put(&mut versions, "rust", capture(&RUST_REGEX, &source));
+                put(&mut versions, "rust", capture(&RUST_REGEX, source));
             }
             Some("pyproject.toml") => {
-                put(&mut versions, "python", capture(&PYTHON_REGEX, &source));
+                put(&mut versions, "python", capture(&PYTHON_REGEX, source));
             }
-            Some("pom.xml") => put(&mut versions, "java", capture(&MAVEN_REGEX, &source)),
+            Some("pom.xml") => put(&mut versions, "java", capture(&MAVEN_REGEX, source)),
             Some("gradle.properties") => {
-                put(&mut versions, "java", capture(&GRADLE_REGEX, &source));
+                put(&mut versions, "java", capture(&GRADLE_REGEX, source));
             }
             _ => {}
         }
     }
     versions
-}
-
-fn collect_manifests(directory: &Path, manifests: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if file_type.is_symlink() {
-            continue;
-        }
-        if file_type.is_dir() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if [
-                ".git",
-                ".dart_tool",
-                "node_modules",
-                "build",
-                "dist",
-                "target",
-            ]
-            .contains(&name.as_ref())
-            {
-                continue;
-            }
-            collect_manifests(&path, manifests);
-        } else if file_type.is_file()
-            && path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| {
-                    [
-                        "pubspec.yaml",
-                        "package.json",
-                        "go.mod",
-                        "Cargo.toml",
-                        "pyproject.toml",
-                        "pom.xml",
-                        "gradle.properties",
-                    ]
-                    .contains(&name)
-                })
-        {
-            manifests.push(path);
-        }
-    }
 }
 
 fn package_json(versions: &mut Vec<(String, String)>, source: &str) {

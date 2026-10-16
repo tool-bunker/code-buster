@@ -12,27 +12,43 @@ pub struct RepositoryDefaults {
     pub ignores: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RepositoryMetadataFile {
+    pub relative: String,
+    pub source: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct RepositoryInspection {
+    pub defaults: RepositoryDefaults,
+    pub metadata_files: Vec<RepositoryMetadataFile>,
+}
+
 impl RepositoryDefaults {
-    pub fn infer(
+    pub fn inspect(
         root: &Path,
         include_tests: bool,
         include_examples: bool,
         include_vendored: bool,
-    ) -> Self {
-        let profiles = infer_profiles(root);
+    ) -> RepositoryInspection {
+        let (profiles, metadata_files) = inspect_repository(root);
         let frameworks = infer_frameworks(&profiles);
         let ignores = infer_ignores(&profiles, include_tests, include_examples, include_vendored);
-        Self {
-            profiles: profiles.into_iter().collect(),
-            frameworks,
-            ignores,
+        RepositoryInspection {
+            defaults: Self {
+                profiles: profiles.into_iter().collect(),
+                frameworks,
+                ignores,
+            },
+            metadata_files,
         }
     }
 }
 
-fn infer_profiles(root: &Path) -> BTreeSet<String> {
+fn inspect_repository(root: &Path) -> (BTreeSet<String>, Vec<RepositoryMetadataFile>) {
     let mut profiles = BTreeSet::new();
-    collect_profiles(root, root, &mut profiles);
+    let mut metadata_files = Vec::new();
+    collect_repository_metadata(root, root, &mut profiles, &mut metadata_files);
     if root.join("bin/flutter").is_file() && root.join("packages/flutter/pubspec.yaml").is_file() {
         profiles.insert("flutter-sdk".to_owned());
     }
@@ -42,7 +58,8 @@ fn infer_profiles(root: &Path) -> BTreeSet<String> {
     {
         profiles.insert("postgresql".to_owned());
     }
-    profiles
+    metadata_files.sort_by(|left, right| left.relative.cmp(&right.relative));
+    (profiles, metadata_files)
 }
 
 fn infer_frameworks(profiles: &BTreeSet<String>) -> BTreeSet<String> {
@@ -136,14 +153,19 @@ fn add_test_profile_ignores(
     }
 }
 
-enum ProfileSource {
-    Pubspec(String),
-    Package(String),
-    Python(String),
+enum ProfileSource<'source> {
+    Pubspec(&'source str),
+    Package(&'source str),
+    Python(&'source str),
     DotNet,
 }
 
-fn collect_profiles(root: &Path, directory: &Path, profiles: &mut BTreeSet<String>) {
+fn collect_repository_metadata(
+    root: &Path,
+    directory: &Path,
+    profiles: &mut BTreeSet<String>,
+    metadata_files: &mut Vec<RepositoryMetadataFile>,
+) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
@@ -158,28 +180,39 @@ fn collect_profiles(root: &Path, directory: &Path, profiles: &mut BTreeSet<Strin
         let Ok(relative) = path.strip_prefix(root) else {
             continue;
         };
-        if manifest_excluded(relative) {
+        if file_type.is_dir() {
+            if !metadata_directory_excluded(relative) {
+                collect_repository_metadata(root, &path, profiles, metadata_files);
+            }
             continue;
         }
-        if file_type.is_dir() {
-            collect_profiles(root, &path, profiles);
-        } else if let Some(source) = profile_source(&path) {
-            apply_profile_source(source, profiles);
+        if !is_repository_metadata_file(relative) {
+            continue;
         }
+        let source = read_manifest(&path);
+        if !manifest_excluded(relative)
+            && let Some(profile_source) = profile_source(&path, &source)
+        {
+            apply_profile_source(profile_source, profiles);
+        }
+        metadata_files.push(RepositoryMetadataFile {
+            relative: relative.to_string_lossy().replace('\\', "/"),
+            source,
+        });
     }
 }
 
-fn profile_source(path: &Path) -> Option<ProfileSource> {
+fn profile_source<'source>(path: &Path, source: &'source str) -> Option<ProfileSource<'source>> {
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
     match name.as_str() {
-        "pubspec.yaml" => Some(ProfileSource::Pubspec(read_manifest(path))),
-        "package.json" => Some(ProfileSource::Package(read_manifest(path))),
+        "pubspec.yaml" => Some(ProfileSource::Pubspec(source)),
+        "package.json" => Some(ProfileSource::Package(source)),
         "requirements.txt" | "pyproject.toml" | "poetry.lock" | "pdm.lock" => {
-            Some(ProfileSource::Python(read_manifest(path)))
+            Some(ProfileSource::Python(source))
         }
         name if name.ends_with(".sln") || name.ends_with(".slnx") || name.ends_with(".csproj") => {
             Some(ProfileSource::DotNet)
@@ -198,9 +231,9 @@ fn apply_profile_source(source: ProfileSource, profiles: &mut BTreeSet<String>) 
             };
             profiles.insert(profile.to_owned());
         }
-        ProfileSource::Package(source) => apply_package_profiles(&source, profiles),
+        ProfileSource::Package(source) => apply_package_profiles(source, profiles),
         ProfileSource::Python(source) => {
-            if FASTAPI.is_match(&source) {
+            if FASTAPI.is_match(source) {
                 profiles.insert("fastapi".to_owned());
             }
         }
@@ -227,6 +260,72 @@ fn apply_package_profiles(source: &str, profiles: &mut BTreeSet<String>) {
     }
 }
 
+fn metadata_directory_excluded(relative: &Path) -> bool {
+    relative.file_name().is_some_and(|name| {
+        [
+            ".git",
+            ".dart_tool",
+            "node_modules",
+            "build",
+            "dist",
+            "target",
+        ]
+        .iter()
+        .any(|excluded| name == *excluded)
+    })
+}
+
+fn is_repository_metadata_file(relative: &Path) -> bool {
+    let name = relative
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let lower = name.to_ascii_lowercase();
+    [
+        "analysis_options.yaml",
+        "cargo.lock",
+        "cargo.toml",
+        "go.mod",
+        "gradle.properties",
+        "l10n.yaml",
+        "package.json",
+        "pdm.lock",
+        "poetry.lock",
+        "pom.xml",
+        "pubspec.yaml",
+        "pyproject.toml",
+        "requirements.txt",
+    ]
+    .contains(&lower.as_str())
+        || lower.ends_with(".sln")
+        || lower.ends_with(".slnx")
+        || lower.ends_with(".csproj")
+        || is_ci_metadata_path(relative)
+}
+
+fn is_ci_metadata_path(relative: &Path) -> bool {
+    let file_name = relative.file_name().and_then(|name| name.to_str());
+    let root_ci = relative.components().count() == 1
+        && file_name.is_some_and(|name| {
+            matches!(
+                name,
+                ".gitlab-ci.yml" | "azure-pipelines.yml" | "Jenkinsfile"
+            )
+        });
+    let github_workflow = relative.parent() == Some(Path::new(".github/workflows"))
+        && relative
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| matches!(extension, "yml" | "yaml"));
+    root_ci || github_workflow
+}
+
+fn read_manifest(path: &Path) -> String {
+    fs::read(path)
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default()
+}
+
 fn manifest_excluded(relative: &Path) -> bool {
     relative.components().any(|component| {
         component.as_os_str().to_str().is_some_and(|name| {
@@ -243,12 +342,6 @@ fn manifest_excluded(relative: &Path) -> bool {
             .contains(&name.to_ascii_lowercase().as_str())
         })
     })
-}
-
-fn read_manifest(path: &Path) -> String {
-    fs::read(path)
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .unwrap_or_default()
 }
 
 static REACT: LazyLock<Regex> = LazyLock::new(|| {
@@ -393,3 +486,49 @@ const VENDOR_IGNORES: &[&str] = &[
     "**/compiled/**",
     "**/cargokit/**",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inspects_nested_metadata_without_generated_dependency_directories() {
+        let root = tempfile::tempdir().expect("temporary repository must be created");
+        let member = root.path().join("member");
+        let dependency = root.path().join("node_modules/dependency");
+        fs::create_dir_all(&member).unwrap();
+        fs::create_dir_all(&dependency).unwrap();
+        fs::write(
+            root.path().join("package.json"),
+            r#"{"dependencies":{"react":"19.0.0"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            member.join("Cargo.toml"),
+            "[package]\nname = \"member\"\nrust-version = \"1.85\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dependency.join("package.json"),
+            r#"{"dependencies":{"svelte":"5.0.0"}}"#,
+        )
+        .unwrap();
+
+        let inspection = RepositoryDefaults::inspect(root.path(), true, true, true);
+
+        assert!(inspection.defaults.frameworks.contains("react"));
+        assert!(!inspection.defaults.frameworks.contains("svelte"));
+        assert_eq!(
+            inspection
+                .metadata_files
+                .iter()
+                .map(|file| file.relative.as_str())
+                .collect::<Vec<_>>(),
+            ["member/Cargo.toml", "package.json"]
+        );
+        assert_eq!(
+            crate::languages::detect_versions(&inspection.metadata_files).get("rust"),
+            Some(&"1.85".to_owned())
+        );
+    }
+}

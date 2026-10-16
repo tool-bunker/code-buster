@@ -247,12 +247,13 @@ fn select_explanation<'a>(
     path: &'a std::path::Path,
     options: &ConfigOptions,
 ) -> Result<ExplainSelection<'a>, String> {
-    let defaults = RepositoryDefaults::infer(
+    let inspection = RepositoryDefaults::inspect(
         root,
         options.include_all || options.include_tests,
         options.include_all || options.include_examples,
         options.include_all || options.include_vendored,
     );
+    let defaults = inspection.defaults;
     let config_path = path.is_file().then_some(path);
     let mut effective = Config::load_from_root(root.to_path_buf())?;
     effective.frameworks.clone_from(&defaults.frameworks);
@@ -265,7 +266,7 @@ fn select_explanation<'a>(
     .into_iter()
     .filter(|name| root.join(name).is_file())
     .collect();
-    let language_versions = languages::detect_versions_ordered(root);
+    let language_versions = languages::detect_versions_ordered(&inspection.metadata_files);
     let scope = selected_scope(options);
 
     Ok(ExplainSelection {

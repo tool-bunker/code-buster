@@ -11,7 +11,9 @@ use serde::Serialize;
 use crate::cli::PreviewOptions;
 use crate::config::{Config, absolute_root};
 use crate::languages::{self, Language};
-use crate::repository_defaults::RepositoryDefaults;
+use crate::repository_defaults::{
+    RepositoryDefaults, RepositoryInspection, RepositoryMetadataFile,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceFile {
@@ -73,12 +75,16 @@ pub struct PreparedPreview {
     pub stage_durations_milliseconds: BTreeMap<String, u128>,
     pub rule_family_durations_milliseconds: BTreeMap<String, u128>,
     pub analysis_profile: AnalysisProfile,
+    pub(crate) metadata_files: Vec<RepositoryMetadataFile>,
 }
 
 pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
     let root = absolute_root(&options.root)?;
     let mut config = Config::load(root.clone(), options)?;
-    let defaults = RepositoryDefaults::infer(
+    let RepositoryInspection {
+        defaults,
+        metadata_files,
+    } = RepositoryDefaults::inspect(
         &root,
         config.include_all || config.include_tests,
         config.include_all || config.include_examples,
@@ -125,7 +131,7 @@ pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
 
     let (sources, diagnostics) =
         read_selected_sources(&root, &discovery.files, &mut discovery.coverage)?;
-    let language_versions = languages::detect_versions(&root);
+    let language_versions = languages::detect_versions(&metadata_files);
     let changed_line_ranges = changed_line_ranges(&root, discovery.config.changed_base.as_deref());
     let root = root
         .to_str()
@@ -148,6 +154,7 @@ pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
         stage_durations_milliseconds: BTreeMap::new(),
         rule_family_durations_milliseconds: BTreeMap::new(),
         analysis_profile: AnalysisProfile::default(),
+        metadata_files,
     })
 }
 
