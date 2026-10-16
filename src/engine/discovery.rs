@@ -129,8 +129,8 @@ pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
         }
     }
 
-    let (sources, diagnostics) =
-        read_selected_sources(&root, &discovery.files, &mut discovery.coverage)?;
+    let sources = discovery.sources;
+    let diagnostics = discovery.diagnostics;
     let language_versions = languages::detect_versions(&metadata_files);
     let changed_line_ranges = changed_line_ranges(&root, discovery.config.changed_base.as_deref());
     let root = root
@@ -233,8 +233,10 @@ struct Discovery {
     classified_test: Vec<PathPattern>,
     classified_generated: Vec<PathPattern>,
     files: Vec<SourceFile>,
+    sources: BTreeMap<String, String>,
     coverage: BTreeMap<String, usize>,
     generated_provenance: Vec<GeneratedProvenance>,
+    diagnostics: Vec<ProcessingDiagnostic>,
 }
 
 impl Discovery {
@@ -256,8 +258,10 @@ impl Discovery {
             policy,
             changed,
             files: Vec::new(),
+            sources: BTreeMap::new(),
             coverage: BTreeMap::new(),
             generated_provenance: Vec::new(),
+            diagnostics: Vec::new(),
         })
     }
 
@@ -385,30 +389,42 @@ impl Discovery {
             return Ok(());
         };
 
-        let generated = GeneratedEvidence::detect(path, relative, &extension)?;
-        if self.should_exclude_generated(
-            relative,
-            git_rules,
-            forced_production,
-            forced_generated,
-            generated,
-        ) {
-            self.record_generated(relative, forced_generated, generated);
+        let exclusion_reason = (!forced_production)
+            .then(|| self.exclusion_reason(relative, git_rules))
+            .flatten();
+        let unchanged = self.config.changed_base.is_some() && !self.changed.contains(relative);
+        if forced_generated || exclusion_reason.is_some() || unchanged {
+            let generated = GeneratedEvidence::detect(path, relative, &extension)?;
+            if self.should_exclude_generated(
+                relative,
+                git_rules,
+                forced_production,
+                forced_generated,
+                generated,
+            ) {
+                self.record_generated(relative, forced_generated, generated);
+            } else if let Some(reason) = exclusion_reason {
+                self.record(reason);
+            } else {
+                self.record("unchanged");
+            }
             return Ok(());
         }
-        if !forced_production && let Some(reason) = self.exclusion_reason(relative, git_rules) {
-            self.record(reason);
+
+        let bytes = fs::read(path)
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        let generated = GeneratedEvidence::from_bytes(relative, &extension, &bytes);
+        if self.should_exclude_generated(relative, git_rules, forced_production, false, generated) {
+            self.record_generated(relative, false, generated);
             return Ok(());
         }
-        if self.config.changed_base.is_some() && !self.changed.contains(relative) {
-            self.record("unchanged");
-            return Ok(());
-        }
+        let source = decode_source(bytes, relative, &mut self.coverage, &mut self.diagnostics);
         self.record("selected");
         self.files.push(SourceFile {
             path: relative.to_owned(),
             language: language.id.to_owned(),
         });
+        self.sources.insert(relative.to_owned(), source);
         Ok(())
     }
 
@@ -592,6 +608,14 @@ impl GeneratedEvidence {
             by_header: has_generated_header(path)?,
             by_minification: is_minified_bundle(path, extension)?,
         })
+    }
+
+    fn from_bytes(relative: &str, extension: &str, bytes: &[u8]) -> Self {
+        Self {
+            by_name: is_generated_by_name(relative),
+            by_header: has_generated_header_bytes(bytes),
+            by_minification: is_minified_bundle_bytes(bytes, extension),
+        }
     }
 
     fn any(self) -> bool {
@@ -1019,38 +1043,35 @@ fn is_explicitly_git_included(relative: &str, rules: &[GitIgnoreRule]) -> bool {
     })
 }
 
-fn read_selected_sources(
-    root: &Path,
-    files: &[SourceFile],
+fn decode_source(
+    mut bytes: Vec<u8>,
+    relative: &str,
     coverage: &mut BTreeMap<String, usize>,
-) -> Result<(BTreeMap<String, String>, Vec<ProcessingDiagnostic>), String> {
-    let mut sources = BTreeMap::new();
-    let mut diagnostics = Vec::new();
-    for source_file in files {
-        let path = root.join(source_file.path.replace('/', std::path::MAIN_SEPARATOR_STR));
-        let bytes = fs::read(&path)
-            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-        let utf8_bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
-        let source = if bytes.starts_with(&[0xff, 0xfe]) {
-            decode_utf16(&bytes, true)
-        } else if bytes.starts_with(&[0xfe, 0xff]) {
-            decode_utf16(&bytes, false)
-        } else if let Ok(source) = std::str::from_utf8(utf8_bytes) {
-            source.to_owned()
-        } else {
+    diagnostics: &mut Vec<ProcessingDiagnostic>,
+) -> String {
+    if bytes.starts_with(&[0xff, 0xfe]) {
+        return decode_utf16(&bytes, true);
+    }
+    if bytes.starts_with(&[0xfe, 0xff]) {
+        return decode_utf16(&bytes, false);
+    }
+    if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
+        bytes.drain(..3);
+    }
+    match String::from_utf8(bytes) {
+        Ok(source) => source,
+        Err(error) => {
             *coverage.entry("malformed_encoding".to_owned()).or_default() += 1;
             diagnostics.push(ProcessingDiagnostic {
                 code: "malformed-utf8",
                 severity: "warning",
                 stage: "source-decoding",
                 message: "Invalid UTF-8 bytes were replaced during source decoding.".to_owned(),
-                path: source_file.path.clone(),
+                path: relative.to_owned(),
             });
-            String::from_utf8_lossy(utf8_bytes).into_owned()
-        };
-        sources.insert(source_file.path.clone(), source);
+            String::from_utf8_lossy(&error.into_bytes()).into_owned()
+        }
     }
-    Ok((sources, diagnostics))
 }
 
 fn decode_utf16(bytes: &[u8], little_endian: bool) -> String {
@@ -1364,8 +1385,13 @@ fn has_generated_header(path: &Path) -> Result<bool, String> {
     let length = file
         .read(&mut bytes)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    Ok(has_generated_header_bytes(&bytes[..length]))
+}
+
+fn has_generated_header_bytes(bytes: &[u8]) -> bool {
+    let length = bytes.len().min(4096);
     let header = String::from_utf8_lossy(&bytes[..length]).to_ascii_lowercase();
-    Ok(is_generated_header(&header))
+    is_generated_header(&header)
 }
 
 fn is_generated_header(header: &str) -> bool {
@@ -1425,6 +1451,17 @@ fn is_minified_bundle(path: &Path, extension: &str) -> Result<bool, String> {
         return Ok(true);
     }
     Ok(is_javascript_bundle(extension) && has_compiled_javascript_markers(&sample, metadata.len()))
+}
+
+fn is_minified_bundle_bytes(bytes: &[u8], extension: &str) -> bool {
+    if ![".js", ".mjs", ".cjs", ".css"].contains(&extension) || bytes.len() < 2 * 1024 {
+        return false;
+    }
+    let file_length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let sample = &bytes[..bytes.len().min(64 * 1024)];
+    let stats = BundleSampleStats::from_sample(sample);
+    stats.indicates_minification(file_length)
+        || (is_javascript_bundle(extension) && has_compiled_javascript_markers(sample, file_length))
 }
 
 fn read_bundle_sample(path: &Path, file_length: u64) -> Result<Vec<u8>, String> {

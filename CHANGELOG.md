@@ -8,6 +8,7 @@
 - Reuse one streamed source fingerprint across graph and finding caches, hash changed-analysis overlays without cloning source maps, discover formatter configuration once per directory, and retain cache reuse when malformed source bytes are decoded deterministically.
 - Skip source masking and execution-plan construction on finding-cache hits, index suppression directives once per source, and avoid baseline fingerprints when no baseline is configured.
 - Discover framework profiles, language versions, and auxiliary manifests in one repository metadata pass instead of walking the tree separately for each consumer.
+- Reuse each selected source read for generated-content detection and UTF decoding instead of reopening and copying source files during preparation.
 
 ### Fixed
 

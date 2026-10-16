@@ -735,6 +735,14 @@ fn preview_honors_gitignore_negation_and_reports_malformed_utf8() {
     root.write("lib/drop.g.dart", b"void drop() {}\n");
     root.write("lib/keep.g.dart", b"void keep() {}\n");
     root.write("lib/damaged.dart", &[0xff, b'v', b'o', b'i', b'd']);
+    root.write(
+        "lib/header.dart",
+        b"// generated file - do not edit\nvoid generated() {}\n",
+    );
+    root.write(
+        "lib/generated_test.dart",
+        b"// generated file - do not edit\nvoid generatedTest() {}\n",
+    );
 
     let output = run_preview(&root.path, &["--format=json", "--verbose"]);
     assert_eq!(output.status.code(), Some(0));
@@ -748,9 +756,18 @@ fn preview_honors_gitignore_negation_and_reports_malformed_utf8() {
             {"path": "lib/main.dart", "language": "dart"}
         ])
     );
-    assert_eq!(report["coverage"]["generated"], 1);
+    assert_eq!(report["coverage"]["generated"], 3);
     assert_eq!(report["coverage"]["malformed_encoding"], 1);
     assert_eq!(report["processingDiagnostics"][0]["code"], "malformed-utf8");
+    assert_eq!(
+        report["generatedProvenance"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["path"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["lib/drop.g.dart", "lib/generated_test.dart", "lib/header.dart"]
+    );
 }
 
 #[test]
