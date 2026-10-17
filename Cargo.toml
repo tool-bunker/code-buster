@@ -4,9 +4,13 @@ version = "0.10.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Repository-aware static analysis for AI-assisted development"
+homepage = "https://toolbunker.dev/codebuster/"
 repository = "https://github.com/tool-bunker/code-buster"
+readme = "README.md"
 license = "MIT"
-publish = false
+keywords = ["static-analysis", "code-quality", "cli", "developer-tools"]
+categories = ["command-line-utilities", "development-tools"]
+publish = ["crates-io"]
 
 [[bin]]
 name = "cb"

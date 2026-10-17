@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Publish Code Buster releases to crates.io so Rust users can install the `cb` executable with `cargo install code-buster --locked`.
+
 ## 0.10.0
 
 ### Added

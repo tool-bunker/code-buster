@@ -59,10 +59,10 @@ On x86-64 Windows PowerShell:
 irm https://toolbunker.dev/codebuster/install.ps1 | iex
 ```
 
-When Rust 1.88 or newer is installed, build the current release from source:
+When Rust 1.88 or newer is installed, install the current crates.io release:
 
 ```sh
-cargo install --git https://github.com/tool-bunker/code-buster.git --tag v0.10.0 --locked code-buster
+cargo install code-buster --locked
 cb version
 ```
 
