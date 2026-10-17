@@ -1,19 +1,19 @@
 {
   "id": "py-async-blocking-call",
   "language": "python",
-  "group": "security",
-  "listingTitle": "Py async blocking call",
-  "title": "Review async blocking call",
+  "group": "performance",
+  "listingTitle": "Keep blocking Python APIs out of async functions",
+  "title": "Keep blocking Python APIs out of async functions",
   "mvvm": false,
-  "defaultSeverity": "info",
-  "legacyGroup": "security",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
-  "semanticMaturity": "text",
-  "securityKind": "hotspot",
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "A synchronous sleep, HTTP request, or subprocess call blocks the event-loop thread and delays unrelated coroutines.",
+  "suggestion": "Use the library's async API or move unavoidable blocking work to asyncio.to_thread.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
   "taxonomy": [
-    "security"
+    "performance"
   ],
   "requirements": [
     "sourceText"
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only direct time.sleep, requests.get, requests.post, and subprocess.run calls inside async def bodies are recognized.",
+    "Aliases, wrappers, executor offloading on surrounding lines, and third-party blocking APIs are not inferred."
+  ]
 }

@@ -1,19 +1,19 @@
 {
   "id": "cs-string-concat-loop",
   "language": "csharp",
-  "group": "style",
-  "listingTitle": "Cs string concat loop",
-  "title": "Review string concat loop",
+  "group": "performance",
+  "listingTitle": "Avoid C# string concatenation in loops",
+  "title": "Avoid C# string concatenation in loops",
   "mvvm": false,
-  "defaultSeverity": "info",
-  "legacyGroup": "nim-style",
-  "why": "This C# construct can weaken clarity, reliability, or security.",
-  "suggestion": "Use the safer modern .NET alternative described by the rule.",
-  "version": 5,
-  "semanticMaturity": "text",
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Repeated immutable string concatenation can copy a growing prefix and allocate temporary strings on every iteration.",
+  "suggestion": "Accumulate with StringBuilder or collect fragments and join once after the loop.",
+  "version": 6,
+  "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
-    "style"
+    "performance"
   ],
   "requirements": [
     "sourceText"
@@ -27,5 +27,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only explicitly typed string variables whose nearest declaration precedes a multiline loop and that use += or self-concatenation are reported.",
+    "Bounded loops, compiler optimizations, variable shadowing, and alternative string-like types are not inferred."
+  ]
 }

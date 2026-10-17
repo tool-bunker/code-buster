@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -47,6 +47,7 @@ fn analyze_source(
 
     for (index, raw) in lines.iter().enumerate() {
         let current = state.scan(index, raw);
+        state.update_performance_facts(&current);
         analyze_style(path, &current, disabled, findings);
         analyze_language_constructs(
             path,
@@ -58,6 +59,7 @@ fn analyze_source(
         );
         analyze_security(path, &lines, &current, disabled, findings);
         analyze_runtime(path, &lines, &current, disabled, findings);
+        analyze_performance(path, &lines, &state, &current, disabled, findings);
         state.finish(&current);
     }
 }
@@ -68,6 +70,10 @@ struct PythonScanState {
     import_continuation_depth: isize,
     type_checking_indent: Option<usize>,
     async_indent: Option<usize>,
+    loop_indents: Vec<usize>,
+    loop_suspension_indents: Vec<usize>,
+    list_variables: BTreeSet<String>,
+    string_variables: BTreeMap<String, usize>,
     continued_string_quote: Option<char>,
     triple_quoted_string_delimiter: Option<String>,
 }
@@ -90,6 +96,7 @@ impl PythonScanState {
             .is_some_and(|value| indent > value);
         self.update_type_checking_scope(line, indent);
         self.update_async_scope(line, indent);
+        let in_loop = self.update_loop_scope(line, indent);
 
         PythonLine {
             index,
@@ -101,6 +108,7 @@ impl PythonScanState {
             in_import_continuation,
             in_type_checking_block,
             in_async_function: self.async_indent.is_some(),
+            in_loop,
             saw_code: self.saw_code,
         }
     }
@@ -145,6 +153,46 @@ impl PythonScanState {
         }
     }
 
+    fn update_loop_scope(&mut self, line: &str, indent: usize) -> bool {
+        self.leave_completed_loop_scopes(line, indent);
+        let inside_loop = self.inside_tracked_loop();
+        if inside_loop && is_python_function_header(line) {
+            self.loop_suspension_indents.push(indent);
+            return false;
+        }
+        let starts_while = line.starts_with("while ");
+        if self.loop_suspension_indents.is_empty() && is_python_loop_header(line) {
+            self.loop_indents.push(indent);
+        }
+        inside_loop || starts_while
+    }
+
+    fn leave_completed_loop_scopes(&mut self, line: &str, indent: usize) {
+        if line.is_empty() {
+            return;
+        }
+        pop_dedented_scopes(&mut self.loop_suspension_indents, indent);
+        pop_dedented_scopes(&mut self.loop_indents, indent);
+    }
+
+    fn inside_tracked_loop(&self) -> bool {
+        !self.loop_indents.is_empty() && self.loop_suspension_indents.is_empty()
+    }
+
+    fn update_performance_facts(&mut self, current: &PythonLine<'_>) {
+        if is_python_function_header(current.line()) {
+            self.list_variables.clear();
+            self.string_variables.clear();
+        }
+        for capture in PYTHON_LIST_DECLARATION.captures_iter(&current.code) {
+            self.list_variables.insert(capture[1].to_owned());
+        }
+        for capture in PYTHON_STRING_DECLARATION.captures_iter(&current.code) {
+            self.string_variables
+                .insert(capture[1].to_owned(), current.indent);
+        }
+    }
+
     fn finish(&mut self, current: &PythonLine<'_>) {
         if is_executable_python_line(current) {
             self.saw_code = true;
@@ -164,6 +212,21 @@ impl PythonScanState {
             self.import_continuation_depth = bracket_delta;
         }
     }
+}
+
+fn pop_dedented_scopes(scopes: &mut Vec<usize>, indent: usize) {
+    while scopes.last().is_some_and(|scope| indent <= *scope) {
+        scopes.pop();
+    }
+}
+
+fn is_python_function_header(line: &str) -> bool {
+    line.starts_with("def ") || line.starts_with("async def ")
+}
+
+fn is_python_loop_header(line: &str) -> bool {
+    (line.starts_with("while ") || line.starts_with("for ") || line.starts_with("async for "))
+        && line.ends_with(':')
 }
 
 fn is_executable_python_line(current: &PythonLine<'_>) -> bool {
@@ -190,6 +253,7 @@ struct PythonLine<'a> {
     in_import_continuation: bool,
     in_type_checking_block: bool,
     in_async_function: bool,
+    in_loop: bool,
     saw_code: bool,
 }
 
@@ -791,6 +855,76 @@ fn report_async_blocking_call(
     }
 }
 
+fn analyze_performance(
+    path: &str,
+    lines: &[&str],
+    state: &PythonScanState,
+    current: &PythonLine<'_>,
+    disabled: &BTreeSet<&'static str>,
+    findings: &mut Vec<Finding>,
+) {
+    if !current.in_loop {
+        return;
+    }
+    if PYTHON_CONSTANT_REGEX.is_match(&current.code) && !current.line().contains("lambda") {
+        add_finding(
+            disabled,
+            findings,
+            path,
+            "py-regex-compile-in-loop",
+            current.number(),
+            "constant regular expression is compiled inside a loop",
+        );
+    }
+    if !current.line().starts_with("for ")
+        && !current.line().starts_with("async for ")
+        && PYTHON_MEMBERSHIP
+            .captures_iter(current.line())
+            .any(|capture| state.list_variables.contains(&capture[1]))
+    {
+        add_finding(
+            disabled,
+            findings,
+            path,
+            "py-linear-membership-in-loop",
+            current.number(),
+            "linear list membership is checked inside a loop",
+        );
+    }
+    if PYTHON_IN_PLACE_CONCAT
+        .captures(current.line())
+        .is_some_and(|capture| {
+            state
+                .string_variables
+                .get(&capture[1])
+                .is_some_and(|indent| {
+                    state
+                        .loop_indents
+                        .last()
+                        .is_some_and(|loop_indent| indent <= loop_indent)
+                })
+        })
+        && !next_statement_is_break(lines, current)
+    {
+        add_finding(
+            disabled,
+            findings,
+            path,
+            "py-string-concat-in-loop",
+            current.number(),
+            "immutable string is concatenated inside a loop",
+        );
+    }
+}
+
+fn next_statement_is_break(lines: &[&str], current: &PythonLine<'_>) -> bool {
+    lines[current.index + 1..]
+        .iter()
+        .map(|line| (leading_indent(line), line.trim()))
+        .find(|(_, line)| !line.is_empty() && !line.starts_with('#'))
+        .is_some_and(|(indent, line)| indent == current.indent && line == "break")
+}
+
 fn disabled_by_project_policy(context: &SourceAnalysisContext<'_>) -> BTreeSet<&'static str> {
     let Some(source) = context.auxiliary_files().get("pyproject.toml") else {
         return BTreeSet::new();
@@ -1326,6 +1460,26 @@ fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding {
     }
 }
 
+static PYTHON_LIST_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b([A-Za-z_]\w*)\s*(?::\s*(?:list|List)\s*\[[^\]\n]+\](?:\s*=\s*[^#]+)?|=\s*(?:\[[^\]\n]*\]|list\s*\())",
+    )
+    .unwrap()
+});
+static PYTHON_STRING_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"\b([A-Za-z_]\w*)\s*(?::\s*str\b(?:\s*=\s*[^#]+)?|=\s*[rRuUbB]{0,2}(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))"#,
+    )
+    .unwrap()
+});
+static PYTHON_CONSTANT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\bre\.compile\s*\(\s*[rRuUbB]{0,2}(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"#)
+        .unwrap()
+});
+static PYTHON_MEMBERSHIP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[A-Za-z_]\w*\s+(?:not\s+)?in\s+([A-Za-z_]\w*)\b").unwrap());
+static PYTHON_IN_PLACE_CONCAT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\+=").unwrap());
 static COMPOUND_HEADER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:if|for|while|try|except|finally)\b").unwrap());
 static COMPOUND_AFTER_SEMICOLON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r";\s*\S").unwrap());
@@ -1589,6 +1743,76 @@ ignore = [\"E402\", \"E722\"]\n"
             SourceAnalysisContext::with_auxiliary(&sources, &base, &changed, false, &auxiliary);
 
         assert!(analyze(&context).is_empty());
+    }
+    #[test]
+    fn reports_python_loop_performance_patterns() {
+        let sources = BTreeMap::from([(
+            "performance.py".to_owned(),
+            "def scan(blocked: list[str], values: list[str]):\n\
++    output: str = \"\"\n\
++    for value in values:\n\
++        matcher = re.compile(r\"^[a-z]+$\")\n\
++        if value in blocked:\n\
++            output += value\n"
+                .replace("\n+", "\n"),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code.starts_with("py-") && finding.code.contains("loop"))
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("py-regex-compile-in-loop".to_owned(), 4),
+                ("py-linear-membership-in-loop".to_owned(), 5),
+                ("py-string-concat-in-loop".to_owned(), 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_python_loop_performance_safe_variants() {
+        let sources = BTreeMap::from([(
+            "safe_performance.py".to_owned(),
+            "def scan(pattern: str, allowed: set[str], values: list[str]):\n\
++    matcher = re.compile(r\"^[a-z]+$\")\n\
++    output = []\n\
++    for value in values:\n\
++        dynamic = re.compile(pattern)\n\
++        message: str = \"\"\n\
++        message += value\n\
++        if value in allowed:\n\
++            output.append(value)\n\
++        def deferred():\n\
++            return re.compile(r\"deferred\")\n\
++    return \"\".join(output)\n\
++\n\
++def first_match(values: list[str]):\n\
++    message: str = \"\"\n\
++    for value in values:\n\
++        message += value\n\
++        break\n\
++    return message\n\
++# re.compile(\"commented\")\n\
++example = 're.compile(\"literal\")'\n"
+                .replace("\n+", "\n"),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "py-regex-compile-in-loop"
+                        | "py-linear-membership-in-loop"
+                        | "py-string-concat-in-loop"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
     #[test]
     fn scans_unicode_before_python_string_literals() {

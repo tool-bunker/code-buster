@@ -1,0 +1,26 @@
+{
+  "id": "rust-regex-created-in-loop",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Compile constant Rust regexes outside loops",
+  "title": "Compile constant Rust regexes outside loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Regex construction parses and compiles the pattern, so repeating it for every iteration adds avoidable CPU work and allocation.",
+  "suggestion": "Compile the constant pattern once before the loop or store it in LazyLock, then reuse the Regex.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["rust"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only Regex or RegexBuilder constructors whose first argument is a string literal inside a braced loop are reported.",
+    "Aliases, wrapper constructors, macro-generated patterns, and dynamically computed patterns are not inferred."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "py-regex-compile-in-loop",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Compile constant Python regexes outside loops",
+  "title": "Compile constant Python regexes outside loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Calling re.compile for every iteration repeats pattern lookup or compilation and obscures the reusable matcher lifecycle.",
+  "suggestion": "Compile the literal pattern once before the loop or define it as a module-level constant.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct re.compile calls with a string or bytes literal in an indented loop body or while condition are reported.",
+    "Imported aliases, multiline calls, single-line for suites, and dynamically computed patterns are not inferred."
+  ]
+}

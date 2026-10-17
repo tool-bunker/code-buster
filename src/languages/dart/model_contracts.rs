@@ -959,11 +959,12 @@ fn contains_identifier(source: &str, identifier: &str) -> bool {
 
 fn ordered_captures(pattern: &Regex, source: &str) -> Vec<String> {
     let mut values = Vec::new();
+    let mut seen = BTreeSet::new();
     for captures in pattern.captures_iter(source) {
         let Some(value) = captures.get(1).map(|value| value.as_str().to_owned()) else {
             continue;
         };
-        if !values.contains(&value) {
+        if seen.insert(value.clone()) {
             values.push(value);
         }
     }

@@ -1,0 +1,26 @@
+{
+  "id": "js-linear-membership-in-loop",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Avoid repeated JavaScript array membership scans",
+  "title": "Avoid repeated JavaScript array membership scans",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Array includes and indexOf scan linearly, so using them inside another loop can produce quadratic work.",
+  "suggestion": "Build a Set before the loop when repeated membership checks dominate and array ordering is not required for lookup.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only variables with an array type annotation or array-literal assignment used with includes or indexOf in braced loops are reported.",
+    "Collection size, reassignment, variable shadowing, and intentionally small arrays are not inferred."
+  ]
+}

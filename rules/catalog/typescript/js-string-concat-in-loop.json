@@ -1,0 +1,26 @@
+{
+  "id": "js-string-concat-in-loop",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Avoid JavaScript string concatenation in loops",
+  "title": "Avoid JavaScript string concatenation in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Repeatedly extending an immutable string can copy a growing prefix and create avoidable temporary values.",
+  "suggestion": "Collect fragments in an array and join once after the loop, or stream them directly to the consumer.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only += on variables with a string annotation or string-literal initializer is reported inside braced loops.",
+    "Engine rope optimizations, reassignment, bounded loops, and alternative string-like values are not inferred."
+  ]
+}

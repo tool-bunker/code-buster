@@ -1,0 +1,26 @@
+{
+  "id": "js-regexp-created-in-loop",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Compile constant JavaScript regexes outside loops",
+  "title": "Compile constant JavaScript regexes outside loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Constructing RegExp from a constant string in every iteration repeats parsing and allocation that can be shared.",
+  "suggestion": "Create the RegExp once before the loop or use a regular-expression literal when its state is managed safely.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only new RegExp calls with a single- or double-quoted literal inside a braced loop are reported.",
+    "Dynamic patterns, aliases, wrapper constructors, and regular-expression literals are not reported."
+  ]
+}

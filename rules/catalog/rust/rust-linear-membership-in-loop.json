@@ -1,0 +1,26 @@
+{
+  "id": "rust-linear-membership-in-loop",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Avoid repeated linear Rust membership checks",
+  "title": "Avoid repeated linear Rust membership checks",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Calling contains on a Vec scans linearly; doing that inside another loop can turn a linear pass into quadratic work.",
+  "suggestion": "Build a HashSet or BTreeSet before the loop when the collection is large enough and membership is the intended operation.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["rust"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only function-local variables explicitly typed as Vec or initialized with Vec or vec! and then used with contains inside braced loops are reported.",
+    "Slices, fields, collection size, loop bounds, variable shadowing, and cases where a linear scan is intentionally cheaper than building an index are not inferred."
+  ]
+}

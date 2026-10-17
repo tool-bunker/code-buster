@@ -1,0 +1,26 @@
+{
+  "id": "py-string-concat-in-loop",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Avoid Python string concatenation in loops",
+  "title": "Avoid Python string concatenation in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Strings are immutable, so repeatedly extending a growing string can copy the accumulated prefix on each iteration.",
+  "suggestion": "Append fragments to a list and call ''.join once after the loop, or stream directly to the destination.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only += on variables explicitly annotated as str or initialized from a string literal before the active loop is reported.",
+    "Reassignment, variable shadowing, bounded loops, and alternative string-like types are not inferred."
+  ]
+}

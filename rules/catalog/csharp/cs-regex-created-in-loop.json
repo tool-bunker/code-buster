@@ -1,0 +1,26 @@
+{
+  "id": "cs-regex-created-in-loop",
+  "language": "csharp",
+  "group": "performance",
+  "listingTitle": "Compile constant C# regexes outside loops",
+  "title": "Compile constant C# regexes outside loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Constructing Regex from a constant pattern during every iteration repeats allocation and can repeat compilation work.",
+  "suggestion": "Create and reuse a Regex before the loop, or use a generated regex where the target framework supports it.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["csharp"],
+  "implementation": "src/languages/csharp/rules.rs",
+  "languages": ["csharp"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct Regex construction from a normal or verbatim string literal in a multiline loop body is reported.",
+    "Aliases, wrapper constructors, generated regex methods, interpolated patterns, and dynamic patterns are not inferred."
+  ]
+}

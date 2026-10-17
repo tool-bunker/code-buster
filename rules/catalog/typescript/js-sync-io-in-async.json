@@ -1,0 +1,26 @@
+{
+  "id": "js-sync-io-in-async",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Keep synchronous Node I/O out of async code",
+  "title": "Keep synchronous Node I/O out of async code",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Synchronous filesystem calls block the Node event loop and delay unrelated requests and tasks while I/O completes.",
+  "suggestion": "Use fs.promises or the callback API and await completion instead of calling a Sync filesystem method.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": ["node"],
+  "languageVersions": [],
+  "limitations": [
+    "Only named or namespace imports and CommonJS requires from fs or node:fs are resolved.",
+    "Wrappers, reassigned bindings, dynamic imports, and synchronous APIs from other modules are not inferred."
+  ]
+}

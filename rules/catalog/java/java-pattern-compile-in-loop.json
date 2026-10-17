@@ -1,0 +1,26 @@
+{
+  "id": "java-pattern-compile-in-loop",
+  "language": "java",
+  "group": "performance",
+  "listingTitle": "Compile constant Java patterns outside loops",
+  "title": "Compile constant Java patterns outside loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Pattern.compile parses and compiles the expression, so repeating it for every iteration adds avoidable CPU work and allocation.",
+  "suggestion": "Compile the literal once before the loop or store it in a static final Pattern.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["java"],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": ["java"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct Pattern.compile calls with a string literal inside braced loops are reported.",
+    "Aliases, wrappers, text blocks, and dynamically computed patterns are not inferred."
+  ]
+}

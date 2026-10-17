@@ -5,6 +5,11 @@
 ### Added
 
 - Publish Code Buster releases to crates.io through short-lived GitHub OIDC credentials so Rust users can install the `cb` executable with `cargo install code-buster --locked`.
+- Add conservative loop-cost and async-blocking performance rules for Rust, Python, JavaScript/TypeScript, Java, and C#, including constant regex construction, linear collection membership, and immutable string accumulation.
+
+### Improved
+
+- Classify Python blocking async calls, C# synchronous task waits and loop concatenation, and JavaScript/TypeScript sequential loop awaits under performance with actionable guidance and explicit limitations.
 
 ## 0.10.0
 

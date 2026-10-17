@@ -630,7 +630,7 @@ fn summary_reports_complete_csharp_rule_family() {
           [AllowPartiallyTrustedCallers]\n\
           [DllImport(\"native\")]\n\
           public static extern void Native();\n\
-          async void Run() {\n\
+          async void Run(Task<int> task) {\n\
           string text = \"\";\n\
           for (;;) {\n\
           text = text + value;\n\

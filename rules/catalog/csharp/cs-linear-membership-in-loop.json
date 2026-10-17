@@ -1,0 +1,26 @@
+{
+  "id": "cs-linear-membership-in-loop",
+  "language": "csharp",
+  "group": "performance",
+  "listingTitle": "Avoid repeated C# list membership scans",
+  "title": "Avoid repeated C# list membership scans",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "List Contains scans linearly, so calling it inside another loop can produce quadratic work.",
+  "suggestion": "Build a HashSet before the loop when repeated membership checks dominate and list ordering is not needed for lookup.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["csharp"],
+  "implementation": "src/languages/csharp/rules.rs",
+  "languages": ["csharp"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only variables whose nearest declaration before the loop is List, IList, IReadOnlyList, or ArrayList and that use Contains in a multiline loop are reported.",
+    "Nested generic declarations, collection size, aliases, and intentionally small lists are not inferred."
+  ]
+}

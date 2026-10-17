@@ -1,19 +1,19 @@
 {
   "id": "ts-await-in-loop",
   "language": "typescript",
-  "group": "style",
-  "listingTitle": "Ts await in loop",
-  "title": "Review await in loop",
+  "group": "performance",
+  "listingTitle": "Review sequential awaits inside loops",
+  "title": "Review sequential awaits inside loops",
   "mvvm": false,
   "defaultSeverity": "info",
-  "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 2,
-  "semanticMaturity": "text",
+  "legacyGroup": "performance",
+  "why": "Awaiting each iteration serializes independent work and can make total latency grow with the item count.",
+  "suggestion": "Use Promise.all with an explicit concurrency limit when iterations are independent; keep sequential awaits when ordering or backpressure is required.",
+  "version": 3,
+  "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
-    "style"
+    "performance"
   ],
   "requirements": [
     "sourceText"
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only lines beginning with await inside braced loops are reported.",
+    "Data dependencies, rate limits, ordering requirements, and deliberate sequential backpressure are not inferred."
+  ]
 }

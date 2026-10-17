@@ -23,6 +23,7 @@ struct State<'a> {
     path: &'a str,
     lines: Vec<&'a str>,
     comment_free: Vec<String>,
+    structural: Vec<String>,
     findings: Vec<Finding>,
     readonly_http_client_fields: BTreeSet<String>,
     archive_path_variables: BTreeSet<String>,
@@ -30,21 +31,27 @@ struct State<'a> {
     archive_extraction_wrappers: BTreeSet<String>,
     reported_once: BTreeSet<String>,
     namespace_depth: i32,
-    loop_depth: i32,
+    loop_starts: Vec<usize>,
     prefers_file_scoped_namespaces: bool,
 }
 
 fn analyze_source(path: &str, source: &str, prefers_file_scoped_namespaces: bool) -> Vec<Finding> {
     let lines = source.split('\n').collect::<Vec<_>>();
-    let comment_free = without_comments(source)
+    let comment_free_source = without_comments(source);
+    let comment_free = comment_free_source
         .split('\n')
         .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let structural = comment_free
+        .iter()
+        .map(|line| strip_strings(line))
         .collect::<Vec<_>>();
     let archive_extraction_wrappers = find_archive_extraction_wrappers(&lines);
     let mut state = State {
         path,
         lines,
         comment_free,
+        structural,
         findings: Vec::new(),
         readonly_http_client_fields: BTreeSet::new(),
         archive_path_variables: BTreeSet::new(),
@@ -52,7 +59,7 @@ fn analyze_source(path: &str, source: &str, prefers_file_scoped_namespaces: bool
         archive_extraction_wrappers,
         reported_once: BTreeSet::new(),
         namespace_depth: 0,
-        loop_depth: 0,
+        loop_starts: Vec::new(),
         prefers_file_scoped_namespaces,
     };
     for index in 0..state.lines.len() {
@@ -77,7 +84,7 @@ impl State<'_> {
     }
 
     fn legacy_line(&self, index: usize) -> String {
-        strip_strings(&self.comment_free[index]).trim().to_owned()
+        self.structural[index].trim().to_owned()
     }
 
     fn add(&mut self, code: &str, index: usize, message: &str, once_per_file: bool) {
@@ -168,8 +175,9 @@ fn is_using_directive(line: &str) -> bool {
 }
 
 fn analyze_loop(state: &mut State<'_>, index: usize, line: &str) {
-    if LOOP_START.is_match(line) {
-        state.loop_depth += 1;
+    let starts_loop = LOOP_START.is_match(line);
+    if starts_loop {
+        state.loop_starts.push(index);
     }
     if concatenates_in_loop(state, index, line) {
         state.add(
@@ -179,38 +187,99 @@ fn analyze_loop(state: &mut State<'_>, index: usize, line: &str) {
             false,
         );
     }
-    if state.loop_depth > 0 && line == "}" {
-        state.loop_depth -= 1;
+    if !state.loop_starts.is_empty()
+        && !starts_loop
+        && CSHARP_CONSTANT_REGEX.is_match(&state.comment_free[index])
+    {
+        state.add(
+            "cs-regex-created-in-loop",
+            index,
+            "constant regular expression is compiled inside a loop",
+            false,
+        );
+    }
+    if !state.loop_starts.is_empty()
+        && CSHARP_LINEAR_MEMBERSHIP
+            .captures_iter(line)
+            .any(|capture| csharp_linear_collection_in_scope(state, index, &capture[1]))
+    {
+        state.add(
+            "cs-linear-membership-in-loop",
+            index,
+            "linear list membership is checked inside a loop",
+            false,
+        );
+    }
+    if !state.loop_starts.is_empty() && line == "}" {
+        state.loop_starts.pop();
     }
 }
 
 fn concatenates_in_loop(state: &State<'_>, index: usize, line: &str) -> bool {
-    if state.loop_depth <= 0 || !line.contains(" + ") {
+    if state.loop_starts.is_empty() || (!line.contains(" + ") && !line.contains(" += ")) {
         return false;
     }
     let target = if let Some(plus_equals) = line.find(" += ") {
-        let raw_right = state
-            .raw(index)
-            .find("+=")
-            .map_or("", |offset| &state.raw(index)[offset + 2..]);
-        if STRING_PREFIX.is_match(raw_right) {
-            return true;
-        }
         let candidate = line[..plus_equals].trim();
         IDENTIFIER.is_match(candidate).then_some(candidate)
     } else {
         SELF_CONCAT.captures(line).and_then(|capture| {
-            (capture[1] == capture[2]).then(|| capture.get(1).unwrap().as_str())
+            let left = capture.get(1)?;
+            let right = capture.get(2)?;
+            (left.as_str() == right.as_str()).then_some(left.as_str())
         })
     };
     let Some(target) = target else {
         return false;
     };
-    state.lines[..index].iter().any(|candidate| {
-        STRING_DECLARATION
-            .captures_iter(candidate)
-            .any(|declaration| &declaration[1] == target)
-    })
+    let Some(loop_start) = state.loop_starts.last() else {
+        return false;
+    };
+    csharp_variable_declaration_before(state, index, target).is_some_and(
+        |(declaration, variable_type)| {
+            declaration < *loop_start
+                && matches!(variable_type, "string" | "String" | "System.String")
+        },
+    )
+}
+
+fn csharp_linear_collection_in_scope(state: &State<'_>, index: usize, target: &str) -> bool {
+    let Some(loop_start) = state.loop_starts.last() else {
+        return false;
+    };
+    csharp_variable_declaration_before(state, index, target).is_some_and(
+        |(declaration, variable_type)| {
+            declaration < *loop_start
+                && variable_type
+                    .split('<')
+                    .next()
+                    .and_then(|base| base.trim().rsplit('.').next())
+                    .is_some_and(|base| {
+                        matches!(base, "List" | "IList" | "IReadOnlyList" | "ArrayList")
+                    })
+        },
+    )
+}
+
+fn csharp_variable_declaration_before<'state>(
+    state: &'state State<'_>,
+    index: usize,
+    target: &str,
+) -> Option<(usize, &'state str)> {
+    state.structural[..=index]
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(line, source)| {
+            CSHARP_VARIABLE_DECLARATION
+                .captures_iter(source)
+                .find(|capture| &capture[2] == target)
+                .and_then(|capture| {
+                    capture
+                        .get(1)
+                        .map(|variable_type| (line, variable_type.as_str().trim()))
+                })
+        })
 }
 
 // code-buster-ignore complex-function: a single line scan deliberately dispatches independent runtime rules.
@@ -234,7 +303,7 @@ fn analyze_runtime(state: &mut State<'_>, index: usize, line: &str, legacy_line:
     {
         state.add("cs-async-void", index, "async void method used", false);
     }
-    if synchronously_waits(line) {
+    if synchronously_waits(state, index, line) {
         state.add(
             "cs-sync-over-async",
             index,
@@ -263,21 +332,49 @@ fn analyze_runtime(state: &mut State<'_>, index: usize, line: &str, legacy_line:
     }
 }
 
-fn synchronously_waits(line: &str) -> bool {
+fn synchronously_waits(state: &State<'_>, index: usize, line: &str) -> bool {
     let code = line.split("//").next().unwrap_or("");
     if SYNC_EVENT_WAIT.is_match(code) {
         return false;
     }
-    if code.contains(".GetAwaiter().GetResult()") || EMPTY_WAIT.is_match(code) {
+    if code.contains(".GetAwaiter().GetResult()") {
         return true;
     }
-    for matched in RESULT_MEMBER.find_iter(code) {
-        let suffix = &code[matched.end()..];
-        if !suffix.trim_start().starts_with('=') || suffix.trim_start().starts_with("==") {
-            return true;
-        }
+    if TASK_WAIT_CALL
+        .captures_iter(code)
+        .any(|capture| csharp_task_variable(state, index, &capture[1]))
+    {
+        return true;
     }
-    false
+    TASK_RESULT_MEMBER.captures_iter(code).any(|capture| {
+        let matched = capture.get(0).unwrap();
+        let suffix = &code[matched.end()..];
+        (!suffix.trim_start().starts_with('=') || suffix.trim_start().starts_with("=="))
+            && csharp_task_variable(state, index, &capture[1])
+            && !guarded_completed_result(state, index, &capture[1])
+    })
+}
+
+fn csharp_task_variable(state: &State<'_>, index: usize, target: &str) -> bool {
+    csharp_variable_declaration_before(state, index, target).is_some_and(
+        |(declaration, variable_type)| {
+            let base = variable_type
+                .split('<')
+                .next()
+                .and_then(|kind| kind.trim().rsplit('.').next());
+            matches!(base, Some("Task" | "ValueTask"))
+                || (base == Some("var")
+                    && state.structural[declaration].contains("Async(")
+                    && !state.structural[declaration].contains("await "))
+        },
+    )
+}
+
+fn guarded_completed_result(state: &State<'_>, index: usize, target: &str) -> bool {
+    let guard = format!("{target}.IsCompleted");
+    state.structural[index.saturating_sub(4)..=index]
+        .iter()
+        .any(|line| line.contains(&guard))
 }
 
 fn constructs_shared_http_client(state: &State<'_>, line: &str) -> bool {
@@ -1172,13 +1269,21 @@ static FILE_SCOPED_PREFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?im)^\s*csharp_style_namespace_declarations\s*=\s*file_scoped\b").unwrap()
 });
 static IDENTIFIER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z_]\w*$").unwrap());
-static LOOP_START: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:for|foreach)\b").unwrap());
-static STRING_PREFIX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?:@|\$@|@\$|\$)?\""#).unwrap());
+static LOOP_START: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:for|foreach|while|do)\b").unwrap());
 static SELF_CONCAT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*\+").unwrap());
-static STRING_DECLARATION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bstring\s+([A-Za-z_]\w*)\b").unwrap());
+static CSHARP_VARIABLE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b([A-Za-z_][\w.]*(?:\s*<[^;(){}=>\n]+>)?(?:\s*\[\])?)\s+([A-Za-z_]\w*)\s*(?:=|,|\)|;)",
+    )
+    .unwrap()
+});
+static CSHARP_LINEAR_MEMBERSHIP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*Contains\s*\(").unwrap());
+static CSHARP_CONSTANT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\bnew\s+(?:System\.Text\.RegularExpressions\.)?Regex\s*\(\s*@?\""#).unwrap()
+});
 static READONLY_HTTP_CLIENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\breadonly\s+(?:System\.Net\.Http\.)?HttpClient\??\s+([A-Za-z_]\w*)\s*;").unwrap()
 });
@@ -1189,8 +1294,10 @@ static ASYNC_VOID_OVERRIDE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\boverride\s+async\s+void\b").unwrap());
 static SYNC_EVENT_WAIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:\b|\.)[A-Za-z_]\w*Event\.Wait\s*\(\s*\)").unwrap());
-static EMPTY_WAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.Wait\s*\(\s*\)").unwrap());
-static RESULT_MEMBER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.Result\b").unwrap());
+static TASK_WAIT_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\.Wait\s*\(").unwrap());
+static TASK_RESULT_MEMBER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\.Result\b").unwrap());
 static HTTP_CLIENT_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:this\.)?([A-Za-z_]\w*)\s*=\s*new\s+HttpClient\s*\(").unwrap()
 });
@@ -1281,7 +1388,9 @@ static NUMERIC_BITWISE_OPERAND: LazyLock<Regex> = LazyLock::new(|| {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{analyze, has_top_level_non_short_circuit_operator, without_comments};
+    use super::{
+        analyze, analyze_source, has_top_level_non_short_circuit_operator, without_comments,
+    };
     use crate::config::Config;
 
     #[test]
@@ -1338,7 +1447,7 @@ public class All {\n\
 [AllowPartiallyTrustedCallers]\n\
 [DllImport(\"native\")]\n\
 public static extern void Native();\n\
-async void Run() {\n\
+async void Run(Task<int> task) {\n\
 string text = \"\";\n\
 for (;;) {\n\
 text = text + value;\n\
@@ -1531,5 +1640,94 @@ Save(entry, output);\n\
                 ("cs-archive-path-traversal".to_owned(), 13),
             ]
         );
+    }
+    #[test]
+    fn reports_csharp_loop_performance_patterns() {
+        let source = "class Scan {\n\
++  void Run(List<string> blocked, List<string> values) {\n\
++    string output = \"\";\n\
++    foreach (var value in values) {\n\
++      var matcher = new Regex(\"^[a-z]+$\");\n\
++      if (blocked.Contains(value)) {\n\
++        output += value;\n\
++      }\n\
++    }\n\
++  }\n\
++}\n"
+            .replace("\n+", "\n");
+
+        assert_eq!(
+            analyze_source("Scan.cs", &source, false)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "cs-regex-created-in-loop"
+                            | "cs-linear-membership-in-loop"
+                            | "cs-string-concat-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("cs-regex-created-in-loop".to_owned(), 5),
+                ("cs-linear-membership-in-loop".to_owned(), 6),
+                ("cs-string-concat-loop".to_owned(), 7),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_csharp_loop_performance_safe_variants() {
+        let source = "class SafeScan {\n\
++  void Run(string pattern, HashSet<string> allowed, List<string> values) {\n\
++    var stable = new Regex(\"^[a-z]+$\");\n\
++    var output = new StringBuilder();\n\
++    foreach (var value in values) {\n\
++      var dynamic = new Regex(pattern);\n\
++      string perIteration = \"\";\n\
++      perIteration += value;\n\
++      if (allowed.Contains(value)) output.Append(value);\n\
++      // new Regex(\"commented\");\n\
++      var example = \"new Regex(\\\"literal\\\")\";\n\
++    }\n\
++  }\n\
++}\n"
+            .replace("\n+", "\n");
+
+        let selected = analyze_source("SafeScan.cs", &source, false)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "cs-regex-created-in-loop"
+                        | "cs-linear-membership-in-loop"
+                        | "cs-string-concat-loop"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+    #[test]
+    fn accepts_non_task_result_members_and_completed_value_tasks() {
+        let source = "class SafeResult {\n\
++  int Read(Outcome outcome, ValueTask<int> task) {\n\
++    if (task.IsCompleted) {\n\
++      return task.Result;\n\
++    }\n\
++    return outcome.Result;\n\
++  }\n\
++  async Task<int> ReadOutcome() {\n\
++    var outcome = await LoadOutcomeAsync();\n\
++    return outcome.Result;\n\
++  }\n\
++}\n"
+            .replace("\n+", "\n");
+
+        let selected = analyze_source("SafeResult.cs", &source, false)
+            .into_iter()
+            .filter(|finding| finding.code == "cs-sync-over-async")
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
 }

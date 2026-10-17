@@ -35,6 +35,71 @@ struct SourceLine<'a> {
     inside_loop: bool,
     tooling: bool,
     command_line: bool,
+    inside_async: bool,
+}
+
+#[derive(Default)]
+struct PerformanceFacts {
+    arrays: BTreeSet<String>,
+    strings: BTreeSet<String>,
+    direct_sync_fs: BTreeSet<String>,
+    fs_namespaces: BTreeSet<String>,
+}
+
+impl PerformanceFacts {
+    fn from_source(source: &str) -> Self {
+        let arrays = ARRAY_DECLARATION
+            .captures_iter(source)
+            .map(|capture| capture[1].to_owned())
+            .collect();
+        let strings = STRING_DECLARATION
+            .captures_iter(source)
+            .map(|capture| capture[1].to_owned())
+            .collect();
+        let mut direct_sync_fs = BTreeSet::new();
+        for capture in NODE_FS_IMPORT.captures_iter(source) {
+            collect_sync_fs_names(&capture[1], &mut direct_sync_fs);
+        }
+        for capture in NODE_FS_REQUIRE_DESTRUCTURE.captures_iter(source) {
+            collect_sync_fs_names(&capture[1], &mut direct_sync_fs);
+        }
+        let mut fs_namespaces = NODE_FS_NAMESPACE_IMPORT
+            .captures_iter(source)
+            .map(|capture| capture[1].to_owned())
+            .collect::<BTreeSet<_>>();
+        fs_namespaces.extend(
+            NODE_FS_REQUIRE_NAMESPACE
+                .captures_iter(source)
+                .map(|capture| capture[1].to_owned()),
+        );
+        Self {
+            arrays,
+            strings,
+            direct_sync_fs,
+            fs_namespaces,
+        }
+    }
+
+    fn calls_sync_fs(&self, line: &str) -> bool {
+        CALL_EXPRESSION.captures_iter(line).any(|capture| {
+            let root = &capture[1];
+            capture.get(2).map_or_else(
+                || self.direct_sync_fs.contains(root),
+                |method| self.fs_namespaces.contains(root) && method.as_str().ends_with("Sync"),
+            )
+        })
+    }
+}
+
+fn collect_sync_fs_names(imports: &str, output: &mut BTreeSet<String>) {
+    for item in imports.split(',') {
+        let mut names = AS_ALIAS.split(item.trim());
+        let imported = names.next().unwrap_or("").trim();
+        let local = names.next().unwrap_or(imported).trim();
+        if imported.ends_with("Sync") && !local.is_empty() {
+            output.insert(local.to_owned());
+        }
+    }
 }
 
 impl SourceLine<'_> {
@@ -60,7 +125,8 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     let code_lines = code_source.split('\n').collect::<Vec<_>>();
     let sink_source = without_string_literal_text(&uncommented_source);
     let sink_lines = sink_source.split('\n').collect::<Vec<_>>();
-    let inside_loop = inside_loop_by_line(&code_lines);
+    let (inside_loop, inside_async) = scopes_by_line(&code_lines);
+    let performance = PerformanceFacts::from_source(&uncommented_source);
     let mut findings = Vec::new();
     findings.extend(async_foreach_findings(path, &sink_source));
     findings.extend(child_process_shell_findings(path, &uncommented_source));
@@ -80,6 +146,7 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
             sink_lines: &sink_lines,
             index,
             inside_loop: inside_loop[index],
+            inside_async: inside_async[index],
             tooling,
             command_line,
         };
@@ -88,6 +155,7 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
         analyze_async_usage(&line, &mut findings);
         analyze_hardcoded_secret(&line, &mut findings);
         analyze_json_parsing(&line, &mut findings);
+        analyze_performance(&line, &performance, &mut findings);
     }
     findings
 }
@@ -599,6 +667,54 @@ fn analyze_json_parsing(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
     }
 }
 
+fn analyze_performance(
+    line: &SourceLine<'_>,
+    facts: &PerformanceFacts,
+    findings: &mut Vec<Finding>,
+) {
+    if line.inside_loop {
+        if REGEXP_CONSTRUCTOR.is_match(line.sink_line)
+            && CONSTANT_REGEXP.is_match(line.uncommented_line)
+        {
+            line.add(
+                findings,
+                "js-regexp-created-in-loop",
+                "constant regular expression is compiled inside a loop",
+            );
+        }
+        if ARRAY_MEMBERSHIP
+            .captures_iter(line.line)
+            .any(|capture| facts.arrays.contains(&capture[1]))
+        {
+            line.add(
+                findings,
+                "js-linear-membership-in-loop",
+                "linear array membership is checked inside a loop",
+            );
+        }
+        if IN_PLACE_CONCAT
+            .captures(line.sink_line)
+            .is_some_and(|capture| facts.strings.contains(&capture[1]))
+        {
+            line.add(
+                findings,
+                "js-string-concat-in-loop",
+                "immutable string is concatenated inside a loop",
+            );
+        }
+    }
+    if line.inside_async
+        && !SYNC_FUNCTION_DECLARATION.is_match(line.sink_line)
+        && facts.calls_sync_fs(line.sink_line)
+    {
+        line.add(
+            findings,
+            "js-sync-io-in-async",
+            "synchronous filesystem API is called inside async code",
+        );
+    }
+}
+
 fn node_fs_constant_imports(path: &str, source: &str) -> Vec<Finding> {
     NODE_FS_IMPORT
         .captures_iter(source)
@@ -875,13 +991,16 @@ fn continued_expression(lines: &[&str], start: usize) -> String {
 struct Block {
     function: bool,
     loop_block: bool,
+    async_function: bool,
 }
 
 impl Block {
     fn from_prefix(prefix: &str) -> Self {
+        let async_function = ASYNC_FUNCTION_PREFIX.is_match(prefix);
         Self {
-            function: FUNCTION_PREFIX.is_match(prefix),
+            function: FUNCTION_PREFIX.is_match(prefix) || async_function,
             loop_block: LOOP_PREFIX.is_match(prefix) || DO_PREFIX.is_match(prefix),
+            async_function,
         }
     }
 }
@@ -898,6 +1017,14 @@ impl LoopLineState {
             .rev()
             .take_while(|block| !block.function)
             .any(|block| block.loop_block)
+    }
+
+    fn is_inside_async(&self) -> bool {
+        self.blocks
+            .iter()
+            .rev()
+            .find(|block| block.function)
+            .is_some_and(|block| block.async_function)
     }
 
     fn consume_line(&mut self, line: &str, previous_line: Option<&str>) {
@@ -925,18 +1052,20 @@ fn block_for_opening_brace(code: &str, offset: usize, previous_line: Option<&str
     Block::from_prefix(previous.as_deref().map(str::trim_end).unwrap_or(prefix))
 }
 
-fn inside_loop_by_line(lines: &[&str]) -> Vec<bool> {
+fn scopes_by_line(lines: &[&str]) -> (Vec<bool>, Vec<bool>) {
     let mut state = LoopLineState::default();
-    let mut result = Vec::with_capacity(lines.len());
+    let mut loops = Vec::with_capacity(lines.len());
+    let mut async_scopes = Vec::with_capacity(lines.len());
     for (line_index, line) in lines.iter().enumerate() {
-        result.push(state.is_inside_loop());
+        loops.push(state.is_inside_loop());
+        async_scopes.push(state.is_inside_async());
         let previous_line = line_index
             .checked_sub(1)
             .and_then(|index| lines.get(index))
             .copied();
         state.consume_line(line, previous_line);
     }
-    result
+    (loops, async_scopes)
 }
 
 fn is_inside_handled_try(lines: &[&str], index: usize) -> bool {
@@ -1817,6 +1946,51 @@ fn without_string_literal_text(source: &str) -> String {
     result
 }
 
+static ARRAY_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b([A-Za-z_$][\w$]*)\s*(?::\s*(?:(?:readonly\s+)?[A-Za-z_$][\w$]*\s*\[\]|(?:Readonly)?Array\s*<[^>\n]+>)\s*(?:=[^;\n,)]+)?|=\s*\[)",
+    )
+    .unwrap()
+});
+static STRING_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\b(?:\s*=[^;\n]+)?|=\s*(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))"#,
+    )
+    .unwrap()
+});
+static CONSTANT_REGEXP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\bnew\s+RegExp\s*\(\s*[\"']"#).unwrap());
+static REGEXP_CONSTRUCTOR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bnew\s+RegExp\s*\(").unwrap());
+static ARRAY_MEMBERSHIP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*(?:includes|indexOf)\s*\(").unwrap());
+static IN_PLACE_CONCAT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\+=").unwrap());
+static CALL_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_$][\w$]*)(?:\s*\.\s*([A-Za-z_$][\w$]*))?\s*\(").unwrap()
+});
+static NODE_FS_NAMESPACE_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*[\"'](?:node:)?fs[\"']"#)
+        .unwrap()
+});
+static NODE_FS_REQUIRE_DESTRUCTURE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?s)\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*[\"'](?:node:)?fs[\"']\s*\)"#,
+    )
+    .unwrap()
+});
+static NODE_FS_REQUIRE_NAMESPACE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?m)\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*[\"'](?:node:)?fs[\"']\s*\)"#,
+    )
+    .unwrap()
+});
+static ASYNC_FUNCTION_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\basync\b(?:\s+function\b[^{}]*|\s+[A-Za-z_$][\w$]*\s*\([^{}]*\)|[^{}]*=>)\s*$")
+        .unwrap()
+});
+static SYNC_FUNCTION_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*function(?:\s*\*)?\s+[A-Za-z_$][\w$]*\s*\(").unwrap());
 static NON_NULL_ASSERTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"!\s*(?:\.|\)|;|,|\])").unwrap());
 static DIRECT_EVAL_CALL: LazyLock<Regex> =
@@ -2212,6 +2386,85 @@ const example = 'items.forEach(async () => work())';\n"
                 .iter()
                 .all(|finding| finding.code != "js-async-foreach")
         );
+    }
+    #[test]
+    fn reports_javascript_loop_and_async_performance_patterns() {
+        let sources = BTreeMap::from([(
+            "src/performance.ts".to_owned(),
+            "import { readFileSync as readNow } from 'node:fs';\n\
++import * as fs from 'node:fs';\n\
++async function scan(blocked: string[], values: string[]) {\n\
++  let output: string = '';\n\
++  for (const value of values) {\n\
++    const matcher = new RegExp('^[a-z]+$');\n\
++    if (blocked.includes(value)) output += value;\n\
++    readNow(value);\n\
++    fs.statSync(value);\n\
++  }\n\
++}\n"
+                .replace("\n+", "\n"),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "js-regexp-created-in-loop"
+                            | "js-linear-membership-in-loop"
+                            | "js-string-concat-in-loop"
+                            | "js-sync-io-in-async"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("js-regexp-created-in-loop".to_owned(), 6),
+                ("js-linear-membership-in-loop".to_owned(), 7),
+                ("js-string-concat-in-loop".to_owned(), 7),
+                ("js-sync-io-in-async".to_owned(), 8),
+                ("js-sync-io-in-async".to_owned(), 9),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_javascript_performance_safe_variants() {
+        let sources = BTreeMap::from([(
+            "src/safe-performance.ts".to_owned(),
+            "import { readFileSync, promises as fs } from 'node:fs';\n\
++const stable = new RegExp('^[a-z]+$');\n\
++async function scan(pattern: string, allowed: Set<string>, values: string[]) {\n\
++  const output: string[] = [];\n\
++  for (const value of values) {\n\
++    const dynamic = new RegExp(pattern);\n\
++    if (allowed.has(value)) output.push(value);\n\
++    await fs.readFile(value);\n\
++    function deferred() { return readFileSync(value); }\n\
++  }\n\
++  return output.join('');\n\
++}\n\
++// new RegExp('commented')\n\
++const example = \"new RegExp('literal')\";\n"
+                .replace("\n+", "\n"),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "js-regexp-created-in-loop"
+                        | "js-linear-membership-in-loop"
+                        | "js-string-concat-in-loop"
+                        | "js-sync-io-in-async"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
     #[test]
     fn malformed_source_and_capture_candidates_fail_closed() {

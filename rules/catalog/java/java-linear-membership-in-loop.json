@@ -1,0 +1,26 @@
+{
+  "id": "java-linear-membership-in-loop",
+  "language": "java",
+  "group": "performance",
+  "listingTitle": "Avoid repeated Java List membership scans",
+  "title": "Avoid repeated Java List membership scans",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "List.contains scans linearly, so calling it inside another loop can turn a linear pass into quadratic work.",
+  "suggestion": "Build a HashSet before the loop when repeated membership checks dominate and list ordering is not part of lookup semantics.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["java"],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": ["java"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only variables whose nearest declaration before the loop is List, ArrayList, LinkedList, or Vector and that use contains inside a braced loop are reported.",
+    "Nested generic declarations, collection size, aliases, and intentionally small lists are not inferred."
+  ]
+}

@@ -37,6 +37,7 @@ pub fn analyze_with_functions(
         analyze_shell_commands(path, &file, &mut findings);
         analyze_ffi_panics(path, &file, &mut findings);
         analyze_async_blocking(path, &file, &mut findings);
+        analyze_loop_performance(path, &file, functions, &mut findings);
         analyze_unbounded_channels(path, &file, &mut findings);
     }
     findings
@@ -765,6 +766,144 @@ fn inside_catch_unwind(file: &RustFile<'_>, body_start: usize, panic_offset: usi
     false
 }
 
+#[derive(Clone, Copy)]
+struct RustLoop {
+    body_start: usize,
+    body_end: usize,
+}
+
+struct LinearCollectionScope {
+    start_line: usize,
+    end_line: usize,
+    names: BTreeSet<String>,
+}
+
+fn analyze_loop_performance(
+    path: &str,
+    file: &RustFile<'_>,
+    functions: &[FunctionSource],
+    findings: &mut Vec<Finding>,
+) {
+    let loops = rust_loops(file);
+    analyze_loop_regex(path, file, &loops, findings);
+    let scopes = linear_collection_scopes(path, functions);
+    analyze_loop_membership(path, file, &loops, &scopes, findings);
+}
+
+fn analyze_loop_regex(
+    path: &str,
+    file: &RustFile<'_>,
+    loops: &[RustLoop],
+    findings: &mut Vec<Finding>,
+) {
+    let mut reported = BTreeSet::new();
+    for current in loops {
+        let repeated = &file.comments_masked[current.body_start..current.body_end];
+        for constructor in REGEX_CONSTRUCTOR.find_iter(repeated) {
+            let absolute = current.body_start + constructor.start();
+            let argument =
+                skip_ascii_whitespace(file.source, current.body_start + constructor.end());
+            let Some(end) = rust_literal_end(file.source.as_bytes(), argument) else {
+                continue;
+            };
+            if end > current.body_end
+                || rust_string_body(&file.source[argument..end]).is_none()
+                || file
+                    .masked
+                    .as_bytes()
+                    .get(absolute)
+                    .is_none_or(u8::is_ascii_whitespace)
+                || file.excluded(absolute)
+                || line_prefix(file.source, absolute).contains("static ")
+                || !reported.insert(absolute)
+            {
+                continue;
+            }
+            findings.push(finding(
+                "rust-regex-created-in-loop",
+                path,
+                file.line_at(absolute),
+                "constant regular expression is compiled during each loop iteration",
+            ));
+        }
+    }
+}
+
+fn analyze_loop_membership(
+    path: &str,
+    file: &RustFile<'_>,
+    loops: &[RustLoop],
+    scopes: &[LinearCollectionScope],
+    findings: &mut Vec<Finding>,
+) {
+    let mut reported = BTreeSet::new();
+    for current in loops {
+        let repeated = &file.masked[current.body_start..current.body_end];
+        for membership in LINEAR_MEMBERSHIP_CALL.captures_iter(repeated) {
+            let whole = membership.get(0).unwrap();
+            let absolute = current.body_start + whole.start();
+            let line = file.line_at(absolute);
+            if !scopes.iter().any(|scope| {
+                scope.start_line <= line
+                    && line <= scope.end_line
+                    && scope.names.contains(&membership[1])
+            }) || file.excluded(absolute)
+                || !reported.insert(absolute)
+            {
+                continue;
+            }
+            findings.push(finding(
+                "rust-linear-membership-in-loop",
+                path,
+                line,
+                "linear collection membership is checked inside a loop",
+            ));
+        }
+    }
+}
+
+fn linear_collection_scopes(
+    path: &str,
+    functions: &[FunctionSource],
+) -> Vec<LinearCollectionScope> {
+    functions
+        .iter()
+        .filter(|function| function.path == path)
+        .filter_map(|function| {
+            let masked = RustFile::new(&function.source).masked;
+            let names = LINEAR_COLLECTION_DECLARATION
+                .captures_iter(&masked)
+                .filter_map(|capture| capture.get(1).or_else(|| capture.get(2)))
+                .map(|name| name.as_str().to_owned())
+                .collect::<BTreeSet<_>>();
+            (!names.is_empty()).then_some(LinearCollectionScope {
+                start_line: function.line,
+                end_line: function.end_line,
+                names,
+            })
+        })
+        .collect()
+}
+
+fn rust_loops(file: &RustFile<'_>) -> Vec<RustLoop> {
+    RUST_LOOP
+        .find_iter(&file.masked)
+        .filter_map(|matched| {
+            let open = matched.end() - 1;
+            let close = file.matching(open, b'{', b'}')?;
+            Some(RustLoop {
+                body_start: open + 1,
+                body_end: close,
+            })
+        })
+        .collect()
+}
+
+fn line_prefix(source: &str, offset: usize) -> &str {
+    let start = source[..offset].rfind('\n').map_or(0, |line| line + 1);
+    &source[start..offset]
+}
+
 fn analyze_async_blocking(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
     for scope in ASYNC_SCOPE.find_iter(&file.masked) {
         if file.excluded(scope.start()) {
@@ -1217,6 +1356,19 @@ static PANIC_SITE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static CATCH_UNWIND: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bcatch_unwind\s*\(").unwrap());
+static RUST_LOOP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:(?:for|while)\b[^;{}]*|loop)\s*\{").unwrap());
+static REGEX_CONSTRUCTOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:(?:regex(?:::bytes)?::)?(?:Regex|RegexBuilder))::new\s*\(").unwrap()
+});
+static LINEAR_COLLECTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b(?:([A-Za-z_]\w*)\s*:\s*(?:&\s*(?:mut\s*)?)?Vec\s*<|let\s+(?:mut\s+)?([A-Za-z_]\w*)\s*=\s*(?:Vec(?:::[A-Za-z_]\w*)?\s*::|vec!\s*\[))",
+    )
+    .unwrap()
+});
+static LINEAR_MEMBERSHIP_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*contains\s*\(").unwrap());
 static ASYNC_SCOPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?s)\basync\s+(?:move\s+)?(?:fn\s+[A-Za-z_]\w*[^;{]*|)\{").unwrap()
 });
@@ -1569,6 +1721,64 @@ impl Into<Output> for Input {}"#;
             .filter(|finding| finding.code == "rust-impl-into-instead-of-from")
             .collect::<Vec<_>>();
 
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+    #[test]
+    fn reports_constant_regex_and_linear_membership_inside_loops() {
+        let source = r#"fn scan(blocked: Vec<String>, values: Vec<String>) {
+    for value in values {
+        let matcher = Regex::new(r"^[a-z]+$").unwrap();
+        if blocked.contains(&value) && matcher.is_match(&value) {}
+    }
+}"#;
+
+        assert_eq!(
+            findings(source)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "rust-regex-created-in-loop" | "rust-linear-membership-in-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line, finding.confidence))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "rust-regex-created-in-loop".to_owned(),
+                    3,
+                    "high".to_owned(),
+                ),
+                (
+                    "rust-linear-membership-in-loop".to_owned(),
+                    4,
+                    "high".to_owned(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_dynamic_regex_sets_and_non_repeated_construction() {
+        let source = r####"fn scan(pattern: &str, allowed: HashSet<String>, values: Vec<String>) {
+    let stable = Regex::new(r"^[a-z]+$").unwrap();
+    for value in values {
+        let dynamic = Regex::new(pattern).unwrap();
+        if allowed.contains(&value) && dynamic.is_match(&value) && stable.is_match(&value) {}
+        // Regex::new("commented")
+        let example = r#"Regex::new("literal")"#;
+    }
+}"####;
+
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-regex-created-in-loop" | "rust-linear-membership-in-loop"
+                )
+            })
+            .collect::<Vec<_>>();
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
 }

@@ -23,7 +23,7 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     findings.extend(hardcoded_secrets(&sources));
     findings.extend(package_cycles(&sources));
     findings.extend(resources_not_closed(&sources));
-    findings.extend(string_concat_in_loops(&sources));
+    findings.extend(loop_performance_findings(&sources));
     findings.extend(too_many_parameters(&sources));
     findings.extend(weak_crypto(&sources));
     findings
@@ -541,19 +541,13 @@ impl ParameterScanState {
     }
 }
 
-// code-buster-ignore complex-function: loop-body scanning keeps source ranges and duplicate offsets in one traversal.
-fn string_concat_in_loops(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
+// code-buster-ignore complex-function: one loop traversal shares source ranges and deduplication across performance rules.
+fn loop_performance_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, raw_source) in sources {
-        let code = mask_quoted_text(&java_source_without_comments(raw_source));
-        let strings = STRING_DECLARATION
-            .captures_iter(&code)
-            .map(|capture| capture[1].to_owned())
-            .collect::<BTreeSet<_>>();
-        if strings.is_empty() {
-            continue;
-        }
-        let mut reported_offsets = BTreeSet::new();
+        let comments_masked = java_source_without_comments(raw_source);
+        let code = mask_quoted_text(&comments_masked);
+        let mut reported = BTreeSet::new();
         for loop_match in LOOP.find_iter(&code) {
             let Some(relative_open) = code[loop_match.start()..].find('{') else {
                 continue;
@@ -563,18 +557,19 @@ fn string_concat_in_loops(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
                 continue;
             };
             let body = &code[open + 1..close];
-            for variable in &strings {
-                let escaped = regex::escape(variable);
-                let Ok(concatenation) =
-                    Regex::new(&format!(r"\b{escaped}\s*(?:\+=|=\s*{escaped}\s*\+)"))
-                else {
+            for concatenation in JAVA_STRING_CONCAT.captures_iter(body) {
+                let whole = concatenation.get(0).unwrap();
+                let variable = &concatenation[1];
+                let offset = open + 1 + whole.start();
+                if !java_variable_type_before(&code, variable, offset)
+                    .is_some_and(|(declaration, kind)| declaration < open && java_string_type(kind))
+                    || concatenation
+                        .get(2)
+                        .is_some_and(|rhs| rhs.as_str() != variable)
+                {
                     continue;
-                };
-                for matched in concatenation.find_iter(body) {
-                    let offset = open + 1 + matched.start();
-                    if !reported_offsets.insert(offset) {
-                        continue;
-                    }
+                }
+                if reported.insert(("java-string-concat-in-loop", offset)) {
                     findings.push(finding(
                         "java-string-concat-in-loop",
                         path,
@@ -585,9 +580,68 @@ fn string_concat_in_loops(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
                     ));
                 }
             }
+            let repeated_source = &comments_masked[open + 1..close];
+            for compiled in JAVA_CONSTANT_PATTERN.captures_iter(repeated_source) {
+                let whole = compiled.get(0).unwrap();
+                let offset = open + 1 + whole.start();
+                if reported.insert(("java-pattern-compile-in-loop", offset)) {
+                    findings.push(finding(
+                        "java-pattern-compile-in-loop",
+                        path,
+                        line_at(&code, offset),
+                        "constant regular expression is compiled inside a loop",
+                        "high",
+                        Vec::new(),
+                    ));
+                }
+            }
+            for membership in JAVA_LINEAR_MEMBERSHIP.captures_iter(body) {
+                let whole = membership.get(0).unwrap();
+                let variable = &membership[1];
+                let offset = open + 1 + whole.start();
+                if !java_variable_type_before(&code, variable, offset).is_some_and(
+                    |(declaration, kind)| declaration < open && java_linear_collection_type(kind),
+                ) {
+                    continue;
+                }
+                if reported.insert(("java-linear-membership-in-loop", offset)) {
+                    findings.push(finding(
+                        "java-linear-membership-in-loop",
+                        path,
+                        line_at(&code, offset),
+                        &format!("List `{variable}` performs linear membership inside a loop"),
+                        "high",
+                        Vec::new(),
+                    ));
+                }
+            }
         }
     }
     findings
+}
+
+fn java_variable_type_before<'source>(
+    code: &'source str,
+    variable: &str,
+    offset: usize,
+) -> Option<(usize, &'source str)> {
+    JAVA_VARIABLE_DECLARATION
+        .captures_iter(&code[..offset])
+        .filter(|capture| &capture[2] == variable)
+        .last()
+        .and_then(|capture| Some((capture.get(0)?.start(), capture.get(1)?.as_str().trim())))
+}
+
+fn java_string_type(variable_type: &str) -> bool {
+    variable_type == "String" || variable_type.ends_with(".String")
+}
+
+fn java_linear_collection_type(variable_type: &str) -> bool {
+    variable_type
+        .split('<')
+        .next()
+        .and_then(|base| base.trim().rsplit('.').next())
+        .is_some_and(|base| matches!(base, "List" | "ArrayList" | "LinkedList" | "Vector"))
 }
 
 fn package_cycles(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
@@ -1144,6 +1198,13 @@ const EXTERNAL_SIGNATURE_ANNOTATIONS: &[&str] = &[
     "WrapWithCondition",
 ];
 
+static JAVA_LINEAR_MEMBERSHIP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*contains\s*\(").unwrap());
+static JAVA_CONSTANT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\bPattern\s*\.\s*compile\s*\(\s*\"(?:\\.|[^\"\\])*\""#).unwrap()
+});
+static JAVA_STRING_CONCAT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*(?:\+=|=\s*([A-Za-z_]\w*)\s*\+)").unwrap());
 static CATCH_EXCEPTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"catch\s*\(\s*(?:Exception|Throwable)\b").unwrap());
 static OBJECT_INPUT_STREAM: LazyLock<Regex> =
@@ -1227,8 +1288,12 @@ static ANNOTATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^@(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)\b").unwrap());
 static FORWARDING_CONSTRUCTOR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)\{\s*super\s*\([^;]*\);\s*}\s*$").unwrap());
-static STRING_DECLARATION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bString\s+([A-Za-z_]\w*)\b").unwrap());
+static JAVA_VARIABLE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b([A-Za-z_$][\w$.]*(?:\s*<[^;(){}=>\n]+>)?(?:\s*\[\])?)\s+([A-Za-z_$][\w$]*)\s*(?:=|,|\)|;|:)",
+    )
+    .unwrap()
+});
 static LOOP: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:(?:for|while)\s*\([^{}]*\)|do)\s*\{").unwrap());
 static PACKAGE: LazyLock<Regex> = LazyLock::new(|| {
@@ -1437,5 +1502,81 @@ String outputExample = \"System.err.println(value)\";\n"
                 ),
             ])
         );
+    }
+    #[test]
+    fn reports_java_loop_performance_patterns() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/Scan.java".to_owned(),
+            "class Scan {\n\
++  void scan(List<String> blocked, List<String> values) {\n\
++    String output = \"\";\n\
++    for (String value : values) {\n\
++      Pattern matcher = Pattern.compile(\"^[a-z]+$\");\n\
++      if (blocked.contains(value)) output += value;\n\
++    }\n\
++  }\n\
++}\n"
+                .replace("\n+", "\n"),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "java-pattern-compile-in-loop"
+                            | "java-linear-membership-in-loop"
+                            | "java-string-concat-in-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("java-string-concat-in-loop".to_owned(), 6),
+                ("java-pattern-compile-in-loop".to_owned(), 5),
+                ("java-linear-membership-in-loop".to_owned(), 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_java_loop_performance_safe_variants() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/SafeScan.java".to_owned(),
+            "class SafeScan {\n\
++  String result = \"\";\n\
++  void scan(String pattern, Set<String> allowed, List<String> values) {\n\
++    Pattern stable = Pattern.compile(\"^[a-z]+$\");\n\
++    StringBuilder output = new StringBuilder();\n\
++    int result = 0;\n\
++    for (String value : values) {\n\
++      Pattern dynamic = Pattern.compile(pattern);\n\
++      String perIteration = \"\";\n\
++      perIteration += value;\n\
++      if (allowed.contains(value)) output.append(value);\n\
++      result += 1;\n\
++      // Pattern.compile(\"commented\");\n\
++      String example = \"Pattern.compile(\\\"literal\\\")\";\n\
++    }\n\
++  }\n\
++}\n"
+                .replace("\n+", "\n"),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "java-pattern-compile-in-loop"
+                        | "java-linear-membership-in-loop"
+                        | "java-string-concat-in-loop"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
 }
