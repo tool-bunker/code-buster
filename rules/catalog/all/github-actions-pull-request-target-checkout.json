@@ -1,0 +1,33 @@
+{
+  "id": "github-actions-pull-request-target-checkout",
+  "language": "all",
+  "group": "security",
+  "listingTitle": "Do not execute pull-request code with target privileges",
+  "title": "Do not execute pull-request code with target privileges",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "security",
+  "why": "pull_request_target runs with base-repository privileges and secrets, so executing code checked out from an untrusted pull request can compromise the repository.",
+  "suggestion": "Keep the base revision checked out in pull_request_target jobs, or move untrusted code execution to a pull_request workflow with read-only permissions and no secrets.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "vulnerability",
+  "taxonomy": [
+    "security",
+    "ci"
+  ],
+  "requirements": [
+    "githubActionsWorkflow"
+  ],
+  "packs": [
+    "github-actions"
+  ],
+  "implementation": "src/rules/github_actions.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The rule requires direct pull_request_target, checkout of a pull-request head expression, and a later run or local-action step in the same job.",
+    "Reusable-workflow and cross-job data flow are not followed."
+  ]
+}

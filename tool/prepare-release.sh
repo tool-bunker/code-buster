@@ -25,7 +25,7 @@ version=$1
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
-python3 - "$project_dir/Cargo.toml" "$project_dir/Cargo.lock" "$project_dir/CHANGELOG.md" "$project_dir/README.md" "$version" <<'PY'
+python3 - "$project_dir/Cargo.toml" "$project_dir/Cargo.lock" "$project_dir/CHANGELOG.md" "$project_dir/README.md" "$project_dir/integrations/github/code-buster.yml" "$version" <<'PY'
 from pathlib import Path
 import re
 import sys
@@ -34,7 +34,8 @@ manifest_path = Path(sys.argv[1])
 lock_path = Path(sys.argv[2])
 changelog_path = Path(sys.argv[3])
 readme_path = Path(sys.argv[4])
-version = sys.argv[5]
+integration_path = Path(sys.argv[5])
+version = sys.argv[6]
 
 semver = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+"
@@ -94,21 +95,27 @@ else:
         + changelog[body_end:]
     )
 
-readme = readme_path.read_text()
-readme_pattern = re.compile(
+source_install_pattern = re.compile(
     r"(cargo install --git https://github\.com/tool-bunker/code-buster\.git --tag v)"
     r"[^ \r\n]+( --locked)"
 )
-updated_readme, readme_count = readme_pattern.subn(
-    rf"\g<1>{version}\2", readme, count=1
-)
-if readme_count != 1:
-    raise SystemExit("error: README.md has no pinned Cargo source install command")
+
+def update_source_install(path):
+    updated, count = source_install_pattern.subn(
+        rf"\g<1>{version}\2", path.read_text(), count=1
+    )
+    if count != 1:
+        raise SystemExit(f"error: {path} has no pinned Cargo source install command")
+    return updated
+
+updated_readme = update_source_install(readme_path)
+updated_integration = update_source_install(integration_path)
 
 manifest_path.write_text(updated_manifest)
 lock_path.write_text(updated_lock)
 changelog_path.write_text(updated_changelog)
 readme_path.write_text(updated_readme)
+integration_path.write_text(updated_integration)
 PY
 
 cargo metadata --manifest-path "$project_dir/Cargo.toml" --locked --no-deps --format-version 1 >/dev/null

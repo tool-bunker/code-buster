@@ -59,6 +59,7 @@ fn data_clumps(project: &Project) -> Vec<Finding> {
     findings
 }
 
+// code-buster-ignore complex-function: strategy evidence requires one nested project traversal before grouping.
 fn strategy_dispatch(project: &Project) -> Vec<Finding> {
     let mut groups = BTreeMap::<String, Vec<(String, usize)>>::new();
     for (path, source) in &project.sources {

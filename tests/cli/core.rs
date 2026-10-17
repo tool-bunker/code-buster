@@ -21,7 +21,7 @@ fn help_lists_the_implemented_commands() {
     assert_eq!(
         stdout.lines().nth(1),
         Some(
-            "Commands: summary graph dead duplication structure clusters complexity flags hotspots inspect related why path score quality plan actions review pr doctor preview explain rules config baseline fix init test version update completions"
+            "Commands: summary review inspect graph dead duplication quality rules baseline fix init doctor config update completions version"
         )
     );
     assert!(stdout.contains("-r, --root"));
@@ -30,6 +30,69 @@ fn help_lists_the_implemented_commands() {
     assert!(stdout.contains("--profile"));
     assert!(stdout.contains("--dry-run"));
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn removed_top_level_commands_are_not_retained_as_aliases() {
+    for command in [
+        "pr",
+        "preview",
+        "score",
+        "plan",
+        "actions",
+        "test",
+        "clusters",
+        "complexity",
+        "flags",
+        "hotspots",
+        "explain",
+        "related",
+        "why",
+        "path",
+        "structure",
+    ] {
+        let output = run(&[command]);
+        assert_eq!(output.status.code(), Some(2), "{command}");
+        assert!(output.stdout.is_empty(), "{command}");
+        assert!(
+            String::from_utf8(output.stderr)
+                .expect("stderr must be UTF-8")
+                .contains("Unknown Code Buster command"),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn consolidated_views_reject_ambiguous_or_misplaced_options() {
+    for (arguments, message) in [
+        (
+            &["summary", "--score"][..],
+            "--score is only supported by cb quality",
+        ),
+        (
+            &["quality", "--score", "--hotspots"][..],
+            "--score, --hotspots are mutually exclusive",
+        ),
+        (
+            &["quality", "--format", "plan"][..],
+            "--format plan is only supported by cb review",
+        ),
+        (
+            &["review", "--related"][..],
+            "--related is only supported by cb inspect",
+        ),
+    ] {
+        let output = run(arguments);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8(output.stderr)
+                .expect("stderr must be UTF-8")
+                .contains(message),
+            "{arguments:?}"
+        );
+    }
 }
 
 #[test]
@@ -587,15 +650,16 @@ fn summary_uses_changed_base_for_diff_quality_findings() {
 }
 
 #[test]
-fn preview_emits_deterministic_json_with_coverage_and_versions() {
+fn config_files_emits_deterministic_json_with_coverage_and_versions() {
     let output = run_preview(&preview_fixture(), &["--format", "json", "--verbose"]);
 
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stderr.is_empty());
     let report: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("preview must emit JSON");
+        serde_json::from_slice(&output.stdout).expect("config --files must emit JSON");
     assert_eq!(report["schemaVersion"], 3);
-    assert_eq!(report["command"], "preview");
+    assert_eq!(report["command"], "config");
+    assert_eq!(report["view"], "files");
     assert_eq!(
         report["files"],
         serde_json::json!([
@@ -620,12 +684,12 @@ fn preview_emits_deterministic_json_with_coverage_and_versions() {
 }
 
 #[test]
-fn preview_text_and_all_source_selection_match_the_public_contract() {
+fn config_files_text_and_all_source_selection_match_the_public_contract() {
     let text = run_preview(&preview_fixture(), &["--format", "text"]);
     assert_eq!(text.status.code(), Some(0));
     assert_eq!(
         String::from_utf8(text.stdout).expect("stdout must be UTF-8"),
-        "Code Buster preview: 3 selected files\n\
+        "Code Buster selected files: 3 selected files\n\
          coverage: generated=1 selected=3 test=1 vendored=1\n\
          dart\tlib/main.dart\n\
          typescript\tsrc/app.ts\n\
@@ -635,7 +699,7 @@ fn preview_text_and_all_source_selection_match_the_public_contract() {
     let all = run_preview(&preview_fixture(), &["--format=json", "--all"]);
     assert_eq!(all.status.code(), Some(0));
     let report: serde_json::Value =
-        serde_json::from_slice(&all.stdout).expect("preview must emit JSON");
+        serde_json::from_slice(&all.stdout).expect("config --files must emit JSON");
     assert_eq!(report["coverage"]["selected"], 5);
     assert_eq!(report["coverage"]["generated"], 1);
     assert!(report["coverage"].get("test").is_none());

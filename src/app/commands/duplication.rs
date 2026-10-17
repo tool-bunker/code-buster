@@ -21,10 +21,6 @@ pub fn execute(options: &PreviewOptions) -> Result<DuplicationOutcome, String> {
     execute_named(options, "duplication")
 }
 
-pub fn execute_clusters(options: &PreviewOptions) -> Result<DuplicationOutcome, String> {
-    execute_named(options, "clusters")
-}
-
 fn execute_named(
     options: &PreviewOptions,
     command: &'static str,
@@ -84,6 +80,7 @@ fn execute_named(
             findings: &detailed,
             actionable_count,
             advisory_summary: &advisory_summary,
+            show_advisory_hint: false,
             verbose: options.verbose,
             profile: options.profile,
         },

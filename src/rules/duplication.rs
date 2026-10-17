@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -53,9 +53,8 @@ fn exact_duplicates(
     collect_findings: bool,
 ) -> (usize, Vec<Finding>) {
     let window = min_lines.max(3) as usize;
-    let (occurrences, insertion_order, normalized_by_path) =
-        collect_duplicate_windows(sources, window);
-    let candidates = ordered_duplicate_candidates(occurrences, &insertion_order);
+    let (occurrences, normalized_by_path) = collect_duplicate_windows(sources, window);
+    let candidates = ordered_duplicate_candidates(occurrences);
     let mut occupied: BTreeMap<String, Vec<LineRange>> = BTreeMap::new();
     let mut groups = 0;
     let mut findings = Vec::new();
@@ -96,19 +95,19 @@ fn exact_duplicates(
     (groups, findings)
 }
 
-type DuplicateOccurrences = BTreeMap<String, Vec<Location>>;
+struct DuplicateOccurrence {
+    insertion_order: usize,
+    locations: Vec<Location>,
+}
+
+type DuplicateOccurrences = HashMap<String, DuplicateOccurrence>;
 type NormalizedSources = BTreeMap<String, Vec<NormalizedLine>>;
 
 fn collect_duplicate_windows(
     sources: &BTreeMap<String, String>,
     window: usize,
-) -> (
-    DuplicateOccurrences,
-    BTreeMap<String, usize>,
-    NormalizedSources,
-) {
-    let mut occurrences = BTreeMap::new();
-    let mut insertion_order = BTreeMap::new();
+) -> (DuplicateOccurrences, NormalizedSources) {
+    let mut occurrences = HashMap::new();
     let mut normalized_by_path = BTreeMap::new();
     for (path, source) in sources {
         record_source_duplicate_windows(
@@ -116,11 +115,10 @@ fn collect_duplicate_windows(
             source,
             window,
             &mut occurrences,
-            &mut insertion_order,
             &mut normalized_by_path,
         );
     }
-    (occurrences, insertion_order, normalized_by_path)
+    (occurrences, normalized_by_path)
 }
 
 fn record_source_duplicate_windows(
@@ -128,7 +126,6 @@ fn record_source_duplicate_windows(
     source: &str,
     window: usize,
     occurrences: &mut DuplicateOccurrences,
-    insertion_order: &mut BTreeMap<String, usize>,
     normalized_by_path: &mut NormalizedSources,
 ) {
     if historical_sql(path) {
@@ -139,12 +136,15 @@ fn record_source_duplicate_windows(
         let language_key = duplicate_language_key(path);
         for start in 0..=lines.len() - window {
             let key = duplicate_window_key(&language_key, &lines[start..start + window]);
-            if !occurrences.contains_key(&key) {
-                insertion_order.insert(key.clone(), insertion_order.len());
-            }
-            let locations = occurrences.entry(key).or_default();
-            if locations.len() < MAX_OCCURRENCES_PER_GROUP {
-                locations.push(Location {
+            let insertion_order = occurrences.len();
+            let occurrence = occurrences
+                .entry(key)
+                .or_insert_with(|| DuplicateOccurrence {
+                    insertion_order,
+                    locations: Vec::new(),
+                });
+            if occurrence.locations.len() < MAX_OCCURRENCES_PER_GROUP {
+                occurrence.locations.push(Location {
                     path: path.to_owned(),
                     line: lines[start].number,
                     index: start,
@@ -184,12 +184,11 @@ fn duplicate_window_key(language_key: &str, lines: &[NormalizedLine]) -> String 
 
 fn ordered_duplicate_candidates(
     occurrences: DuplicateOccurrences,
-    insertion_order: &BTreeMap<String, usize>,
 ) -> Vec<(usize, String, Vec<Location>)> {
     let mut candidates = occurrences
         .into_iter()
-        .filter(|(_, locations)| locations.len() > 1)
-        .map(|(key, locations)| (insertion_order[&key], key, locations))
+        .filter(|(_, occurrence)| occurrence.locations.len() > 1)
+        .map(|(key, occurrence)| (occurrence.insertion_order, key, occurrence.locations))
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| {
         let left_earliest =

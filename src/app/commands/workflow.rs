@@ -32,7 +32,7 @@ pub fn execute_plan(options: &PreviewOptions) -> Result<(), String> {
             .then_with(|| right_findings.len().cmp(&left_findings.len()))
     });
 
-    println!("Code Buster plan");
+    println!("Code Buster review plan");
     if prioritized.is_empty() {
         println!("No findings to plan from.");
         return Ok(());
@@ -77,7 +77,8 @@ pub fn execute_actions(options: &PreviewOptions) -> Result<WorkflowOutcome, Stri
         serde_json::to_string(&json!({
             "schemaVersion": 3,
             "version": 1,
-            "command": "actions",
+            "command": "review",
+            "view": "actions",
             "root": run.prepared.root,
             "actions": actions,
         }))

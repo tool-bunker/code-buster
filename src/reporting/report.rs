@@ -17,6 +17,7 @@ pub struct FindingReport<'a> {
     pub findings: &'a [Finding],
     pub actionable_count: usize,
     pub advisory_summary: &'a BTreeMap<String, usize>,
+    pub show_advisory_hint: bool,
     pub verbose: bool,
     pub profile: bool,
 }
@@ -386,6 +387,10 @@ fn write_text_advisory_summary(
     }
     output.push_str("\n\n");
     palette.write(output, "1", "Advisory breakdown");
+    if report.show_advisory_hint {
+        output.push(' ');
+        palette.write(output, "2;90", "(cb --advisory)");
+    }
     for (group, count) in report.advisory_summary {
         output.push_str("\n  ");
         palette.write(output, "35", format_args!("{group:<18}"));
@@ -434,8 +439,39 @@ fn write_text_finding(output: &mut String, finding: &Finding, palette: TerminalP
             format_args!("{}:{}", finding.path, finding.line),
         );
     }
+    write_text_finding_message(output, finding, palette);
+}
+
+fn write_text_finding_message(output: &mut String, finding: &Finding, palette: TerminalPalette) {
     output.push_str("\n        ");
-    output.push_str(&finding.message);
+    let Some((name, cyclomatic, cognitive)) = complexity_metrics(finding) else {
+        output.push_str(&finding.message);
+        return;
+    };
+    output.push_str(name);
+    output.push_str("\n        ");
+    palette.write(output, "2", "Cyclomatic");
+    output.push_str("  ");
+    palette.write(output, "1;33", cyclomatic);
+    output.push_str("  ·  ");
+    palette.write(output, "2", "Cognitive");
+    output.push_str("  ");
+    palette.write(output, "1;33", cognitive);
+}
+
+fn complexity_metrics(finding: &Finding) -> Option<(&str, &str, &str)> {
+    if finding.code != "complex-function" {
+        return None;
+    }
+    let (prefix, cognitive) = finding.message.rsplit_once(" cognitive=")?;
+    let (name, cyclomatic) = prefix.rsplit_once(" complexity=")?;
+    if name.is_empty()
+        || cyclomatic.parse::<usize>().is_err()
+        || cognitive.parse::<usize>().is_err()
+    {
+        return None;
+    }
+    Some((name, cyclomatic, cognitive))
 }
 
 fn write_text_finding_details(output: &mut String, finding: &Finding, palette: TerminalPalette) {

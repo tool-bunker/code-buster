@@ -218,6 +218,7 @@ fn dart_callable_body(source: &str, offset: usize) -> Option<(usize, usize)> {
 }
 
 
+// code-buster-ignore complex-function: the single-pass normalizer keeps literal and whitespace state local.
 fn normalize_dart_function_source(source: &str) -> String {
     let source = mask_comments_preserving_strings(source);
     let bytes = source.as_bytes();

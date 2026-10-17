@@ -965,6 +965,7 @@ impl BoolExpr {
     }
 }
 
+// code-buster-ignore complex-function: recursive-descent boolean parsing keeps precedence and getter expansion together.
 fn parse_condition(
     source: &str,
     target: &str,

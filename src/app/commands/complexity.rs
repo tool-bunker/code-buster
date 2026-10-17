@@ -1,12 +1,12 @@
 use std::path::Path;
 
+use super::print_quality_report;
 use crate::analysis_cache::AnalysisCache;
 use crate::cli::PreviewOptions;
 use crate::complexity;
 use crate::discovery::prepare;
 use crate::finding_controls;
 use crate::function_sources;
-use crate::report::{FindingReport, render};
 use crate::sarif_ingestion;
 
 pub enum ComplexityOutcome {
@@ -43,19 +43,13 @@ pub fn execute(options: &PreviewOptions) -> Result<ComplexityOutcome, String> {
     )?;
     let (detailed, actionable_count, advisory_summary) =
         finding_controls::detailed(controlled, options, complexity_group);
-    let output = render(
-        options.format.clone(),
-        &FindingReport {
-            command: "complexity",
-            prepared: &prepared,
-            findings: &detailed,
-            actionable_count,
-            advisory_summary: &advisory_summary,
-            verbose: options.verbose,
-            profile: options.profile,
-        },
+    print_quality_report(
+        options,
+        &prepared,
+        &detailed,
+        actionable_count,
+        &advisory_summary,
     )?;
-    println!("{output}");
     if options.fail_on_issues && actionable_count > 0 {
         Ok(ComplexityOutcome::Findings)
     } else {

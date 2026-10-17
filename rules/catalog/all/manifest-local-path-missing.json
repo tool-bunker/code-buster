@@ -1,0 +1,35 @@
+{
+  "id": "manifest-local-path-missing",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Resolve local manifest paths",
+  "title": "Resolve local manifest paths",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "A missing local package, workspace member, executable, target, or script entry point makes the checked-out project incomplete or unbuildable.",
+  "suggestion": "Add the referenced file or package, or correct the manifest path.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness",
+    "configuration"
+  ],
+  "requirements": [
+    "manifest",
+    "fileSystem"
+  ],
+  "packs": [
+    "repository-contracts"
+  ],
+  "implementation": "src/rules/repository_contracts.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Cargo literal workspace members, path dependencies, and explicit target paths are checked.",
+    "package.json literal workspace members and bin entries are checked; wildcard workspaces and generated main or exports outputs are not.",
+    "PEP 621 project.scripts module paths are checked in the project root and src layout."
+  ]
+}

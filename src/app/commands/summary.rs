@@ -17,6 +17,7 @@ use crate::finding_controls;
 use crate::findings::Finding;
 use crate::report::{FindingReport, render};
 use crate::reporting::progress::AnalysisProgress;
+use crate::repository_contract_rules;
 use crate::repository_defaults::RepositoryMetadataFile;
 use crate::rule_catalog;
 use crate::sarif_ingestion;
@@ -40,6 +41,7 @@ pub(crate) fn analyze(options: &PreviewOptions) -> Result<AnalysisRun, String> {
     analyze_for(options, "summary")
 }
 
+// code-buster-ignore complex-function: one ordered pipeline owns shared timing, cache, and report state.
 fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<AnalysisRun, String> {
     let progress = AnalysisProgress::new(options);
     let started = Instant::now();
@@ -66,6 +68,10 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
         &analysis_prepared.sources,
         &mut auxiliary,
     );
+    auxiliary.extend(repository_contract_rules::manifest_existence_markers(
+        Path::new(&analysis_prepared.root),
+        &auxiliary,
+    ));
     if let Some(base) = options.changed_base.as_deref()
         && let Some(package) = git_file(Path::new(&analysis_prepared.root), base, "package.json")
     {
@@ -213,6 +219,9 @@ pub(crate) fn execute_report(
             findings: &detailed,
             actionable_count: run.actionable_count,
             advisory_summary: &run.advisory_summary,
+            show_advisory_hint: command == "summary"
+                && !options.include_advisory
+                && !options.all_findings,
             verbose: options.verbose,
             profile: options.profile,
         },

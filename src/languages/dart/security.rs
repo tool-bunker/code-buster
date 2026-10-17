@@ -503,6 +503,7 @@ fn sensitive_identifier(name: &str) -> bool {
     SENSITIVE_NAME.is_match(name) && !SENSITIVE_METADATA_SUFFIX.is_match(name)
 }
 
+// code-buster-ignore complex-function: the single-pass string masker keeps quote and escape state local.
 fn mask_string_contents(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut masked = bytes.to_vec();

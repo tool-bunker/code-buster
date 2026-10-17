@@ -1,0 +1,33 @@
+{
+  "id": "github-actions-template-injection",
+  "language": "all",
+  "group": "security",
+  "listingTitle": "Keep untrusted workflow data out of shell templates",
+  "title": "Keep untrusted workflow data out of shell templates",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "security",
+  "why": "GitHub expands expressions before invoking the shell, so attacker-controlled event or dispatch values can inject commands into a generated script.",
+  "suggestion": "Assign the expression to an env value, validate it where appropriate, and reference the quoted shell variable from run.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "vulnerability",
+  "taxonomy": [
+    "security",
+    "injection"
+  ],
+  "requirements": [
+    "githubActionsWorkflow"
+  ],
+  "packs": [
+    "github-actions"
+  ],
+  "implementation": "src/rules/github_actions.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct run commands in checked-in .github/workflows YAML files are inspected.",
+    "String inputs, github.event fields, and github.head_ref are treated as untrusted contexts; typed boolean, choice, and number workflow inputs are excluded. The rule does not perform cross-step data-flow analysis."
+  ]
+}

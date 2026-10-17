@@ -201,6 +201,7 @@ pub(crate) fn is_private(function: &FunctionSource) -> bool {
     }
 }
 
+// code-buster-ignore complex-function: cross-language parameter parsing keeps declaration normalization in one routine.
 pub(crate) fn required_parameter_names(function: &FunctionSource) -> Option<Vec<String>> {
     let open = declaration_open(&function.source, &function.name)?;
     let close = matching_delimiter(&function.source, open, b'(', b')')?;

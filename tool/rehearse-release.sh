@@ -88,9 +88,10 @@ fi
 tar -xzf "$archive_path" -C "$install_dir"
 "$install_dir/cb" version
 "$install_dir/cb" completions bash > "$work_dir/completions.bash"
-"$install_dir/cb" preview \
+"$install_dir/cb" config \
+  --files \
   --root "$source_dir/tests/fixtures/preview" \
-  --format json > "$work_dir/preview.json"
+  --format json > "$work_dir/files.json"
 "$install_dir/cb" summary \
   --root "$source_dir/tests/fixtures/preview" \
   --format json \

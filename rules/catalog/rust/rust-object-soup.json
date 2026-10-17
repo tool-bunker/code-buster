@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "The same loose values repeatedly crossing function boundaries form an implicit object whose invariants and evolution are distributed across parameter lists instead of represented by a Rust type.",
   "suggestion": "Introduce a struct or domain newtype when these parameters share identity and lifecycle.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -29,8 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Requires the same complete set of four to ten simple named parameters with the same declared types in at least three distinct function names across two files, or at least four distinct function names in one file.",
+    "Requires the same complete set of four to ten simple scalar parameters with the same declared types in at least three distinct function names across two files, or at least four distinct function names in one file.",
     "Parameter order is ignored, but subsets, type aliases, local variables, call-site flow, and groups split across otherwise different parameter lists are not inferred.",
-    "Receivers, variadic or destructured parameters, inline tests, non-production source roles, trait method contracts, explicit extern or exported ABI functions, recognized JNI, N-API, op2, PyO3, and wasm-bindgen bindings, repeated contract-style methods with one function name, and groups below the project-level repetition threshold are excluded."
+    "Receivers, aggregate or collection-typed parameters, mutable finding accumulators, Finding factories, variadic or destructured parameters, inline tests, non-production source roles, trait method contracts, explicit extern or exported ABI functions, recognized JNI, N-API, op2, PyO3, and wasm-bindgen bindings, repeated contract-style methods with one function name, and groups below the project-level repetition threshold are excluded."
   ]
 }

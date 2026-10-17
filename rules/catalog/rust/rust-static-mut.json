@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A mutable static permits aliased unsynchronized global mutation behind unsafe access.",
   "suggestion": "Use an atomic, Mutex, RwLock, OnceLock, or immutable initialization.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The declaration is reported as a review boundary; the rule does not prove an access is unsound."
+    "The declaration is reported as a review boundary; the rule does not prove an access is unsound. Mutable references carrying the `'static` lifetime are not static declarations and are excluded."
   ]
 }

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
-use regex::{Captures, Regex};
+use regex::Regex;
 
 use crate::constant_arguments::code_without_comments_and_strings;
 use crate::function_sources::FunctionSource;
@@ -77,56 +77,47 @@ fn collect_function_usage<'a>(
 ) {
     for (owner, function) in ordered.iter().enumerate() {
         let code = code_without_comments_and_strings(function);
-        collect_references(&code, names, reference_counts);
-        collect_calls(owner, &code, names, calls);
+        collect_usage(owner, &code, names, reference_counts, calls);
         stripped_sources.push(code);
     }
 }
 
-fn collect_references<'a>(
+fn collect_usage<'a>(
+    owner: usize,
     code: &str,
     names: &BTreeSet<&'a str>,
     reference_counts: &mut BTreeMap<&'a str, usize>,
-) {
-    for capture in IDENTIFIER.captures_iter(code) {
-        let Some(identifier) = capture.get(1) else {
-            continue;
-        };
-        if let Some(canonical) = names.get(identifier.as_str()) {
-            *reference_counts.entry(*canonical).or_default() += 1;
-        }
-    }
-}
-
-fn collect_calls<'a>(
-    owner: usize,
-    code: &str,
-    names: &BTreeSet<&'a str>,
     calls: &mut BTreeMap<&'a str, Vec<Call>>,
 ) {
-    for capture in CALL.captures_iter(code) {
-        let Some((name, call)) = resolve_call(owner, code, &capture, names) else {
+    for identifier in IDENTIFIER.find_iter(code) {
+        let Some(canonical) = names.get(identifier.as_str()).copied() else {
             continue;
         };
-        calls.entry(name).or_default().push(call);
+        *reference_counts.entry(canonical).or_default() += 1;
+        let Some(open) = call_open(code, identifier.end()) else {
+            continue;
+        };
+        let Some(call) = resolve_call(owner, code, identifier.start(), open) else {
+            continue;
+        };
+        calls.entry(canonical).or_default().push(call);
     }
 }
 
-fn resolve_call<'a>(
-    owner: usize,
-    code: &str,
-    capture: &Captures<'_>,
-    names: &BTreeSet<&'a str>,
-) -> Option<(&'a str, Call)> {
-    let name = names.get(capture.get(1)?.as_str()).copied()?;
-    let complete = capture.get(0)?;
-    if !call_receiver_is_supported(code, complete.start()) {
+fn call_open(code: &str, identifier_end: usize) -> Option<usize> {
+    let (offset, next) = code[identifier_end..]
+        .char_indices()
+        .find(|(_, character)| !character.is_whitespace())?;
+    (next == '(').then_some(identifier_end + offset)
+}
+
+fn resolve_call(owner: usize, code: &str, identifier_start: usize, open: usize) -> Option<Call> {
+    if !call_receiver_is_supported(code, identifier_start) {
         return None;
     }
-    let open = complete.end() - 1;
     let close = matching_delimiter(code, open, b'(', b')')?;
     let arguments = call_arguments(&code[open + 1..close]);
-    Some((name, Call { owner, arguments }))
+    Some(Call { owner, arguments })
 }
 
 fn call_receiver_is_supported(code: &str, start: usize) -> bool {
@@ -166,5 +157,3 @@ fn is_identifier(character: char) -> bool {
 
 static IDENTIFIER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\b").expect("identifier regex"));
-static CALL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\(").expect("function call regex"));

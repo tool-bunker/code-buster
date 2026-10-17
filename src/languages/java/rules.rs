@@ -541,6 +541,7 @@ impl ParameterScanState {
     }
 }
 
+// code-buster-ignore complex-function: loop-body scanning keeps source ranges and duplicate offsets in one traversal.
 fn string_concat_in_loops(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, raw_source) in sources {

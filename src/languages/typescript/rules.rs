@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -61,6 +62,8 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     let sink_lines = sink_source.split('\n').collect::<Vec<_>>();
     let inside_loop = inside_loop_by_line(&code_lines);
     let mut findings = Vec::new();
+    findings.extend(async_foreach_findings(path, &sink_source));
+    findings.extend(child_process_shell_findings(path, &uncommented_source));
 
     for index in 0..raw_lines.len() {
         let stripped_code = strip_literals(code_lines[index]);
@@ -87,6 +90,372 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
         analyze_json_parsing(&line, &mut findings);
     }
     findings
+}
+
+fn async_foreach_findings(path: &str, source: &str) -> Vec<Finding> {
+    ASYNC_FOREACH
+        .find_iter(source)
+        .map(|matched| {
+            let line = line_number(source, matched.start());
+            finding(
+                "js-async-foreach",
+                path,
+                line,
+                line,
+                "async forEach callback does not make the caller await its work",
+                "high",
+            )
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum ChildProcessApi {
+    Exec,
+    Spawn,
+}
+
+#[derive(Default)]
+struct ChildProcessBindings {
+    exec: BTreeSet<String>,
+    spawn: BTreeSet<String>,
+    namespaces: BTreeSet<String>,
+}
+
+fn child_process_shell_findings(path: &str, source: &str) -> Vec<Finding> {
+    let static_commands = static_command_bindings(source);
+    let bindings = child_process_bindings(source);
+    let mut calls = Vec::new();
+    for name in &bindings.exec {
+        calls.extend(call_openings(source, name).map(|open| (open, ChildProcessApi::Exec)));
+    }
+    for name in &bindings.spawn {
+        calls.extend(call_openings(source, name).map(|open| (open, ChildProcessApi::Spawn)));
+    }
+    for namespace in &bindings.namespaces {
+        for api in ["exec", "execSync"] {
+            let callable = format!("{namespace}.{api}");
+            calls
+                .extend(call_openings(source, &callable).map(|open| (open, ChildProcessApi::Exec)));
+        }
+        for api in ["spawn", "spawnSync"] {
+            let callable = format!("{namespace}.{api}");
+            calls.extend(
+                call_openings(source, &callable).map(|open| (open, ChildProcessApi::Spawn)),
+            );
+        }
+    }
+    calls.sort_by_key(|(open, _)| *open);
+    calls.dedup_by_key(|(open, _)| *open);
+    calls
+        .into_iter()
+        .filter_map(|(open, api)| {
+            let arguments = call_arguments(source, open)?;
+            let risky = match api {
+                ChildProcessApi::Exec => arguments.first().is_some_and(|command| {
+                    !is_static_command_expression(command)
+                        && !static_commands.contains(command.trim())
+                        && !is_allowlist_guarded_command(source, open, command)
+                }),
+                ChildProcessApi::Spawn => spawn_uses_dynamic_shell_input(&arguments),
+            };
+            risky.then(|| {
+                let line = line_number(source, open);
+                finding(
+                    "js-child-process-shell-interpolation",
+                    path,
+                    line,
+                    line,
+                    "dynamic data reaches a child-process shell command",
+                    "high",
+                )
+            })
+        })
+        .collect()
+}
+
+fn child_process_bindings(source: &str) -> ChildProcessBindings {
+    let mut bindings = ChildProcessBindings::default();
+    for captures in CHILD_PROCESS_IMPORT.captures_iter(source) {
+        if let Some(list) = captures.get(1) {
+            collect_child_process_names(list.as_str(), false, &mut bindings);
+        }
+    }
+    for captures in CHILD_PROCESS_REQUIRE_DESTRUCTURE.captures_iter(source) {
+        if let Some(list) = captures.get(1) {
+            collect_child_process_names(list.as_str(), true, &mut bindings);
+        }
+    }
+    for captures in CHILD_PROCESS_NAMESPACE.captures_iter(source) {
+        if let Some(namespace) = captures.get(1) {
+            bindings.namespaces.insert(namespace.as_str().to_owned());
+        }
+    }
+    for captures in CHILD_PROCESS_REQUIRE_NAMESPACE.captures_iter(source) {
+        if let Some(namespace) = captures.get(1) {
+            bindings.namespaces.insert(namespace.as_str().to_owned());
+        }
+    }
+    bindings
+}
+
+fn static_command_bindings(source: &str) -> BTreeSet<String> {
+    STATIC_COMMAND_BINDING
+        .captures_iter(source)
+        .filter_map(|captures| {
+            let name = captures.get(1)?.as_str();
+            let expression = captures.get(2)?.as_str().trim();
+            is_static_command_expression(expression).then(|| name.to_owned())
+        })
+        .collect()
+}
+
+fn collect_child_process_names(list: &str, common_js: bool, bindings: &mut ChildProcessBindings) {
+    for entry in list
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+    {
+        let (imported, local) = if common_js {
+            entry
+                .split_once(':')
+                .map_or((entry, entry), |(imported, alias)| {
+                    (imported.trim(), alias.trim())
+                })
+        } else {
+            let mut parts = entry.split_whitespace();
+            let Some(imported) = parts.next() else {
+                continue;
+            };
+            let local = match (parts.next(), parts.next()) {
+                (Some("as"), Some(alias)) => alias,
+                _ => imported,
+            };
+            (imported, local)
+        };
+        match imported {
+            "exec" | "execSync" => {
+                bindings.exec.insert(local.to_owned());
+            }
+            "spawn" | "spawnSync" => {
+                bindings.spawn.insert(local.to_owned());
+            }
+            _ => {}
+        }
+    }
+}
+
+fn call_openings<'a>(source: &'a str, callable: &'a str) -> impl Iterator<Item = usize> + 'a {
+    source
+        .match_indices(callable)
+        .filter_map(move |(start, _)| {
+            let before = source[..start].chars().next_back();
+            let after_name = start + callable.len();
+            let boundary = before.is_none_or(|character| {
+                !character.is_ascii_alphanumeric() && !matches!(character, '_' | '$' | '.')
+            });
+            if !boundary || !is_code_offset(source, start) {
+                return None;
+            }
+            let whitespace = source[after_name..]
+                .len()
+                .saturating_sub(source[after_name..].trim_start().len());
+            source[after_name + whitespace..]
+                .starts_with('(')
+                .then_some(after_name + whitespace)
+        })
+}
+
+// code-buster-ignore complex-function: the single-pass quote scan keeps delimiter and escape state local.
+fn is_code_offset(source: &str, target: usize) -> bool {
+    let mut quote = None;
+    let mut escaped = false;
+    for character in source[..target].chars() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+        } else if matches!(character, '"' | '\'' | '`') {
+            quote = Some(character);
+        }
+    }
+    quote.is_none()
+}
+
+// code-buster-ignore complex-function: the argument parser keeps quote and three delimiter depths local.
+fn call_arguments(source: &str, open: usize) -> Option<Vec<&str>> {
+    let mut arguments = Vec::new();
+    let body_start = open + 1;
+    let mut argument_start = body_start;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut parentheses = 1_i32;
+    let mut brackets = 0_i32;
+    let mut braces = 0_i32;
+    for (relative, character) in source[body_start..].char_indices() {
+        let offset = body_start + relative;
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '"' | '\'' | '`' => quote = Some(character),
+            '(' => parentheses += 1,
+            ')' => {
+                parentheses -= 1;
+                if parentheses == 0 {
+                    let argument = source[argument_start..offset].trim();
+                    if !argument.is_empty() {
+                        arguments.push(argument);
+                    }
+                    return Some(arguments);
+                }
+            }
+            '[' => brackets += 1,
+            ']' => brackets -= 1,
+            '{' => braces += 1,
+            '}' => braces -= 1,
+            ',' if parentheses == 1 && brackets == 0 && braces == 0 => {
+                arguments.push(source[argument_start..offset].trim());
+                argument_start = offset + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn spawn_uses_dynamic_shell_input(arguments: &[&str]) -> bool {
+    let Some(options) = arguments
+        .iter()
+        .find(|argument| CHILD_PROCESS_SHELL_TRUE.is_match(argument))
+    else {
+        return false;
+    };
+    arguments
+        .iter()
+        .take_while(|argument| *argument != options)
+        .any(|argument| !is_static_spawn_input(argument))
+}
+
+fn is_static_spawn_input(expression: &str) -> bool {
+    if is_static_command_expression(expression) {
+        return true;
+    }
+    let expression = expression.trim();
+    if !(expression.starts_with('[') && expression.ends_with(']')) {
+        return false;
+    }
+    split_top_level(&expression[1..expression.len() - 1])
+        .is_some_and(|items| items.iter().all(|item| is_static_command_expression(item)))
+}
+
+// code-buster-ignore complex-function: the top-level splitter keeps quote and three delimiter depths local.
+fn split_top_level(source: &str) -> Option<Vec<&str>> {
+    let mut items = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut parentheses = 0_i32;
+    let mut brackets = 0_i32;
+    let mut braces = 0_i32;
+    for (offset, character) in source.char_indices() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '"' | '\'' | '`' => quote = Some(character),
+            '(' => parentheses += 1,
+            ')' => parentheses -= 1,
+            '[' => brackets += 1,
+            ']' => brackets -= 1,
+            '{' => braces += 1,
+            '}' => braces -= 1,
+            ',' if parentheses == 0 && brackets == 0 && braces == 0 => {
+                items.push(source[start..offset].trim());
+                start = offset + character.len_utf8();
+            }
+            _ => {}
+        }
+        if parentheses < 0 || brackets < 0 || braces < 0 {
+            return None;
+        }
+    }
+    if quote.is_some() || parentheses != 0 || brackets != 0 || braces != 0 {
+        return None;
+    }
+    let final_item = source[start..].trim();
+    if !final_item.is_empty() {
+        items.push(final_item);
+    }
+    Some(items)
+}
+
+fn is_static_command_expression(source: &str) -> bool {
+    let source = unwrapped_static_expression(source);
+    if is_static_string_literal(source) {
+        return true;
+    }
+    let operators = top_level_static_operators(source);
+    let pluses = operators
+        .into_iter()
+        .filter(|offset| source.as_bytes()[*offset] == b'+')
+        .collect::<Vec<_>>();
+    if pluses.is_empty() {
+        return false;
+    }
+    let mut start = 0;
+    for plus in pluses {
+        if !is_static_string_literal(source[start..plus].trim()) {
+            return false;
+        }
+        start = plus + 1;
+    }
+    is_static_string_literal(source[start..].trim())
+}
+
+fn is_allowlist_guarded_command(source: &str, open: usize, command: &str) -> bool {
+    let roots = SHELL_TEMPLATE_ROOT
+        .captures_iter(command)
+        .filter_map(|capture| capture.get(1).map(|name| name.as_str()))
+        .collect::<BTreeSet<_>>();
+    if roots.is_empty() {
+        return false;
+    }
+    let prefix = &source[..open];
+    let scope = prefix
+        .rfind("function ")
+        .map_or(prefix, |start| &prefix[start..]);
+    let guarded = SHELL_ALLOWLIST_GUARD
+        .captures_iter(scope)
+        .filter_map(|capture| capture.get(1).map(|name| name.as_str()))
+        .collect::<BTreeSet<_>>();
+    roots.is_subset(&guarded)
+}
+
+fn line_number(source: &str, offset: usize) -> usize {
+    source[..offset.min(source.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
 }
 
 fn analyze_style(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
@@ -1528,6 +1897,50 @@ static LOOP_PREFIX: LazyLock<Regex> =
 static DO_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bdo\s*$").unwrap());
 static TRY_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btry\s*$").unwrap());
 static CATCH_SUFFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*catch\b").unwrap());
+static ASYNC_FOREACH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)\.\s*forEach\s*\(\s*async(?:\s+function\b)?")
+        .expect("async forEach regex must compile")
+});
+static CHILD_PROCESS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?s)\bimport\s*\{([^}]*)\}\s*from\s*["'](?:node:)?child_process["']"#)
+        .expect("child process import regex must compile")
+});
+static CHILD_PROCESS_REQUIRE_DESTRUCTURE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?s)\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)"#,
+    )
+    .expect("child process destructuring regex must compile")
+});
+static CHILD_PROCESS_NAMESPACE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?s)\bimport\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*["'](?:node:)?child_process["']"#,
+    )
+    .expect("child process namespace regex must compile")
+});
+static CHILD_PROCESS_REQUIRE_NAMESPACE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?s)\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)"#,
+    )
+    .expect("child process require regex must compile")
+});
+static STATIC_COMMAND_BINDING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*([^;\r\n]+)")
+        .expect("static command binding regex must compile")
+});
+static SHELL_TEMPLATE_ROOT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\$\{\s*([A-Za-z_$][\w$]*)")
+        .expect("shell template interpolation regex must compile")
+});
+static SHELL_ALLOWLIST_GUARD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?s)if\s*\(\s*!\s*/\^[^/\r\n]+\$/[a-z]*\.test\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\)\s*\{[^{}]*\b(?:throw|return)\b"#,
+    )
+    .expect("shell allowlist guard regex must compile")
+});
+static CHILD_PROCESS_SHELL_TRUE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)(?:^|[,{])\s*shell\s*:\s*true\b")
+        .expect("child process shell option regex must compile")
+});
 static TOOLING_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?:^|/)(?:extra|scripts|tasks|bin|sandbox|playgrounds?|benchmarks?|benchmarking|dev)/",
@@ -1697,6 +2110,107 @@ enabled ? render(user) : '<i>no</i>';\n"
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
             [3]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_child_process_shell_commands() {
+        let sources = BTreeMap::from([(
+            "src/commands.ts".to_owned(),
+            "import { exec, spawn as run } from 'node:child_process';\n\
+exec(`git show ${revision}`);\n\
+exec('git status');\n\
+run('convert', [input], { shell: true });\n\
+run('convert', ['input.png'], { shell: true });\n\
+const child = require('child_process');\n\
+child.exec(command);\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "js-child-process-shell-interpolation")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [2, 4, 7]
+        );
+    }
+
+    #[test]
+    fn accepts_non_shell_child_process_calls_and_unrelated_functions() {
+        let sources = BTreeMap::from([
+            (
+                "src/safe.ts".to_owned(),
+                "import { exec, execFile, spawn } from 'child_process';\n\
+const staticCommand = 'git status';\n\
+exec('git ' + 'status');\n\
+exec(staticCommand);\n\
+execFile('git', ['show', revision]);\n\
+spawn(command, args);\n\
+spawn('git', ['show'], { shell: false });\n\
+function inspectDrive(drive: string) {\n\
+  if (!/^[a-z]:$/i.test(drive)) { throw new Error('invalid drive') }\n\
+  exec(`powershell ${drive.replace(':', '')}`);\n\
+}\n\
+// exec(command);\n\
+const sample = 'exec(command)';\n"
+                    .to_owned(),
+            ),
+            (
+                "src/unrelated.ts".to_owned(),
+                "function exec(command: string) { return command; }\nexec(command);\n".to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert!(
+            analyze(&context)
+                .iter()
+                .all(|finding| finding.code != "js-child-process-shell-interpolation")
+        );
+    }
+
+    #[test]
+    fn reports_async_foreach_callbacks_across_lines() {
+        let sources = BTreeMap::from([(
+            "src/tasks.ts".to_owned(),
+            "items.forEach(async (item) => save(item));\n\
+items.forEach(\n\
+  async function (item) { await save(item); }\n\
+);\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "js-async-foreach")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+    }
+
+    #[test]
+    fn accepts_awaitable_async_iteration_patterns_and_masked_examples() {
+        let sources = BTreeMap::from([(
+            "src/iteration.ts".to_owned(),
+            "items.forEach((item) => save(item));\n\
+for (const item of items) { await save(item); }\n\
+await Promise.all(items.map(async (item) => save(item)));\n\
+// items.forEach(async (item) => save(item));\n\
+const example = 'items.forEach(async () => work())';\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert!(
+            analyze(&context)
+                .iter()
+                .all(|finding| finding.code != "js-async-foreach")
         );
     }
     #[test]

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Read;
@@ -12,7 +13,8 @@ use crate::cli::PreviewOptions;
 use crate::config::{Config, absolute_root};
 use crate::languages::{self, Language};
 use crate::repository_defaults::{
-    RepositoryDefaults, RepositoryInspection, RepositoryMetadataFile,
+    RepositoryDefaults, RepositoryDirectoryCache, RepositoryDirectoryEntry, RepositoryInspection,
+    RepositoryMetadataFile,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -62,6 +64,7 @@ pub struct PreparedPreview {
     pub root: String,
     pub config: Config,
     pub files: Vec<SourceFile>,
+    pub excluded_source_files: Vec<SourceFile>,
     pub sources: BTreeMap<String, String>,
     pub coverage: BTreeMap<String, usize>,
     pub language_versions: BTreeMap<String, String>,
@@ -78,12 +81,14 @@ pub struct PreparedPreview {
     pub(crate) metadata_files: Vec<RepositoryMetadataFile>,
 }
 
+// code-buster-ignore complex-function: one ordered discovery pipeline owns configuration and coverage state.
 pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
     let root = absolute_root(&options.root)?;
     let mut config = Config::load(root.clone(), options)?;
     let RepositoryInspection {
         defaults,
         metadata_files,
+        directories,
     } = RepositoryDefaults::inspect(
         &root,
         config.include_all || config.include_tests,
@@ -113,10 +118,13 @@ pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
         .changed_base
         .as_deref()
         .map_or_else(BTreeSet::new, |base| changed_files(&root, base));
-    let mut discovery = Discovery::new(config, selected, policy, changed)?;
+    let mut discovery = Discovery::new(config, selected, policy, changed, directories)?;
     discovery.walk_root()?;
     discovery
         .files
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    discovery
+        .excluded_source_files
         .sort_by(|left, right| left.path.cmp(&right.path));
     discovery
         .generated_provenance
@@ -141,6 +149,7 @@ pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
         root,
         config: discovery.config,
         files: discovery.files,
+        excluded_source_files: discovery.excluded_source_files,
         sources,
         coverage: discovery.coverage,
         language_versions,
@@ -163,33 +172,7 @@ fn detected_languages(root: &Path, files: &[SourceFile]) -> Vec<String> {
     for file in files {
         *counts.entry(file.language.as_str()).or_default() += 1;
     }
-    let mut manifests = BTreeSet::new();
-    if root.join("pubspec.yaml").is_file() {
-        manifests.insert("dart");
-    }
-    if root.join("Cargo.toml").is_file() {
-        manifests.insert("rust");
-    }
-    if ["package.json", "deno.json", "deno.jsonc"]
-        .iter()
-        .any(|name| root.join(name).is_file())
-    {
-        manifests.insert("javascript");
-    }
-    if let Ok(entries) = fs::read_dir(root) {
-        for entry in entries
-            .flatten()
-            .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_file()))
-        {
-            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            if name.ends_with(".csproj") {
-                manifests.insert("csharp");
-            }
-            if name.ends_with(".nimble") {
-                manifests.insert("nim");
-            }
-        }
-    }
+    let manifests = manifest_languages(root);
     let one_language_only = counts.len() == 1;
     languages::LANGUAGES
         .iter()
@@ -200,6 +183,36 @@ fn detected_languages(root: &Path, files: &[SourceFile]) -> Vec<String> {
         })
         .map(|language| language.id.to_owned())
         .collect()
+}
+
+fn manifest_languages(root: &Path) -> BTreeSet<&'static str> {
+    let mut manifests = BTreeSet::new();
+    for (manifest, language) in [
+        ("pubspec.yaml", "dart"),
+        ("Cargo.toml", "rust"),
+        ("package.json", "javascript"),
+        ("deno.json", "javascript"),
+        ("deno.jsonc", "javascript"),
+    ] {
+        if root.join(manifest).is_file() {
+            manifests.insert(language);
+        }
+    }
+    if let Ok(entries) = fs::read_dir(root) {
+        for name in entries
+            .flatten()
+            .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_file()))
+            .map(|entry| entry.file_name().to_string_lossy().to_ascii_lowercase())
+        {
+            if name.ends_with(".csproj") {
+                manifests.insert("csharp");
+            }
+            if name.ends_with(".nimble") {
+                manifests.insert("nim");
+            }
+        }
+    }
+    manifests
 }
 
 enum EntryKind {
@@ -226,6 +239,7 @@ struct Discovery {
     selected: Vec<Language>,
     policy: RepositoryPolicy,
     changed: BTreeSet<String>,
+    directories: RepositoryDirectoryCache,
     ignores: Vec<PathPattern>,
     includes: Vec<PathPattern>,
     excludes: Vec<PathPattern>,
@@ -233,6 +247,7 @@ struct Discovery {
     classified_test: Vec<PathPattern>,
     classified_generated: Vec<PathPattern>,
     files: Vec<SourceFile>,
+    excluded_source_files: Vec<SourceFile>,
     sources: BTreeMap<String, String>,
     coverage: BTreeMap<String, usize>,
     generated_provenance: Vec<GeneratedProvenance>,
@@ -245,6 +260,7 @@ impl Discovery {
         selected: Vec<Language>,
         policy: RepositoryPolicy,
         changed: BTreeSet<String>,
+        directories: RepositoryDirectoryCache,
     ) -> Result<Self, String> {
         Ok(Self {
             ignores: compile_patterns(&config.ignore_patterns)?,
@@ -257,7 +273,9 @@ impl Discovery {
             selected,
             policy,
             changed,
+            directories,
             files: Vec::new(),
+            excluded_source_files: Vec::new(),
             sources: BTreeMap::new(),
             coverage: BTreeMap::new(),
             generated_provenance: Vec::new(),
@@ -282,30 +300,62 @@ impl Discovery {
             self.read_gitignore(&ignore_file, git_rules)?;
         }
 
-        let mut entries = fs::read_dir(directory)
-            .map_err(|error| format!("failed to read {}: {error}", directory.display()))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("failed to read {}: {error}", directory.display()))?;
-        entries.sort_by_key(std::fs::DirEntry::path);
-
+        let entries = self.directory_entries(directory)?;
         for entry in entries {
-            if let Some(entry) = self.classify_entry(entry)? {
-                self.process_entry(entry, git_rules)?;
-            }
+            self.process_entry(entry, git_rules)?;
         }
         git_rules.truncate(inherited_rules);
         Ok(())
     }
 
-    fn classify_entry(&self, entry: fs::DirEntry) -> Result<Option<DiscoveryEntry>, String> {
+    fn directory_entries(&mut self, directory: &Path) -> Result<Vec<DiscoveryEntry>, String> {
+        if let Some(entries) = self.directories.remove(directory) {
+            return entries
+                .into_iter()
+                .map(|entry| self.cached_entry(entry))
+                .collect();
+        }
+
+        let entries = fs::read_dir(directory)
+            .map_err(|error| format!("failed to read {}: {error}", directory.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("failed to read {}: {error}", directory.display()))?;
+        let mut entries = entries
+            .into_iter()
+            .map(|entry| (entry.path(), entry))
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| left.0.cmp(&right.0));
+        entries
+            .into_iter()
+            .filter_map(|(path, entry)| self.classify_entry(path, entry).transpose())
+            .collect()
+    }
+
+    fn cached_entry(&self, entry: RepositoryDirectoryEntry) -> Result<DiscoveryEntry, String> {
+        Ok(DiscoveryEntry {
+            kind: if entry.is_directory {
+                EntryKind::Directory
+            } else {
+                EntryKind::File
+            },
+            relative: relative_path(&self.config.root, &entry.path)?,
+            path: entry.path,
+            name: entry.name,
+        })
+    }
+
+    fn classify_entry(
+        &self,
+        path: std::path::PathBuf,
+        entry: fs::DirEntry,
+    ) -> Result<Option<DiscoveryEntry>, String> {
         let file_type = entry
             .file_type()
-            .map_err(|error| format!("failed to inspect {}: {error}", entry.path().display()))?;
+            .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
         if file_type.is_symlink() {
             return Ok(None);
         }
 
-        let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
         let relative = relative_path(&self.config.root, &path)?;
         let kind = if file_type.is_dir() {
@@ -384,8 +434,8 @@ impl Discovery {
         let forced_production = matches_any(relative, &self.production);
         let forced_generated = matches_any(relative, &self.classified_generated);
         let extension = extension(path);
-        let Some(language) = self.language_for_path(path, &extension) else {
-            self.record_unrecognized_extension(&extension);
+        let Some(language) = self.language_for_path(path, extension) else {
+            self.record_unrecognized_extension(extension);
             return Ok(());
         };
 
@@ -394,7 +444,7 @@ impl Discovery {
             .flatten();
         let unchanged = self.config.changed_base.is_some() && !self.changed.contains(relative);
         if forced_generated || exclusion_reason.is_some() || unchanged {
-            let generated = GeneratedEvidence::detect(path, relative, &extension)?;
+            let generated = GeneratedEvidence::detect(path, relative, extension)?;
             if self.should_exclude_generated(
                 relative,
                 git_rules,
@@ -405,6 +455,7 @@ impl Discovery {
                 self.record_generated(relative, forced_generated, generated);
             } else if let Some(reason) = exclusion_reason {
                 self.record(reason);
+                self.record_excluded_source(relative, language.id, reason);
             } else {
                 self.record("unchanged");
             }
@@ -413,7 +464,7 @@ impl Discovery {
 
         let bytes = fs::read(path)
             .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-        let generated = GeneratedEvidence::from_bytes(relative, &extension, &bytes);
+        let generated = GeneratedEvidence::from_bytes(relative, extension, &bytes);
         if self.should_exclude_generated(relative, git_rules, forced_production, false, generated) {
             self.record_generated(relative, false, generated);
             return Ok(());
@@ -537,23 +588,39 @@ impl Discovery {
             return Ok(());
         }
         if file_type.is_file()
-            && languages::by_extension(&self.selected, &extension(&path)).is_some()
+            && let Some(language) = languages::by_extension(&self.selected, extension(&path))
         {
-            self.record_excluded_file(&path, reason)?;
+            self.record_excluded_file(&path, language.id, reason)?;
         }
         Ok(())
     }
 
-    fn record_excluded_file(&mut self, path: &Path, reason: &str) -> Result<(), String> {
+    fn record_excluded_file(
+        &mut self,
+        path: &Path,
+        language: &str,
+        reason: &str,
+    ) -> Result<(), String> {
         self.record(reason);
+        let relative = relative_path(&self.config.root, path)?;
+        self.record_excluded_source(&relative, language, reason);
         if reason == "generated" {
             self.generated_provenance.push(GeneratedProvenance {
-                path: relative_path(&self.config.root, path)?,
+                path: relative,
                 reason: "inside generated output directory".to_owned(),
                 source: "built-in generated policy".to_owned(),
             });
         }
         Ok(())
+    }
+
+    fn record_excluded_source(&mut self, path: &str, language: &str, reason: &str) {
+        if matches!(reason, "test" | "example") {
+            self.excluded_source_files.push(SourceFile {
+                path: path.to_owned(),
+                language: language.to_owned(),
+            });
+        }
     }
 
     fn read_gitignore(&self, file: &Path, rules: &mut Vec<GitIgnoreRule>) -> Result<(), String> {
@@ -713,32 +780,26 @@ impl RepositoryPolicy {
 }
 
 fn classify_path(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
-    let normalized = relative.replace('\\', "/").to_ascii_lowercase();
+    let normalized = normalize_classification_path(relative);
     let segments = normalized.split('/').collect::<Vec<_>>();
     let name = segments.last().copied().unwrap_or_default();
-    let segment_set = segments.iter().copied().collect::<BTreeSet<_>>();
 
-    if segments.iter().any(|segment| segment.ends_with("_test")) || is_test_file_name(name) {
+    if is_classified_test(&normalized, name, &segments, policy) {
         return SourceRole::Test;
     }
     if is_generated_file_name(name) {
         return SourceRole::Generated;
     }
-    if is_test_path(&normalized, name, &segments, &segment_set)
-        || (policy.postgresql && segments.first() == Some(&"contrib") && segments.contains(&"sql"))
-    {
-        return SourceRole::Test;
-    }
-    if is_example_path(&segments, &segment_set) {
+    if is_example_path(&segments) {
         return SourceRole::Example;
     }
     if ["vendor", "vendored", "third_party", "compiled", "cargokit"]
         .iter()
-        .any(|candidate| segment_set.contains(candidate))
+        .any(|candidate| segments.contains(candidate))
     {
         return SourceRole::Vendored;
     }
-    if is_generated_directory(&segments, &segment_set) {
+    if is_generated_directory(&segments) {
         return SourceRole::Generated;
     }
     SourceRole::Production
@@ -784,6 +845,7 @@ const TEST_PATH_SEGMENTS: &[&str] = &[
     "manual_tests",
     "testresults",
     "__fixtures__",
+    ".fixtures",
     "fixture",
     "fixtures",
 ];
@@ -801,20 +863,46 @@ const UNIT_TEST_PATH_SEGMENTS: &[&str] = &["test-unit", "tests-unit", "unit-test
 
 const FUZZ_PATH_SEGMENTS: &[&str] = &["fuzz", "fuzzing", "fuzz_targets"];
 
-fn is_test_path(
+const TEST_SEGMENT_PREFIXES: &[&str] = &["test-", "tests-", "testing-", "fixture-", "fixtures-"];
+const TEST_SEGMENT_SUFFIXES: &[&str] = &[
+    "-test",
+    "-tests",
+    "-testing",
+    "-fixture",
+    "-fixtures",
+    "-e2e",
+];
+const EXAMPLE_SEGMENT_PREFIXES: &[&str] = &["example_", "bench-", "benchmark-"];
+const EXAMPLE_SEGMENT_SUFFIXES: &[&str] = &[
+    "_examples",
+    "-examples",
+    "-bench",
+    "-benchmark",
+    ".benchmark",
+    ".benchmarks",
+];
+
+fn is_classified_test(
     normalized: &str,
     name: &str,
     segments: &[&str],
-    segment_set: &BTreeSet<&str>,
+    policy: &RepositoryPolicy,
 ) -> bool {
+    segments.iter().any(|segment| segment.ends_with("_test"))
+        || is_test_file_name(name)
+        || is_test_path(normalized, name, segments)
+        || policy.postgresql && segments.first() == Some(&"contrib") && segments.contains(&"sql")
+}
+
+fn is_test_path(normalized: &str, name: &str, segments: &[&str]) -> bool {
     TEST_HELPER_REGEX.is_match(name)
         || is_source_test_path(normalized)
         || TEST_PATH_SEGMENTS
             .iter()
-            .any(|candidate| segment_set.contains(candidate))
+            .any(|candidate| segments.contains(candidate))
         || FUZZ_PATH_SEGMENTS
             .iter()
-            .any(|candidate| segment_set.contains(candidate))
+            .any(|candidate| segments.contains(candidate))
         || segments.iter().copied().any(is_test_path_segment)
 }
 
@@ -843,14 +931,12 @@ fn is_test_path_segment(segment: &str) -> bool {
         .iter()
         .any(|suffix| segment.ends_with(suffix))
         || segment.contains(".tests.")
-        || segment.starts_with("test-")
-        || segment.starts_with("tests-")
-        || segment.ends_with("-test")
-        || segment.ends_with("-tests")
+        || has_any_affix(segment, TEST_SEGMENT_PREFIXES, TEST_SEGMENT_SUFFIXES)
+        || segment == "e2e"
         || UNIT_TEST_PATH_SEGMENTS.contains(&segment)
 }
 
-fn is_example_path(segments: &[&str], segment_set: &BTreeSet<&str>) -> bool {
+fn is_example_path(segments: &[&str]) -> bool {
     segments.first() == Some(&"templates")
         || [
             "example",
@@ -864,21 +950,28 @@ fn is_example_path(segments: &[&str], segment_set: &BTreeSet<&str>) -> bool {
             "bench",
             "benchmark",
             "benchmarks",
+            "playground",
+            "playgrounds",
             "storybook",
             "evals",
         ]
         .iter()
-        .any(|candidate| segment_set.contains(candidate))
+        .any(|candidate| segments.contains(candidate))
         || segments.iter().any(|segment| {
-            segment.starts_with("example_")
-                || segment.ends_with("_examples")
-                || segment.ends_with("-examples")
-                || segment.ends_with(".benchmark")
-                || segment.ends_with(".benchmarks")
+            has_any_affix(segment, EXAMPLE_SEGMENT_PREFIXES, EXAMPLE_SEGMENT_SUFFIXES)
+        })
+        || segments.last().is_some_and(|name| {
+            let stem = name.split('.').next().unwrap_or(name);
+            matches!(stem, "bench" | "benchmark")
         })
 }
 
-fn is_generated_directory(segments: &[&str], segment_set: &BTreeSet<&str>) -> bool {
+fn has_any_affix(value: &str, prefixes: &[&str], suffixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| value.starts_with(prefix))
+        || suffixes.iter().any(|suffix| value.ends_with(suffix))
+}
+
+fn is_generated_directory(segments: &[&str]) -> bool {
     let build_index = segments.iter().position(|segment| *segment == "build");
     let source_build = build_index.is_some_and(|index| {
         index > 0 && ["command", "commands", "cmd", "cmds"].contains(&segments[index - 1])
@@ -886,7 +979,7 @@ fn is_generated_directory(segments: &[&str], segment_set: &BTreeSet<&str>) -> bo
     (!source_build && build_index.is_some())
         || ["dist", "obj", ".dart_tool"]
             .iter()
-            .any(|candidate| segment_set.contains(candidate))
+            .any(|candidate| segments.contains(candidate))
 }
 
 #[derive(Debug)]
@@ -920,7 +1013,7 @@ fn matches_any(relative: &str, patterns: &[PathPattern]) -> bool {
 }
 
 fn matches_prefixes(relative: &str, patterns: &[PathPattern]) -> bool {
-    let normalized = relative.replace('\\', "/");
+    let normalized = normalize_path(relative);
     patterns.iter().any(|pattern| {
         if pattern.wildcard {
             pattern.matcher.is_match(&normalized)
@@ -967,8 +1060,9 @@ struct GitIgnoreRule {
 }
 
 fn is_git_ignored(relative: &str, is_directory: bool, rules: &[GitIgnoreRule]) -> bool {
-    let normalized = relative.replace('\\', "/").trim_end_matches('/').to_owned();
-    applicable_git_ignore_rules(&normalized, rules).fold(false, |ignored, (rule, local)| {
+    let normalized = normalize_path(relative);
+    let normalized = normalized.trim_end_matches('/');
+    applicable_git_ignore_rules(normalized, rules).fold(false, |ignored, (rule, local)| {
         evaluate_git_ignore_rule(rule, local, is_directory).unwrap_or(ignored)
     })
 }
@@ -1020,7 +1114,7 @@ fn path_is_below_pattern(path: &str, pattern: &str) -> bool {
 }
 
 fn is_explicitly_git_included(relative: &str, rules: &[GitIgnoreRule]) -> bool {
-    let normalized = relative.replace('\\', "/");
+    let normalized = normalize_path(relative);
     rules.iter().rev().any(|rule| {
         if !rule.negated
             || (!rule.base.is_empty()
@@ -1030,7 +1124,7 @@ fn is_explicitly_git_included(relative: &str, rules: &[GitIgnoreRule]) -> bool {
             return false;
         }
         let local = if rule.base.is_empty() {
-            normalized.as_str()
+            normalized.as_ref()
         } else if normalized == rule.base {
             ""
         } else {
@@ -1258,12 +1352,29 @@ fn relative_path(root: &Path, path: &Path) -> Result<String, String> {
         .ok_or_else(|| format!("path must be valid UTF-8: {}", path.display()))
 }
 
-fn extension(path: &Path) -> String {
+fn normalize_path(path: &str) -> Cow<'_, str> {
+    if path.contains('\\') {
+        Cow::Owned(path.replace('\\', "/"))
+    } else {
+        Cow::Borrowed(path)
+    }
+}
+
+fn normalize_classification_path(path: &str) -> Cow<'_, str> {
+    if path
+        .bytes()
+        .any(|byte| byte == b'\\' || byte.is_ascii_uppercase())
+    {
+        Cow::Owned(path.replace('\\', "/").to_ascii_lowercase())
+    } else {
+        Cow::Borrowed(path)
+    }
+}
+
+fn extension(path: &Path) -> &str {
     path.extension()
         .and_then(|value| value.to_str())
-        .map_or_else(String::new, |value| {
-            format!(".{}", value.to_ascii_lowercase())
-        })
+        .unwrap_or_default()
 }
 
 fn relative_with_slash(relative: &str) -> String {
@@ -1296,21 +1407,30 @@ fn is_source_build_directory(relative: &str) -> bool {
             .get(segments.len().saturating_sub(2))
             .is_some_and(|value| ["command", "commands", "cmd", "cmds"].contains(&value.as_str()))
 }
-
 fn looks_binary(extension: &str) -> bool {
-    [
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".pdf", ".zip", ".gz", ".tar",
-        ".jar", ".dll", ".so", ".dylib", ".exe", ".wasm",
-    ]
-    .contains(&extension)
+    extension_matches(
+        extension,
+        &[
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "pdf", "zip", "gz", "tar", "jar",
+            "dll", "so", "dylib", "exe", "wasm",
+        ],
+    )
 }
 
 fn looks_like_unsupported_source(extension: &str) -> bool {
-    [
-        ".go", ".kt", ".kts", ".swift", ".rs", ".php", ".rb", ".scala", ".ex", ".exs", ".fs",
-        ".fsx", ".vb", ".r", ".jl", ".zig", ".m", ".mm",
-    ]
-    .contains(&extension)
+    extension_matches(
+        extension,
+        &[
+            "go", "kt", "kts", "swift", "rs", "php", "rb", "scala", "ex", "exs", "fs", "fsx", "vb",
+            "r", "jl", "zig", "m", "mm",
+        ],
+    )
+}
+
+fn extension_matches(extension: &str, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
 }
 
 fn has_lua_shebang(path: &Path) -> bool {
@@ -1345,37 +1465,52 @@ fn has_lua_shebang(path: &Path) -> bool {
     LUA_COMMAND_REGEX.is_match(interpreter.rsplit('/').next().unwrap_or_default())
 }
 
+const GENERATED_FILE_SUFFIXES: &[&str] = &[
+    ".g.dart",
+    ".freezed.dart",
+    ".pb.dart",
+    ".pbenum.dart",
+    ".pbjson.dart",
+    ".pbserver.dart",
+    ".designer.cs",
+    ".generated.cs",
+    ".g.cs",
+    ".g.i.cs",
+    ".min.js",
+    ".min.css",
+    ".gen.dart",
+    ".mocks.dart",
+    ".gr.dart",
+];
+const TREE_SITTER_GENERATED: &[&str] = &[
+    "/tree_sitter/parser.h",
+    "/tree_sitter/alloc.h",
+    "/tree_sitter/array.h",
+];
+
 fn is_generated_by_name(relative: &str) -> bool {
     let lower = relative.to_ascii_lowercase();
     let name = lower.rsplit('/').next().unwrap_or_default();
     name.contains("_generated.")
-        || [
-            ".g.dart",
-            ".freezed.dart",
-            ".pb.dart",
-            ".pbenum.dart",
-            ".pbjson.dart",
-            ".pbserver.dart",
-            ".designer.cs",
-            ".generated.cs",
-            ".g.cs",
-            ".g.i.cs",
-            ".min.js",
-            ".min.css",
-            ".gen.dart",
-            ".mocks.dart",
-            ".gr.dart",
-        ]
-        .iter()
-        .any(|suffix| lower.ends_with(suffix))
-        || BACKUP_WEB_REGEX.is_match(name)
+        || GENERATED_FILE_SUFFIXES
+            .iter()
+            .any(|suffix| lower.ends_with(suffix))
+        || is_generated_web_name(name)
+        || is_localization_output(name)
+        || TREE_SITTER_GENERATED
+            .iter()
+            .any(|suffix| lower.ends_with(suffix))
+}
+
+fn is_generated_web_name(name: &str) -> bool {
+    BACKUP_WEB_REGEX.is_match(name)
         || GENERATED_WEB_REGEX.is_match(name)
         || HASHED_WEB_REGEX.is_match(name)
-        || (name.starts_with("app_localizations_") && name.ends_with(".dart"))
-        || name == "app_localizations.dart"
-        || lower.ends_with("/tree_sitter/parser.h")
-        || lower.ends_with("/tree_sitter/alloc.h")
-        || lower.ends_with("/tree_sitter/array.h")
+}
+
+fn is_localization_output(name: &str) -> bool {
+    name == "app_localizations.dart"
+        || name.starts_with("app_localizations_") && name.ends_with(".dart")
 }
 
 fn has_generated_header(path: &Path) -> Result<bool, String> {
@@ -1437,7 +1572,7 @@ const GENERATED_HEADER_MARKER_GROUPS: &[&[&str]] = &[
 ];
 
 fn is_minified_bundle(path: &Path, extension: &str) -> Result<bool, String> {
-    if ![".js", ".mjs", ".cjs", ".css"].contains(&extension) {
+    if !extension_matches(extension, &["js", "mjs", "cjs", "css"]) {
         return Ok(false);
     }
     let metadata = fs::metadata(path)
@@ -1454,7 +1589,7 @@ fn is_minified_bundle(path: &Path, extension: &str) -> Result<bool, String> {
 }
 
 fn is_minified_bundle_bytes(bytes: &[u8], extension: &str) -> bool {
-    if ![".js", ".mjs", ".cjs", ".css"].contains(&extension) || bytes.len() < 2 * 1024 {
+    if !extension_matches(extension, &["js", "mjs", "cjs", "css"]) || bytes.len() < 2 * 1024 {
         return false;
     }
     let file_length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
@@ -1507,7 +1642,7 @@ impl BundleSampleStats {
 }
 
 fn is_javascript_bundle(extension: &str) -> bool {
-    [".js", ".mjs", ".cjs"].contains(&extension)
+    extension_matches(extension, &["js", "mjs", "cjs"])
 }
 
 fn has_compiled_javascript_markers(sample: &[u8], file_length: u64) -> bool {
@@ -1540,7 +1675,7 @@ static DIFF_HUNK: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Git diff hunk regex must compile")
 });
 static TEST_FILE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:_test\.(?:dart|go|py|rs)|tests?\.rs|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$").unwrap()
+    Regex::new(r"(?:_test\.(?:dart|go|py|rs)|(?:^|_)tests?\.rs|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$").unwrap()
 });
 static BACKUP_FILE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$").unwrap());
@@ -1597,5 +1732,47 @@ mod tests {
             ),
             SourceRole::Production
         );
+    }
+
+    #[test]
+    fn classifies_playgrounds_and_benchmark_files_as_examples() {
+        for path in [
+            "playground/worker/main.ts",
+            "tools/playgrounds/parser/main.js",
+            "scripts/benchmark.js",
+            "tools/bench.ts",
+            "tasks/micro-benchmark/src/main.rs",
+            "tasks/integrated-benchmark/src/main.rs",
+        ] {
+            assert_eq!(
+                classify_path(path, &RepositoryPolicy::default()),
+                SourceRole::Example,
+                "{path}"
+            );
+        }
+
+        assert_eq!(
+            classify_path("src/resolve_latest.rs", &RepositoryPolicy::default()),
+            SourceRole::Production
+        );
+        assert_eq!(
+            classify_path(
+                "pnpr/.fixtures/package/package.json",
+                &RepositoryPolicy::default()
+            ),
+            SourceRole::Test
+        );
+
+        for path in [
+            "crates/testing-utils/src/lib.rs",
+            "crates/pnpr-fixtures/src/lib.rs",
+            "tasks/ecosystem-e2e/src/main.rs",
+        ] {
+            assert_eq!(
+                classify_path(path, &RepositoryPolicy::default()),
+                SourceRole::Test,
+                "{path}"
+            );
+        }
     }
 }

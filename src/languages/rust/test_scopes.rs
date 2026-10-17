@@ -145,8 +145,8 @@ impl<'a> Parser<'a> {
 
     fn cfg_atom(&mut self, name: &str) -> Result<bool, ()> {
         if self.consume(b'=') {
-            self.string_literal()?;
-            return Ok(false);
+            let value = self.string_literal()?;
+            return Ok(name == "feature" && value == "test");
         }
         Ok(name == "test")
     }
@@ -198,12 +198,13 @@ impl<'a> Parser<'a> {
         std::str::from_utf8(&self.source[start..self.cursor]).ok()
     }
 
-    fn string_literal(&mut self) -> Result<(), ()> {
+    fn string_literal(&mut self) -> Result<&'a str, ()> {
         self.skip_whitespace();
         if self.source.get(self.cursor) != Some(&b'"') {
             return Err(());
         }
         self.cursor += 1;
+        let start = self.cursor;
         while let Some(byte) = self.source.get(self.cursor) {
             match byte {
                 b'\\' => {
@@ -213,8 +214,9 @@ impl<'a> Parser<'a> {
                     }
                 }
                 b'"' => {
+                    let end = self.cursor;
                     self.cursor += 1;
-                    return Ok(());
+                    return std::str::from_utf8(&self.source[start..end]).map_err(|_| ());
                 }
                 b'\n' | b'\r' => return Err(()),
                 _ => self.cursor += 1,
@@ -549,6 +551,13 @@ mod tests {
         let source = "#[cfg(test)]\nfn direct() {}\n#[cfg(all(unix, test))]\nfn conjunction() {}\n#[cfg(any(all(test, unix), all(windows, test)))]\nfn alternatives() {}\n#[cfg(all(feature = \"   \", test))]\nfn masked_value() {}";
 
         assert_eq!(test_lines(source, source), set(0..=7));
+    }
+
+    #[test]
+    fn treats_test_feature_items_as_test_only() {
+        let source = "#[cfg(all(windows, feature = \"test\"))]\nmod support;\n#[cfg(any(unix, feature = \"test\"))]\nmod mixed;\n";
+
+        assert_eq!(test_lines(source, source), set([0, 1]));
     }
 
     #[test]

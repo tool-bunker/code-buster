@@ -26,10 +26,10 @@ jobs:
         run: |
           echo 'Releases must be dispatched from main.' >&2
           exit 1
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88.0
         with:
           components: clippy,rustfmt
       - name: Validate release version
@@ -56,9 +56,11 @@ jobs:
           fi
           echo "tag=v$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
       - name: Verify reviewed changelog release notes
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           python3 -B -m unittest tool/test_release_notes.py
-          python3 tool/release_notes.py "v${{ inputs.version }}" "$RUNNER_TEMP/release-notes.md"
+          python3 tool/release_notes.py "v$RELEASE_VERSION" "$RUNNER_TEMP/release-notes.md"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - run: cargo test --all-targets --all-features --locked
@@ -70,7 +72,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
       - name: Resolve release tag
@@ -109,16 +111,16 @@ jobs:
             archive: code-buster-windows-x64.zip
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.verify.outputs.tag }}
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88.0
       - run: cargo build --release --locked
       - name: Smoke release binary
         shell: bash
         run: |
           '${{ matrix.executable }}' version
-          '${{ matrix.executable }}' preview --root tests/fixtures/preview --format json > preview.json
+          '${{ matrix.executable }}' config --files --root tests/fixtures/preview --format json > files.json
           '${{ matrix.executable }}' summary --root tests/fixtures/preview --format json --advisory --allow-empty > summary.json
       - name: Archive Unix artifact
         if: runner.os != 'Windows'
@@ -130,7 +132,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path '${{ matrix.executable }}',LICENSE,README.md -DestinationPath '${{ matrix.archive }}'
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ matrix.platform }}
           path: ${{ matrix.archive }}
@@ -142,19 +144,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.verify.outputs.tag }}
       - name: Extract reviewed changelog notes
         run: python3 tool/release_notes.py '${{ needs.verify.outputs.tag }}' release-notes.md
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: dist
           merge-multiple: true
       - name: Create checksums
-        run: cd dist && sha256sum * > SHA256SUMS
+        run: cd dist && sha256sum -- * > SHA256SUMS
       - name: Publish GitHub release with changelog notes
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.verify.outputs.tag }}
           body_path: release-notes.md

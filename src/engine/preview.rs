@@ -7,7 +7,7 @@ use crate::discovery::{
 
 pub fn execute(options: &PreviewOptions) -> Result<(), String> {
     if !matches!(options.format, ReportFormat::Text | ReportFormat::Json) {
-        return Err("preview supports text and json formats".to_owned());
+        return Err("config --files supports text and json formats".to_owned());
     }
     let prepared = prepare(options)?;
     match options.format {
@@ -23,7 +23,8 @@ pub fn execute(options: &PreviewOptions) -> Result<(), String> {
 fn print_json(prepared: &PreparedPreview, verbose: bool) -> Result<(), String> {
     let report = PreviewReport {
         schema_version: 3,
-        command: "preview",
+        command: "config",
+        view: "files",
         root: &prepared.root,
         files: &prepared.files,
         coverage: &prepared.coverage,
@@ -33,14 +34,14 @@ fn print_json(prepared: &PreparedPreview, verbose: bool) -> Result<(), String> {
         processing_diagnostics: prepared.diagnostics.as_slice(),
     };
     let json = serde_json::to_string(&report)
-        .map_err(|error| format!("failed to encode preview report: {error}"))?;
+        .map_err(|error| format!("failed to encode selected-files report: {error}"))?;
     println!("{json}");
     Ok(())
 }
 
 fn print_text(prepared: &PreparedPreview, verbose: bool) {
     println!(
-        "Code Buster preview: {} selected files",
+        "Code Buster selected files: {} selected files",
         prepared.files.len()
     );
     if !prepared.coverage.is_empty() {
@@ -70,6 +71,7 @@ struct PreviewReport<'a> {
     #[serde(rename = "schemaVersion")]
     schema_version: u8,
     command: &'static str,
+    view: &'static str,
     root: &'a str,
     files: &'a [SourceFile],
     coverage: &'a std::collections::BTreeMap<String, usize>,

@@ -296,6 +296,7 @@ fn render_quality_json(
         findings: &run.actionable_findings,
         actionable_count: run.actionable_count,
         advisory_summary: &run.advisory_summary,
+        show_advisory_hint: false,
         verbose: options.verbose,
         profile: options.profile,
     };

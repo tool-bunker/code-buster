@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::LazyLock;
@@ -29,11 +30,12 @@ pub fn analyze(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Findi
     }
 
     let mut findings = Vec::new();
-    if enabled(config, "todo-comment") {
-        findings.extend(comment_markers(sources, Marker::Todo));
-    }
-    if enabled(config, "fixme-comment") {
-        findings.extend(comment_markers(sources, Marker::Fixme));
+    let todo_enabled = enabled(config, "todo-comment");
+    let fixme_enabled = enabled(config, "fixme-comment");
+    if todo_enabled || fixme_enabled {
+        let (todo_findings, fixme_findings) = comment_markers(sources, todo_enabled, fixme_enabled);
+        findings.extend(todo_findings);
+        findings.extend(fixme_findings);
     }
     if enabled(config, "operation-on-same-value") {
         findings.extend(operation_on_same_value(sources));
@@ -281,7 +283,7 @@ pub(crate) fn mask_generic_rule_strings(lines: &[String], path: &str) -> Vec<Str
     if !path.ends_with(".dart") && !path.ends_with(".py") {
         return lines
             .iter()
-            .map(|line| strip_generic_strings(line))
+            .map(|line| strip_generic_strings(line).into_owned())
             .collect();
     }
     let mut masker = MultilineStringMasker::default();
@@ -627,8 +629,8 @@ fn needless_bool_branches(sources: &BTreeMap<String, String>) -> Vec<Finding> {
     findings
 }
 
-fn strip_generic_strings(line: &str) -> String {
-    QUOTED_LITERAL.replace_all(line, "").into_owned()
+fn strip_generic_strings(line: &str) -> Cow<'_, str> {
+    QUOTED_LITERAL.replace_all(line, "")
 }
 
 fn strip_comments(line: &str, in_block_comment: &mut bool) -> String {

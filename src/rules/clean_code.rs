@@ -690,6 +690,7 @@ fn related_policy_paths(policy: &QualifiedPolicy<'_, '_>) -> Vec<String> {
     related
 }
 
+// code-buster-ignore complex-function: peer naming analysis requires one directory grouping and style-majority pass.
 fn inconsistent_peer_file_naming(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     let mut by_directory = BTreeMap::<String, Vec<String>>::new();
     for path in context.sources().keys().filter(|path| is_source(path)) {
@@ -1057,7 +1058,7 @@ static BOUNDARIES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     ]
 });
 static POLICY_TOKEN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:\b(?:(?P<named_comparison>capacity|limit|max|min|retries|retry|threshold|timeout)\b|(?P<comparison>(?:attempts?|capacity|complexity|count|depth|files?|height|limit|lines?|max|min|retries|retry|score|size|threshold|timeout|width)\w*)|(?P<named_only>Duration)\b)|(?P<literal>-?\d+(?:\.\d+)?))").unwrap()
+    Regex::new(r"(?i)(?:\b(?:(?P<named_comparison>capacity|limit|max|min|retries|retry|threshold|timeout)\b|(?P<comparison>(?:attempts?|capacity|complexity|count|depth|files?|height|limit|lines?|max|min|retries|retry|score|size|threshold|timeout|width)\w*)|(?P<named_only>Duration)\b)|(?P<literal>-?\b\d+(?:\.\d+)?\b))").unwrap()
 });
 static PUBLIC_API: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*(?:export\s+|public\s+|abstract\s+interface\s+class\s+|class\s+[A-Z])")
@@ -1292,6 +1293,23 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].path, "lib/a.dart");
         assert_eq!(findings[0].related_files, vec!["lib/b.dart".to_owned()]);
+    }
+
+    #[test]
+    fn policy_literals_do_not_read_numeric_type_suffixes() {
+        let sources = sources(&[
+            (
+                "src/a.rs",
+                "let duration = value.parse::<f64>();\nlet retries = value.parse::<u64>();",
+            ),
+            (
+                "src/b.rs",
+                "let duration = other.parse::<f64>();\nlet retries = other.parse::<u64>();",
+            ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(repeated_policy_literals(&context).is_empty());
     }
 
     #[test]

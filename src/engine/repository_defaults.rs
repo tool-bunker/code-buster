@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -19,9 +19,18 @@ pub struct RepositoryMetadataFile {
 }
 
 #[derive(Clone, Debug)]
+pub struct RepositoryDirectoryEntry {
+    pub path: PathBuf,
+    pub name: String,
+    pub is_directory: bool,
+}
+
+pub type RepositoryDirectoryCache = HashMap<PathBuf, Vec<RepositoryDirectoryEntry>>;
+#[derive(Clone, Debug)]
 pub struct RepositoryInspection {
     pub defaults: RepositoryDefaults,
     pub metadata_files: Vec<RepositoryMetadataFile>,
+    pub directories: RepositoryDirectoryCache,
 }
 
 impl RepositoryDefaults {
@@ -31,7 +40,7 @@ impl RepositoryDefaults {
         include_examples: bool,
         include_vendored: bool,
     ) -> RepositoryInspection {
-        let (profiles, metadata_files) = inspect_repository(root);
+        let (profiles, metadata_files, directories) = inspect_repository(root);
         let frameworks = infer_frameworks(&profiles);
         let ignores = infer_ignores(&profiles, include_tests, include_examples, include_vendored);
         RepositoryInspection {
@@ -41,14 +50,28 @@ impl RepositoryDefaults {
                 ignores,
             },
             metadata_files,
+            directories,
         }
     }
 }
 
-fn inspect_repository(root: &Path) -> (BTreeSet<String>, Vec<RepositoryMetadataFile>) {
+fn inspect_repository(
+    root: &Path,
+) -> (
+    BTreeSet<String>,
+    Vec<RepositoryMetadataFile>,
+    RepositoryDirectoryCache,
+) {
     let mut profiles = BTreeSet::new();
     let mut metadata_files = Vec::new();
-    collect_repository_metadata(root, root, &mut profiles, &mut metadata_files);
+    let mut directories = HashMap::new();
+    collect_repository_metadata(
+        root,
+        root,
+        &mut profiles,
+        &mut metadata_files,
+        &mut directories,
+    );
     if root.join("bin/flutter").is_file() && root.join("packages/flutter/pubspec.yaml").is_file() {
         profiles.insert("flutter-sdk".to_owned());
     }
@@ -59,7 +82,7 @@ fn inspect_repository(root: &Path) -> (BTreeSet<String>, Vec<RepositoryMetadataF
         profiles.insert("postgresql".to_owned());
     }
     metadata_files.sort_by(|left, right| left.relative.cmp(&right.relative));
-    (profiles, metadata_files)
+    (profiles, metadata_files, directories)
 }
 
 fn infer_frameworks(profiles: &BTreeSet<String>) -> BTreeSet<String> {
@@ -165,33 +188,48 @@ fn collect_repository_metadata(
     directory: &Path,
     profiles: &mut BTreeSet<String>,
     metadata_files: &mut Vec<RepositoryMetadataFile>,
+    directories: &mut RepositoryDirectoryCache,
 ) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(file_type) = entry.file_type() else {
+    let mut entries = entries
+        .flatten()
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            if file_type.is_symlink() || (!file_type.is_dir() && !file_type.is_file()) {
+                return None;
+            }
+            Some(RepositoryDirectoryEntry {
+                path: entry.path(),
+                name: entry.file_name().to_string_lossy().into_owned(),
+                is_directory: file_type.is_dir(),
+            })
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    for entry in &entries {
+        let Ok(relative) = entry.path.strip_prefix(root) else {
             continue;
         };
-        if file_type.is_symlink() || (!file_type.is_dir() && !file_type.is_file()) {
-            continue;
-        }
-        let Ok(relative) = path.strip_prefix(root) else {
-            continue;
-        };
-        if file_type.is_dir() {
+        if entry.is_directory {
             if !metadata_directory_excluded(relative) {
-                collect_repository_metadata(root, &path, profiles, metadata_files);
+                collect_repository_metadata(
+                    root,
+                    &entry.path,
+                    profiles,
+                    metadata_files,
+                    directories,
+                );
             }
             continue;
         }
         if !is_repository_metadata_file(relative) {
             continue;
         }
-        let source = read_manifest(&path);
+        let source = read_manifest(&entry.path);
         if !manifest_excluded(relative)
-            && let Some(profile_source) = profile_source(&path, &source)
+            && let Some(profile_source) = profile_source(&entry.path, &source)
         {
             apply_profile_source(profile_source, profiles);
         }
@@ -200,6 +238,7 @@ fn collect_repository_metadata(
             source,
         });
     }
+    directories.insert(directory.to_owned(), entries);
 }
 
 fn profile_source<'source>(path: &Path, source: &'source str) -> Option<ProfileSource<'source>> {
@@ -475,6 +514,14 @@ const EXAMPLE_IGNORES: &[&str] = &[
     "**/Benchmarks/**",
     "**/*.Benchmark/**",
     "**/*.Benchmarks/**",
+    "**/*-bench/**",
+    "**/bench-*/**",
+    "**/*-benchmark/**",
+    "**/benchmark-*/**",
+    "**/playground/**",
+    "**/playgrounds/**",
+    "**/benchmark.*",
+    "**/bench.*",
     "**/storybook/**",
     "templates/**",
 ];

@@ -12,11 +12,16 @@ use crate::rust_rules::function_lexical_facts;
 pub struct DependencyGraph {
     edges: BTreeMap<String, BTreeSet<String>>,
     cycle_edges: BTreeMap<String, BTreeSet<String>>,
+    classified_edges: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl DependencyGraph {
     pub fn build(prepared: &PreparedPreview) -> Self {
-        let mut graph = Self::default();
+        let selected = prepared
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<BTreeSet<_>>();
         let mut by_language: BTreeMap<&str, BTreeMap<String, String>> = BTreeMap::new();
         for file in &prepared.files {
             if let Some(source) = prepared.sources.get(&file.path) {
@@ -26,36 +31,63 @@ impl DependencyGraph {
                     .insert(file.path.clone(), source.clone());
             }
         }
+        for file in &prepared.excluded_source_files {
+            by_language
+                .entry(file.language.as_str())
+                .or_default()
+                .entry(file.path.clone())
+                .or_default();
+        }
 
+        let mut resolved = Self::default();
         let mut cpp = by_language.remove("cpp").unwrap_or_default();
         cpp.append(&mut by_language.remove("objective-c").unwrap_or_default());
-        graph.merge(cpp_graph(&cpp));
-        graph.merge(owner_graph(by_language.get("csharp"), &CSHARP_TYPE));
-        graph.merge(dart_graph(
+        resolved.merge(cpp_graph(&cpp));
+        resolved.merge(owner_graph(by_language.get("csharp"), &CSHARP_TYPE));
+        resolved.merge(dart_graph(
             by_language.get("dart"),
             Path::new(&prepared.root),
         ));
-        graph.merge(rust_graph(by_language.get("rust")));
-        graph.merge(mojo_graph(by_language.get("mojo")));
-        graph.merge(odin_graph(by_language.get("odin")));
-        graph.merge(nim_graph(by_language.get("nim")));
-        graph.merge(python_graph(by_language.get("python")));
+        resolved.merge(rust_graph(by_language.get("rust")));
+        resolved.merge(mojo_graph(by_language.get("mojo")));
+        resolved.merge(odin_graph(by_language.get("odin")));
+        resolved.merge(nim_graph(by_language.get("nim")));
+        resolved.merge(python_graph(by_language.get("python")));
 
         let mut javascript = by_language.remove("javascript").unwrap_or_default();
         javascript.append(&mut by_language.remove("typescript").unwrap_or_default());
-        graph.merge(javascript_graph(&javascript));
-        graph.merge(go_graph(by_language.get("go")));
-        graph.merge(owner_graph(by_language.get("java"), &JAVA_TYPE));
-        graph.merge(wren_graph(by_language.get("wren")));
+        resolved.merge(javascript_graph(&javascript));
+        resolved.merge(go_graph(by_language.get("go")));
+        resolved.merge(owner_graph(by_language.get("java"), &JAVA_TYPE));
+        resolved.merge(wren_graph(by_language.get("wren")));
         let (lua_edges, lua_cycle_edges) = lua_graph(by_language.get("lua"));
-        graph.merge_with_cycle_edges(lua_edges, lua_cycle_edges);
-        graph
+        resolved.merge_with_cycle_edges(lua_edges, lua_cycle_edges);
+
+        let classified_edges = resolved
+            .edges
+            .iter()
+            .filter(|(source, _)| selected.contains(source.as_str()))
+            .map(|(source, targets)| (source.clone(), targets.clone()))
+            .collect();
+        let edges = selected_edges(&resolved.edges, &selected);
+        let cycle_edges = selected_edges(&resolved.cycle_edges, &selected);
+        Self {
+            edges,
+            cycle_edges,
+            classified_edges,
+        }
     }
+
     pub(crate) fn from_edges(
         edges: BTreeMap<String, BTreeSet<String>>,
         cycle_edges: BTreeMap<String, BTreeSet<String>>,
+        classified_edges: BTreeMap<String, BTreeSet<String>>,
     ) -> Self {
-        Self { edges, cycle_edges }
+        Self {
+            edges,
+            cycle_edges,
+            classified_edges,
+        }
     }
 
     pub fn nodes(&self) -> impl Iterator<Item = &str> {
@@ -64,6 +96,14 @@ impl DependencyGraph {
 
     pub fn dependencies(&self, source: &str) -> impl Iterator<Item = &str> {
         self.edges
+            .get(source)
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+    }
+
+    pub fn classified_dependencies(&self, source: &str) -> impl Iterator<Item = &str> {
+        self.classified_edges
             .get(source)
             .into_iter()
             .flatten()
@@ -151,6 +191,26 @@ impl DependencyGraph {
         self.edges.extend(edges);
         self.cycle_edges.extend(cycle_edges);
     }
+}
+
+fn selected_edges(
+    edges: &BTreeMap<String, BTreeSet<String>>,
+    selected: &BTreeSet<&str>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    edges
+        .iter()
+        .filter(|(source, _)| selected.contains(source.as_str()))
+        .map(|(source, targets)| {
+            (
+                source.clone(),
+                targets
+                    .iter()
+                    .filter(|target| selected.contains(target.as_str()))
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect()
 }
 
 fn cpp_graph(sources: &BTreeMap<String, String>) -> BTreeMap<String, BTreeSet<String>> {
@@ -298,6 +358,15 @@ fn rust_graph(sources: Option<&BTreeMap<String, String>>) -> BTreeMap<String, BT
         return BTreeMap::new();
     };
     let known = sources.keys().cloned().collect::<BTreeSet<_>>();
+    let production_sources = sources
+        .iter()
+        .map(|(path, source)| (path.clone(), rust_production_code(source)))
+        .collect::<BTreeMap<_, _>>();
+    let declared = production_sources
+        .values()
+        .flat_map(|source| rust_module_candidates(source))
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
     let mut by_stem: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for path in sources.keys() {
         let name = stem(path);
@@ -308,21 +377,35 @@ fn rust_graph(sources: Option<&BTreeMap<String, String>>) -> BTreeMap<String, BT
         };
         by_stem.entry(module).or_default().push(path.clone());
     }
-    sources
+    production_sources
         .iter()
         .map(|(path, source)| {
-            let code = function_lexical_facts(source).0;
-            let declared_modules = rust_module_candidates(&code).flat_map(|module| {
+            let declared_modules = rust_module_candidates(source).flat_map(|module| {
                 resolve_rust_module(path, module, &known)
                     .into_iter()
                     .flatten()
             });
-            let imported_modules = rust_use_candidates(&code)
-                .filter_map(|module| resolve_rust_use(path, module, &by_stem));
+            let imported_modules = rust_use_candidates(source).filter_map(|(module, explicit)| {
+                resolve_rust_use(path, module, explicit, &declared, &by_stem)
+            });
             let dependencies = declared_modules.chain(imported_modules).collect();
             (path.clone(), dependencies)
         })
         .collect()
+}
+
+fn rust_production_code(source: &str) -> String {
+    let (code, test_lines) = function_lexical_facts(source);
+    if test_lines.is_empty() {
+        return code;
+    }
+    let mut bytes = code.into_bytes();
+    for (index, line) in bytes.split_mut(|byte| *byte == b'\n').enumerate() {
+        if test_lines.contains(&index) {
+            line.fill(b' ');
+        }
+    }
+    String::from_utf8(bytes).expect("masked Rust source must remain UTF-8")
 }
 
 fn rust_module_candidates(code: &str) -> impl Iterator<Item = &str> {
@@ -331,10 +414,12 @@ fn rust_module_candidates(code: &str) -> impl Iterator<Item = &str> {
         .filter_map(|capture| capture.get(1).map(|module| module.as_str()))
 }
 
-fn rust_use_candidates(code: &str) -> impl Iterator<Item = &str> {
-    RUST_USE
-        .captures_iter(code)
-        .filter_map(|capture| capture.get(1).map(|module| module.as_str()))
+fn rust_use_candidates(code: &str) -> impl Iterator<Item = (&str, bool)> {
+    RUST_USE.captures_iter(code).filter_map(|capture| {
+        let prefix = capture.get(1)?.as_str();
+        let module = capture.get(2)?.as_str();
+        Some((module, !prefix.is_empty()))
+    })
 }
 
 fn resolve_rust_module(path: &str, module: &str, known: &BTreeSet<String>) -> [Option<String>; 2] {
@@ -348,10 +433,28 @@ fn resolve_rust_module(path: &str, module: &str, known: &BTreeSet<String>) -> [O
 fn resolve_rust_use(
     path: &str,
     module: &str,
+    explicit: bool,
+    declared: &BTreeSet<String>,
     by_stem: &BTreeMap<String, Vec<String>>,
 ) -> Option<String> {
-    let owners = by_stem.get(module)?;
-    (owners.len() == 1 && owners[0] != path).then(|| owners[0].clone())
+    if !explicit && !declared.contains(module) {
+        return None;
+    }
+    let crate_root = rust_crate_root(path);
+    let mut owners = by_stem
+        .get(module)?
+        .iter()
+        .filter(|owner| owner.as_str() != path && rust_crate_root(owner) == crate_root);
+    let owner = owners.next()?;
+    owners.next().is_none().then(|| owner.clone())
+}
+
+fn rust_crate_root(path: &str) -> &str {
+    if path.starts_with("src/") {
+        return "";
+    }
+    path.split_once("/src/")
+        .map_or_else(|| dirname(path), |(root, _)| root)
 }
 
 fn mojo_graph(sources: Option<&BTreeMap<String, String>>) -> BTreeMap<String, BTreeSet<String>> {
@@ -640,11 +743,16 @@ fn javascript_graph(sources: &BTreeMap<String, String>) -> BTreeMap<String, BTre
 }
 
 fn javascript_specifiers(source: &str) -> Vec<String> {
+    let positions = code_positions(source);
     JS_SPECIFIER
         .captures_iter(source)
         .filter_map(|capture| {
-            let matched = capture.get(0)?.as_str().trim_start();
-            if matched.starts_with("import type ") || matched.starts_with("export type ") {
+            let matched = capture.get(0)?;
+            if !positions.get(matched.start()).copied().unwrap_or(false) {
+                return None;
+            }
+            let directive = matched.as_str().trim_start();
+            if directive.starts_with("import type ") || directive.starts_with("export type ") {
                 return None;
             }
             capture
@@ -1263,7 +1371,10 @@ static RUST_MODULE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;").unwrap()
 });
 static RUST_USE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+(?:(?:crate|self|super)::)*([A-Za-z_][A-Za-z0-9_]*)").unwrap()
+    Regex::new(
+        r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+((?:(?:crate|self|super)::)*)([A-Za-z_][A-Za-z0-9_]*)",
+    )
+    .unwrap()
 });
 static MOJO_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*(?:import\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)|from\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s+import\s+)").unwrap()
@@ -1308,7 +1419,7 @@ mod tests {
 
     use super::{
         CSHARP_TYPE, code_positions, dart_directive_uris, go_graph, javascript_specifiers,
-        nim_modules, odin_graph, owner_graph, python_graph, wren_graph,
+        nim_modules, odin_graph, owner_graph, python_graph, rust_graph, wren_graph,
     };
 
     #[test]
@@ -1348,6 +1459,34 @@ mod tests {
         assert_eq!(
             python_graph(Some(&sources))["package/application.py"],
             ["package/routing.py".to_owned()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn rust_graph_ignores_test_only_module_declarations() {
+        let sources = BTreeMap::from([
+            (
+                "src/lib.rs".to_owned(),
+                "#[cfg(test)]\nmod tests;\nmod runtime;\nuse console::Term;\n".to_owned(),
+            ),
+            ("src/runtime.rs".to_owned(), String::new()),
+            ("src/tests.rs".to_owned(), String::new()),
+            ("tests/console.rs".to_owned(), String::new()),
+            (
+                "workspace/app/src/lib.rs".to_owned(),
+                "use crate::process::Command;\n".to_owned(),
+            ),
+            ("workspace/tools/src/process.rs".to_owned(), String::new()),
+        ]);
+
+        let graph = rust_graph(Some(&sources));
+        assert_eq!(
+            graph["src/lib.rs"],
+            ["src/runtime.rs".to_owned()].into_iter().collect()
+        );
+        assert!(
+            graph["workspace/app/src/lib.rs"].is_empty(),
+            "crate-relative imports must not resolve into another workspace crate"
         );
     }
 

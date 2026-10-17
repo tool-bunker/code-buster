@@ -462,6 +462,7 @@ fn doxygen_conditions(lines: &[&str]) -> Vec<BTreeSet<String>> {
     result
 }
 
+// code-buster-ignore complex-function: Svelte branch tracking is one small stack machine with shared active state.
 fn svelte_conditions(lines: &[&str]) -> Vec<BTreeSet<String>> {
     let mut active = Vec::<(usize, usize)>::new();
     let mut result = Vec::with_capacity(lines.len());

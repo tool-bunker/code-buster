@@ -76,9 +76,10 @@ fn measure(function: &FunctionSource) -> FunctionMetrics {
     for line in function.source.split('\n') {
         let code = strip_code(line, &mut lexical, dart);
         let cyclomatic_signals = CYCLOMATIC_SIGNAL.find_iter(&code).count();
-        let cognitive_signals = COGNITIVE_SIGNAL.find_iter(&code).count();
+        let cognitive_controls = COGNITIVE_CONTROL.find_iter(&code).count();
         cyclomatic += cyclomatic_signals;
-        cognitive += cognitive_signals * (1 + (depth - 1).max(0) as usize);
+        cognitive += cognitive_controls * (1 + (depth - 1).max(0) as usize);
+        cognitive += logical_operator_sequences(&code);
         depth += code.bytes().filter(|byte| *byte == b'{').count() as isize;
         depth -= code.bytes().filter(|byte| *byte == b'}').count() as isize;
         depth = depth.max(0);
@@ -88,6 +89,21 @@ fn measure(function: &FunctionSource) -> FunctionMetrics {
         cognitive,
         length: function.source.split('\n').count(),
     }
+}
+
+fn logical_operator_sequences(code: &str) -> usize {
+    let mut previous = None;
+    let mut sequences = 0;
+    for operator in LOGICAL_OPERATOR
+        .find_iter(code)
+        .map(|matched| matched.as_str())
+    {
+        if previous != Some(operator) {
+            sequences += 1;
+            previous = Some(operator);
+        }
+    }
+    sequences
 }
 
 fn file_findings(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Finding> {
@@ -316,10 +332,14 @@ static CYCLOMATIC_SIGNAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|case|catch)([^A-Za-z0-9_]|$)|&&|\|\|")
         .expect("cyclomatic signal regex must compile")
 });
-static COGNITIVE_SIGNAL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|switch|catch)([^A-Za-z0-9_]|$)|&&|\|\|")
-        .expect("cognitive signal regex must compile")
+static COGNITIVE_CONTROL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(^|[^A-Za-z0-9_])(if|elseif|else\s+if|for|foreach|while|switch|catch)([^A-Za-z0-9_]|$)",
+    )
+    .expect("cognitive control regex must compile")
 });
+static LOGICAL_OPERATOR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"&&|\|\|").expect("logical operator regex must compile"));
 static GOTO_STATEMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^goto\s+[A-Za-z_]\w*\s*;").expect("goto statement regex must compile")
 });
@@ -345,6 +365,28 @@ mod tests {
                 cyclomatic: 5,
                 cognitive: 7,
                 length: 9,
+            }
+        );
+    }
+
+    #[test]
+    fn counts_a_flat_logical_chain_as_one_cognitive_sequence() {
+        let function = FunctionSource {
+            path: "src/predicate.rs".to_owned(),
+            name: "matches".to_owned(),
+            line: 1,
+            end_line: 5,
+            contract_signature: false,
+            source: "fn matches() {\n  if first || second || third || fourth {\n    run();\n  }\n}"
+                .to_owned(),
+        };
+
+        assert_eq!(
+            measure(&function),
+            FunctionMetrics {
+                cyclomatic: 5,
+                cognitive: 2,
+                length: 5,
             }
         );
     }

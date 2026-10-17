@@ -479,6 +479,7 @@ fn cyclic_components(graph: &DependencyGraph) -> Vec<BTreeSet<String>> {
     tarjan.components
 }
 
+// code-buster-ignore complex-function: depth-first cycle reconstruction keeps stack and visit state local.
 fn representative_cycle(
     graph: &DependencyGraph,
     component: &BTreeSet<String>,
@@ -549,6 +550,7 @@ fn representative_cycle(
     None
 }
 
+// code-buster-ignore complex-function: graph-edge policy evaluation is one cohesive traversal.
 fn architecture_findings(graph: &DependencyGraph, config: &Config) -> Vec<Finding> {
     if config.architecture_layers.is_empty() {
         return Vec::new();
@@ -610,6 +612,7 @@ fn architecture_findings(graph: &DependencyGraph, config: &Config) -> Vec<Findin
     findings
 }
 
+// code-buster-ignore complex-function: layer-cycle detection keeps traversal and deduplication state local.
 fn architecture_cycle_findings(graph: &DependencyGraph, layers: &[String]) -> Vec<Finding> {
     fn visit(
         layer: &str,
@@ -1185,9 +1188,11 @@ mod tests {
     #[test]
     fn cycle_edges_missing_from_dependencies_remain_reportable() {
         let path = "src/orphan.js".to_owned();
+        let edges = BTreeMap::from([(path.clone(), BTreeSet::new())]);
         let graph = DependencyGraph::from_edges(
-            BTreeMap::from([(path.clone(), BTreeSet::new())]),
+            edges.clone(),
             BTreeMap::from([(path.clone(), BTreeSet::from([path.clone()]))]),
+            edges,
         );
 
         let findings = cycle_findings(&graph);

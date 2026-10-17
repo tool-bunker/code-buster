@@ -27,25 +27,39 @@ impl Marker {
     }
 }
 
-fn comment_markers(sources: &BTreeMap<String, String>, marker: Marker) -> Vec<Finding> {
-    let mut findings = Vec::new();
+fn comment_markers(
+    sources: &BTreeMap<String, String>,
+    todo_enabled: bool,
+    fixme_enabled: bool,
+) -> (Vec<Finding>, Vec<Finding>) {
+    let mut todo_findings = Vec::new();
+    let mut fixme_findings = Vec::new();
     for (path, source) in sources {
         let syntax = CommentSyntax::for_path(path);
         let mut state = CommentState::default();
         for (index, line) in source.split('\n').enumerate() {
             let comments = extract_comments(line, syntax, &mut state);
-            if marker.pattern().is_match(&comments) {
-                findings.push(finding(
-                    marker.code(),
+            if todo_enabled && Marker::Todo.pattern().is_match(&comments) {
+                todo_findings.push(finding(
+                    Marker::Todo.code(),
                     path,
                     index + 1,
-                    marker.message(),
+                    Marker::Todo.message(),
+                    "high",
+                ));
+            }
+            if fixme_enabled && Marker::Fixme.pattern().is_match(&comments) {
+                fixme_findings.push(finding(
+                    Marker::Fixme.code(),
+                    path,
+                    index + 1,
+                    Marker::Fixme.message(),
                     "high",
                 ));
             }
         }
     }
-    findings
+    (todo_findings, fixme_findings)
 }
 
 fn operation_on_same_value(sources: &BTreeMap<String, String>) -> Vec<Finding> {

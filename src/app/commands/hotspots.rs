@@ -32,6 +32,7 @@ struct HotspotTotals {
 struct HotspotsReport<'a> {
     version: u8,
     command: &'static str,
+    view: &'static str,
     root: &'a str,
     hotspots: &'a [Hotspot],
 }
@@ -52,7 +53,8 @@ pub fn execute(options: &PreviewOptions) -> Result<HotspotsOutcome, String> {
     if matches!(options.format, ReportFormat::Json) {
         let output = serde_json::to_string(&HotspotsReport {
             version: 1,
-            command: "hotspots",
+            command: "quality",
+            view: "hotspots",
             root: &prepared.root,
             hotspots: &hotspots,
         })

@@ -18,7 +18,7 @@ required_directories = ["features"]
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
     let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✗ Code Buster structure — 2 actionable findings\n"));
+    assert!(stdout.starts_with("✗ Code Buster quality — 2 actionable findings\n"));
     assert!(stdout.contains("  Files       2 analyzed"));
     assert!(stdout.contains(
         "Findings\n\n  WARN  structure-missing-required-dir\n        src/features:1\n        required source subdirectory is missing: src/features"
@@ -34,7 +34,7 @@ required_directories = ["features"]
     let report: serde_json::Value =
         serde_json::from_slice(&json.stdout).expect("structure JSON must parse");
     assert_eq!(report["schemaVersion"], 3);
-    assert_eq!(report["command"], "structure");
+    assert_eq!(report["command"], "quality");
     assert_eq!(report["files"], 2);
     assert_eq!(report["actionableFindingCount"], 2);
     assert_eq!(
@@ -156,6 +156,19 @@ duplication_min_lines = 3
         "Findings\n\n  WARN  duplicate-block\n        src/a.rs:1-4\n        duplicate block of 4 lines fingerprint=4FEBB33CC8BB"
     ));
     assert!(stdout.contains("→ Review advisory findings: cb review --advisory"));
+
+    let summary = run_summary(&root.path, &[]);
+    assert_eq!(summary.status.code(), Some(0));
+    let stdout = String::from_utf8(summary.stdout).expect("stdout must be UTF-8");
+    assert!(stdout.contains(
+        "Advisory breakdown (cb --advisory)\n  maintainability   1"
+    ));
+
+    let advisory = run_summary(&root.path, &["--advisory"]);
+    assert_eq!(advisory.status.code(), Some(0));
+    let stdout = String::from_utf8(advisory.stdout).expect("stdout must be UTF-8");
+    assert!(stdout.contains("Advisory breakdown\n  maintainability   1"));
+    assert!(!stdout.contains("(cb --advisory)"));
 
     let json = run_duplication(&root.path, &["--format", "json"]);
     assert_eq!(json.status.code(), Some(0));
@@ -424,12 +437,12 @@ cleanup:
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
     let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✗ Code Buster complexity — 3 actionable findings\n"));
+    assert!(stdout.starts_with("✗ Code Buster quality — 3 actionable findings\n"));
     assert!(stdout.contains("  Actionable  3"));
     assert!(stdout.contains("  Advisory    1"));
     assert!(stdout.contains("Languages\n  cpp              1 file     2 findings"));
     assert!(stdout.contains(
-        "  WARN  complex-function\n        src/logic.rs:1\n        logic complexity=5 cognitive=7"
+        "  WARN  complex-function\n        src/logic.rs:1\n        logic\n        Cyclomatic  5  ·  Cognitive  7"
     ));
     assert!(stdout.contains(
         "  WARN  goto-statement\n        src/jump.c:3\n        use of goto makes control flow hard to review and analyze"
@@ -440,7 +453,7 @@ cleanup:
     assert!(json.stderr.is_empty());
     let report: serde_json::Value =
         serde_json::from_slice(&json.stdout).expect("complexity JSON must parse");
-    assert_eq!(report["command"], "complexity");
+    assert_eq!(report["command"], "quality");
     assert_eq!(report["actionableFindingCount"], 3);
     assert_eq!(report["advisorySummary"]["groups"]["maintainability"], 1);
     assert_eq!(
@@ -520,8 +533,8 @@ int clean(void) {
 }
 
 #[test]
-fn clusters_reuses_duplication_findings_with_its_public_report_contract() {
-    let root = TempDirectory::new("cbr-clusters");
+fn duplication_groups_repeated_blocks_in_one_public_report() {
+    let root = TempDirectory::new("cbr-duplication-grouping");
     root.write(
         "code-buster.toml",
         b"languages = [\"rust\"]\n[analysis]\nduplication_min_lines = 3\n",
@@ -531,24 +544,24 @@ fn clusters_reuses_duplication_findings_with_its_public_report_contract() {
     root.write("src/a.rs", source);
     root.write("src/b.rs", source);
 
-    let text = run_clusters(&root.path, &[]);
+    let text = run_duplication(&root.path, &[]);
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
     let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✓ Code Buster — no actionable findings\n"));
+    assert!(stdout.starts_with("✓ Code Buster duplication — no actionable findings\n"));
     assert!(stdout.contains("  Advisory    1"));
     assert!(stdout.contains(
         "Findings\n\n  WARN  duplicate-block\n        src/a.rs:1-4\n        duplicate block of 4 lines fingerprint=4FEBB33CC8BB"
     ));
     assert!(stdout.contains("→ Review advisory findings: cb review --advisory"));
 
-    let json = run_clusters(&root.path, &["--format", "json"]);
+    let json = run_duplication(&root.path, &["--format", "json"]);
     assert_eq!(json.status.code(), Some(0));
     assert!(json.stderr.is_empty());
     let report: serde_json::Value =
-        serde_json::from_slice(&json.stdout).expect("clusters JSON must parse");
-    assert_eq!(report["command"], "clusters");
-    assert_eq!(report["manifest"]["command"], "clusters");
+        serde_json::from_slice(&json.stdout).expect("duplication JSON must parse");
+    assert_eq!(report["command"], "duplication");
+    assert_eq!(report["manifest"]["command"], "duplication");
     assert_eq!(report["actionableFindingCount"], 0);
     assert_eq!(report["findings"][0]["code"], "duplicate-block");
 
@@ -556,7 +569,7 @@ fn clusters_reuses_duplication_findings_with_its_public_report_contract() {
         "code-buster.toml",
         b"languages = [\"rust\"]\n[analysis]\nduplication_min_lines = 3\n[rules.severity]\nduplicate-block = \"warn\"\n",
     );
-    let failing = run_clusters(&root.path, &["--fail-on-issues"]);
+    let failing = run_duplication(&root.path, &["--fail-on-issues"]);
     assert_eq!(failing.status.code(), Some(2));
     assert!(failing.stderr.is_empty());
 }
@@ -591,7 +604,7 @@ const ordinary = flags.isChecked;
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
     let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✓ Code Buster flags — no actionable findings\n"));
+    assert!(stdout.starts_with("✓ Code Buster review — no actionable findings\n"));
     assert!(stdout.contains("  Advisory    4"));
     assert!(stdout.contains("Languages\n  rust             1 file     2 findings"));
     assert!(stdout.contains("  typescript       1 file     2 findings"));
@@ -607,7 +620,7 @@ const ordinary = flags.isChecked;
     assert!(json.stderr.is_empty());
     let report: serde_json::Value =
         serde_json::from_slice(&json.stdout).expect("flags JSON must parse");
-    assert_eq!(report["command"], "flags");
+    assert_eq!(report["command"], "review");
     assert_eq!(report["actionableFindingCount"], 0);
     assert_eq!(report["advisorySummary"]["groups"]["maintainability"], 4);
     assert_eq!(
@@ -1119,7 +1132,8 @@ fn hotspots_rank_discovered_files_from_git_history_and_honor_top() {
     let report: serde_json::Value =
         serde_json::from_slice(&json.stdout).expect("hotspots JSON must parse");
     assert_eq!(report["version"], 1);
-    assert_eq!(report["command"], "hotspots");
+    assert_eq!(report["command"], "quality");
+    assert_eq!(report["view"], "hotspots");
     assert_eq!(report["root"], root.path.to_string_lossy().as_ref());
     assert_eq!(report["hotspots"][0]["path"], "lib/hot.dart");
     assert_eq!(report["hotspots"][0]["commits"], 2);

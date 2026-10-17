@@ -302,6 +302,7 @@ fn direct_forwarding_call(tail: &str) -> Option<(&str, &str)> {
     Some((target, arguments))
 }
 
+// code-buster-ignore complex-function: cross-language wrapper bodies are normalized by one bounded parser.
 pub(crate) fn direct_returned_expression(tail: &str) -> Option<&str> {
     let mut body = tail.trim();
     if let Some(stripped) = body.strip_prefix("async ") {

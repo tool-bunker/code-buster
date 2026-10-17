@@ -1,0 +1,34 @@
+{
+  "id": "production-imports-test-code",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Keep test code out of production dependencies",
+  "title": "Keep test code out of production dependencies",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "Production code that depends on tests, fixtures, mocks, benchmarks, or examples can fail in packaged builds and reverses the intended dependency direction.",
+  "suggestion": "Move shared behavior into production code and import it from both production and test code.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": [
+    "architecture",
+    "correctness"
+  ],
+  "requirements": [
+    "graph",
+    "sourceClassification"
+  ],
+  "packs": [
+    "repository-contracts"
+  ],
+  "implementation": "src/rules/repository_contracts.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only imports resolved by Code Buster's static dependency graph are reported.",
+    "The rule is disabled when tests or examples are explicitly included in the analysis."
+  ]
+}

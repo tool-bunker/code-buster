@@ -4,7 +4,7 @@ use crate::rule_catalog;
 
 pub fn execute(options: &RepositoryViewOptions) -> RepositoryViewOutcome {
     let Some(code) = options.targets.first().filter(|code| !code.is_empty()) else {
-        eprintln!("explain requires a rule ID");
+        eprintln!("rules requires a rule ID");
         return RepositoryViewOutcome::Usage;
     };
     let Some(rule) = rule_catalog::metadata(code) else {

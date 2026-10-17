@@ -156,6 +156,7 @@ fn mask_nested_cpp_lambdas(
     String::from_utf8(result).expect("C++ lambda masking preserves UTF-8")
 }
 
+// code-buster-ignore complex-function: macro graph expansion keeps definitions and recursive stringification state together.
 fn cpp_stringifying_macros<'a>(sources: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
     let mut definitions = BTreeMap::<String, (String, String)>::new();
     for source in sources {

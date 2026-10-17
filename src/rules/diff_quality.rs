@@ -725,6 +725,7 @@ fn risk_category(line: &str) -> Option<&'static str> {
     }
 }
 
+// code-buster-ignore complex-function: language-specific public declaration patterns are a bounded dispatch table.
 fn public_declarations(source: &str, path: &str) -> BTreeSet<String> {
     let raw_lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
     let masked = mask_generic_rule_strings(&raw_lines, path).join("\n");

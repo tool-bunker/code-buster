@@ -1,0 +1,36 @@
+{
+  "id": "js-child-process-shell-interpolation",
+  "language": "typescript",
+  "group": "security",
+  "listingTitle": "Keep dynamic data out of child-process shells",
+  "title": "Keep dynamic data out of child-process shells",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "security",
+  "why": "Dynamic command text passed to exec or to spawn with shell enabled can let untrusted values become shell syntax.",
+  "suggestion": "Use execFile or spawn without shell mode and pass validated values as separate argument-array entries.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "vulnerability",
+  "taxonomy": [
+    "security",
+    "injection"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "typescript"
+  ],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Named ES module imports, namespace imports, and CommonJS require bindings from child_process are recognized.",
+    "Lexical shadowing and values forwarded through wrapper functions are not resolved."
+  ]
+}

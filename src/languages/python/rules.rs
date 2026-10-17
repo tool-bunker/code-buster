@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
@@ -152,10 +153,14 @@ impl PythonScanState {
     }
 
     fn update_import_continuation(&mut self, current: &PythonLine<'_>) {
+        let starts_import = is_import(current.line());
+        if !current.in_import_continuation && !starts_import {
+            return;
+        }
         let bracket_delta = bracket_delta(&mask_strings(current.raw));
         if current.in_import_continuation {
             self.import_continuation_depth += bracket_delta;
-        } else if is_import(current.line()) && bracket_delta > 0 {
+        } else if bracket_delta > 0 {
             self.import_continuation_depth = bracket_delta;
         }
     }
@@ -1240,15 +1245,13 @@ fn strip_quoted_strings(line: &str) -> String {
     QUOTED_STRING.replace_all(line, "").into_owned()
 }
 
-fn mask_strings(line: &str) -> String {
-    QUOTED_STRING
-        .replace_all(line, |captures: &regex::Captures<'_>| {
-            let Some(matched) = captures.get(0) else {
-                return String::new();
-            };
-            "x".repeat(matched.as_str().len())
-        })
-        .into_owned()
+fn mask_strings(line: &str) -> Cow<'_, str> {
+    QUOTED_STRING.replace_all(line, |captures: &regex::Captures<'_>| {
+        let Some(matched) = captures.get(0) else {
+            return String::new();
+        };
+        "x".repeat(matched.as_str().len())
+    })
 }
 
 fn has_hardcoded_secret(code: &str, path: &str) -> bool {

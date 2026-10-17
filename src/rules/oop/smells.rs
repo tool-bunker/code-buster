@@ -589,6 +589,7 @@ fn forwarded_field<'a>(
     arguments_match.then_some(field)
 }
 
+// code-buster-ignore complex-function: strategy evidence requires one nested class traversal before grouping.
 fn strategy_dispatch(project: &Project) -> Vec<Finding> {
     let mut groups = BTreeMap::<String, Vec<&OopClass>>::new();
     for owner in &project.classes {
@@ -855,6 +856,7 @@ fn service_locators(project: &Project) -> Vec<Finding> {
     findings
 }
 
+// code-buster-ignore complex-function: observer registration and removal evidence share one class traversal.
 fn observer_notifications(project: &Project) -> Vec<Finding> {
     let mut findings = Vec::new();
     for owner in &project.classes {

@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "expect terminates the process and its invariant can become stale as code evolves.",
   "suggestion": "Propagate or handle the error unless the message documents a genuine invariant.",
-  "version": 7,
+  "version": 8,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,6 @@
   "languageVersions": [],
   "limitations": [
     "The rule uses masked source tokens and does not perform Rust type resolution.",
-    "Conventional test modules, lint-allowed items, literal or fully escaped regex construction, regex capture group zero, generated catalog invariants, and documented UTF-8 masking invariants are excluded."
+    "Conventional test modules, lint-allowed items, literal or fully escaped regex construction, regex capture group zero, generated catalog invariants, documented UTF-8 masking invariants, and messages that explicitly state a construction-time invariant are excluded."
   ]
 }

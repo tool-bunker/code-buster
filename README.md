@@ -62,7 +62,7 @@ irm https://toolbunker.dev/codebuster/install.ps1 | iex
 When Rust 1.88 or newer is installed, build the current release from source:
 
 ```sh
-cargo install --git https://github.com/tool-bunker/code-buster.git --tag v0.9.0 --locked code-buster
+cargo install --git https://github.com/tool-bunker/code-buster.git --tag v0.10.0 --locked code-buster
 cb version
 ```
 
@@ -73,8 +73,9 @@ cb summary
 ```
 
 Configuration is optional. Start with coverage in the summary, then use focused
-commands such as `review`, `duplication`, `graph`, `dead`, `hotspots`, or
-`inspect` for the question you need to answer.
+commands such as `review`, `duplication`, `graph`, `dead`, `inspect`, or
+`quality`. Focus further with `quality --hotspots`, `inspect --related PATH`,
+or `review --format plan`.
 
 Analysis caches live in the operating system's user-cache directory, not in the
 analyzed repository. Use `--no-cache` for one-off runs or `--cache-dir PATH`
@@ -94,9 +95,10 @@ for every supported path.
 
 Code Buster combines file-level rules with repository-wide analysis. It reports:
 
-- dependency cycles and architecture-policy violations;
+- dependency cycles, architecture-policy violations, and production dependencies on test-only code;
 - duplicated blocks, near-duplicate functions, and repeated patterns;
 - unreachable production files and declarations;
+- missing literal local package, workspace, target, executable, and script-entry references;
 - complexity growth, hotspots, and maintainability risks;
 - correctness, reliability, security, accessibility, performance, and style findings;
 - repository structure, source classification, framework, and design-system drift.

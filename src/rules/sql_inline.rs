@@ -141,6 +141,7 @@ fn is_sql_construction_context(lines: &[String], index: usize) -> bool {
     index > 0 && CONTINUATION.is_match(line) && EXECUTION.is_match(&lines[index - 1])
 }
 
+// code-buster-ignore complex-function: forward data-flow stops at first use or reassignment and must retain scan order.
 fn is_management_object_query(lines: &[String], index: usize) -> bool {
     let line = &lines[index];
     if SEARCHER_CALL.is_match(line) || (index > 0 && SEARCHER_CALL.is_match(&lines[index - 1])) {

@@ -56,6 +56,7 @@ pub fn execute(options: &PreviewOptions) -> Result<DeadOutcome, String> {
             findings: &detailed,
             actionable_count,
             advisory_summary: &advisory_summary,
+            show_advisory_hint: false,
             verbose: options.verbose,
             profile: options.profile,
         },

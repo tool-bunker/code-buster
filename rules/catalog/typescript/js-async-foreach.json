@@ -1,0 +1,36 @@
+{
+  "id": "js-async-foreach",
+  "language": "typescript",
+  "group": "correctness",
+  "listingTitle": "Use awaitable async iteration",
+  "title": "Use awaitable async iteration",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "Array.forEach ignores callback promises, so the surrounding function continues before asynchronous work completes and callback rejections can be lost.",
+  "suggestion": "Use for...of with await for sequential work, or await Promise.all(items.map(async ...)) for intentional concurrency.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness",
+    "async"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "typescript"
+  ],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": [
+    "javascript",
+    "typescript"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Direct forEach calls with inline async arrow or async function callbacks are reported.",
+    "Promise-returning callbacks referenced by identifier require type analysis and are not reported."
+  ]
+}

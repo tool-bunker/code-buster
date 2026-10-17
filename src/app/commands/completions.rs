@@ -1,4 +1,4 @@
-const COMMANDS: &str = "summary graph dead duplication structure clusters complexity flags hotspots inspect related why path score quality plan actions review pr doctor preview explain rules config baseline fix init test version update completions";
+const COMMANDS: &str = "summary review inspect graph dead duplication quality rules baseline fix init doctor config update completions version";
 
 pub fn execute(shell: &str) {
     let output = match shell {
@@ -9,7 +9,7 @@ pub fn execute(shell: &str) {
              complete -c cb -l cache-dir -r\n\
              complete -c cb -l cache\n\
              complete -c cb -l profile\n\
-             complete -c cb -l format -a \"text json ndjson markdown sarif junit mermaid\""
+             complete -c cb -l format -a \"text json ndjson markdown sarif junit mermaid plan actions\""
         ),
         "powershell" | "pwsh" => format!(
             "Register-ArgumentCompleter -Native -CommandName cb -ScriptBlock {{\n\
@@ -26,7 +26,7 @@ pub fn execute(shell: &str) {
              '--cache[reuse analysis cache]' \
              '--profile[measure uncached rule-pack execution]' \
              '--cache-dir[cache directory]:dir:_files -/' \
-             '--format[format]:(text json ndjson markdown sarif junit mermaid)'"
+             '--format[format]:(text json ndjson markdown sarif junit mermaid plan actions)'"
         ),
         _ => format!("complete -W \"{COMMANDS}\" cb"),
     };

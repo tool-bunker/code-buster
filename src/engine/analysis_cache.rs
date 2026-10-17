@@ -12,7 +12,7 @@ use crate::discovery::PreparedPreview;
 use crate::findings::{CodeFlowStep, Finding, Severity};
 use crate::report::cache_material;
 
-const CACHE_SCHEMA_VERSION: u64 = 2;
+const CACHE_SCHEMA_VERSION: u64 = 3;
 const STYLE_CONFIG_NAMES: [&str; 6] = [
     ".prettierrc",
     ".prettierrc.json",
@@ -235,6 +235,14 @@ fn fingerprint_sources(prepared: &PreparedPreview) -> [u8; 32] {
     for (path, source) in &prepared.sources {
         hash_entry(&mut hasher, b"source", path.as_bytes(), source.as_bytes());
     }
+    for file in &prepared.excluded_source_files {
+        hash_entry(
+            &mut hasher,
+            b"excluded-source",
+            file.path.as_bytes(),
+            file.language.as_bytes(),
+        );
+    }
 
     let root = Path::new(&prepared.root);
     for path in style_config_paths(root, prepared.sources.keys().map(String::as_str)) {
@@ -259,12 +267,7 @@ fn style_config_paths<'path>(
     let mut visited_directories = BTreeSet::new();
     let mut style_configs = BTreeSet::new();
     visited_directories.insert(root.to_path_buf());
-    for name in STYLE_CONFIG_NAMES {
-        let candidate = root.join(name);
-        if candidate.is_file() {
-            style_configs.insert(candidate);
-        }
-    }
+    collect_style_configs(root, &mut style_configs);
     for source_path in source_paths {
         let mut directory = root.join(source_path).parent().map(Path::to_path_buf);
         while let Some(current) = directory {
@@ -272,12 +275,7 @@ fn style_config_paths<'path>(
                 break;
             }
             if visited_directories.insert(current.clone()) {
-                for name in STYLE_CONFIG_NAMES {
-                    let candidate = current.join(name);
-                    if candidate.is_file() {
-                        style_configs.insert(candidate);
-                    }
-                }
+                collect_style_configs(&current, &mut style_configs);
             }
             if current == root {
                 break;
@@ -286,6 +284,15 @@ fn style_config_paths<'path>(
         }
     }
     style_configs
+}
+
+fn collect_style_configs(directory: &Path, style_configs: &mut BTreeSet<PathBuf>) {
+    style_configs.extend(
+        STYLE_CONFIG_NAMES
+            .iter()
+            .map(|name| directory.join(name))
+            .filter(|candidate| candidate.is_file()),
+    );
 }
 
 fn hash_entry(hasher: &mut Sha256, kind: &[u8], path: &[u8], source: &[u8]) {
@@ -391,7 +398,15 @@ fn load_graph(path: &Path) -> Option<DependencyGraph> {
         .get("cycleEdges")
         .and_then(parse_edges)
         .unwrap_or_else(|| edges.clone());
-    Some(DependencyGraph::from_edges(edges, cycle_edges))
+    let classified_edges = value
+        .get("classifiedEdges")
+        .and_then(parse_edges)
+        .unwrap_or_else(|| edges.clone());
+    Some(DependencyGraph::from_edges(
+        edges,
+        cycle_edges,
+        classified_edges,
+    ))
 }
 
 fn parse_edges(value: &Value) -> Option<BTreeMap<String, BTreeSet<String>>> {
@@ -412,6 +427,7 @@ fn parse_edges(value: &Value) -> Option<BTreeMap<String, BTreeSet<String>>> {
 fn store_graph(path: &Path, graph: &DependencyGraph) {
     let mut edges = Map::new();
     let mut cycle_edges = Map::new();
+    let mut classified_edges = Map::new();
     for node in graph.nodes() {
         edges.insert(
             node.to_owned(),
@@ -421,6 +437,10 @@ fn store_graph(path: &Path, graph: &DependencyGraph) {
             node.to_owned(),
             json!(graph.cycle_dependencies(node).collect::<Vec<_>>()),
         );
+        classified_edges.insert(
+            node.to_owned(),
+            json!(graph.classified_dependencies(node).collect::<Vec<_>>()),
+        );
     }
     store_value(
         path,
@@ -429,6 +449,7 @@ fn store_graph(path: &Path, graph: &DependencyGraph) {
             "kind": "graph",
             "edges": edges,
             "cycleEdges": cycle_edges,
+            "classifiedEdges": classified_edges,
         }),
     );
 }

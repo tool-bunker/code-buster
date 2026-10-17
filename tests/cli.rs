@@ -20,12 +20,23 @@ fn run_root_command(command: &str, root: &Path, arguments: &[&str]) -> Output {
         .unwrap_or_else(|error| panic!("cb {command} must execute: {error}"))
 }
 
+fn run_root_view(command: &str, root: &Path, view: &[&str], arguments: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_cb"))
+        .arg(command)
+        .arg("--root")
+        .arg(root)
+        .args(view)
+        .args(arguments)
+        .output()
+        .unwrap_or_else(|error| panic!("cb {command} must execute: {error}"))
+}
+
 fn run_summary(root: &Path, arguments: &[&str]) -> Output {
     run_root_command("summary", root, arguments)
 }
 
 fn run_preview(root: &Path, arguments: &[&str]) -> Output {
-    run_root_command("preview", root, arguments)
+    run_root_view("config", root, &["--files"], arguments)
 }
 
 fn run_config(root: &Path, arguments: &[&str]) -> Output {
@@ -37,23 +48,24 @@ fn run_doctor(root: &Path, arguments: &[&str]) -> Output {
 }
 
 fn run_structure(root: &Path, arguments: &[&str]) -> Output {
-    run_root_command("structure", root, arguments)
+    run_root_view("quality", root, &["--structure"], arguments)
 }
 
 fn run_duplication(root: &Path, arguments: &[&str]) -> Output {
     run_root_command("duplication", root, arguments)
 }
 
-fn run_clusters(root: &Path, arguments: &[&str]) -> Output {
-    run_root_command("clusters", root, arguments)
-}
-
 fn run_complexity(root: &Path, arguments: &[&str]) -> Output {
-    run_root_command("complexity", root, arguments)
+    run_root_view("quality", root, &["--complexity"], arguments)
 }
 
 fn run_flags(root: &Path, arguments: &[&str]) -> Output {
-    run_root_command("flags", root, arguments)
+    run_root_view(
+        "review",
+        root,
+        &["--only", "feature-flag", "--advisory"],
+        arguments,
+    )
 }
 
 fn run_graph(root: &Path, arguments: &[&str]) -> Output {
@@ -65,11 +77,16 @@ fn run_dead(root: &Path, arguments: &[&str]) -> Output {
 }
 
 fn run_hotspots(root: &Path, arguments: &[&str]) -> Output {
-    run_root_command("hotspots", root, arguments)
+    run_root_view("quality", root, &["--hotspots"], arguments)
 }
 
 fn run_repository_view(command: &str, root: &Path, arguments: &[&str]) -> Output {
-    run_root_command(command, root, arguments)
+    match command {
+        "related" => run_root_view("inspect", root, &["--related"], arguments),
+        "why" => run_root_view("inspect", root, &["--why"], arguments),
+        "path" => run_root_view("inspect", root, &["--path"], arguments),
+        _ => run_root_command(command, root, arguments),
+    }
 }
 
 fn run_rules(root: &Path, arguments: &[&str]) -> Output {
@@ -78,10 +95,10 @@ fn run_rules(root: &Path, arguments: &[&str]) -> Output {
 
 fn run_explain(arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_cb"))
-        .arg("explain")
+        .arg("rules")
         .args(arguments)
         .output()
-        .expect("cb explain must execute")
+        .expect("cb rules must execute")
 }
 
 fn git(root: &Path, arguments: &[&str]) {

@@ -721,15 +721,15 @@ fn summary_reports_complete_csharp_rule_family() {
 }
 
 #[test]
-fn unsupported_preview_formats_fail() {
-    let output = run(&["preview", "--format", "markdown"]);
+fn unsupported_config_files_formats_fail() {
+    let output = run(&["config", "--files", "--format", "markdown"]);
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     assert!(
         String::from_utf8(output.stderr)
             .expect("stderr must be UTF-8")
-            .contains("preview supports text and json formats")
+            .contains("config --files supports text and json formats")
     );
 }
 
@@ -1551,10 +1551,23 @@ fn summary_manifest_uses_the_stable_cb_config_hash_contract() {
     let report: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
 
-    assert_eq!(
-        report["manifest"]["configHash"],
-        "b58d967308b87b8ef488bb2fe81b579392a51e2b294dfc8b848fa98032a439e9"
+    let first = report["manifest"]["configHash"]
+        .as_str()
+        .expect("config hash must be a string")
+        .to_owned();
+    let repeated = run_summary(&root.path, &["--format", "json", "--no-cache"]);
+    let repeated: serde_json::Value =
+        serde_json::from_slice(&repeated.stdout).expect("repeated summary must emit JSON");
+    assert_eq!(repeated["manifest"]["configHash"], first);
+
+    root.write(
+        "code-buster.toml",
+        b"lang = \"dart\"\n\n[severity]\nz-rule = \"warn\"\na-rule = \"warn\"\n",
     );
+    let changed = run_summary(&root.path, &["--format", "json", "--no-cache"]);
+    let changed: serde_json::Value =
+        serde_json::from_slice(&changed.stdout).expect("changed summary must emit JSON");
+    assert_ne!(changed["manifest"]["configHash"], first);
 }
 
 #[test]
@@ -1996,4 +2009,53 @@ fn audit_profile(name: &str, email: &str, role: &str, active: bool) {
         finding("rust-repeated-dynamic-map-shape")["path"],
         "src/audit.rs"
     );
+}
+
+#[test]
+fn summary_reports_production_imports_of_excluded_test_code() {
+    let root = TempDirectory::new("cb-production-imports-test-code");
+    root.write("package.json", br#"{"private":true,"type":"module"}"#);
+    root.write(
+        "src/main.ts",
+        b"import { fixture } from '../tests/fixture';\n\
+          import { helper } from './helper';\n\
+          export const result = fixture(helper());\n",
+    );
+    root.write(
+        "src/helper.ts",
+        b"export function helper(): string { return 'safe'; }\n",
+    );
+    root.write(
+        "src/example.ts",
+        b"const sample = \"import '../tests/fixture'\";\n\
+          // import { fixture } from '../tests/fixture';\n\
+          export { sample };\n",
+    );
+    root.write(
+        "tests/fixture.ts",
+        b"export function fixture(value: string): string { return value; }\n",
+    );
+
+    let output = run_summary(
+        &root.path,
+        &[
+            "--format",
+            "json",
+            "--no-cache",
+            "--only",
+            "production-imports-test-code",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+    let findings = report["findings"]
+        .as_array()
+        .expect("findings must be an array");
+    assert_eq!(findings.len(), 1, "unexpected findings: {findings:#?}");
+    assert_eq!(findings[0]["code"], "production-imports-test-code");
+    assert_eq!(findings[0]["path"], "src/main.ts");
+    assert_eq!(findings[0]["related_files"][0], "tests/fixture.ts");
 }

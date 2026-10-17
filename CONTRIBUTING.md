@@ -74,7 +74,7 @@ A canonical definition has this shape:
 }
 ```
 
-`listingTitle` is the short title shown by `cb rules`. `title`, `why`, and `suggestion` are the explanatory contract used by findings and `cb explain`.
+`listingTitle` is the short title shown by `cb rules`. `title`, `why`, and `suggestion` are the explanatory contract used by findings and `cb rules RULE_ID`.
 
 `build.rs` watches every `implementation` source and rejects definitions whose file is missing, points outside `src/`, points at a standalone test file, or does not contain the exact rule ID. Dynamically selected rules must therefore declare their complete IDs beside the detector rather than constructing undocumented IDs with `format!`. When implementations share a helper, pass the literal ID from each catalog-listed implementation source.
 

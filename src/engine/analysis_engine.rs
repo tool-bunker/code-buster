@@ -460,7 +460,9 @@ fn legacy_language_code_order(left: &str, right: &str) -> std::cmp::Ordering {
             legacy_language_code_rank(right),
         ) {
             (Some(left), Some(right)) => left.cmp(&right),
-            _ => left.cmp(right),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => left.cmp(right),
         }
     })
 }
@@ -978,6 +980,30 @@ mod tests {
         dart_sort_indices(&mut equal, &|_, _| std::cmp::Ordering::Equal);
         equal.sort_unstable();
         assert_eq!(equal, (0..64).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn legacy_language_order_is_total_for_known_and_unknown_rules() {
+        let mut codes = vec![
+            "rust-zeta",
+            "rust-static-mut",
+            "rust-alpha",
+            "rust-unwrap",
+            "rust-expect",
+        ];
+
+        codes.sort_by(|left, right| legacy_language_code_order(left, right));
+
+        assert_eq!(
+            codes,
+            [
+                "rust-unwrap",
+                "rust-expect",
+                "rust-static-mut",
+                "rust-alpha",
+                "rust-zeta",
+            ]
+        );
     }
 
     #[test]

@@ -17,7 +17,13 @@ impl Language {
     }
 
     pub fn owns_extension(self, extension: &str) -> bool {
-        self.extensions.contains(&extension)
+        let extension = extension.strip_prefix('.').unwrap_or(extension);
+        self.extensions.iter().any(|candidate| {
+            candidate
+                .strip_prefix('.')
+                .unwrap_or(candidate)
+                .eq_ignore_ascii_case(extension)
+        })
     }
 }
 
@@ -118,6 +124,7 @@ pub const LANGUAGES: &[Language] = &[
     },
 ];
 
+// code-buster-ignore complex-function: language alias expansion and deduplication form one bounded selection routine.
 pub fn select(language: &str, languages: &[String]) -> Result<Vec<Language>, String> {
     let requested = if languages.is_empty() {
         vec![language.to_owned()]

@@ -260,6 +260,7 @@ fn section_prefix_line(source: &str, section: &str) -> usize {
         .map_or(1, |index| index + 1)
 }
 
+// code-buster-ignore complex-function: one CI scan must retain broad coverage and the first unscoped command.
 fn append_partial_workspace_ci(
     context: &SourceAnalysisContext<'_>,
     workspace: &Workspace<'_>,

@@ -92,6 +92,7 @@ fn owner(path: &str) -> String {
         .map_or_else(|| "root".to_owned(), |index| segments[index - 1].to_owned())
 }
 
+// code-buster-ignore complex-function: depth-first cycle detection keeps stack and canonicalization state local.
 fn cycles(edges: &BTreeMap<String, BTreeSet<String>>) -> Vec<Vec<String>> {
     fn visit(
         node: &str,

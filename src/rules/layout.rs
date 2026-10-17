@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -26,13 +26,15 @@ pub fn analyze(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Findi
 }
 
 fn tab_indentation(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Finding> {
+    let root = policy_root(config);
+    let mut policies = HashMap::new();
     let mut findings = Vec::new();
     for (path, source) in sources {
         if findings.len() >= 50 {
             break;
         }
         let dart = path.ends_with(".dart");
-        if !dart && !tabs_forbidden(path, config) {
+        if !should_check_tab_indentation(path, &root, &mut policies) {
             continue;
         }
         let lines = source.split('\n').collect::<Vec<_>>();
@@ -67,13 +69,15 @@ fn tab_indentation(sources: &BTreeMap<String, String>, config: &Config) -> Vec<F
 }
 
 fn trailing_whitespace(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Finding> {
+    let root = policy_root(config);
+    let mut policies = HashMap::new();
     let mut findings = Vec::new();
     for (path, source) in sources {
         if findings.len() >= 50 {
             break;
         }
         let dart = path.ends_with(".dart");
-        if !dart && !trailing_whitespace_forbidden(path, config) {
+        if !should_check_trailing_whitespace(path, &root, &mut policies) {
             continue;
         }
         let lines = source.split('\n').collect::<Vec<_>>();
@@ -115,12 +119,14 @@ fn trailing_whitespace(sources: &BTreeMap<String, String>, config: &Config) -> V
 }
 
 fn long_lines(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Finding> {
+    let root = policy_root(config);
+    let mut policies = HashMap::new();
     let mut findings = Vec::new();
     for (path, source) in sources {
         if path.ends_with(".dart") {
             continue;
         }
-        let line_limit = generic_line_limit(path, config);
+        let line_limit = cached_policy(&mut policies, path, || generic_line_limit(path, &root));
         let template_language = TEMPLATE_LANGUAGE.is_match(path);
         let mut in_template = false;
         for (index, raw) in source.split('\n').enumerate() {
@@ -316,15 +322,15 @@ fn unescaped_backtick_count(line: &str) -> usize {
         .count()
 }
 
-fn generic_line_limit(source_path: &str, config: &Config) -> usize {
-    biome_line_limit(source_path, config)
-        .or_else(|| prettier_line_limit(source_path, config))
-        .or_else(|| editor_config_line_limit(source_path, config))
+fn generic_line_limit(source_path: &str, root: &Path) -> usize {
+    biome_line_limit(source_path, root)
+        .or_else(|| prettier_line_limit(source_path, root))
+        .or_else(|| editor_config_line_limit(source_path, root))
         .unwrap_or(0)
 }
 
-fn prettier_line_limit(source_path: &str, config: &Config) -> Option<usize> {
-    for directory in policy_directories(source_path, config) {
+fn prettier_line_limit(source_path: &str, root: &Path) -> Option<usize> {
+    for directory in policy_directories(source_path, root) {
         for name in PRETTIER_FILES {
             let path = directory.join(name);
             if !path.is_file() {
@@ -341,8 +347,8 @@ fn prettier_line_limit(source_path: &str, config: &Config) -> Option<usize> {
     None
 }
 
-fn editor_config_line_limit(source_path: &str, config: &Config) -> Option<usize> {
-    editor_config_value(source_path, config, "max_line_length").and_then(|value| {
+fn editor_config_line_limit(source_path: &str, root: &Path) -> Option<usize> {
+    editor_config_value(source_path, root, "max_line_length").and_then(|value| {
         if value.eq_ignore_ascii_case("off") {
             Some(0)
         } else {
@@ -351,8 +357,8 @@ fn editor_config_line_limit(source_path: &str, config: &Config) -> Option<usize>
     })
 }
 
-fn biome_line_limit(source_path: &str, config: &Config) -> Option<usize> {
-    for directory in policy_directories(source_path, config) {
+fn biome_line_limit(source_path: &str, root: &Path) -> Option<usize> {
+    for directory in policy_directories(source_path, root) {
         let path = directory.join("biome.json");
         if !path.is_file() {
             continue;
@@ -377,8 +383,8 @@ fn biome_line_limit(source_path: &str, config: &Config) -> Option<usize> {
     None
 }
 
-fn trailing_whitespace_forbidden(source_path: &str, config: &Config) -> bool {
-    for directory in policy_directories(source_path, config) {
+fn trailing_whitespace_forbidden(source_path: &str, root: &Path) -> bool {
+    for directory in policy_directories(source_path, root) {
         if PRETTIER_FILES
             .iter()
             .any(|name| directory.join(name).is_file())
@@ -394,11 +400,11 @@ fn trailing_whitespace_forbidden(source_path: &str, config: &Config) -> bool {
     false
 }
 
-fn tabs_forbidden(source_path: &str, config: &Config) -> bool {
+fn tabs_forbidden(source_path: &str, root: &Path) -> bool {
     if source_path.to_ascii_lowercase().ends_with(".go") {
         return false;
     }
-    for directory in policy_directories(source_path, config) {
+    for directory in policy_directories(source_path, root) {
         for name in PRETTIER_FILES {
             let path = directory.join(name);
             if !path.is_file() {
@@ -429,8 +435,8 @@ fn tabs_forbidden(source_path: &str, config: &Config) -> bool {
     false
 }
 
-fn editor_config_value(source_path: &str, config: &Config, key: &str) -> Option<String> {
-    for directory in policy_directories(source_path, config) {
+fn editor_config_value(source_path: &str, root: &Path, key: &str) -> Option<String> {
+    for directory in policy_directories(source_path, root) {
         if let Some(value) = editor_config_value_in_directory(source_path, &directory, key) {
             return Some(value);
         }
@@ -479,15 +485,61 @@ fn editor_config_pattern_applies(pattern: &str, extension: &str) -> bool {
         .is_some_and(|extensions| extensions.split(',').any(|value| value == extension))
 }
 
-fn policy_directories(source_path: &str, config: &Config) -> Vec<PathBuf> {
-    let root = fs::canonicalize(&config.root).unwrap_or_else(|_| absolute_path(&config.root));
+fn policy_root(config: &Config) -> PathBuf {
+    fs::canonicalize(&config.root).unwrap_or_else(|_| absolute_path(&config.root))
+}
+
+fn should_check_tab_indentation(
+    source_path: &str,
+    root: &Path,
+    policies: &mut HashMap<PolicyCacheKey, bool>,
+) -> bool {
+    source_path.ends_with(".dart")
+        || cached_policy(policies, source_path, || tabs_forbidden(source_path, root))
+}
+
+fn should_check_trailing_whitespace(
+    source_path: &str,
+    root: &Path,
+    policies: &mut HashMap<PolicyCacheKey, bool>,
+) -> bool {
+    source_path.ends_with(".dart")
+        || cached_policy(policies, source_path, || {
+            trailing_whitespace_forbidden(source_path, root)
+        })
+}
+
+type PolicyCacheKey = (PathBuf, String);
+
+fn cached_policy<T: Copy>(
+    policies: &mut HashMap<PolicyCacheKey, T>,
+    source_path: &str,
+    resolve: impl FnOnce() -> T,
+) -> T {
+    *policies
+        .entry(policy_cache_key(source_path))
+        .or_insert_with(resolve)
+}
+
+fn policy_cache_key(source_path: &str) -> PolicyCacheKey {
+    let path = Path::new(source_path);
+    let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    (parent, extension)
+}
+
+fn policy_directories(source_path: &str, root: &Path) -> Vec<PathBuf> {
     let mut directory = root
         .join(source_path)
         .parent()
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| root.clone());
+        .unwrap_or_else(|| root.to_path_buf());
     let mut directories = Vec::new();
-    while directory == root || directory.starts_with(&root) {
+    while directory == root || directory.starts_with(root) {
         directories.push(directory.clone());
         if directory == root || !directory.pop() {
             break;

@@ -104,15 +104,27 @@ fn is_proven_panic_invariant(code: &str, file: &RustFile<'_>, call_offset: usize
         .find(';')
         .map_or(file.source.len(), |offset| call_offset + offset + 1);
     let statement = &file.source[statement_start..statement_end];
-    if code == "rust-expect"
-        && (statement.contains("rule_catalog::metadata(")
-            || statement.contains("rule_catalog::descriptor(")
-            || statement.contains("Severity::parse(metadata.default_severity)")
-            || (statement.contains("String::from_utf8(") && statement.contains("UTF-8")))
-    {
+    if expect_statement_documents_invariant(code, statement, &file.source[call_offset..]) {
         return true;
     }
     regex_constructor_is_invariant(file.source, &file.masked, statement_start, call_offset)
+}
+
+fn expect_statement_documents_invariant(code: &str, statement: &str, call: &str) -> bool {
+    code == "rust-expect"
+        && (expect_message_documents_invariant(call)
+            || [
+                "rule_catalog::metadata(",
+                "rule_catalog::descriptor(",
+                "Severity::parse(metadata.default_severity)",
+            ]
+            .iter()
+            .any(|invariant| statement.contains(invariant))
+            || statement.contains("String::from_utf8(") && statement.contains("UTF-8"))
+}
+
+fn expect_message_documents_invariant(call: &str) -> bool {
+    EXPECT_INVARIANT_MESSAGE.is_match(call)
 }
 
 fn regex_constructor_is_invariant(
@@ -483,6 +495,9 @@ fn analyze_unsafe_blocks(path: &str, file: &RustFile<'_>, findings: &mut Vec<Fin
 
 fn analyze_static_mut(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
     for matched in STATIC_MUT.find_iter(&file.masked) {
+        if matched.start() > 0 && file.masked.as_bytes()[matched.start() - 1] == b'\'' {
+            continue;
+        }
         if !file.excluded(matched.start()) {
             findings.push(finding(
                 "rust-static-mut",
@@ -1163,6 +1178,12 @@ static SAFETY_COMMENT: LazyLock<Regex> =
 static SECRET_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)\b(?:const|static|let)\s+(?:mut\s+)?([A-Za-z_]\w*)\s*(?::[^=\n;]+)?=").unwrap()
 });
+static EXPECT_INVARIANT_MESSAGE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?is)^\.expect\s*\(\s*(?:r#*)?"[^"\r\n]*(?:\b(?:always|never|invariant|impossible|guaranteed)\b|by construction|cannot fail|can't fail|static[- ]shape|writ(?:e|ing) to (?:a )?string)[^"\r\n]*""#,
+    )
+    .expect("expect invariant message regex must compile")
+});
 static UNSAFE_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bunsafe\s*\{").unwrap());
 static STATIC_MUT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bstatic\s+mut\s+[A-Za-z_]\w*").unwrap());
@@ -1283,6 +1304,9 @@ async fn refresh() {
         let source = r##"#![allow(clippy::unwrap_used)]
 fn production() {
     value.expect("required");
+    value.expect("value is always present by construction");
+    let borrowed: &'static mut Value = source;
+    use_value(borrowed);
     // panic!("comment");
     let sample = r#"static mut FAKE: usize = 0; value.expect("fake")"#;
 }
@@ -1309,6 +1333,19 @@ fn allowed() { value.expect("allowed"); }
             .map(|finding| format!("{}:{}", finding.code, finding.line))
             .collect::<Vec<_>>();
         assert_eq!(selected, vec!["rust-expect:3"]);
+    }
+
+    #[test]
+    fn distinguishes_mutable_static_items_from_static_lifetimes() {
+        let selected = findings(
+            "static mut GLOBAL: usize = 0;\nfn borrow(value: &'static mut usize) -> &'static mut usize { value }\n",
+        )
+        .into_iter()
+        .filter(|finding| finding.code == "rust-static-mut")
+        .map(|finding| finding.line)
+        .collect::<Vec<_>>();
+
+        assert_eq!(selected, vec![1]);
     }
 
     #[test]

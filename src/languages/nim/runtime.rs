@@ -149,6 +149,7 @@ fn analyze_layout_documentation(context: &LineContext<'_>, findings: &mut Vec<Fi
     }
 }
 
+// code-buster-ignore complex-function: a single line scan deliberately dispatches related capture security rules.
 fn analyze_security(context: &LineContext<'_>, state: &mut ScanState, findings: &mut Vec<Finding>) {
     pop_scopes(context.indent, &mut state.capture_indents);
     if CAPTURE_START.is_match(context.line) {
@@ -514,6 +515,7 @@ fn analyze_nested_collision(
     }
 }
 
+// code-buster-ignore complex-function: render-loop checks share camera and procedure state in one line scan.
 fn analyze_runtime_rendering(
     context: &LineContext<'_>,
     state: &mut ScanState,
@@ -773,6 +775,7 @@ fn analyze_hot_loop_saves(
     }
 }
 
+// code-buster-ignore complex-function: end-of-line runtime checks share loop and render state.
 fn analyze_runtime_tail(
     context: &LineContext<'_>,
     proc_declaration: bool,

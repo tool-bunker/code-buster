@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
-const USAGE_HEADER: &str = "Usage: cb <command> [options]\nCommands: summary graph dead duplication structure clusters complexity flags hotspots inspect related why path score quality plan actions review pr doctor preview explain rules config baseline fix init test version update completions";
+const USAGE_HEADER: &str = "Usage: cb <command> [options]\nCommands: summary review inspect graph dead duplication quality rules baseline fix init doctor config update completions version";
 
 pub fn usage() -> String {
     format!("{USAGE_HEADER}\n{}", argument_usage())
@@ -15,10 +15,18 @@ pub fn argument_usage() -> String {
         ("    --language", ""),
         ("    --languages=<LANG,LANG>", ""),
         ("-n, --top", "(defaults to \"0\")"),
-        ("    --format", "(defaults to \"text\")"),
+        ("    --format", "(text, json, ndjson, markdown, sarif, junit, mermaid; review also supports plan and actions)"),
         ("    --include", ""),
         ("    --exclude", ""),
         ("    --only", ""),
+        ("    --score", "Show per-file quality scores."),
+        ("    --complexity", "Show complexity findings."),
+        ("    --hotspots", "Show ranked maintenance hotspots."),
+        ("    --structure", "Show repository structure findings."),
+        ("    --related", "Show files related to an inspected target."),
+        ("    --why", "Explain why an inspected target is reachable."),
+        ("    --path", "Find a dependency path between two inspected targets."),
+        ("    --files", "Show files selected by the resolved configuration."),
         ("    --baseline", ""),
         ("    --ingest-sarif", ""),
         ("    --output", ""),
@@ -67,34 +75,44 @@ pub enum Command {
     Version,
     Summary(PreviewOptions),
     Update(PreviewOptions),
-    Preview(PreviewOptions),
-    Score(PreviewOptions),
-    Quality(PreviewOptions),
-    Plan(PreviewOptions),
-    Actions(PreviewOptions),
-    Review(PreviewOptions),
-    Pr(PreviewOptions),
+    Quality(PreviewOptions, QualityView),
+    Review(PreviewOptions, ReviewView),
     Baseline(RepositoryViewOptions),
     Fix(PreviewOptions),
-    Test(PreviewOptions),
     Config(ConfigOptions),
-    Clusters(PreviewOptions),
+    ConfigFiles(PreviewOptions),
     Completions(String),
-    Complexity(PreviewOptions),
     Dead(PreviewOptions),
-    Flags(PreviewOptions),
     Graph(PreviewOptions),
-    Hotspots(PreviewOptions),
-    Rules(PreviewOptions),
-    Explain(RepositoryViewOptions),
-    Inspect(RepositoryViewOptions),
-    Related(RepositoryViewOptions),
-    Why(RepositoryViewOptions),
-    Path(RepositoryViewOptions),
+    Rules(RepositoryViewOptions),
+    Inspect(RepositoryViewOptions, InspectView),
     Doctor(PreviewOptions),
     Duplication(PreviewOptions),
     Init(InitOptions),
-    Structure(PreviewOptions),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReviewView {
+    Findings,
+    Plan,
+    Actions,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QualityView {
+    Overview,
+    Score,
+    Complexity,
+    Hotspots,
+    Structure,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectView {
+    Details,
+    Related,
+    Why,
+    Path,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -279,6 +297,22 @@ struct ParsedArguments {
     force: bool,
     #[arg(long)]
     dry_run: bool,
+    #[arg(long)]
+    score: bool,
+    #[arg(long)]
+    complexity: bool,
+    #[arg(long)]
+    hotspots: bool,
+    #[arg(long)]
+    structure: bool,
+    #[arg(long)]
+    related: bool,
+    #[arg(long)]
+    why: bool,
+    #[arg(long)]
+    path: bool,
+    #[arg(long)]
+    files: bool,
     #[arg(value_name = "COMMAND")]
     command: Option<String>,
     #[arg(value_name = "TARGET")]
@@ -300,6 +334,11 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         ParsedArguments::try_parse_from(std::iter::once(OsString::from("cb")).chain(arguments))
             .map_err(|error| error.to_string().trim_end().to_owned())?;
     let cache_enabled = analysis_cache_enabled(&parsed)?;
+    validate_view_options(&parsed)?;
+    let (format, review_view) = command_report_format(parsed.command.as_deref(), &parsed.format)?;
+    let quality_view = quality_view(&parsed);
+    let inspect_view = inspect_view(&parsed);
+    let config_files = parsed.files;
     let command = parsed.command;
     let targets = parsed.targets;
     let changed_base = if parsed.changed {
@@ -311,7 +350,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         root: PathBuf::from(parsed.root),
         language: parsed.language,
         languages: parsed.languages,
-        format: report_format(&parsed.format)?,
+        format,
         top: parsed.top.parse().unwrap_or(0),
         includes: parsed.include,
         excludes: parsed.exclude,
@@ -344,59 +383,38 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
     match command.as_deref() {
         Some("version") => Ok(Command::Version),
         Some("summary") => Ok(Command::Summary(options)),
-        Some("preview") => Ok(Command::Preview(options)),
-        Some("score") => Ok(Command::Score(options)),
-        Some("quality") => Ok(Command::Quality(options)),
-        Some("plan") => Ok(Command::Plan(options)),
-        Some("actions") => Ok(Command::Actions(options)),
-        Some("review") => Ok(Command::Review(options)),
-        Some("pr") => {
+        Some("update") => Ok(Command::Update(options)),
+        Some("quality") => Ok(Command::Quality(options, quality_view)),
+        Some("review") => {
             if options.changed_base.is_some() {
                 options.changed_lines = true;
             }
-            Ok(Command::Pr(options))
+            Ok(Command::Review(options, review_view))
         }
         Some("baseline") => Ok(Command::Baseline(RepositoryViewOptions {
             common: options,
             targets,
         })),
         Some("fix") => Ok(Command::Fix(options)),
-        Some("test") => Ok(Command::Test(options)),
         Some("completions") => Ok(Command::Completions(
             targets
                 .first()
                 .cloned()
                 .unwrap_or_else(|| "bash".to_owned()),
         )),
-        Some("clusters") => Ok(Command::Clusters(options)),
         Some("dead") => Ok(Command::Dead(options)),
-        Some("complexity") => Ok(Command::Complexity(options)),
-        Some("flags") => Ok(Command::Flags(options)),
         Some("graph") => Ok(Command::Graph(options)),
-        Some("hotspots") => Ok(Command::Hotspots(options)),
-        Some("rules") => Ok(Command::Rules(options)),
-        Some("update") => Ok(Command::Update(options)),
-        Some("explain") => Ok(Command::Explain(RepositoryViewOptions {
+        Some("rules") => Ok(Command::Rules(RepositoryViewOptions {
             common: options,
             targets,
         })),
-        Some("inspect") => Ok(Command::Inspect(RepositoryViewOptions {
-            common: options,
-            targets,
-        })),
-        Some("related") => Ok(Command::Related(RepositoryViewOptions {
-            common: options,
-            targets,
-        })),
-        Some("why") => Ok(Command::Why(RepositoryViewOptions {
-            common: options,
-            targets,
-        })),
-        Some("path") => Ok(Command::Path(RepositoryViewOptions {
-            common: options,
-            targets,
-        })),
-        Some("structure") => Ok(Command::Structure(options)),
+        Some("inspect") => Ok(Command::Inspect(
+            RepositoryViewOptions {
+                common: options,
+                targets,
+            },
+            inspect_view,
+        )),
         Some("duplication") => Ok(Command::Duplication(options)),
         Some("doctor") => Ok(Command::Doctor(options)),
         Some("init") => Ok(Command::Init(InitOptions {
@@ -404,6 +422,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
             target: targets.into_iter().next().map(PathBuf::from),
             force: options.force,
         })),
+        Some("config") if config_files => Ok(Command::ConfigFiles(options)),
         Some("config") => Ok(Command::Config(ConfigOptions {
             root: options.root,
             language: options.language,
@@ -421,6 +440,94 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         Some(value) => Err(format!("Unknown Code Buster command: {value}")),
         None => Ok(Command::Summary(options)),
     }
+}
+
+fn command_report_format(
+    command: Option<&str>,
+    value: &str,
+) -> Result<(ReportFormat, ReviewView), String> {
+    match (command, value) {
+        (Some("review"), "plan") => Ok((ReportFormat::Text, ReviewView::Plan)),
+        (Some("review"), "actions") => Ok((ReportFormat::Json, ReviewView::Actions)),
+        (_, "plan" | "actions") => Err(format!("--format {value} is only supported by cb review")),
+        _ => Ok((report_format(value)?, ReviewView::Findings)),
+    }
+}
+
+fn quality_view(parsed: &ParsedArguments) -> QualityView {
+    if parsed.score {
+        QualityView::Score
+    } else if parsed.complexity {
+        QualityView::Complexity
+    } else if parsed.hotspots {
+        QualityView::Hotspots
+    } else if parsed.structure {
+        QualityView::Structure
+    } else {
+        QualityView::Overview
+    }
+}
+
+fn inspect_view(parsed: &ParsedArguments) -> InspectView {
+    if parsed.related {
+        InspectView::Related
+    } else if parsed.why {
+        InspectView::Why
+    } else if parsed.path {
+        InspectView::Path
+    } else {
+        InspectView::Details
+    }
+}
+
+fn validate_view_options(parsed: &ParsedArguments) -> Result<(), String> {
+    let command = parsed.command.as_deref();
+    validate_exclusive_options(
+        command,
+        "quality",
+        &[
+            ("--score", parsed.score),
+            ("--complexity", parsed.complexity),
+            ("--hotspots", parsed.hotspots),
+            ("--structure", parsed.structure),
+        ],
+    )?;
+    validate_exclusive_options(
+        command,
+        "inspect",
+        &[
+            ("--related", parsed.related),
+            ("--why", parsed.why),
+            ("--path", parsed.path),
+        ],
+    )?;
+    validate_exclusive_options(command, "config", &[("--files", parsed.files)])?;
+    if parsed.files && !parsed.targets.is_empty() {
+        return Err("cb config --files does not accept a config action".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_exclusive_options(
+    command: Option<&str>,
+    expected_command: &str,
+    options: &[(&str, bool)],
+) -> Result<(), String> {
+    let selected = options
+        .iter()
+        .filter_map(|(name, enabled)| enabled.then_some(*name))
+        .collect::<Vec<_>>();
+    if selected.len() > 1 {
+        return Err(format!("{} are mutually exclusive", selected.join(", ")));
+    }
+    if let Some(option) = selected.first()
+        && command != Some(expected_command)
+    {
+        return Err(format!(
+            "{option} is only supported by cb {expected_command}"
+        ));
+    }
+    Ok(())
 }
 
 fn analysis_cache_enabled(parsed: &ParsedArguments) -> Result<bool, String> {

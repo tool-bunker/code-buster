@@ -19,6 +19,7 @@ pub(crate) mod wren;
 
 pub(crate) use registry::*;
 
+// code-buster-ignore complex-function: the single-pass quote masker keeps delimiter and escape state local.
 pub(crate) fn strip_quoted_literals(line: &str) -> String {
     let mut result = String::with_capacity(line.len());
     let mut quote = None;

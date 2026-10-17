@@ -27,8 +27,8 @@ jobs:
             completion-shell: powershell
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88.0
         with:
           components: clippy,rustfmt
       - run: cargo fmt --all -- --check
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           '${{ matrix.binary }}' version
-          '${{ matrix.binary }}' preview --root tests/fixtures/preview --format json > preview.json
+          '${{ matrix.binary }}' config --files --root tests/fixtures/preview --format json > files.json
           '${{ matrix.binary }}' summary --root tests/fixtures/preview --format json --advisory --allow-empty > summary.json
           '${{ matrix.binary }}' completions '${{ matrix.completion-shell }}' > completion.txt
 
@@ -49,16 +49,16 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88.0
       - run: python3 -B -m unittest tool/test_release_notes.py
       - run: cargo package --locked
       - run: ./tool/rehearse-release.sh "$RUNNER_TEMP/cb-rehearsal"

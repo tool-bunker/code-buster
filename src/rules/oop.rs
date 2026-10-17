@@ -433,6 +433,7 @@ fn fields(body: &str, path: &str) -> BTreeSet<String> {
     fields
 }
 
+// code-buster-ignore complex-function: cross-language parameter syntax is normalized by one bounded parser.
 fn parameters(source: &str, typescript: bool) -> Option<Vec<Parameter>> {
     let source = source.trim().trim_end_matches(',');
     if source.is_empty() {

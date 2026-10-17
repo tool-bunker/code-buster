@@ -11,11 +11,10 @@ use app::commands::{
     baseline as baseline_command, completions as completions_command,
     complexity as complexity_command, config as config_command, dead as dead_command,
     doctor as doctor_command, duplication as duplication_command, explain as explain_command,
-    fix as fix_command, flags as flags_command, graph as graph_command,
-    hotspots as hotspots_command, init as init_command, quality as quality_command,
-    repository_view as repository_view_command, rules as rules_command,
-    structure as structure_command, summary as summary_command, test as test_command,
-    update as update_command, workflow as workflow_command,
+    fix as fix_command, graph as graph_command, hotspots as hotspots_command, init as init_command,
+    quality as quality_command, repository_view as repository_view_command, rules as rules_command,
+    structure as structure_command, summary as summary_command, update as update_command,
+    workflow as workflow_command,
 };
 use engine::{
     analysis_cache, analysis_engine, discovery, finding_controls, preview, repository_defaults,
@@ -60,9 +59,10 @@ use rules::{
         fastapi as fastapi_rules, flutter as flutter_quality_rules, pixijs as pixijs_rules,
         svelte as svelte_rules,
     },
-    generated_code_risks, generic as generic_rules, layout as layout_rules,
-    object_soup as object_soup_rules, oop as oop_rules, pattern as pattern_rules,
-    regex as regex_rules, runtime_bootstrap as runtime_bootstrap_rule,
+    generated_code_risks, generic as generic_rules, github_actions as github_actions_rules,
+    layout as layout_rules, object_soup as object_soup_rules, oop as oop_rules,
+    pattern as pattern_rules, regex as regex_rules,
+    repository_contracts as repository_contract_rules, runtime_bootstrap as runtime_bootstrap_rule,
     sql_inline as sql_inline_rule, structure, trivial_wrappers, ui_consistency,
     yagni as yagni_rules, yagni_call_index, yagni_concentration,
 };
@@ -82,12 +82,6 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(cli::Command::Summary(options)) => summary_exit(summary_command::execute(&options)),
-        Ok(cli::Command::Review(options)) => {
-            summary_exit(summary_command::execute_report(&options, "review"))
-        }
-        Ok(cli::Command::Pr(options)) => {
-            summary_exit(summary_command::execute_report(&options, "pr"))
-        }
         Ok(cli::Command::Baseline(options)) => match baseline_command::execute(&options) {
             Ok(baseline_command::BaselineOutcome::Success) => ExitCode::SUCCESS,
             Ok(baseline_command::BaselineOutcome::Empty) => ExitCode::from(1),
@@ -104,45 +98,8 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Ok(cli::Command::Test(options)) => match test_command::execute(&options) {
-            Ok(test_command::TestOutcome::Success) => ExitCode::SUCCESS,
-            Ok(test_command::TestOutcome::Empty) => ExitCode::from(1),
-            Ok(test_command::TestOutcome::Findings) => ExitCode::from(2),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
-        Ok(cli::Command::Score(options)) => match quality_command::execute_score(&options) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
-        Ok(cli::Command::Quality(options)) => match quality_command::execute_quality(&options) {
-            Ok(quality_command::QualityOutcome::Success) => ExitCode::SUCCESS,
-            Ok(quality_command::QualityOutcome::Findings) => ExitCode::from(2),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
-        Ok(cli::Command::Plan(options)) => match workflow_command::execute_plan(&options) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
-        Ok(cli::Command::Actions(options)) => match workflow_command::execute_actions(&options) {
-            Ok(workflow_command::WorkflowOutcome::Success) => ExitCode::SUCCESS,
-            Ok(workflow_command::WorkflowOutcome::Findings) => ExitCode::from(2),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
+        Ok(cli::Command::Quality(options, view)) => quality_exit(&options, view),
+        Ok(cli::Command::Review(options, view)) => review_exit(&options, view),
         Ok(cli::Command::Update(options)) => match update_command::execute(&options) {
             Ok(update_command::UpdateOutcome::Success) => ExitCode::SUCCESS,
             Ok(update_command::UpdateOutcome::Refused) => ExitCode::from(2),
@@ -152,24 +109,13 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Ok(cli::Command::Preview(options)) => match preview::execute(&options) {
+        Ok(cli::Command::ConfigFiles(options)) => match preview::execute(&options) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("{error}");
                 ExitCode::from(2)
             }
         },
-        Ok(cli::Command::Clusters(options)) => {
-            match duplication_command::execute_clusters(&options) {
-                Ok(duplication_command::DuplicationOutcome::Success) => ExitCode::SUCCESS,
-                Ok(duplication_command::DuplicationOutcome::Empty) => ExitCode::from(1),
-                Ok(duplication_command::DuplicationOutcome::Findings) => ExitCode::from(2),
-                Err(error) => {
-                    eprintln!("{error}");
-                    ExitCode::from(2)
-                }
-            }
-        }
         Ok(cli::Command::Completions(shell)) => {
             completions_command::execute(&shell);
             ExitCode::SUCCESS
@@ -183,24 +129,6 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Ok(cli::Command::Complexity(options)) => match complexity_command::execute(&options) {
-            Ok(complexity_command::ComplexityOutcome::Success) => ExitCode::SUCCESS,
-            Ok(complexity_command::ComplexityOutcome::Empty) => ExitCode::from(1),
-            Ok(complexity_command::ComplexityOutcome::Findings) => ExitCode::from(2),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
-        Ok(cli::Command::Flags(options)) => match flags_command::execute(&options) {
-            Ok(flags_command::FlagsOutcome::Success) => ExitCode::SUCCESS,
-            Ok(flags_command::FlagsOutcome::Empty) => ExitCode::from(1),
-            Ok(flags_command::FlagsOutcome::Findings) => ExitCode::from(2),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
         Ok(cli::Command::Graph(options)) => match graph_command::execute(&options) {
             Ok(graph_command::GraphOutcome::Success) => ExitCode::SUCCESS,
             Ok(graph_command::GraphOutcome::Empty) => ExitCode::from(1),
@@ -209,36 +137,33 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Ok(cli::Command::Hotspots(options)) => match hotspots_command::execute(&options) {
-            Ok(hotspots_command::HotspotsOutcome::Success) => ExitCode::SUCCESS,
-            Ok(hotspots_command::HotspotsOutcome::Empty) => ExitCode::from(1),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
+        Ok(cli::Command::Rules(options)) => {
+            if options.targets.is_empty() {
+                match rules_command::execute(&options.common) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(error) => {
+                        eprintln!("{error}");
+                        ExitCode::from(2)
+                    }
+                }
+            } else {
+                repository_view_exit(Ok(explain_command::execute(&options)))
+            }
+        }
+        Ok(cli::Command::Inspect(options, view)) => match view {
+            cli::InspectView::Details => {
+                repository_view_exit(repository_view_command::execute_inspect(&options))
+            }
+            cli::InspectView::Related => {
+                repository_view_exit(repository_view_command::execute_related(&options))
+            }
+            cli::InspectView::Why => {
+                repository_view_exit(repository_view_command::execute_why(&options))
+            }
+            cli::InspectView::Path => {
+                repository_view_exit(repository_view_command::execute_path(&options))
             }
         },
-        Ok(cli::Command::Rules(options)) => match rules_command::execute(&options) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
-        Ok(cli::Command::Explain(options)) => {
-            repository_view_exit(Ok(explain_command::execute(&options)))
-        }
-        Ok(cli::Command::Inspect(options)) => {
-            repository_view_exit(repository_view_command::execute_inspect(&options))
-        }
-        Ok(cli::Command::Related(options)) => {
-            repository_view_exit(repository_view_command::execute_related(&options))
-        }
-        Ok(cli::Command::Why(options)) => {
-            repository_view_exit(repository_view_command::execute_why(&options))
-        }
-        Ok(cli::Command::Path(options)) => {
-            repository_view_exit(repository_view_command::execute_path(&options))
-        }
         Ok(cli::Command::Config(options)) => match config_command::execute(&options) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
@@ -253,27 +178,12 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Ok(cli::Command::Duplication(options)) => match duplication_command::execute(&options) {
-            Ok(duplication_command::DuplicationOutcome::Success) => ExitCode::SUCCESS,
-            Ok(duplication_command::DuplicationOutcome::Empty) => ExitCode::from(1),
-            Ok(duplication_command::DuplicationOutcome::Findings) => ExitCode::from(2),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
+        Ok(cli::Command::Duplication(options)) => {
+            duplication_exit(duplication_command::execute(&options))
+        }
         Ok(cli::Command::Init(options)) => match init_command::execute(&options) {
             Ok(init_command::InitOutcome::Created) => ExitCode::SUCCESS,
             Ok(init_command::InitOutcome::Exists) => ExitCode::from(1),
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(2)
-            }
-        },
-        Ok(cli::Command::Structure(options)) => match structure_command::execute(&options) {
-            Ok(structure_command::StructureOutcome::Success) => ExitCode::SUCCESS,
-            Ok(structure_command::StructureOutcome::Empty) => ExitCode::from(1),
-            Ok(structure_command::StructureOutcome::Findings) => ExitCode::from(2),
             Err(error) => {
                 eprintln!("{error}");
                 ExitCode::from(2)
@@ -290,6 +200,69 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+fn review_exit(options: &cli::PreviewOptions, view: cli::ReviewView) -> ExitCode {
+    match view {
+        cli::ReviewView::Findings => {
+            summary_exit(summary_command::execute_report(options, "review"))
+        }
+        cli::ReviewView::Plan => unit_exit(workflow_command::execute_plan(options)),
+        cli::ReviewView::Actions => match workflow_command::execute_actions(options) {
+            Ok(workflow_command::WorkflowOutcome::Success) => ExitCode::SUCCESS,
+            Ok(workflow_command::WorkflowOutcome::Findings) => ExitCode::from(2),
+            Err(error) => error_exit(error),
+        },
+    }
+}
+
+fn quality_exit(options: &cli::PreviewOptions, view: cli::QualityView) -> ExitCode {
+    match view {
+        cli::QualityView::Overview => match quality_command::execute_quality(options) {
+            Ok(quality_command::QualityOutcome::Success) => ExitCode::SUCCESS,
+            Ok(quality_command::QualityOutcome::Findings) => ExitCode::from(2),
+            Err(error) => error_exit(error),
+        },
+        cli::QualityView::Score => unit_exit(quality_command::execute_score(options)),
+        cli::QualityView::Complexity => match complexity_command::execute(options) {
+            Ok(complexity_command::ComplexityOutcome::Success) => ExitCode::SUCCESS,
+            Ok(complexity_command::ComplexityOutcome::Empty) => ExitCode::from(1),
+            Ok(complexity_command::ComplexityOutcome::Findings) => ExitCode::from(2),
+            Err(error) => error_exit(error),
+        },
+        cli::QualityView::Hotspots => match hotspots_command::execute(options) {
+            Ok(hotspots_command::HotspotsOutcome::Success) => ExitCode::SUCCESS,
+            Ok(hotspots_command::HotspotsOutcome::Empty) => ExitCode::from(1),
+            Err(error) => error_exit(error),
+        },
+        cli::QualityView::Structure => match structure_command::execute(options) {
+            Ok(structure_command::StructureOutcome::Success) => ExitCode::SUCCESS,
+            Ok(structure_command::StructureOutcome::Empty) => ExitCode::from(1),
+            Ok(structure_command::StructureOutcome::Findings) => ExitCode::from(2),
+            Err(error) => error_exit(error),
+        },
+    }
+}
+
+fn duplication_exit(result: Result<duplication_command::DuplicationOutcome, String>) -> ExitCode {
+    match result {
+        Ok(duplication_command::DuplicationOutcome::Success) => ExitCode::SUCCESS,
+        Ok(duplication_command::DuplicationOutcome::Empty) => ExitCode::from(1),
+        Ok(duplication_command::DuplicationOutcome::Findings) => ExitCode::from(2),
+        Err(error) => error_exit(error),
+    }
+}
+
+fn unit_exit(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => error_exit(error),
+    }
+}
+
+fn error_exit(error: String) -> ExitCode {
+    eprintln!("{error}");
+    ExitCode::from(2)
 }
 
 fn summary_exit(result: Result<summary_command::SummaryOutcome, String>) -> ExitCode {

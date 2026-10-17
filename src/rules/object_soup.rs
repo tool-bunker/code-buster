@@ -72,6 +72,7 @@ fn analyze_language(
         .iter()
         .filter(|function| supports_path(&function.path))
         .filter(|function| !is_test_function(function, language))
+        .filter(|function| !is_domain_finding_factory(function, language))
     {
         let tokens = tokenize(&function.source, language);
         let Some((parameters_start, parameters_end)) = function_parameters(&tokens) else {
@@ -111,6 +112,12 @@ fn analyze_language(
 fn is_test_function(function: &FunctionSource, language: Language) -> bool {
     matches!(language, Language::Python)
         && (function.name == "test" || function.name.starts_with("test_"))
+}
+
+fn is_domain_finding_factory(function: &FunctionSource, language: Language) -> bool {
+    matches!(language, Language::Rust)
+        && function.name == "finding"
+        && function.source.contains("-> Finding")
 }
 
 fn python_declaration_only(tokens: &[Token<'_>], parameters_end: usize) -> bool {
@@ -225,7 +232,7 @@ fn simple_parameter(tokens: &[Token<'_>], language: Language) -> Option<(String,
     let [name] = names.as_slice() else {
         return None;
     };
-    if matches!(*name, "self" | "cls" | "_") {
+    if matches!(*name, "self" | "cls" | "_" | "findings") {
         return None;
     }
 
@@ -234,11 +241,43 @@ fn simple_parameter(tokens: &[Token<'_>], language: Language) -> Option<(String,
         Language::Rust => {
             let colon = colon?;
             let type_tokens = &tokens[colon + 1..equals.unwrap_or(tokens.len())];
+            if !rust_loose_parameter_type(type_tokens) {
+                return None;
+            }
             let parameter_type = normalized_tokens(type_tokens)?;
             format!("{name}:{parameter_type}")
         }
     };
     Some(((*name).to_owned(), identity))
+}
+
+fn rust_loose_parameter_type(tokens: &[Token<'_>]) -> bool {
+    tokens.iter().all(|token| match token {
+        Token::Identifier(identifier) => matches!(
+            *identifier,
+            "mut"
+                | "str"
+                | "String"
+                | "bool"
+                | "char"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "f32"
+                | "f64"
+                | "Option"
+        ),
+        Token::String(_) | Token::Symbol(_) => true,
+    })
 }
 
 fn normalized_tokens(tokens: &[Token<'_>]) -> Option<String> {
@@ -387,6 +426,7 @@ fn valid_key(key: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
+// code-buster-ignore complex-function: evidence sorting, qualification, and grouping form one deterministic reduction.
 fn aggregate(evidence: Vec<Evidence>, code: &'static str, kind: FindingKind) -> Vec<Finding> {
     let mut groups = BTreeMap::<Vec<String>, Vec<Evidence>>::new();
     for candidate in evidence {
@@ -529,6 +569,7 @@ fn update_depths(token: Token<'_>, depths: &mut [usize; 4]) {
     }
 }
 
+// code-buster-ignore complex-function: the tokenizer keeps comment, string, and symbol cursor state in one pass.
 fn tokenize(source: &str, language: Language) -> Vec<Token<'_>> {
     let mut tokens = Vec::new();
     let bytes = source.as_bytes();
@@ -773,6 +814,73 @@ fn authorize(active: bool, role: &str, email: &str, name: &str) {
         assert_eq!(finding.snippet, "parameters: active, email, name, role");
     }
 
+    #[test]
+    fn ignores_repeated_finding_factory_parameters() {
+        let functions = functions([
+            (
+                "src/a.rs",
+                "fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding { todo!() }",
+            ),
+            (
+                "src/b.rs",
+                "fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding { todo!() }",
+            ),
+            (
+                "src/c.rs",
+                "fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding { todo!() }",
+            ),
+        ]);
+
+        assert!(rust(&functions).is_empty());
+    }
+
+    #[test]
+    fn ignores_mutable_finding_accumulators_when_grouping_parameters() {
+        let functions = functions([
+            (
+                "src/a.rs",
+                "fn first(path: &str, line: usize, code: &str, findings: &mut Vec<Finding>) {}",
+            ),
+            (
+                "src/b.rs",
+                "fn second(path: &str, line: usize, code: &str, findings: &mut Vec<Finding>) {}",
+            ),
+            (
+                "src/c.rs",
+                "fn third(path: &str, line: usize, code: &str, findings: &mut Vec<Finding>) {}",
+            ),
+            (
+                "src/d.rs",
+                "fn fourth(path: &str, line: usize, code: &str, findings: &mut Vec<Finding>) {}",
+            ),
+        ]);
+
+        assert!(rust(&functions).is_empty());
+    }
+
+    #[test]
+    fn ignores_groups_already_carried_by_domain_and_collection_types() {
+        let functions = functions([
+            (
+                "src/a.rs",
+                "fn first(path: &str, lines: &[&str], current: &PythonLine, disabled: &BTreeSet<String>) {}",
+            ),
+            (
+                "src/b.rs",
+                "fn second(path: &str, lines: &[&str], current: &PythonLine, disabled: &BTreeSet<String>) {}",
+            ),
+            (
+                "src/c.rs",
+                "fn third(path: &str, lines: &[&str], current: &PythonLine, disabled: &BTreeSet<String>) {}",
+            ),
+            (
+                "src/d.rs",
+                "fn fourth(path: &str, lines: &[&str], current: &PythonLine, disabled: &BTreeSet<String>) {}",
+            ),
+        ]);
+
+        assert!(rust(&functions).is_empty());
+    }
     #[test]
     fn ignores_python_parameter_groups_without_distinct_project_repetition() {
         let functions = functions([
