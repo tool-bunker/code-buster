@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::Path;
@@ -169,8 +170,8 @@ impl DependencyGraph {
                 return path;
             }
             for dependency in self.dependencies(node) {
-                if !predecessor.contains_key(dependency) {
-                    predecessor.insert(dependency, Some(node));
+                if let Entry::Vacant(entry) = predecessor.entry(dependency) {
+                    entry.insert(Some(node));
                     pending.push_back(dependency);
                 }
             }

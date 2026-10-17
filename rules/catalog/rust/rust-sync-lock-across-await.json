@@ -1,0 +1,26 @@
+{
+  "id": "rust-sync-lock-across-await",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Release synchronous Rust locks before await",
+  "title": "Release synchronous Rust locks before await",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "Holding a synchronous mutex guard across await can block an executor worker and deadlock tasks that need the same lock.",
+  "suggestion": "Limit the guard to an inner scope before awaiting, or use an async-aware mutex when the guard must span a yield point.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["functions"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Direct lock bindings that unwrap a lock result or use parking_lot inside an async block are recognized.",
+    "Type aliases, custom synchronous lock APIs, data-flow moves, and implicit early drops are not resolved."
+  ]
+}

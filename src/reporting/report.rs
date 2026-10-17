@@ -894,8 +894,7 @@ fn source_hash(prepared: &PreparedPreview) -> String {
     for (path, source) in &prepared.sources {
         material.push_str(path);
         material.push('\n');
-        material.push_str(&format!("{:x}", Sha256::digest(source.as_bytes())));
-        material.push('\n');
+        let _ = writeln!(material, "{:x}", Sha256::digest(source.as_bytes()));
     }
     format!("{:x}", Sha256::digest(material.as_bytes()))
 }

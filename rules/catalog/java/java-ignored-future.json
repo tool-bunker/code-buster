@@ -1,0 +1,26 @@
+{
+  "id": "java-ignored-future",
+  "language": "java",
+  "group": "reliability",
+  "listingTitle": "Observe Java Future results",
+  "title": "Observe Java Future results",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "Ignoring a Future suppresses asynchronous failures and discards the handle needed for cancellation or coordination.",
+  "suggestion": "Retain, return, compose, or explicitly observe the Future so failures and cancellation remain visible.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["java"],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": ["java"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Discarded direct CompletableFuture async factories and known executor submit or schedule calls are reported.",
+    "Aliases, custom Future-returning methods, annotations, and deliberate fire-and-forget policies are not inferred."
+  ]
+}

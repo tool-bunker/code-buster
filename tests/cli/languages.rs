@@ -359,6 +359,7 @@ fn summary_reports_complete_python_rule_family() {
             ("py-weak-hash", 26, 26),
             ("py-debug-enabled", 27, 27),
             ("py-subprocess-shell", 28, 28),
+            ("py-subprocess-run-unchecked", 28, 28),
         ]
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>()

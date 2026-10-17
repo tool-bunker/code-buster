@@ -1,0 +1,26 @@
+{
+  "id": "js-array-shift-in-loop",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Avoid shifting JavaScript arrays in loops",
+  "title": "Avoid shifting JavaScript arrays in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Array.shift moves every remaining element, so repeatedly consuming an array from the front can produce quadratic work.",
+  "suggestion": "Advance an index through the array or use a deque implementation for front-removal semantics.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only variables with an array type annotation or array-literal assignment shifted inside braced loops are reported.",
+    "Aliases, reassignment, collection size, and bounded loop counts are not inferred."
+  ]
+}

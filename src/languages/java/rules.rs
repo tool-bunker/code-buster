@@ -19,6 +19,7 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     }
 
     let mut findings = line_findings(&sources);
+    findings.extend(ignored_future_results(&sources));
     findings.extend(empty_catches(&sources));
     findings.extend(hardcoded_secrets(&sources));
     findings.extend(package_cycles(&sources));
@@ -541,6 +542,32 @@ impl ParameterScanState {
     }
 }
 
+fn ignored_future_results(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for (path, raw_source) in sources {
+        let comments_masked = java_source_without_comments(raw_source);
+        let code = mask_quoted_text(&comments_masked);
+        for call in JAVA_IGNORED_FUTURE.captures_iter(&code) {
+            let whole = call.get(0).unwrap();
+            if call.name("receiver").is_some_and(|receiver| {
+                !java_variable_type_before(&code, receiver.as_str(), whole.start())
+                    .is_some_and(|(_, kind)| java_executor_type(kind))
+            }) {
+                continue;
+            }
+            findings.push(finding(
+                "java-ignored-future",
+                path,
+                line_at(&code, whole.start()),
+                "Future-returning asynchronous work is started without retaining its result",
+                "high",
+                Vec::new(),
+            ));
+        }
+    }
+    findings
+}
+
 // code-buster-ignore complex-function: one loop traversal shares source ranges and deduplication across performance rules.
 fn loop_performance_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -615,6 +642,26 @@ fn loop_performance_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
                     ));
                 }
             }
+            for access in JAVA_INDEXED_ACCESS.captures_iter(body) {
+                let whole = access.get(0).unwrap();
+                let variable = &access[1];
+                let offset = open + 1 + whole.start();
+                if !java_variable_type_before(&code, variable, offset).is_some_and(
+                    |(declaration, kind)| declaration < open && java_linked_list_type(kind),
+                ) {
+                    continue;
+                }
+                if reported.insert(("java-linked-list-indexed-loop", offset)) {
+                    findings.push(finding(
+                        "java-linked-list-indexed-loop",
+                        path,
+                        line_at(&code, offset),
+                        &format!("LinkedList `{variable}` is accessed by index inside a loop"),
+                        "high",
+                        Vec::new(),
+                    ));
+                }
+            }
         }
     }
     findings
@@ -642,6 +689,29 @@ fn java_linear_collection_type(variable_type: &str) -> bool {
         .next()
         .and_then(|base| base.trim().rsplit('.').next())
         .is_some_and(|base| matches!(base, "List" | "ArrayList" | "LinkedList" | "Vector"))
+}
+fn java_linked_list_type(variable_type: &str) -> bool {
+    variable_type
+        .split('<')
+        .next()
+        .and_then(|base| base.trim().rsplit('.').next())
+        == Some("LinkedList")
+}
+
+fn java_executor_type(variable_type: &str) -> bool {
+    variable_type
+        .split('<')
+        .next()
+        .and_then(|base| base.trim().rsplit('.').next())
+        .is_some_and(|base| {
+            matches!(
+                base,
+                "ExecutorService"
+                    | "ScheduledExecutorService"
+                    | "ListeningExecutorService"
+                    | "ListeningScheduledExecutorService"
+            )
+        })
 }
 
 fn package_cycles(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
@@ -1296,6 +1366,14 @@ static JAVA_VARIABLE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static LOOP: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:(?:for|while)\s*\([^{}]*\)|do)\s*\{").unwrap());
+static JAVA_INDEXED_ACCESS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*get\s*\(").unwrap());
+static JAVA_IGNORED_FUTURE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^\s*(?:(?P<receiver>[A-Za-z_$][\w$]*)\s*\.\s*(?:submit|schedule|scheduleAtFixedRate|scheduleWithFixedDelay)|CompletableFuture\s*\.\s*(?:runAsync|supplyAsync))\s*\(",
+    )
+    .unwrap()
+});
 static PACKAGE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*package\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;").unwrap()
 });
@@ -1578,5 +1656,41 @@ String outputExample = \"System.err.println(value)\";\n"
             })
             .collect::<Vec<_>>();
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+    #[test]
+    fn reports_ignored_futures_and_indexed_linked_list_loops() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/AsyncWork.java".to_owned(),
+            r#"class AsyncWork {
+  void run(ExecutorService executor, LinkedList<String> queue) {
+    executor.submit(this::work);
+    CompletableFuture.runAsync(this::work);
+    Future<?> retained = executor.submit(this::work);
+    for (int index = 0; index < queue.size(); index++) {
+      consume(queue.get(index));
+    }
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "java-ignored-future" | "java-linked-list-indexed-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("java-ignored-future".to_owned(), 3),
+                ("java-ignored-future".to_owned(), 4),
+                ("java-linked-list-indexed-loop".to_owned(), 7),
+            ]
+        );
     }
 }

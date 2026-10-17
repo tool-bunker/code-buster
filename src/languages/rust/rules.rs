@@ -37,7 +37,10 @@ pub fn analyze_with_functions(
         analyze_shell_commands(path, &file, &mut findings);
         analyze_ffi_panics(path, &file, &mut findings);
         analyze_async_blocking(path, &file, &mut findings);
+        analyze_sync_lock_across_await(path, &file, &mut findings);
         analyze_loop_performance(path, &file, functions, &mut findings);
+        analyze_map_double_lookup(path, &file, functions, &mut findings);
+        analyze_format_allocations(path, &file, functions, &mut findings);
         analyze_unbounded_channels(path, &file, &mut findings);
     }
     findings
@@ -772,7 +775,7 @@ struct RustLoop {
     body_end: usize,
 }
 
-struct LinearCollectionScope {
+struct NamedScope {
     start_line: usize,
     end_line: usize,
     names: BTreeSet<String>,
@@ -786,8 +789,10 @@ fn analyze_loop_performance(
 ) {
     let loops = rust_loops(file);
     analyze_loop_regex(path, file, &loops, findings);
-    let scopes = linear_collection_scopes(path, functions);
+    let scopes = named_scopes(path, functions, &LINEAR_COLLECTION_DECLARATION);
     analyze_loop_membership(path, file, &loops, &scopes, findings);
+    analyze_loop_front_removal(path, file, &loops, &scopes, findings);
+    analyze_loop_front_insertion(path, file, &loops, &scopes, findings);
 }
 
 fn analyze_loop_regex(
@@ -833,7 +838,7 @@ fn analyze_loop_membership(
     path: &str,
     file: &RustFile<'_>,
     loops: &[RustLoop],
-    scopes: &[LinearCollectionScope],
+    scopes: &[NamedScope],
     findings: &mut Vec<Finding>,
 ) {
     let mut reported = BTreeSet::new();
@@ -862,21 +867,169 @@ fn analyze_loop_membership(
     }
 }
 
-fn linear_collection_scopes(
+fn analyze_loop_front_removal(
     path: &str,
+    file: &RustFile<'_>,
+    loops: &[RustLoop],
+    scopes: &[NamedScope],
+    findings: &mut Vec<Finding>,
+) {
+    let mut reported = BTreeSet::new();
+    for current in loops {
+        let repeated = &file.masked[current.body_start..current.body_end];
+        for removal in VEC_FRONT_REMOVAL.captures_iter(repeated) {
+            let whole = removal.get(0).unwrap();
+            let absolute = current.body_start + whole.start();
+            let line = file.line_at(absolute);
+            if !scopes.iter().any(|scope| {
+                scope.start_line <= line
+                    && line <= scope.end_line
+                    && scope.names.contains(&removal[1])
+            }) || file.excluded(absolute)
+                || !reported.insert(absolute)
+            {
+                continue;
+            }
+            findings.push(finding(
+                "rust-vec-front-removal-in-loop",
+                path,
+                line,
+                "removing the first Vec element repeatedly shifts the remaining elements",
+            ));
+        }
+    }
+}
+
+fn analyze_loop_front_insertion(
+    path: &str,
+    file: &RustFile<'_>,
+    loops: &[RustLoop],
+    scopes: &[NamedScope],
+    findings: &mut Vec<Finding>,
+) {
+    let mut reported = BTreeSet::new();
+    for current in loops {
+        let repeated = &file.masked[current.body_start..current.body_end];
+        for insertion in VEC_FRONT_INSERTION.captures_iter(repeated) {
+            let whole = insertion.get(0).unwrap();
+            let absolute = current.body_start + whole.start();
+            let line = file.line_at(absolute);
+            if !scope_contains(scopes, &insertion[1], line)
+                || file.excluded(absolute)
+                || !reported.insert(absolute)
+            {
+                continue;
+            }
+            findings.push(finding(
+                "rust-vec-front-insertion-in-loop",
+                path,
+                line,
+                "inserting at the front of a Vec repeatedly shifts existing elements",
+            ));
+        }
+    }
+}
+
+fn analyze_map_double_lookup(
+    path: &str,
+    file: &RustFile<'_>,
     functions: &[FunctionSource],
-) -> Vec<LinearCollectionScope> {
+    findings: &mut Vec<Finding>,
+) {
+    let scopes = named_scopes(path, functions, &MAP_DECLARATION);
+    for guard in MAP_CONTAINS_GUARD.captures_iter(&file.masked) {
+        let (Some(whole), Some(map), Some(key)) = (guard.get(0), guard.get(1), guard.get(2)) else {
+            continue;
+        };
+        let line = file.line_at(whole.start());
+        if !scope_contains(&scopes, map.as_str(), line) || file.excluded(whole.start()) {
+            continue;
+        }
+        let open = whole.end() - 1;
+        let Some(close) = file.matching(open, b'{', b'}') else {
+            continue;
+        };
+        let repeated_lookup = MAP_INSERT_CALL
+            .captures_iter(&file.masked[open + 1..close])
+            .any(|insert| {
+                insert
+                    .get(1)
+                    .is_some_and(|name| name.as_str() == map.as_str())
+                    && insert
+                        .get(2)
+                        .is_some_and(|name| name.as_str() == key.as_str())
+            });
+        if repeated_lookup {
+            findings.push(finding(
+                "rust-map-double-lookup",
+                path,
+                line,
+                "contains_key followed by insert repeats the map lookup",
+            ));
+        }
+    }
+}
+
+fn analyze_format_allocations(
+    path: &str,
+    file: &RustFile<'_>,
+    functions: &[FunctionSource],
+    findings: &mut Vec<Finding>,
+) {
+    let scopes = named_scopes(path, functions, &STRING_DECLARATION);
+    for append in FORMAT_APPEND.captures_iter(&file.masked) {
+        let (Some(whole), Some(name)) = (append.get(0), append.get(1).or_else(|| append.get(2)))
+        else {
+            continue;
+        };
+        let line = file.line_at(whole.start());
+        if scope_contains(&scopes, name.as_str(), line) && !file.excluded(whole.start()) {
+            findings.push(finding(
+                "rust-format-append",
+                path,
+                line,
+                "format! allocates a temporary String before appending it",
+            ));
+        }
+    }
+    for mapped in ITERATOR_MAP.find_iter(&file.masked) {
+        let open = mapped.end() - 1;
+        let Some(close) = file.matching(open, b'(', b')') else {
+            continue;
+        };
+        if file.excluded(mapped.start())
+            || !FORMAT_MACRO.is_match(&file.masked[open + 1..close])
+            || !COLLECT_STRING.is_match(&file.masked[close + 1..])
+        {
+            continue;
+        }
+        findings.push(finding(
+            "rust-format-collect",
+            path,
+            file.line_at(mapped.start()),
+            "format! allocates a temporary String for every collected element",
+        ));
+    }
+}
+
+fn scope_contains(scopes: &[NamedScope], name: &str, line: usize) -> bool {
+    scopes.iter().any(|scope| {
+        scope.start_line <= line && line <= scope.end_line && scope.names.contains(name)
+    })
+}
+
+fn named_scopes(path: &str, functions: &[FunctionSource], declaration: &Regex) -> Vec<NamedScope> {
     functions
         .iter()
         .filter(|function| function.path == path)
         .filter_map(|function| {
             let masked = RustFile::new(&function.source).masked;
-            let names = LINEAR_COLLECTION_DECLARATION
+            let names = declaration
                 .captures_iter(&masked)
                 .filter_map(|capture| capture.get(1).or_else(|| capture.get(2)))
                 .map(|name| name.as_str().to_owned())
                 .collect::<BTreeSet<_>>();
-            (!names.is_empty()).then_some(LinearCollectionScope {
+            (!names.is_empty()).then_some(NamedScope {
                 start_line: function.line,
                 end_line: function.end_line,
                 names,
@@ -956,6 +1109,75 @@ fn inside_offload(file: &RustFile<'_>, scope_start: usize, call_offset: usize) -
         }
     }
     false
+}
+
+fn analyze_sync_lock_across_await(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
+    let parking_lot = PARKING_LOT_MUTEX.is_match(&file.masked);
+    let mut reported = BTreeSet::new();
+    for scope in ASYNC_SCOPE.find_iter(&file.masked) {
+        let Some(open) = file.masked[scope.start()..]
+            .find('{')
+            .map(|offset| scope.start() + offset)
+        else {
+            continue;
+        };
+        let Some(close) = file.matching(open, b'{', b'}') else {
+            continue;
+        };
+        for lock in SYNC_LOCK_GUARD.captures_iter(&file.masked[open + 1..close]) {
+            let whole = lock.get(0).unwrap();
+            let absolute = open + 1 + whole.start();
+            if file.excluded(absolute)
+                || (!parking_lot
+                    && !whole.as_str().contains(".unwrap")
+                    && !whole.as_str().contains(".expect"))
+            {
+                continue;
+            }
+            let Some(block_end) = enclosing_rust_block_end(file, open, absolute) else {
+                continue;
+            };
+            let search_start = open + 1 + whole.end();
+            let Some(awaited) = AWAIT_POINT.find(&file.masked[search_start..block_end]) else {
+                continue;
+            };
+            let await_offset = search_start + awaited.start();
+            let guard = &lock["guard"];
+            let explicit_drop = Regex::new(&format!(
+                r"\b(?:std::mem::)?drop\s*\(\s*{}\s*\)",
+                regex::escape(guard)
+            ))
+            .expect("Rust guard-drop regex must compile");
+            if explicit_drop.is_match(&file.masked[search_start..await_offset])
+                || !reported.insert(absolute)
+            {
+                continue;
+            }
+            findings.push(finding(
+                "rust-sync-lock-across-await",
+                path,
+                file.line_at(absolute),
+                &format!("synchronous lock guard `{guard}` remains in scope across await"),
+            ));
+        }
+    }
+}
+
+fn enclosing_rust_block_end(
+    file: &RustFile<'_>,
+    scope_open: usize,
+    offset: usize,
+) -> Option<usize> {
+    let mut depth = 0usize;
+    for index in (scope_open..offset).rev() {
+        match file.masked.as_bytes()[index] {
+            b'}' => depth += 1,
+            b'{' if depth == 0 => return file.matching(index, b'{', b'}'),
+            b'{' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn analyze_unbounded_channels(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
@@ -1369,6 +1591,41 @@ static LINEAR_COLLECTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static LINEAR_MEMBERSHIP_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*contains\s*\(").unwrap());
+static VEC_FRONT_REMOVAL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*remove\s*\(\s*0\s*\)").unwrap());
+static VEC_FRONT_INSERTION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*insert\s*\(\s*0\s*,").unwrap());
+static MAP_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b(?:([A-Za-z_]\w*)\s*:\s*(?:&\s*(?:mut\s*)?)?(?:(?:std::collections::)?(?:HashMap|BTreeMap))\s*<|let\s+(?:mut\s+)?([A-Za-z_]\w*)\s*=\s*(?:(?:std::collections::)?(?:HashMap|BTreeMap))(?:::[A-Za-z_]\w*)?\s*::)",
+    )
+    .unwrap()
+});
+static MAP_CONTAINS_GUARD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\bif\s+!\s*([A-Za-z_]\w*)\s*\.\s*contains_key\s*\(\s*&?\s*([A-Za-z_]\w*)\s*\)\s*\{",
+    )
+    .unwrap()
+});
+static MAP_INSERT_CALL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*insert\s*\(\s*([A-Za-z_]\w*)\s*,").unwrap()
+});
+static STRING_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b(?:([A-Za-z_]\w*)\s*:\s*(?:&\s*mut\s*)?String\b|let\s+(?:mut\s+)?([A-Za-z_]\w*)\s*=\s*String(?:::[A-Za-z_]\w*)?\s*::)",
+    )
+    .unwrap()
+});
+static FORMAT_APPEND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b(?:([A-Za-z_]\w*)\s*\.\s*push_str\s*\(\s*&\s*format!|([A-Za-z_]\w*)\s*\+=\s*&\s*format!)\s*\(",
+    )
+    .unwrap()
+});
+static ITERATOR_MAP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.\s*map\s*\(").unwrap());
+static FORMAT_MACRO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bformat!\s*\(").unwrap());
+static COLLECT_STRING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*\.\s*collect\s*::\s*<\s*String\s*>\s*\(\s*\)").unwrap());
 static ASYNC_SCOPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?s)\basync\s+(?:move\s+)?(?:fn\s+[A-Za-z_]\w*[^;{]*|)\{").unwrap()
 });
@@ -1381,6 +1638,15 @@ static OFFLOAD: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static SYNC_LOCK_GUARD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\blet\s+(?:mut\s+)?(?P<guard>[A-Za-z_]\w*)\s*=\s*[^;\n]*?\.lock\s*\(\s*\)\s*(?:\.\s*(?:unwrap|expect)\s*\([^;\n]*\))?\s*;",
+    )
+    .unwrap()
+});
+static PARKING_LOT_MUTEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:use\s+)?parking_lot(?:::|\b)").unwrap());
+static AWAIT_POINT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.await\b").unwrap());
 static UNBOUNDED_CHANNEL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:tokio::sync::mpsc::unbounded_channel|async_channel::unbounded|crossbeam_channel::unbounded|std::sync::mpsc::channel)\s*(?:::<[^;{}()]*>)?\s*\(").unwrap()
 });
@@ -1776,6 +2042,113 @@ impl Into<Output> for Input {}"#;
                 matches!(
                     finding.code.as_str(),
                     "rust-regex-created-in-loop" | "rust-linear-membership-in-loop"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+    #[test]
+    fn reports_front_removal_and_sync_locks_across_await() {
+        let source = r#"use parking_lot::Mutex;
+
+async fn process(values: &Mutex<Vec<u8>>, mut queue: Vec<u8>) {
+    let guard = values.lock();
+    consume(&guard).await;
+    while ready() {
+        queue.remove(0);
+    }
+}
+
+async fn safe(values: &Mutex<Vec<u8>>, mut queue: Vec<u8>) {
+    {
+        let guard = values.lock();
+        consume(&guard);
+    }
+    consume(&queue).await;
+    if ready() {
+        queue.remove(0);
+    }
+}"#;
+
+        assert_eq!(
+            findings(source)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "rust-sync-lock-across-await" | "rust-vec-front-removal-in-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("rust-sync-lock-across-await".to_owned(), 4),
+                ("rust-vec-front-removal-in-loop".to_owned(), 7),
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_map_format_and_front_insertion_performance_issues() {
+        let source = r#"use std::collections::HashMap;
+
+fn render(values: Vec<u8>, mut queue: Vec<u8>, key: String, mut labels: HashMap<String, String>) -> String {
+    let mut output = String::new();
+    if !labels.contains_key(&key) {
+        labels.insert(key, "new".to_owned());
+    }
+    for value in values {
+        output.push_str(&format!("{value:02x}"));
+        queue.insert(0, value);
+    }
+    (0..4).map(|value| format!("{value:x}")).collect::<String>()
+}"#;
+
+        assert_eq!(
+            findings(source)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "rust-map-double-lookup"
+                            | "rust-format-append"
+                            | "rust-vec-front-insertion-in-loop"
+                            | "rust-format-collect"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("rust-vec-front-insertion-in-loop".to_owned(), 10),
+                ("rust-map-double-lookup".to_owned(), 5),
+                ("rust-format-append".to_owned(), 9),
+                ("rust-format-collect".to_owned(), 12),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_single_lookups_direct_formatting_and_non_loop_front_insertion() {
+        let source = r#"use std::collections::HashMap;
+use std::fmt::Write as _;
+
+fn render(mut values: Vec<u8>, key: String, mut labels: HashMap<String, String>) -> String {
+    let mut output = String::new();
+    labels.insert(key, "new".to_owned());
+    values.insert(0, 1);
+    let _ = write!(output, "{:02x}", values.len());
+    (0..4).map(|value| value.to_string()).collect::<String>()
+}"#;
+
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-map-double-lookup"
+                        | "rust-format-append"
+                        | "rust-vec-front-insertion-in-loop"
+                        | "rust-format-collect"
                 )
             })
             .collect::<Vec<_>>();

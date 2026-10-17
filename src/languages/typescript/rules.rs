@@ -130,6 +130,12 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     findings.extend(async_foreach_findings(path, &sink_source));
     findings.extend(child_process_shell_findings(path, &uncommented_source));
+    findings.extend(accumulating_spread_findings(path, &sink_source));
+    findings.extend(filtered_first_match_findings(
+        path,
+        &sink_source,
+        &performance,
+    ));
 
     for index in 0..raw_lines.len() {
         let stripped_code = strip_literals(code_lines[index]);
@@ -175,6 +181,128 @@ fn async_foreach_findings(path: &str, source: &str) -> Vec<Finding> {
             )
         })
         .collect()
+}
+
+fn accumulating_spread_findings(path: &str, source: &str) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for reducer in REDUCE_CALL.find_iter(source) {
+        let open = reducer.end() - 1;
+        let Some(call_close) = matching_delimiter(source, open, b'(', b')') else {
+            continue;
+        };
+        let Some((accumulator, body_start, body_end)) =
+            reducer_callback(source, open + 1, call_close)
+        else {
+            continue;
+        };
+        for spread in SPREAD_IDENTIFIER.captures_iter(&source[body_start..body_end]) {
+            if spread
+                .get(1)
+                .is_none_or(|name| name.as_str() != accumulator)
+            {
+                continue;
+            }
+            let Some(whole) = spread.get(0) else {
+                continue;
+            };
+            let line = line_number(source, body_start + whole.start());
+            findings.push(finding(
+                "js-accumulating-spread",
+                path,
+                line,
+                line,
+                "spreading the reducer accumulator copies all accumulated values on every iteration",
+                "high",
+            ));
+        }
+    }
+    findings
+}
+
+fn reducer_callback(
+    source: &str,
+    start: usize,
+    call_close: usize,
+) -> Option<(String, usize, usize)> {
+    let mut cursor = skip_ascii_whitespace(source, start);
+    let accumulator = if source.as_bytes().get(cursor) == Some(&b'(') {
+        let parameters_end = matching_delimiter(source, cursor, b'(', b')')?;
+        if parameters_end >= call_close {
+            return None;
+        }
+        let first = source[cursor + 1..parameters_end].split(',').next()?.trim();
+        if !JAVASCRIPT_IDENTIFIER.is_match(first) {
+            return None;
+        }
+        cursor = skip_ascii_whitespace(source, parameters_end + 1);
+        first.to_owned()
+    } else {
+        let identifier = JAVASCRIPT_IDENTIFIER_PREFIX.find(&source[cursor..])?;
+        if identifier.start() != 0 {
+            return None;
+        }
+        cursor += identifier.end();
+        cursor = skip_ascii_whitespace(source, cursor);
+        identifier.as_str().to_owned()
+    };
+    if source.as_bytes().get(cursor..cursor + 2) != Some(b"=>") {
+        return None;
+    }
+    let body_start = skip_ascii_whitespace(source, cursor + 2);
+    let opening = *source.as_bytes().get(body_start)?;
+    let body_end = match opening {
+        b'{' => matching_delimiter(source, body_start, b'{', b'}')? + 1,
+        b'[' => matching_delimiter(source, body_start, b'[', b']')? + 1,
+        b'(' => matching_delimiter(source, body_start, b'(', b')')? + 1,
+        _ => source[body_start..call_close]
+            .find(',')
+            .map_or(call_close, |offset| body_start + offset),
+    };
+    (body_end <= call_close).then_some((accumulator, body_start, body_end))
+}
+
+fn filtered_first_match_findings(
+    path: &str,
+    source: &str,
+    facts: &PerformanceFacts,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for filtered in FILTER_CALL.captures_iter(source) {
+        let (Some(whole), Some(receiver)) = (filtered.get(0), filtered.get(1)) else {
+            continue;
+        };
+        if !facts.arrays.contains(receiver.as_str()) {
+            continue;
+        }
+        let open = whole.end() - 1;
+        let Some(close) = matching_delimiter(source, open, b'(', b')') else {
+            continue;
+        };
+        if !FILTER_FIRST_ACCESS.is_match(&source[close + 1..]) {
+            continue;
+        }
+        let line = line_number(source, whole.start());
+        findings.push(finding(
+            "js-filter-first-match",
+            path,
+            line,
+            line,
+            "filter traverses the full array before selecting one match",
+            "high",
+        ));
+    }
+    findings
+}
+
+fn skip_ascii_whitespace(source: &str, mut offset: usize) -> usize {
+    while source
+        .as_bytes()
+        .get(offset)
+        .is_some_and(u8::is_ascii_whitespace)
+    {
+        offset += 1;
+    }
+    offset
 }
 
 #[derive(Clone, Copy)]
@@ -673,35 +801,7 @@ fn analyze_performance(
     findings: &mut Vec<Finding>,
 ) {
     if line.inside_loop {
-        if REGEXP_CONSTRUCTOR.is_match(line.sink_line)
-            && CONSTANT_REGEXP.is_match(line.uncommented_line)
-        {
-            line.add(
-                findings,
-                "js-regexp-created-in-loop",
-                "constant regular expression is compiled inside a loop",
-            );
-        }
-        if ARRAY_MEMBERSHIP
-            .captures_iter(line.line)
-            .any(|capture| facts.arrays.contains(&capture[1]))
-        {
-            line.add(
-                findings,
-                "js-linear-membership-in-loop",
-                "linear array membership is checked inside a loop",
-            );
-        }
-        if IN_PLACE_CONCAT
-            .captures(line.sink_line)
-            .is_some_and(|capture| facts.strings.contains(&capture[1]))
-        {
-            line.add(
-                findings,
-                "js-string-concat-in-loop",
-                "immutable string is concatenated inside a loop",
-            );
-        }
+        analyze_repeated_performance(line, facts, findings);
     }
     if line.inside_async
         && !SYNC_FUNCTION_DECLARATION.is_match(line.sink_line)
@@ -711,6 +811,62 @@ fn analyze_performance(
             findings,
             "js-sync-io-in-async",
             "synchronous filesystem API is called inside async code",
+        );
+    }
+}
+
+fn analyze_repeated_performance(
+    line: &SourceLine<'_>,
+    facts: &PerformanceFacts,
+    findings: &mut Vec<Finding>,
+) {
+    if REGEXP_CONSTRUCTOR.is_match(line.sink_line)
+        && CONSTANT_REGEXP.is_match(line.uncommented_line)
+    {
+        line.add(
+            findings,
+            "js-regexp-created-in-loop",
+            "constant regular expression is compiled inside a loop",
+        );
+    }
+    if ARRAY_MEMBERSHIP
+        .captures_iter(line.line)
+        .any(|capture| facts.arrays.contains(&capture[1]))
+    {
+        line.add(
+            findings,
+            "js-linear-membership-in-loop",
+            "linear array membership is checked inside a loop",
+        );
+    }
+    if IN_PLACE_CONCAT
+        .captures(line.sink_line)
+        .is_some_and(|capture| facts.strings.contains(&capture[1]))
+    {
+        line.add(
+            findings,
+            "js-string-concat-in-loop",
+            "immutable string is concatenated inside a loop",
+        );
+    }
+    if ARRAY_SHIFT
+        .captures_iter(line.line)
+        .any(|capture| facts.arrays.contains(&capture[1]))
+    {
+        line.add(
+            findings,
+            "js-array-shift-in-loop",
+            "removing the first array element repeatedly shifts the remaining elements",
+        );
+    }
+    if ARRAY_UNSHIFT
+        .captures_iter(line.line)
+        .any(|capture| facts.arrays.contains(&capture[1]))
+    {
+        line.add(
+            findings,
+            "js-array-unshift-in-loop",
+            "inserting at the front of an array repeatedly shifts existing elements",
         );
     }
 }
@@ -1106,11 +1262,18 @@ fn is_inside_handled_try(lines: &[&str], index: usize) -> bool {
 }
 
 fn matching_block_close(source: &str, open: usize) -> Option<usize> {
+    matching_delimiter(source, open, b'{', b'}')
+}
+
+fn matching_delimiter(source: &str, open: usize, opening: u8, closing: u8) -> Option<usize> {
+    if source.as_bytes().get(open) != Some(&opening) {
+        return None;
+    }
     let mut depth = 0;
     for (offset, byte) in source.bytes().enumerate().skip(open) {
-        if byte == b'{' {
+        if byte == opening {
             depth += 1;
-        } else if byte == b'}' {
+        } else if byte == closing {
             depth -= 1;
             if depth == 0 {
                 return Some(offset);
@@ -1964,6 +2127,23 @@ static REGEXP_CONSTRUCTOR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bnew\s+RegExp\s*\(").unwrap());
 static ARRAY_MEMBERSHIP: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*(?:includes|indexOf)\s*\(").unwrap());
+static ARRAY_SHIFT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*shift\s*\(\s*\)").unwrap());
+static ARRAY_UNSHIFT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*unshift\s*\(").unwrap());
+static REDUCE_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.\s*reduce\s*\(").unwrap());
+static FILTER_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*filter\s*\(").unwrap());
+static FILTER_FIRST_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:\[\s*0\s*\]|\.\s*(?:shift|pop)\s*\(\s*\)|\.\s*at\s*\(\s*(?:0|-1)\s*\))")
+        .unwrap()
+});
+static SPREAD_IDENTIFIER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.\.\.\s*([A-Za-z_$][\w$]*)").unwrap());
+static JAVASCRIPT_IDENTIFIER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z_$][\w$]*$").unwrap());
+static JAVASCRIPT_IDENTIFIER_PREFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z_$][\w$]*").unwrap());
 static IN_PLACE_CONCAT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\+=").unwrap());
 static CALL_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
@@ -2466,6 +2646,107 @@ const example = 'items.forEach(async () => work())';\n"
             .collect::<Vec<_>>();
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
+    #[test]
+    fn reports_array_shift_used_as_a_loop_queue() {
+        let sources = BTreeMap::from([(
+            "src/queue.ts".to_owned(),
+            r#"function drain(queue: string[]) {
+  while (queue.length > 0) {
+    consume(queue.shift());
+  }
+}
+
+function once(queue: string[]) {
+  consume(queue.shift());
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "js-array-shift-in-loop")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![3]
+        );
+    }
+
+    #[test]
+    fn reports_accumulating_spread_front_insertion_and_filtered_first_match() {
+        let sources = BTreeMap::from([(
+            "src/performance.ts".to_owned(),
+            r#"function index(values: string[], queue: string[]) {
+  const byValue = values.reduce((acc, value) => ({ ...acc, [value]: true }), {});
+  const copied = values.reduce(
+    (acc, value) => {
+      return [...acc, value];
+    },
+    [],
+  );
+  const first = values.filter((value) => value.length > 2)[0];
+  const last = values.filter(Boolean).at(-1);
+  for (const value of values) {
+    queue.unshift(value);
+  }
+  queue.unshift("once");
+  return { byValue, copied, first, last };
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "js-accumulating-spread"
+                            | "js-array-unshift-in-loop"
+                            | "js-filter-first-match"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("js-accumulating-spread".to_owned(), 2),
+                ("js-accumulating-spread".to_owned(), 5),
+                ("js-filter-first-match".to_owned(), 9),
+                ("js-filter-first-match".to_owned(), 10),
+                ("js-array-unshift-in-loop".to_owned(), 12),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_non_accumulating_reducers_non_arrays_and_one_off_unshift() {
+        let sources = BTreeMap::from([(
+            "src/safe-performance.ts".to_owned(),
+            r#"function summarize(values: string[], custom: Filterable) {
+  const count = values.reduce((acc, value) => acc + value.length, 0);
+  const copied = values.reduce((acc, value) => [...value, acc], []);
+  const selected = custom.filter(Boolean)[0];
+  values.unshift("once");
+  return { count, copied, selected };
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "js-accumulating-spread" | "js-array-unshift-in-loop" | "js-filter-first-match"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+
     #[test]
     fn malformed_source_and_capture_candidates_fail_closed() {
         let sources = BTreeMap::from([(

@@ -1,7 +1,7 @@
 {
   "id": "cs-empty-catch",
   "language": "csharp",
-  "group": "style",
+  "group": "reliability",
   "listingTitle": "Cs empty catch",
   "title": "Review empty catch",
   "mvvm": false,
@@ -9,11 +9,11 @@
   "legacyGroup": "nim-style",
   "why": "This C# construct can weaken clarity, reliability, or security.",
   "suggestion": "Use the safer modern .NET alternative described by the rule.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
-    "style"
+    "reliability"
   ],
   "requirements": [
     "sourceText"

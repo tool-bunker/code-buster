@@ -1,0 +1,26 @@
+{
+  "id": "go-defer-close-before-error-check",
+  "language": "go",
+  "group": "correctness",
+  "listingTitle": "Check Go errors before deferring Close",
+  "title": "Check Go errors before deferring Close",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "correctness",
+  "why": "A failed resource acquisition can leave a nil value, so deferring Close before checking the returned error can panic.",
+  "suggestion": "Handle the error first, then defer Close after the resource is known to be valid.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["correctness"],
+  "requirements": ["functions"],
+  "packs": ["go"],
+  "implementation": "src/languages/go/rules.rs",
+  "languages": ["go"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only named values assigned with an error and later closed through direct Close or Body.Close calls are recognized.",
+    "Aliases, helper-based error checks, and custom validity contracts are not inferred."
+  ]
+}

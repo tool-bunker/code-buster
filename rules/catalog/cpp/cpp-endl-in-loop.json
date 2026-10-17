@@ -1,0 +1,26 @@
+{
+  "id": "cpp-endl-in-loop",
+  "language": "cpp",
+  "group": "performance",
+  "listingTitle": "Avoid flushing C++ streams in loops",
+  "title": "Avoid flushing C++ streams in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "std::endl writes a newline and flushes the stream, so repeated use in a loop can force unnecessary I/O synchronization.",
+  "suggestion": "Write a newline character and flush explicitly only where the program requires immediate output.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["cpp"],
+  "implementation": "src/languages/cpp/rules.rs",
+  "languages": ["cpp"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit std::endl references inside braced for, while, or do loops are reported.",
+    "Aliases, macros, required interactive flushing, and loop trip counts are not inferred."
+  ]
+}

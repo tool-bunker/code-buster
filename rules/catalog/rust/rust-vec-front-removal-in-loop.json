@@ -1,0 +1,26 @@
+{
+  "id": "rust-vec-front-removal-in-loop",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Avoid removing the front of Vec in loops",
+  "title": "Avoid removing the front of Vec in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Vec::remove(0) shifts every remaining element, so repeated front removal can produce quadratic work.",
+  "suggestion": "Advance through an iterator or use VecDeque and pop_front when queue semantics are required.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only function-local variables explicitly typed or initialized as Vec and removed at literal index zero inside braced loops are reported.",
+    "Aliases, collection size, loop bounds, and intentionally small vectors are not inferred."
+  ]
+}

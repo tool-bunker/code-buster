@@ -6,10 +6,14 @@
 
 - Publish Code Buster releases to crates.io through short-lived GitHub OIDC credentials so Rust users can install the `cb` executable with `cargo install code-buster --locked`.
 - Add conservative loop-cost and async-blocking performance rules for Rust, Python, JavaScript/TypeScript, Java, and C#, including constant regex construction, linear collection membership, and immutable string accumulation.
+- Add conservative correctness and reliability checks for Go error ordering, C# lock identity, Python task and subprocess handling, Rust locks across await, and ignored Java futures.
+- Detect repeated front removal from JavaScript arrays, Rust vectors, and Dart lists, indexed LinkedList access in Java loops, and std::endl flushing in C++ loops.
+- Detect accumulating JavaScript reducer spreads, filtered single-match selection, repeated array front insertion, duplicate Rust map lookups, temporary formatting allocations, and repeated Vec front insertion.
 
 ### Improved
 
 - Classify Python blocking async calls, C# synchronous task waits and loop concatenation, and JavaScript/TypeScript sequential loop awaits under performance with actionable guidance and explicit limitations.
+- Reclassify mutable Python defaults as correctness findings and broad exception, async-void, HttpClient lifetime, and floating-promise findings as reliability concerns.
 
 ## 0.10.0
 

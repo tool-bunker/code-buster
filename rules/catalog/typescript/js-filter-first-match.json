@@ -1,0 +1,26 @@
+{
+  "id": "js-filter-first-match",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Find one array match without filtering all values",
+  "title": "Find one array match without filtering all values",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Array.filter evaluates the full array and allocates a result array even when the caller only consumes the first or last match.",
+  "suggestion": "Use find for the first match or findLast for the last match when callback short-circuiting preserves the intended behavior.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only variables with an array type annotation or array-literal assignment followed by [0], at(0), at(-1), shift(), or pop() are reported.",
+    "Sparse-array callback differences, callback side effects, aliases, and custom filter implementations are not inferred."
+  ]
+}

@@ -16,6 +16,7 @@ pub fn analyze(sources: &BTreeMap<String, String>) -> Vec<Finding> {
     let functions = function_sources::extract(&go_sources);
     let mut findings = Vec::new();
     findings.extend(defer_in_loop(&go_sources));
+    findings.extend(deferred_close_before_error_check(&functions));
     findings.extend(derived_context_cancel(&functions));
     findings.extend(source_pattern(
         &go_sources,
@@ -182,6 +183,60 @@ fn exits_loop_after(lines: &[&str], defer_line: usize, nested_block_depth: usize
         }
     }
     false
+}
+
+fn deferred_close_before_error_check(functions: &[FunctionSource]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for function in functions {
+        let structure = go_structure(&function.source);
+        let lines = structure.lines().collect::<Vec<_>>();
+        for (defer_index, line) in lines.iter().enumerate() {
+            let Some(close) = DEFERRED_CLOSE.captures(line) else {
+                continue;
+            };
+            let resource = &close["resource"];
+            let Some((assignment_index, error)) = lines[..defer_index]
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(index, candidate)| {
+                    GO_RESULT_ASSIGNMENT
+                        .captures(candidate)
+                        .and_then(|assignment| {
+                            (&assignment["resource"] == resource)
+                                .then(|| (index, assignment["error"].to_owned()))
+                        })
+                })
+            else {
+                continue;
+            };
+            let error_check =
+                Regex::new(&format!(r"^\s*if\s+{}\s*!=\s*nil\b", regex::escape(&error)))
+                    .expect("Go error-check regex must compile");
+            if lines[assignment_index + 1..defer_index]
+                .iter()
+                .any(|candidate| error_check.is_match(candidate))
+                || !lines[defer_index + 1..]
+                    .iter()
+                    .take_while(|candidate| {
+                        !GO_RESULT_ASSIGNMENT
+                            .captures(candidate)
+                            .is_some_and(|assignment| assignment["error"] == error)
+                    })
+                    .any(|candidate| error_check.is_match(candidate))
+            {
+                continue;
+            }
+            findings.push(finding(
+                "go-defer-close-before-error-check",
+                &function.path,
+                function.line + defer_index,
+                format!("`{resource}.Close()` is deferred before `{error}` is checked"),
+                Vec::new(),
+            ));
+        }
+    }
+    findings
 }
 
 fn derived_context_cancel(functions: &[FunctionSource]) -> Vec<Finding> {
@@ -641,6 +696,12 @@ static FOR_SCOPE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\W)for(?:
 static ANONYMOUS_FUNCTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bfunc\s*\(").unwrap());
 static LOOP_EXIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(?:return\b|break\b|continue\b|goto\b)").unwrap());
+static GO_RESULT_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?P<resource>[A-Za-z_]\w*)\s*,\s*(?P<error>[A-Za-z_]\w*)\s*:=\s*.+").unwrap()
+});
+static DEFERRED_CLOSE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*defer\s+(?P<resource>[A-Za-z_]\w*)(?:\.Body)?\.Close\s*\(\s*\)").unwrap()
+});
 static DERIVED_CONTEXT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b[A-Za-z_]\w*\s*,\s*(?P<cancel>[A-Za-z_]\w*|_)\s*:=\s*context\.(?:WithCancel|WithCancelCause|WithTimeout|WithTimeoutCause|WithDeadline|WithDeadlineCause)\s*\(").unwrap()
 });
@@ -963,6 +1024,42 @@ func commands() {
                 .map(|finding| (finding.code.as_str(), finding.line))
                 .collect::<Vec<_>>(),
             vec![("go-shell-command", 4), ("go-shell-command", 5)]
+        );
+    }
+
+    #[test]
+    fn reports_close_deferred_before_error_check() {
+        let findings = analyze(&sources(&[(
+            "open.go",
+            r#"package main
+
+func unsafe() error {
+    file, err := os.Open("data")
+    defer file.Close()
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
+func safe() error {
+    file, err := os.Open("data")
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+    return nil
+}
+"#,
+        )]));
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "go-defer-close-before-error-check")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![5]
         );
     }
 

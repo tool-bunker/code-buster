@@ -200,20 +200,39 @@ fn loop_findings(
             ));
         }
 
-        let lists = LIST_DECLARATION
+        let mut has_list_membership = false;
+        let mut has_front_removal = false;
+        for name in LIST_DECLARATION
             .captures_iter(function_text)
-            .filter_map(|captures| captures.get(1).map(|matched| matched.as_str()));
-        if lists.into_iter().any(|name| {
-            Regex::new(&format!(r"\b{}\s*\.\s*contains\s*\(", regex::escape(name)))
-                .unwrap()
-                .is_match(loop_text)
-        }) {
+            .filter_map(|captures| captures.get(1).map(|matched| matched.as_str()))
+        {
+            has_list_membership |=
+                Regex::new(&format!(r"\b{}\s*\.\s*contains\s*\(", regex::escape(name)))
+                    .unwrap()
+                    .is_match(loop_text);
+            has_front_removal |= Regex::new(&format!(
+                r"\b{}\s*\.\s*removeAt\s*\(\s*0\s*\)",
+                regex::escape(name)
+            ))
+            .unwrap()
+            .is_match(loop_text);
+        }
+        if has_list_membership {
             findings.push(finding(
                 "dart-quadratic-list-membership",
                 path,
                 line_at(source, current.start),
                 line_at(source, current.end.saturating_sub(1)),
                 "List.contains performs a linear membership scan inside a loop",
+            ));
+        }
+        if has_front_removal {
+            findings.push(finding(
+                "dart-list-front-removal-in-loop",
+                path,
+                line_at(source, current.start),
+                line_at(source, current.end.saturating_sub(1)),
+                "List.removeAt(0) shifts the remaining elements during each loop iteration",
             ));
         }
     }
@@ -666,6 +685,19 @@ mod tests {
         assert_eq!(
             code_ranges(&fixture),
             vec![("dart-quadratic-list-membership".to_owned(), 2, 5)]
+        );
+    }
+
+    #[test]
+    fn reports_list_front_removal_inside_loops() {
+        let fixture = Fixture::new([(
+            "lib/queue.dart",
+            "void drain(List<String> queue) {\n  while (queue.isNotEmpty) {\n    consume(queue.removeAt(0));\n  }\n}\n\nvoid once(List<String> queue) {\n  consume(queue.removeAt(0));\n}",
+        )]);
+
+        assert_eq!(
+            code_ranges(&fixture),
+            vec![("dart-list-front-removal-in-loop".to_owned(), 2, 4)]
         );
     }
 

@@ -1,7 +1,7 @@
 {
   "id": "cs-async-void",
   "language": "csharp",
-  "group": "style",
+  "group": "reliability",
   "listingTitle": "Cs async void",
   "title": "Review async void",
   "mvvm": false,
@@ -9,11 +9,11 @@
   "legacyGroup": "nim-style",
   "why": "async void exceptions cannot be awaited/caught by callers and complicate testing, except for event handlers.",
   "suggestion": "Return Task/ValueTask unless this is a UI/event handler with documented intent.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
-    "style"
+    "reliability"
   ],
   "requirements": [
     "sourceText"

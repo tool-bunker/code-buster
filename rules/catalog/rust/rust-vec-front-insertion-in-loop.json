@@ -1,0 +1,26 @@
+{
+  "id": "rust-vec-front-insertion-in-loop",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Avoid inserting at the front of Vec in loops",
+  "title": "Avoid inserting at the front of Vec in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Vec::insert(0, value) shifts every existing element, so repeated front insertion can produce quadratic work.",
+  "suggestion": "Append and reverse once when order permits, or use VecDeque and push_front when front insertion is required.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only function-local variables explicitly typed or initialized as Vec and inserted at literal index zero inside braced loops are reported.",
+    "Aliases, collection size, loop bounds, and intentionally small vectors are not inferred."
+  ]
+}

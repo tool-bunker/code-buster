@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -275,22 +276,24 @@ fn generate_catalog(definitions: &BTreeMap<String, RuleDefinition>) -> String {
          pub static RULE_DESCRIPTORS: &[RuleDescriptor] = &[\n",
     );
     for definition in definitions.values() {
-        output.push_str(&format!(
-            "RuleDescriptor{{id:{},language:{},group:{},title:{},mvvm:{}}},\n",
+        let _ = writeln!(
+            output,
+            "RuleDescriptor{{id:{},language:{},group:{},title:{},mvvm:{}}},",
             string(&definition.id),
             string(&definition.language),
             string(&definition.group),
             string(&definition.listing_title),
             definition.mvvm,
-        ));
+        );
     }
     output.push_str(
         "];
 #[rustfmt::skip]\npub static RULE_METADATA: &[RuleMetadata] = &[\n",
     );
     for definition in definitions.values() {
-        output.push_str(&format!(
-            "RuleMetadata{{id:{},default_severity:{},legacy_group:{},title:{},why:{},suggestion:{},version:{},semantic_maturity:{},security_kind:{},taxonomy:{},requirements:{},packs:{},languages:{},frameworks:{},language_versions:{},limitations:{}}},\n",
+        let _ = writeln!(
+            output,
+            "RuleMetadata{{id:{},default_severity:{},legacy_group:{},title:{},why:{},suggestion:{},version:{},semantic_maturity:{},security_kind:{},taxonomy:{},requirements:{},packs:{},languages:{},frameworks:{},language_versions:{},limitations:{}}},",
             string(&definition.id),
             string(&definition.default_severity),
             string(&definition.legacy_group),
@@ -307,7 +310,7 @@ fn generate_catalog(definitions: &BTreeMap<String, RuleDefinition>) -> String {
             string_slice(&definition.frameworks),
             version_slice(&definition.language_versions),
             string_slice(&definition.limitations),
-        ));
+        );
     }
     output.push_str("];\n");
     output
@@ -361,18 +364,19 @@ fn generate_rule_pack_registry(manifest_dir: &Path, out_dir: &Path) -> Result<()
         validate_pack_filename(path, stem)?;
         let module = format!("discovered_pack_{index:03}");
         modules.push((module.clone(), stem.to_owned()));
-        generated.push_str(&format!(
-            "mod {module} {{ include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), {})); }}\n",
-            string(&format!("/{}", relative.to_string_lossy()))
-        ));
+        let include_path = format!("/{}", relative.to_string_lossy());
+        let _ = writeln!(
+            generated,
+            "mod {module} {{ include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), {include_path:?})); }}"
+        );
     }
     generated.push_str("pub static RULE_PACKS: &[RulePack] = &[\n");
     for (module, _) in &modules {
-        generated.push_str(&format!("{module}::PACK,\n"));
+        let _ = writeln!(generated, "{module}::PACK,");
     }
     generated.push_str("];\n#[cfg(test)]\npub static RULE_PACK_SOURCES: &[&str] = &[\n");
     for (_, stem) in &modules {
-        generated.push_str(&format!("{},\n", string(stem)));
+        let _ = writeln!(generated, "{},", string(stem));
     }
     generated.push_str("];\n");
 

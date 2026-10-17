@@ -1,0 +1,26 @@
+{
+  "id": "py-subprocess-run-unchecked",
+  "language": "python",
+  "group": "correctness",
+  "listingTitle": "Make subprocess exit handling explicit",
+  "title": "Make subprocess exit handling explicit",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "subprocess.run defaults to ignoring non-zero exit codes, so a discarded result can silently hide command failure.",
+  "suggestion": "Pass check=true when failure should propagate, or check=false when ignoring the exit status is intentional.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["correctness"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only discarded direct subprocess.run calls without check or chained check_returncode are reported.",
+    "Aliases, wrappers, and exit-code handling performed by surrounding decorators are not inferred."
+  ]
+}

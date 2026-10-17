@@ -1,0 +1,26 @@
+{
+  "id": "py-asyncio-dangling-task",
+  "language": "python",
+  "group": "reliability",
+  "listingTitle": "Retain created asyncio tasks",
+  "title": "Retain created asyncio tasks",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "The event loop keeps weak task references, so a discarded task can disappear before completion and its exception can be lost.",
+  "suggestion": "Await the task, retain it until completion, or use asyncio.TaskGroup for structured concurrency.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only discarded direct asyncio.create_task and asyncio.ensure_future expression statements are reported.",
+    "Imported aliases, custom task factories, and references retained indirectly by wrappers are not inferred."
+  ]
+}

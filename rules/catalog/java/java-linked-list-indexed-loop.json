@@ -1,0 +1,26 @@
+{
+  "id": "java-linked-list-indexed-loop",
+  "language": "java",
+  "group": "performance",
+  "listingTitle": "Avoid indexed LinkedList traversal",
+  "title": "Avoid indexed LinkedList traversal",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "LinkedList.get walks from an end of the list, so repeated indexed access in a loop can make traversal quadratic.",
+  "suggestion": "Iterate with an enhanced for loop or Iterator, or use an ArrayList when indexed access is required.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["java"],
+  "implementation": "src/languages/java/rules.rs",
+  "languages": ["java"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only directly declared LinkedList variables accessed with get inside braced loops are reported.",
+    "Aliases, reassignment, collection size, and bounded loop counts are not inferred."
+  ]
+}

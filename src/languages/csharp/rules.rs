@@ -161,7 +161,30 @@ fn analyze_structure(state: &mut State<'_>, index: usize, line: &str, legacy_lin
     if line.starts_with("catch") && empty_block(&state.lines, index) {
         state.add("cs-empty-catch", index, "catch block is empty", false);
     }
+    if weak_lock_target(state, index, &state.comment_free[index]) {
+        state.add(
+            "cs-lock-weak-identity",
+            index,
+            "lock target has weak identity and can be shared outside this synchronization boundary",
+            false,
+        );
+    }
     analyze_loop(state, index, line);
+}
+
+fn weak_lock_target(state: &State<'_>, index: usize, source: &str) -> bool {
+    if WEAK_LOCK_LITERAL_OR_TYPE.is_match(source) {
+        return true;
+    }
+    WEAK_LOCK_VARIABLE
+        .captures(source)
+        .and_then(|capture| csharp_variable_declaration_before(state, index, &capture[1]))
+        .is_some_and(|(_, variable_type)| {
+            matches!(
+                variable_type.trim().trim_end_matches('?'),
+                "string" | "String" | "System.String"
+            )
+        })
 }
 
 fn is_using_directive(line: &str) -> bool {
@@ -1298,6 +1321,14 @@ static TASK_WAIT_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\.Wait\s*\(").unwrap());
 static TASK_RESULT_MEMBER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\.Result\b").unwrap());
+static WEAK_LOCK_LITERAL_OR_TYPE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"^\s*lock\s*\(\s*(?:this\b|typeof\s*\(|(?:@|\$|@\$|\$@)?"|(?:System\.)?String\.Intern\s*\()"#,
+    )
+    .unwrap()
+});
+static WEAK_LOCK_VARIABLE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*lock\s*\(\s*([A-Za-z_]\w*)\s*\)").unwrap());
 static HTTP_CLIENT_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:this\.)?([A-Za-z_]\w*)\s*=\s*new\s+HttpClient\s*\(").unwrap()
 });
@@ -1729,5 +1760,28 @@ Save(entry, output);\n\
             .filter(|finding| finding.code == "cs-sync-over-async")
             .collect::<Vec<_>>();
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+    #[test]
+    fn reports_weak_identity_lock_targets() {
+        let source = r#"class Locks {
+  private string gate = "shared";
+  private readonly object safeGate = new();
+  void Run() {
+    lock ("literal") {}
+    lock (typeof(Locks)) {}
+    lock (this) {}
+    lock (gate) {}
+    lock (safeGate) {}
+  }
+}"#;
+
+        assert_eq!(
+            analyze_source("Locks.cs", source, false)
+                .into_iter()
+                .filter(|finding| finding.code == "cs-lock-weak-identity")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![5, 6, 7, 8]
+        );
     }
 }

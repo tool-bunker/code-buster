@@ -1,0 +1,26 @@
+{
+  "id": "rust-map-double-lookup",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Avoid duplicate Rust map lookups",
+  "title": "Avoid duplicate Rust map lookups",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Checking contains_key and then inserting the same key performs two searches of a HashMap or BTreeMap.",
+  "suggestion": "Use the entry API to combine the presence check and insertion into one lookup.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["rust"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only simple identifier keys in negated contains_key guards on explicitly typed or initialized HashMap and BTreeMap variables are reported.",
+    "Aliases, complex key expressions, custom map types, and cases requiring distinct borrow behavior are not inferred."
+  ]
+}

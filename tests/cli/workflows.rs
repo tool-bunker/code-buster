@@ -428,7 +428,11 @@ fn review_actions_preserve_legacy_order_for_same_line_findings() {
     );
     assert_eq!(
         codes_at("command.py", 1),
-        ["suspicious-command-arg-space", "large-number-ungrouped"]
+        [
+            "py-subprocess-run-unchecked",
+            "suspicious-command-arg-space",
+            "large-number-ungrouped",
+        ]
     );
 }
 

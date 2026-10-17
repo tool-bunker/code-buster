@@ -14,6 +14,7 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     }
     let mut findings = source_pattern_findings(&sources);
     findings.extend(macro_constants(&sources));
+    findings.extend(endl_in_loops(&sources));
     findings.extend(raw_owning_new(&sources));
     findings.extend(virtual_without_destructor(&sources));
     findings
@@ -887,6 +888,62 @@ fn block_comment_mask_transition(character: char, next: Option<char>) -> (MaskSt
     }
 }
 
+fn endl_in_loops(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for (path, source) in sources {
+        let mut in_block_comment = false;
+        let code = source
+            .split('\n')
+            .map(|line| mask_non_code(line, &mut in_block_comment))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut reported = BTreeSet::new();
+        for loop_start in CPP_LOOP.find_iter(&code) {
+            let open = loop_start.end() - 1;
+            let Some(close) = matching_brace(&code, open) else {
+                continue;
+            };
+            for endl in CPP_ENDL.find_iter(&code[open + 1..close]) {
+                let offset = open + 1 + endl.start();
+                if reported.insert(offset) {
+                    findings.push(finding(
+                        "cpp-endl-in-loop",
+                        path,
+                        line_at_offset(&code, offset),
+                        "std::endl flushes the stream during each loop iteration",
+                    ));
+                }
+            }
+        }
+    }
+    findings
+}
+
+fn matching_brace(source: &str, open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (offset, byte) in source.as_bytes().iter().copied().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn line_at_offset(source: &str, offset: usize) -> usize {
+    source.as_bytes()[..offset]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count()
+        + 1
+}
+
 fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding {
     let metadata = rule_catalog::metadata(code).expect("C++ rule metadata must exist");
     Finding {
@@ -906,6 +963,9 @@ fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding {
     }
 }
 
+static CPP_LOOP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:(?:for|while)\s*\([^{}]*\)|do)\s*\{").unwrap());
+static CPP_ENDL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bstd\s*::\s*endl\b").unwrap());
 static USING_NAMESPACE_STD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*using namespace std;\s*$").unwrap());
 static RAW_NEW_ALLOCATION: LazyLock<Regex> =
@@ -1304,6 +1364,32 @@ gets(buffer);\n"
                     "unsafe C string/buffer API used".to_owned(),
                 ),
             ]
+        );
+    }
+    #[test]
+    fn reports_std_endl_only_inside_loops() {
+        let sources = BTreeMap::from([(
+            "stream.cpp".to_owned(),
+            r#"void print(const std::vector<int>& values) {
+    std::cout << "start" << std::endl;
+    for (int value : values) {
+        std::cout << value << std::endl;
+    }
+    while (ready()) {
+        std::cout << next() << '\n';
+    }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "cpp-endl-in-loop")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![4]
         );
     }
 }

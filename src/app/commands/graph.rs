@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use crate::architecture_graph;
@@ -238,7 +239,7 @@ fn dependency_mermaid(graph: &DependencyGraph, edges: &[DisplayEdge]) -> String 
     for (index, node) in graph.nodes().enumerate() {
         let id = format!("n{index}");
         identifiers.insert(node, id.clone());
-        output.push_str(&format!("  {id}[\"{}\"]\n", node.replace('"', "&quot;")));
+        let _ = writeln!(output, "  {id}[\"{}\"]", node.replace('"', "&quot;"));
     }
     for edge in edges {
         let source = identifiers
@@ -247,7 +248,7 @@ fn dependency_mermaid(graph: &DependencyGraph, edges: &[DisplayEdge]) -> String 
         let target = identifiers
             .get(edge.target.as_str())
             .map_or("null", String::as_str);
-        output.push_str(&format!("  {source} --> {target}\n"));
+        let _ = writeln!(output, "  {source} --> {target}");
     }
     output
 }
@@ -256,7 +257,7 @@ fn architecture_mermaid(graph: &DependencyGraph, layers: &[String]) -> String {
     let mut output = String::from("graph TD\n");
     for (source, targets) in architecture_graph::layer_edges(graph, layers) {
         for target in targets {
-            output.push_str(&format!("  \"{source}\" --> \"{target}\"\n"));
+            let _ = writeln!(output, "  \"{source}\" --> \"{target}\"");
         }
     }
     output

@@ -1,0 +1,26 @@
+{
+  "id": "dart-list-front-removal-in-loop",
+  "language": "dart",
+  "group": "performance",
+  "listingTitle": "Avoid removing the front of Dart lists in loops",
+  "title": "Avoid removing the front of Dart lists in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "List.removeAt(0) shifts every remaining element, so repeated front removal can produce quadratic work.",
+  "suggestion": "Advance an index through the list or use ListQueue when queue semantics are required.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["dart-performance"],
+  "implementation": "src/languages/dart/performance.rs",
+  "languages": ["dart"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only directly declared List variables removed at literal index zero inside recognized loops are reported.",
+    "Aliases, collection size, loop bounds, and intentionally small lists are not inferred."
+  ]
+}

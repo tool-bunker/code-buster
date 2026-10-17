@@ -781,6 +781,51 @@ fn analyze_runtime(
     report_open_without_encoding(path, lines, current, disabled, findings);
     report_printed_exception(path, lines, current, disabled, findings);
     report_async_blocking_call(path, current, disabled, findings);
+    report_dangling_asyncio_task(path, current, disabled, findings);
+    report_unchecked_subprocess(path, lines, current, disabled, findings);
+}
+
+fn report_dangling_asyncio_task(
+    path: &str,
+    current: &PythonLine<'_>,
+    disabled: &BTreeSet<&'static str>,
+    findings: &mut Vec<Finding>,
+) {
+    if current.line().starts_with("asyncio.create_task(")
+        || current.line().starts_with("asyncio.ensure_future(")
+    {
+        add_finding(
+            disabled,
+            findings,
+            path,
+            "py-asyncio-dangling-task",
+            current.number(),
+            "asyncio task is created without retaining its handle",
+        );
+    }
+}
+
+fn report_unchecked_subprocess(
+    path: &str,
+    lines: &[&str],
+    current: &PythonLine<'_>,
+    disabled: &BTreeSet<&'static str>,
+    findings: &mut Vec<Finding>,
+) {
+    if !current.line().starts_with("subprocess.run(") {
+        return;
+    }
+    let call = continued_call(lines, current.index);
+    if !call.contains("check=") && !call.contains(".check_returncode(") {
+        add_finding(
+            disabled,
+            findings,
+            path,
+            "py-subprocess-run-unchecked",
+            current.number(),
+            "discarded subprocess result does not make exit-code handling explicit",
+        );
+    }
 }
 
 fn report_open_without_encoding(
@@ -1660,6 +1705,7 @@ mod tests {
                 ("py-weak-hash", 26),
                 ("py-debug-enabled", 27),
                 ("py-subprocess-shell", 28),
+                ("py-subprocess-run-unchecked", 28),
             ]
         );
     }
@@ -1814,6 +1860,43 @@ ignore = [\"E402\", \"E722\"]\n"
             .collect::<Vec<_>>();
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
+    #[test]
+    fn reports_dangling_tasks_and_discarded_unchecked_subprocesses() {
+        let sources = BTreeMap::from([(
+            "async_work.py".to_owned(),
+            r#"async def run():
+    asyncio.create_task(save())
+    asyncio.ensure_future(cleanup())
+    retained = asyncio.create_task(index())
+    await asyncio.create_task(refresh())
+    subprocess.run(["formatter"])
+    subprocess.run(["checked"], check=True)
+    result = subprocess.run(["inspected"])
+    return subprocess.run(["returned"])
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "py-asyncio-dangling-task" | "py-subprocess-run-unchecked"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("py-asyncio-dangling-task".to_owned(), 2),
+                ("py-asyncio-dangling-task".to_owned(), 3),
+                ("py-subprocess-run-unchecked".to_owned(), 6),
+            ]
+        );
+    }
+
     #[test]
     fn scans_unicode_before_python_string_literals() {
         assert_eq!(

@@ -1,0 +1,26 @@
+{
+  "id": "js-accumulating-spread",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Avoid spreading reducer accumulators",
+  "title": "Avoid spreading reducer accumulators",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Spreading an accumulator copies every value collected so far on each reduction step, turning linear accumulation into quadratic copying.",
+  "suggestion": "Mutate a locally owned accumulator with push, assignment, or Object.assign, or use a construction API that does not repeatedly copy prior results.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only arrow-function reducers whose accumulator is a simple identifier are reported.",
+    "Custom reduce implementations, reducer size, and cases that intentionally preserve immutable intermediate values are not inferred."
+  ]
+}

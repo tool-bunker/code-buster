@@ -1,0 +1,26 @@
+{
+  "id": "rust-format-append",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Append formatted Rust text without a temporary String",
+  "title": "Append formatted Rust text without a temporary String",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Appending the result of format! allocates a temporary String before copying it into the destination String.",
+  "suggestion": "Import std::fmt::Write and write directly into the destination String with write!.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["rust"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicitly typed String parameters and function-local variables initialized with String constructors are reported.",
+    "Aliases, custom string types, and whether the allocation is material in the current path are not inferred."
+  ]
+}

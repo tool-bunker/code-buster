@@ -1,0 +1,26 @@
+{
+  "id": "cs-lock-weak-identity",
+  "language": "csharp",
+  "group": "reliability",
+  "listingTitle": "Avoid C# locks with weak identity",
+  "title": "Avoid C# locks with weak identity",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "Strings, type objects, and publicly reachable instance identities can be shared by unrelated code, allowing external lock contention or deadlock.",
+  "suggestion": "Lock a private readonly object whose identity is controlled exclusively by the containing type.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["csharp"],
+  "implementation": "src/languages/csharp/rules.rs",
+  "languages": ["csharp"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "String literals, typeof expressions, this, String.Intern calls, and directly declared string variables are recognized.",
+    "Visibility, aliases, inheritance, and other weak-identity framework types are not resolved."
+  ]
+}
