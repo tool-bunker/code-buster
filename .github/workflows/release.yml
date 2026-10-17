@@ -50,8 +50,12 @@ jobs:
             echo "CHANGELOG.md has no release heading for $REQUESTED_VERSION" >&2
             exit 1
           fi
-          if ! grep -Fq -- "--tag v$REQUESTED_VERSION --locked" README.md; then
-            echo "README.md does not pin the v$REQUESTED_VERSION source install" >&2
+          if ! grep -Fqx 'cargo install code-buster --locked' README.md; then
+            echo 'README.md does not contain the crates.io install command' >&2
+            exit 1
+          fi
+          if ! grep -Fq -- "cargo install code-buster --version $REQUESTED_VERSION --locked" integrations/github/code-buster.yml; then
+            echo "GitHub integration does not pin crates.io version $REQUESTED_VERSION" >&2
             exit 1
           fi
           echo "tag=v$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
@@ -138,8 +142,27 @@ jobs:
           path: ${{ matrix.archive }}
           if-no-files-found: error
 
+  publish-crate:
+    needs: [verify, resolve-tag, artifacts]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+      - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88.0
+      - name: Authenticate with crates.io
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Publish crate
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+
   publish-github-release:
-    needs: [verify, artifacts]
+    needs: [verify, artifacts, publish-crate]
     runs-on: ubuntu-latest
     permissions:
       contents: write

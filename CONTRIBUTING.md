@@ -202,7 +202,7 @@ parity unless behavior intentionally changed.
 ## Preparing a release
 
 Add user-visible changes under `## Unreleased`, then prepare the Cargo package
-version, lockfile, pinned README install command, and changelog heading together:
+version, lockfile, pinned integration install command, and changelog heading together:
 
 ```sh
 ./tool/prepare-release.sh 0.10.0
@@ -211,4 +211,6 @@ version, lockfile, pinned README install command, and changelog heading together
 The script requires Python 3 and is idempotent for an already-prepared version.
 It does not create a tag, push commits, or publish a release. Run the
 verification commands above, commit the prepared sources, and dispatch the
-release workflow from `main`.
+release workflow from `main`. The workflow builds and smokes every native
+artifact before publishing the crate through crates.io Trusted Publishing, then
+publishes the GitHub release.
