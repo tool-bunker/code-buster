@@ -219,9 +219,9 @@ fn deferred_close_before_error_check(functions: &[FunctionSource]) -> Vec<Findin
                 || !lines[defer_index + 1..]
                     .iter()
                     .take_while(|candidate| {
-                        !GO_RESULT_ASSIGNMENT
+                        GO_RESULT_ASSIGNMENT
                             .captures(candidate)
-                            .is_some_and(|assignment| assignment["error"] == error)
+                            .is_none_or(|assignment| assignment["error"] != error)
                     })
                     .any(|candidate| error_check.is_match(candidate))
             {

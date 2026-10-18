@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.11.0
+
 ### Added
 
 - Publish Code Buster releases to crates.io through short-lived GitHub OIDC credentials so Rust users can install the `cb` executable with `cargo install code-buster --locked`.

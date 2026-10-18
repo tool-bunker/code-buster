@@ -14,7 +14,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install Code Buster
-        run: cargo install code-buster --version 0.10.0 --locked
+        run: cargo install code-buster --version 0.11.0 --locked
       - name: Analyse changed production code
         run: cb review --changed-base '${{ github.event.pull_request.base.sha || github.event.before }}' --format sarif --output code-buster.sarif --fail-on-issues
       - name: Upload SARIF
