@@ -2,14 +2,14 @@
   "id": "css-animation-no-reduced-motion",
   "language": "css",
   "group": "style",
-  "listingTitle": "Css animation no reduced motion",
-  "title": "Review animation no reduced motion",
+  "listingTitle": "Respect reduced-motion preferences for spatial motion",
+  "title": "Respect reduced-motion preferences for spatial motion",
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This frontend construct can weaken accessibility, security, or maintainability.",
-  "suggestion": "Use the safer accessible frontend pattern described by the rule.",
-  "version": 1,
+  "why": "Movement and scaling effects can trigger vestibular symptoms when a user has requested reduced motion.",
+  "suggestion": "Disable or replace spatial animations and transitions inside a prefers-reduced-motion media query.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "A reduced-motion media query anywhere in the file is treated as the file-level guard.",
+    "Cosmetic color, shadow, and opacity transitions are not reported."
+  ]
 }

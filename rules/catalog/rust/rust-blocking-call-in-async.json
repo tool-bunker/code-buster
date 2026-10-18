@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Blocking an executor thread delays unrelated tasks and can exhaust the runtime under load.",
   "suggestion": "Use the runtime-native async API or move blocking work to spawn_blocking, unblock, or a dedicated thread.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "ast",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only fully qualified known-blocking APIs are recognized; aliases and wrappers require type resolution.",
+    "Only fully qualified known-blocking APIs are recognized; conventional asyncify wrappers are recognized, while other aliases and wrappers require type resolution.",
     "Runtime scheduling and actual operation cost are not inferred."
   ]
 }

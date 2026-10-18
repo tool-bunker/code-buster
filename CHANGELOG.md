@@ -15,6 +15,18 @@
 - Classify Python blocking async calls, C# synchronous task waits and loop concatenation, and JavaScript/TypeScript sequential loop awaits under performance with actionable guidance and explicit limitations.
 - Reclassify mutable Python defaults as correctness findings and broad exception, async-void, HttpClient lifetime, and floating-promise findings as reliability concerns.
 
+### Fixed
+
+- Exclude singularly named example packages, standalone HTML example documents, and version-stamped third-party web assets from production analysis.
+- Keep duplicate code, CSS declaration, and CSS design-token comparisons inside each standalone scaffold template instead of comparing independent generated projects.
+- Ignore documented placeholder declarations, scope local placeholder-use counts to their enclosing block, and accept explicitly mutable container types.
+- Recognize conventional Rust `asyncify` offload wrappers and CI checks delegated through Clippy-named Make targets or pre-commit Make hooks.
+- Avoid partial same-value matches inside larger expressions, recognize `isnan` self-comparisons, and emit one ungrouped-large-number finding per line.
+- Exclude interface and implementation signature repetition from data-clump findings and accept unambiguous `DateTimeOffset.Now` timestamps.
+- Limit TypeScript-only syntax checks to TypeScript files, ignore regular-expression punctuation in non-null assertion analysis, and exclude documented examples and mathematical notation from commented-out-code findings.
+- Exclude declaration prose, C# expression-bodied properties and events, and Dart operators from public mutable-state findings; ignore documentation strings, inline annotations, directives, decorative separators, and additional license headers in duplication and comment-density analysis.
+- Treat package and file names ending in `_tests` as test support, and limit reduced-motion findings to spatial transitions rather than cosmetic color, shadow, or opacity changes.
+
 ## 0.10.0
 
 ### Added

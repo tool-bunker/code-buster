@@ -2,14 +2,14 @@
   "id": "cs-datetime-now",
   "language": "csharp",
   "group": "style",
-  "listingTitle": "Cs datetime now",
-  "title": "Review datetime now",
+  "listingTitle": "Prefer unambiguous C# timestamps",
+  "title": "Prefer unambiguous C# timestamps",
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This C# construct can weaken clarity, reliability, or security.",
-  "suggestion": "Use the safer modern .NET alternative described by the rule.",
-  "version": 5,
+  "why": "DateTime.Now omits an explicit offset and can become ambiguous across time-zone and daylight-saving transitions.",
+  "suggestion": "Use DateTimeOffset.Now when the local offset matters or DateTime.UtcNow for UTC-based processing.",
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only direct DateTime.Now references are recognized; aliases and custom clock abstractions require type resolution."
+  ]
 }

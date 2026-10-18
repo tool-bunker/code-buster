@@ -143,7 +143,9 @@ if ((size_t)size != size) return false;
 if (item. property == property) return false;
 // eslint-disable-next-line no-self-compare
 if (other != other) return false;
+if (mask == mask & bits) return false;
 if (count == count) return true;
+bool isnan(float sample) { return sample != sample; }
 "#,
             )]),
             &config(),
@@ -155,7 +157,7 @@ if (count == count) return true;
                 .filter(|finding| finding.code == "operation-on-same-value")
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
-            vec![8]
+            vec![9]
         );
     }
 
@@ -182,6 +184,10 @@ if (count == count) return true;
                     "permissions.cpp",
                     "auto owner = 0000700;\nauto decimal = 10000000;",
                 ),
+                (
+                    "seeds.ts",
+                    "const seed = 1664525 + 1013904223;",
+                ),
             ]),
             &config(),
         );
@@ -196,6 +202,7 @@ if (count == count) return true;
                 ("Server.java", 2),
                 ("benchmark.cpp", 4),
                 ("permissions.cpp", 2),
+                ("seeds.ts", 1),
                 ("stats.py", 4),
             ]
         );

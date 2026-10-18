@@ -544,10 +544,15 @@ impl Discovery {
         let role = if matches_any(relative, &self.classified_test) {
             SourceRole::Test
         } else {
-            classify_path(relative, &self.policy)
+            classify_file_role(relative, &self.policy)
         };
-        let ignored_by_role =
-            role == SourceRole::Test && !self.config.include_all && !self.config.include_tests;
+        let ignored_by_role = excludes_source_role(
+            role,
+            self.config.include_all,
+            self.config.include_tests,
+            self.config.include_examples,
+            self.config.include_vendored,
+        );
         let ignored_by_policy = ignored_by_role
             || matches_prefixes(relative, &self.ignores)
             || matches_prefixes(relative, &self.excludes)
@@ -658,6 +663,45 @@ impl Discovery {
 
     fn record(&mut self, reason: &str) {
         *self.coverage.entry(reason.to_owned()).or_default() += 1;
+    }
+}
+fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
+    let role = classify_path(relative, policy);
+    let normalized = normalize_path(relative);
+    let segments = normalized.split('/').collect::<Vec<_>>();
+    let name = segments.last().copied().unwrap_or_default();
+    match role {
+        SourceRole::Example if !is_example_path(&segments) => SourceRole::Production,
+        SourceRole::Vendored
+            if !VERSIONED_VENDOR_ASSET.is_match(name)
+                && !["vendor", "vendored", "third_party", "compiled", "cargokit"]
+                    .iter()
+                    .any(|candidate| segments.contains(candidate)) =>
+        {
+            SourceRole::Production
+        }
+        SourceRole::Generated
+            if !is_generated_file_name(name) && !is_generated_directory(&segments) =>
+        {
+            SourceRole::Production
+        }
+        _ => role,
+    }
+}
+
+fn excludes_source_role(
+    role: SourceRole,
+    include_all: bool,
+    include_tests: bool,
+    include_examples: bool,
+    include_vendored: bool,
+) -> bool {
+    match role {
+        SourceRole::Test => !include_all && !include_tests,
+        SourceRole::Example => !include_all && !include_examples,
+        SourceRole::Vendored => !include_all && !include_vendored,
+        SourceRole::Generated => true,
+        SourceRole::Production => false,
     }
 }
 
@@ -790,6 +834,9 @@ fn classify_path(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
     if is_generated_file_name(name) {
         return SourceRole::Generated;
     }
+    if VERSIONED_VENDOR_ASSET.is_match(name) {
+        return SourceRole::Vendored;
+    }
     if is_example_path(&segments) {
         return SourceRole::Example;
     }
@@ -872,8 +919,10 @@ const TEST_SEGMENT_SUFFIXES: &[&str] = &[
     "-fixtures",
     "-e2e",
 ];
-const EXAMPLE_SEGMENT_PREFIXES: &[&str] = &["example_", "bench-", "benchmark-"];
+const EXAMPLE_SEGMENT_PREFIXES: &[&str] = &["example_", "example-", "bench-", "benchmark-"];
 const EXAMPLE_SEGMENT_SUFFIXES: &[&str] = &[
+    "_example",
+    "-example",
     "_examples",
     "-examples",
     "-bench",
@@ -888,7 +937,9 @@ fn is_classified_test(
     segments: &[&str],
     policy: &RepositoryPolicy,
 ) -> bool {
-    segments.iter().any(|segment| segment.ends_with("_test"))
+    segments
+        .iter()
+        .any(|segment| segment.ends_with("_test") || segment.ends_with("_tests"))
         || is_test_file_name(name)
         || is_test_path(normalized, name, segments)
         || policy.postgresql && segments.first() == Some(&"contrib") && segments.contains(&"sql")
@@ -958,11 +1009,16 @@ fn is_example_path(segments: &[&str]) -> bool {
         .iter()
         .any(|candidate| segments.contains(candidate))
         || segments.iter().any(|segment| {
-            has_any_affix(segment, EXAMPLE_SEGMENT_PREFIXES, EXAMPLE_SEGMENT_SUFFIXES)
+            !segment.contains('.')
+                && has_any_affix(segment, EXAMPLE_SEGMENT_PREFIXES, EXAMPLE_SEGMENT_SUFFIXES)
         })
         || segments.last().is_some_and(|name| {
             let stem = name.split('.').next().unwrap_or(name);
             matches!(stem, "bench" | "benchmark")
+                || name.ends_with("-example.html")
+                || name.ends_with("_example.html")
+                || name.ends_with("-example.htm")
+                || name.ends_with("_example.htm")
         })
 }
 
@@ -1675,7 +1731,7 @@ static DIFF_HUNK: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Git diff hunk regex must compile")
 });
 static TEST_FILE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:_test\.(?:dart|go|py|rs)|(?:^|_)tests?\.rs|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$").unwrap()
+    Regex::new(r"(?:_tests?\.(?:dart|go|py|rs)|(?:^|_)tests?\.rs|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$").unwrap()
 });
 static BACKUP_FILE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$").unwrap());
@@ -1693,6 +1749,9 @@ static GENERATED_WEB_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\.gen\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$").unwrap());
 static HASHED_WEB_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"-[0-9a-f]{8,}\.(?:js|css)$").unwrap());
+static VERSIONED_VENDOR_ASSET: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^[a-z0-9_-]+@\d+(?:\.\d+){0,2}(?:\.min)?\.(?:css|js)$").unwrap()
+});
 static GENERATED_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*(?://|/\*)\s*(?:generated code with\b|do not change[,;:]?\s+this code is generated\b)").unwrap()
 });
@@ -1718,13 +1777,17 @@ mod tests {
 
     #[test]
     fn classifies_packaged_test_support_as_test_code() {
-        assert_eq!(
-            classify_path(
-                "devel-common/src/tests_common/pytest_plugin.py",
-                &RepositoryPolicy::default()
-            ),
-            SourceRole::Test
-        );
+        for path in [
+            "devel-common/src/tests_common/pytest_plugin.py",
+            "pkgs/http_client_conformance_tests/lib/src/abort_server.dart",
+            "lib/src/abort_tests.dart",
+        ] {
+            assert_eq!(
+                classify_path(path, &RepositoryPolicy::default()),
+                SourceRole::Test,
+                "{path}"
+            );
+        }
         assert_eq!(
             classify_path(
                 "src/common_testing/runtime.py",
@@ -1735,7 +1798,7 @@ mod tests {
     }
 
     #[test]
-    fn classifies_playgrounds_and_benchmark_files_as_examples() {
+    fn classifies_playgrounds_benchmarks_and_named_examples() {
         for path in [
             "playground/worker/main.ts",
             "tools/playgrounds/parser/main.js",
@@ -1743,6 +1806,9 @@ mod tests {
             "tools/bench.ts",
             "tasks/micro-benchmark/src/main.rs",
             "tasks/integrated-benchmark/src/main.rs",
+            "pkgs/flutter_http_example/lib/main.dart",
+            "docs/html-formatter-example.html",
+            "packages/example-server/src/main.ts",
         ] {
             assert_eq!(
                 classify_path(path, &RepositoryPolicy::default()),
@@ -1750,7 +1816,68 @@ mod tests {
                 "{path}"
             );
         }
+    }
 
+    #[test]
+    fn keeps_example_named_production_source_files() {
+        for path in [
+            "src/cargo_example.rs",
+            "docs/tools/markdown-it-rule-example.js",
+            "src/example-server.ts",
+        ] {
+            assert_eq!(
+                classify_path(path, &RepositoryPolicy::default()),
+                SourceRole::Production,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn classifies_versioned_web_assets_as_vendored() {
+        assert_eq!(
+            classify_path(
+                "docs/assets/css-vars-ponyfill@2.js",
+                &RepositoryPolicy::default()
+            ),
+            SourceRole::Vendored
+        );
+    }
+
+    #[test]
+    fn excludes_file_level_examples_and_vendored_assets_unless_requested() {
+        assert!(super::excludes_source_role(
+            SourceRole::Example,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(super::excludes_source_role(
+            SourceRole::Vendored,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(!super::excludes_source_role(
+            SourceRole::Example,
+            false,
+            false,
+            true,
+            false
+        ));
+        assert!(!super::excludes_source_role(
+            SourceRole::Vendored,
+            false,
+            false,
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn preserves_production_and_test_support_classification() {
         assert_eq!(
             classify_path("src/resolve_latest.rs", &RepositoryPolicy::default()),
             SourceRole::Production

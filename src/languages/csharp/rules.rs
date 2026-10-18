@@ -337,7 +337,7 @@ fn analyze_runtime(state: &mut State<'_>, index: usize, line: &str, legacy_line:
     if line.contains("Thread.Sleep(") {
         state.add("cs-thread-sleep", index, "Thread.Sleep used", false);
     }
-    if line.contains("DateTime.Now") || line.contains("DateTimeOffset.Now") {
+    if legacy_line.contains("DateTime.Now") {
         state.add(
             "cs-datetime-now",
             index,
@@ -1538,6 +1538,21 @@ var com = new ServicedComponent();\n\
         assert!(codes.contains("cs-thread-sleep"));
         assert!(codes.contains("cs-using-inside-namespace"));
         assert!(codes.contains("cs-weak-crypto"));
+    }
+
+    #[test]
+    fn accepts_unambiguous_datetime_offset_now() {
+        let sources = BTreeMap::from([(
+            "Clock.cs".to_owned(),
+            "/// <example>Log.Debug(\"Started {At}\", DateTime.Now);</example>\nvar localInstant = DateTimeOffset.Now;".to_owned(),
+        )]);
+        let config = Config::defaults(std::env::temp_dir().join("cbr-csharp-clock-unit"));
+
+        assert!(
+            analyze(&sources, &config)
+                .into_iter()
+                .all(|finding| finding.code != "cs-datetime-now")
+        );
     }
 
     #[test]

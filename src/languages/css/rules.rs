@@ -642,7 +642,8 @@ fn has_motion_declaration(line: &str) -> bool {
     let Some(declaration) = MOTION_DECLARATION.captures(line) else {
         return false;
     };
-    let Some(value) = declaration.get(1).map(|value| value.as_str().trim()) else {
+    let property = declaration.get(1).unwrap().as_str();
+    let Some(value) = declaration.get(2).map(|value| value.as_str().trim()) else {
         return false;
     };
     if [
@@ -657,6 +658,9 @@ fn has_motion_declaration(line: &str) -> bool {
     {
         return false;
     }
+    if property == "transition" && changes_only_non_motion_properties(value) {
+        return false;
+    }
     if value.contains("var(") || value.contains("calc(") {
         return true;
     }
@@ -665,6 +669,15 @@ fn has_motion_declaration(line: &str) -> bool {
             .get(1)
             .and_then(|duration| duration.as_str().parse::<f64>().ok())
             .is_some_and(|duration| duration > 0.0)
+    })
+}
+
+fn changes_only_non_motion_properties(value: &str) -> bool {
+    value.split(',').all(|transition| {
+        transition
+            .split_ascii_whitespace()
+            .next()
+            .is_some_and(|property| NON_MOTION_TRANSITION_PROPERTIES.contains(&property))
     })
 }
 
@@ -698,6 +711,21 @@ const VENDOR_ONLY_PROPERTIES: [&str; 9] = [
     "text-stroke",
     "touch-callout",
 ];
+const NON_MOTION_TRANSITION_PROPERTIES: &[&str] = &[
+    "background-color",
+    "border-bottom-color",
+    "border-color",
+    "border-left-color",
+    "border-right-color",
+    "border-top-color",
+    "box-shadow",
+    "color",
+    "column-rule-color",
+    "opacity",
+    "outline-color",
+    "text-decoration-color",
+    "text-shadow",
+];
 
 static BOX_SIZING_RESET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(?:-webkit-|-moz-)?box-sizing\s*:\s*border-box\s*;$").unwrap()
@@ -722,7 +750,7 @@ static RGBA_COLOR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,").unwrap()
 });
 static MOTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)\s*:\s*([^;}]+)").unwrap()
+    Regex::new(r"^(?:-(?:webkit|moz|ms|o)-)?(animation|transition)\s*:\s*([^;}]+)").unwrap()
 });
 static MOTION_DURATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\d*\.?\d+)(?:ms|s)\b").unwrap());
@@ -789,6 +817,23 @@ mod tests {
         assert!(!codes.contains("css-duplicate-property"));
         assert!(!codes.contains("css-animation-no-reduced-motion"));
         assert!(!codes.contains("css-vendor-prefix-only"));
+    }
+
+    #[test]
+    fn ignores_cosmetic_transitions_but_reports_spatial_motion() {
+        let source = r#".button {
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.panel {
+  transition: transform 0.3s;
+}"#;
+        let motion = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "css-animation-no-reduced-motion")
+            .collect::<Vec<_>>();
+
+        assert_eq!(motion.len(), 1);
+        assert_eq!(motion[0].line, 5);
     }
 
     #[test]

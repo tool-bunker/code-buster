@@ -9,7 +9,7 @@
   "legacyGroup": "suspicious",
   "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
   "suggestion": "Clarify the intent or replace the suspicious construct.",
-  "version": 11,
+  "version": 12,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [

@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "The same typed parameter group crossing several APIs usually represents one domain concept whose validation and evolution are otherwise distributed.",
   "suggestion": "Consider a value object or parameter object if these values share invariants and lifecycle.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -35,7 +35,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Requires the same complete signature of at least three explicitly typed parameters in three declarations across at least two files.",
+    "Requires the same complete signature of at least three explicitly typed parameters across at least two files and two differently named operations; mirrored interface or overload families are excluded.",
     "Parameter names and normalized types must match; inferred parameters and partial parameter subsets are not analyzed.",
     "TypeScript destructured, inferred, and nested generic parameters are not analyzed.",
     "C# partial types, aliases, and generic parameter splitting are not resolved.",

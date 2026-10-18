@@ -284,6 +284,8 @@ fn is_auxiliary_metadata_file(relative: &str) -> bool {
     let name = path.file_name().and_then(|name| name.to_str());
     let named_auxiliary = name.is_some_and(|name| {
         [
+            ".pre-commit-config.yaml",
+            ".pre-commit-config.yml",
             "Cargo.lock",
             "Cargo.toml",
             "analysis_options.yaml",
@@ -291,6 +293,7 @@ fn is_auxiliary_metadata_file(relative: &str) -> bool {
             "package.json",
             "pubspec.yaml",
             "pyproject.toml",
+            "Makefile",
         ]
         .contains(&name)
     });
@@ -372,6 +375,8 @@ mod tests {
         fs::create_dir_all(root.path().join(".github/other")).unwrap();
         fs::write(root.path().join("package.json"), "{}").unwrap();
         fs::write(root.path().join("Cargo.lock"), "version = 4").unwrap();
+        fs::write(root.path().join("Makefile"), "lint:\n\tcargo clippy").unwrap();
+        fs::write(root.path().join(".pre-commit-config.yaml"), "repos: []").unwrap();
         fs::write(root.path().join(".gitlab-ci.yml"), "test: cargo test").unwrap();
         fs::write(
             root.path().join("azure-pipelines.yml"),
@@ -401,8 +406,10 @@ mod tests {
                 ".github/workflows/audit.yaml",
                 ".github/workflows/ci.yml",
                 ".gitlab-ci.yml",
+                ".pre-commit-config.yaml",
                 "Cargo.lock",
                 "Jenkinsfile",
+                "Makefile",
                 "azure-pipelines.yml",
                 "member/Cargo.lock",
                 "member/Cargo.toml",

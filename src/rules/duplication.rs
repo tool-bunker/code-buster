@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
+use super::standalone_template_scope;
 use crate::findings::{Finding, Severity};
 use crate::rust_rules::function_lexical_facts;
 
@@ -134,8 +135,9 @@ fn record_source_duplicate_windows(
     let lines = normalized_lines(source, path);
     if lines.len() >= window {
         let language_key = duplicate_language_key(path);
+        let scope = standalone_template_scope(path);
         for start in 0..=lines.len() - window {
-            let key = duplicate_window_key(&language_key, &lines[start..start + window]);
+            let key = duplicate_window_key(&language_key, scope, &lines[start..start + window]);
             let insertion_order = occurrences.len();
             let occurrence = occurrences
                 .entry(key)
@@ -167,11 +169,16 @@ fn duplicate_language_key(path: &str) -> String {
     }
 }
 
-fn duplicate_window_key(language_key: &str, lines: &[NormalizedLine]) -> String {
+fn duplicate_window_key(language_key: &str, scope: &str, lines: &[NormalizedLine]) -> String {
     let mut key = String::with_capacity(
-        language_key.len() + 1 + lines.iter().map(|line| line.text.len() + 1).sum::<usize>(),
+        language_key.len()
+            + scope.len()
+            + 2
+            + lines.iter().map(|line| line.text.len() + 1).sum::<usize>(),
     );
     key.push_str(language_key);
+    key.push('\n');
+    key.push_str(scope);
     key.push('\n');
     for (offset, line) in lines.iter().enumerate() {
         if offset > 0 {
@@ -637,14 +644,17 @@ impl NormalizationExclusions<'_> {
 struct NormalizationPolicy {
     hash_comments: bool,
     lua_comments: bool,
+    python: bool,
 }
 
 impl NormalizationPolicy {
     fn for_path(source_path: &str) -> Self {
         let lowercase_path = source_path.to_ascii_lowercase();
+        let python = lowercase_path.ends_with(".py") || lowercase_path.ends_with(".pyw");
         Self {
-            hash_comments: lowercase_path.ends_with(".py") || lowercase_path.ends_with(".pyw"),
+            hash_comments: python,
             lua_comments: lowercase_path.ends_with(".lua") || lowercase_path.ends_with(".luau"),
+            python,
         }
     }
 
@@ -653,6 +663,11 @@ impl NormalizationPolicy {
         raw_line: &str,
         comment_state: &mut CommentNormalizationState,
     ) -> Option<String> {
+        if self.python
+            && masks_python_standalone_string(raw_line, &mut comment_state.python_triple_quote)
+        {
+            return None;
+        }
         if self.hash_comments && raw_line.trim_start().starts_with('#') {
             return None;
         }
@@ -670,6 +685,36 @@ impl NormalizationPolicy {
 struct CommentNormalizationState {
     lua_end: Option<String>,
     in_block_comment: bool,
+    python_triple_quote: Option<&'static str>,
+}
+
+fn masks_python_standalone_string(line: &str, active_delimiter: &mut Option<&'static str>) -> bool {
+    if let Some(delimiter) = active_delimiter {
+        if line.contains(*delimiter) {
+            *active_delimiter = None;
+        }
+        return true;
+    }
+    let trimmed = line.trim_start();
+    let prefix_length = trimmed
+        .bytes()
+        .take_while(|byte| matches!(byte, b'b' | b'B' | b'f' | b'F' | b'r' | b'R' | b'u' | b'U'))
+        .count();
+    if prefix_length > 2 {
+        return false;
+    }
+    let quoted = &trimmed[prefix_length..];
+    let delimiter = if quoted.starts_with("\"\"\"") {
+        "\"\"\""
+    } else if quoted.starts_with("'''") {
+        "'''"
+    } else {
+        return false;
+    };
+    if !quoted[delimiter.len()..].contains(delimiter) {
+        *active_delimiter = Some(delimiter);
+    }
+    true
 }
 
 fn without_block_comments(mut line: String, in_block_comment: &mut bool) -> Option<String> {
@@ -1106,6 +1151,47 @@ mod tests {
             ("b.rs".to_owned(), block.to_owned()),
         ]);
         assert_eq!(exact_group_count(&sources, 3), 1);
+    }
+
+    #[test]
+    fn ignores_repeated_python_docstrings() {
+        let documentation = (0..16)
+            .map(|line| format!("Shared API documentation line {line}."))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let sources = BTreeMap::from([
+            (
+                "alpha.py".to_owned(),
+                format!(
+                    "def alpha():\n    \"\"\"{documentation}\n    \"\"\"\n    return alpha_value\n"
+                ),
+            ),
+            (
+                "beta.py".to_owned(),
+                format!(
+                    "def beta():\n    \"\"\"{documentation}\n    \"\"\"\n    return beta_value\n"
+                ),
+            ),
+        ]);
+
+        assert!(exact_findings(&sources, 5).is_empty());
+    }
+
+    #[test]
+    fn keeps_standalone_scaffold_templates_in_separate_duplicate_domains() {
+        let block = "one();\ntwo();\nthree();\nfour();\n";
+        let sources = BTreeMap::from([
+            (
+                "packages/create-app/template-react/src/main.ts".to_owned(),
+                block.to_owned(),
+            ),
+            (
+                "packages/create-app/template-react-ts/src/main.ts".to_owned(),
+                block.to_owned(),
+            ),
+        ]);
+
+        assert_eq!(exact_group_count(&sources, 3), 0);
     }
 
     #[test]

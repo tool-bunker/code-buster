@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A Rust project that builds and tests in CI without Clippy misses compiler-integrated diagnostics for common correctness, performance, and maintainability problems.",
   "suggestion": "Add a cargo clippy command to a checked-in CI workflow and configure the lint level appropriate for the project.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,6 @@
   "languageVersions": [],
   "limitations": [
     "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
-    "Commands hidden behind repository scripts, reusable workflows, aliases, or nonstandard shell wrappers are not resolved."
+    "Direct make targets named for Clippy and pre-commit hooks delegated to matching Makefile targets are resolved; reusable workflows, aliases, and other shell wrappers are not."
   ]
 }

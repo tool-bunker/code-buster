@@ -13,7 +13,13 @@ fn collect_data_clump_groups(project: &Project) -> BTreeMap<String, ParameterGro
         .filter(|owner| !is_typescript(&owner.path))
     {
         for method in &owner.methods {
-            add_parameter_group(&mut groups, &owner.path, owner.line, &method.parameters);
+            add_parameter_group(
+                &mut groups,
+                &owner.path,
+                owner.line,
+                &method.name,
+                &method.parameters,
+            );
         }
     }
     for (path, source) in project
@@ -37,10 +43,10 @@ fn add_typescript_parameter_groups(
         let end = source[start..]
             .find('\n')
             .map_or(source.len(), |relative| start + relative);
-        if let Some(function_parameters) =
+        if let Some((name, function_parameters)) =
             typescript_callable_parameters(&source[start..], end - start)
         {
-            add_parameter_group(groups, path, line, &function_parameters);
+            add_parameter_group(groups, path, line, name, &function_parameters);
         }
         if end == source.len() {
             break;
@@ -50,7 +56,10 @@ fn add_typescript_parameter_groups(
     }
 }
 
-fn typescript_callable_parameters(source: &str, line_end: usize) -> Option<Vec<Parameter>> {
+fn typescript_callable_parameters(
+    source: &str,
+    line_end: usize,
+) -> Option<(&str, Vec<Parameter>)> {
     if !source[..line_end].contains('(') {
         return None;
     }
@@ -62,7 +71,7 @@ fn typescript_callable_parameters(source: &str, line_end: usize) -> Option<Vec<P
     if matches!(name, "return" | "if" | "for" | "while" | "switch" | "catch") {
         return None;
     }
-    parameters(declaration.get(2)?.as_str(), true)
+    Some((name, parameters(declaration.get(2)?.as_str(), true)?))
 }
 
 fn data_clump_finding(mut group: ParameterGroup) -> Option<Finding> {
@@ -71,7 +80,18 @@ fn data_clump_finding(mut group: ParameterGroup) -> Option<Finding> {
         .iter()
         .map(|(path, _)| path.clone())
         .collect::<BTreeSet<_>>();
-    if group.declarations.len() < 3 || paths.len() < 2 {
+    let mut declaration_name_counts = BTreeMap::<&str, usize>::new();
+    for name in &group.declaration_names {
+        *declaration_name_counts.entry(name).or_default() += 1;
+    }
+    let mirrored_operation_family = declaration_name_counts
+        .values()
+        .all(|declarations| *declarations >= 2);
+    if group.declarations.len() < 3
+        || paths.len() < 2
+        || declaration_name_counts.len() < 2
+        || mirrored_operation_family
+    {
         return None;
     }
     group.declarations.sort();
@@ -98,6 +118,7 @@ fn add_parameter_group(
     groups: &mut BTreeMap<String, ParameterGroup>,
     path: &str,
     line: usize,
+    declaration_name: &str,
     parameters: &[Parameter],
 ) {
     if parameters.len() < 3 {
@@ -112,14 +133,13 @@ fn add_parameter_group(
         .iter()
         .map(|parameter| parameter.name.clone())
         .collect::<Vec<_>>();
-    groups
-        .entry(key)
-        .or_insert_with(|| ParameterGroup {
-            names,
-            declarations: Vec::new(),
-        })
-        .declarations
-        .push((path.to_owned(), line));
+    let group = groups.entry(key).or_insert_with(|| ParameterGroup {
+        names,
+        declaration_names: Vec::new(),
+        declarations: Vec::new(),
+    });
+    group.declaration_names.push(declaration_name.to_owned());
+    group.declarations.push((path.to_owned(), line));
 }
 
 fn interface_pressure(project: &Project) -> Vec<Finding> {

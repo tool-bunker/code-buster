@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "The same normalized code block appears in more than one location.",
   "suggestion": "Extract shared logic or raise min_duplication_lines if the duplication is intentional.",
-  "version": 12,
+  "version": 14,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -33,6 +33,8 @@
     "SQL migration and archive history is excluded from duplication comparison.",
     "Mutually exclusive single-tag Go build flavors are excluded.",
     "Dart constructors composed only of field- and super-formal parameter forwarding are excluded.",
-    "Rust multiline string content is excluded from code-duplication windows."
+    "Rust multiline string content is excluded from code-duplication windows.",
+    "Standalone Python triple-quoted documentation strings are excluded from code-duplication windows.",
+    "Standalone scaffold template roots are compared independently because they cannot share runtime code."
   ]
 }

@@ -156,7 +156,7 @@ fn consume_comment_start(
     if let Some(start) = consume_slash_comment_start(tail, index, comment, documentation, state) {
         return start;
     }
-    if consume_language_comment(line, tail, *index, comment, syntax) {
+    if consume_language_comment(line, tail, *index, comment, documentation, syntax) {
         return CommentStart::Break;
     }
     CommentStart::None
@@ -198,11 +198,15 @@ fn consume_language_comment(
     tail: &str,
     index: usize,
     comment: &mut String,
+    documentation: &mut bool,
     syntax: CommentSyntax,
 ) -> bool {
     if syntax.hash
         && let Some(rest) = tail.strip_prefix('#')
     {
+        if tail.starts_with("#:") || tail.starts_with("##") {
+            *documentation = true;
+        }
         if index != 0 || !line.starts_with("#!") {
             comment.push_str(rest);
         }
@@ -357,7 +361,10 @@ fn summarize_comment_file<'a>(path: &'a str, facts: &[LineFacts]) -> Option<Comm
             continue;
         }
         file.baseline_comments += 1;
-        if !fact.documentation {
+        if !fact.documentation
+            && fact.code.trim().is_empty()
+            && !is_density_comment_noise(&fact.comment)
+        {
             file.comments += 1;
             if file.first == 0 {
                 file.first = index + 1;
@@ -365,6 +372,17 @@ fn summarize_comment_file<'a>(path: &'a str, facts: &[LineFacts]) -> Option<Comm
         }
     }
     (file.code + file.baseline_comments >= 20).then_some(file)
+}
+
+fn is_density_comment_noise(comment: &str) -> bool {
+    let trimmed = comment.trim();
+    trimmed.is_empty()
+        || trimmed
+            .chars()
+            .all(|character| !character.is_alphanumeric())
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || COMMENT_DIRECTIVE.is_match(trimmed)
 }
 
 fn median_comment_ratio(files: &[CommentFile<'_>]) -> f64 {
@@ -418,7 +436,9 @@ fn leading_license_end(facts: &[LineFacts]) -> usize {
     }
     let text = header.to_ascii_lowercase();
     if text.contains("copyright")
-        && (text.contains("licensed under") || text.contains("permission is hereby granted"))
+        && (text.contains("licensed under")
+            || text.contains("license information")
+            || text.contains("permission is hereby granted"))
     {
         end
     } else {
@@ -812,6 +832,12 @@ static COMMENT_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(return|returns|increment|increments|decrement|decrements|set|sets|assign|assigns|call|calls|invoke|invokes)\s+(?:the\s+)?([A-Za-z_]\w*)[.!]?\s*$").unwrap()
 });
 static IDENTIFIER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z_]\w*$").unwrap());
+static COMMENT_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)^(?:@ts-|cspell|coverage:|eslint(?:-|\s)|fmt:|mypy:|noqa\b|noinspection\b|pylint:|region\b|spellchecker|type:\s*ignore\b)",
+    )
+    .unwrap()
+});
 static DELEGATING_CLASS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?ms)class\s+(?P<class>[A-Za-z_]\w*)\s*\{\s*(?:final\s+)?[A-Za-z_]\w*(?:<[^;{}]+>)?\s+(?P<field>[A-Za-z_]\w*)\s*;\s*(?P<constructor>[A-Za-z_]\w*)\s*\(\s*this\.(?P<constructor_field>[A-Za-z_]\w*)\s*\)\s*;\s*(?:Future(?:<[^>{}]+>)?|[A-Za-z_]\w*(?:<[^>{}]+>)?|void)\s+(?P<method>[A-Za-z_]\w*)\s*\((?P<parameters>[^{};]*)\)\s*(?:async\s*)?=>\s*(?:await\s+)?(?P<receiver>[A-Za-z_]\w*)\.(?P<forwarded_method>[A-Za-z_]\w*)\s*\((?P<arguments>[^{};]*)\)\s*;\s*\}").unwrap()
 });
@@ -838,6 +864,8 @@ mod tests {
         assert!(python[0].comment.is_empty());
         assert!(python[2].comment.is_empty());
         assert_eq!(python[4].comment.trim(), "explanation");
+        let sphinx = scan_lines("api.py", "#: Public API documentation.\nvalue = 1");
+        assert!(sphinx[0].documentation);
 
         let lua = scan_lines("tool.lua", "local text = \"-- literal\"\n-- actual comment");
         assert!(lua[0].comment.is_empty());
@@ -909,6 +937,36 @@ mod tests {
         let context = SourceAnalysisContext::unchanged(&go_sources);
         assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
 
+        let mut python_sources = ordinary_sources("py");
+        python_sources.insert(
+            "documented.py".to_owned(),
+            (0..8)
+                .map(|line| format!("#: API field {line}"))
+                .chain((0..12).map(|line| format!("value_{line} = {line}")))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let context = SourceAnalysisContext::unchanged(&python_sources);
+        assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
+
+        let mut annotation_sources = ordinary_sources("ts");
+        annotation_sources.insert(
+            "src/annotations.ts".to_owned(),
+            (0..8)
+                .map(|line| format!("const color{line} = {line} // rgb({line}, 0, 0)"))
+                .chain((0..8).flat_map(|section| {
+                    [
+                        "// ----------------------------------------".to_owned(),
+                        format!("// @ts-ignore compatibility declaration {section}"),
+                        format!("const value{section} = {section}"),
+                    ]
+                }))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let context = SourceAnalysisContext::unchanged(&annotation_sources);
+        assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
+
         let mut licensed_sources = ordinary_sources("go");
         licensed_sources.insert(
             "licensed.go".to_owned(),
@@ -916,6 +974,16 @@ mod tests {
                 "// Copyright 2026 The Authors\n// Licensed under the Apache License, Version 2.0\npackage licensed\n{}",
                 (0..18)
                     .map(|line| format!("var value{line} = {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        );
+        licensed_sources.insert(
+            "format.cc".to_owned(),
+            format!(
+                "// Formatting library\n//\n// Copyright 2026 The Authors\n// All rights reserved.\n//\n// For the license information refer to LICENSE.\n// Project header\n// Source header\n{}",
+                (0..12)
+                    .map(|line| format!("int value{line} = {line};"))
                     .collect::<Vec<_>>()
                     .join("\n")
             ),

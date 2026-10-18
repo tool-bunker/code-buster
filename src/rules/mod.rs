@@ -26,3 +26,15 @@ pub(crate) mod ui_consistency;
 pub(crate) mod yagni;
 pub(crate) mod yagni_call_index;
 pub(crate) mod yagni_concentration;
+
+pub(super) fn standalone_template_scope(path: &str) -> &str {
+    let mut offset = 0;
+    for segment in path.split('/') {
+        let end = offset + segment.len();
+        if segment.starts_with("template-") || segment.starts_with("template_") {
+            return &path[..end];
+        }
+        offset = end + 1;
+    }
+    ""
+}

@@ -106,6 +106,50 @@ interface Gateway {
     }
 
     #[test]
+    fn ignores_repeated_interface_implementation_signatures() {
+        let sources = BTreeMap::from([
+            (
+                "contract.ts".to_owned(),
+                "interface Gateway {\n  send(tenant: string, region: number, active: boolean): void;\n}\nclass Primary {\n  send(tenant: string, region: number, active: boolean): void {}\n}"
+                    .to_owned(),
+            ),
+            (
+                "fallback.ts".to_owned(),
+                "class Fallback {\n  send(tenant: string, region: number, active: boolean): void {}\n}"
+                    .to_owned(),
+            ),
+        ]);
+
+        assert!(
+            analyze(&sources)
+                .iter()
+                .all(|finding| finding.code != "oop-data-clump")
+        );
+    }
+
+    #[test]
+    fn ignores_overload_families_concentrated_in_two_type_declarations() {
+        let sources = BTreeMap::from([
+            (
+                "Logger.cs".to_owned(),
+                "class Logger {\n void Debug(string message, int eventId, bool flush) {}\n void Info(string message, int eventId, bool flush) {}\n void Error(string message, int eventId, bool flush) {}\n}"
+                    .to_owned(),
+            ),
+            (
+                "SilentLogger.cs".to_owned(),
+                "class SilentLogger {\n void Debug(string message, int eventId, bool flush) {}\n void Info(string message, int eventId, bool flush) {}\n void Error(string message, int eventId, bool flush) {}\n}"
+                    .to_owned(),
+            ),
+        ]);
+
+        assert!(
+            analyze(&sources)
+                .iter()
+                .all(|finding| finding.code != "oop-data-clump")
+        );
+    }
+
+    #[test]
     fn does_not_combine_evidence_between_language_analyzers() {
         let sources = BTreeMap::from([
             (

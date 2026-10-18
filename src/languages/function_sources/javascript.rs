@@ -191,7 +191,7 @@ fn javascript_matching_braces(source: &str) -> BTreeMap<usize, usize> {
     result
 }
 
-fn mask_javascript_strings_and_comments(source: &str) -> String {
+pub(in crate::languages) fn mask_javascript_strings_and_comments(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut result = bytes.to_vec();
     let mut index = 0;

@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A placeholder name hides the role of a declaration once it escapes a tiny local scope.",
   "suggestion": "Rename the declaration for the domain concept or responsibility it represents.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -25,5 +25,8 @@
   "languages": [],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only a conservative list of conventional placeholder names is inspected.",
+    "Comment-only declarations are excluded and local usage is bounded to the enclosing brace scope."
+  ]
 }

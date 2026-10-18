@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::findings::{Finding, Severity};
+use crate::languages::functions::mask_javascript_strings_and_comments;
 use crate::languages::strip_quoted_literals as strip_literals;
 use crate::rule_catalog;
 use crate::source_analysis_context::SourceAnalysisContext;
@@ -25,6 +26,7 @@ struct SourceLine<'a> {
     path: &'a str,
     raw: &'a str,
     line: &'a str,
+    syntax_line: &'a str,
     sink_line: &'a str,
     uncommented_line: &'a str,
     code_line: &'a str,
@@ -35,6 +37,7 @@ struct SourceLine<'a> {
     inside_loop: bool,
     tooling: bool,
     command_line: bool,
+    typescript: bool,
     inside_async: bool,
 }
 
@@ -118,6 +121,7 @@ impl SourceLine<'_> {
 fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     let tooling = is_tooling_source(path);
     let command_line = is_node_command_line(source);
+    let typescript = is_typescript(path);
     let raw_lines = source.split('\n').collect::<Vec<_>>();
     let uncommented_source = without_comments(source);
     let uncommented_lines = uncommented_source.split('\n').collect::<Vec<_>>();
@@ -125,6 +129,8 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     let code_lines = code_source.split('\n').collect::<Vec<_>>();
     let sink_source = without_string_literal_text(&uncommented_source);
     let sink_lines = sink_source.split('\n').collect::<Vec<_>>();
+    let syntax_source = mask_javascript_strings_and_comments(source);
+    let syntax_lines = syntax_source.split('\n').collect::<Vec<_>>();
     let (inside_loop, inside_async) = scopes_by_line(&code_lines);
     let performance = PerformanceFacts::from_source(&uncommented_source);
     let mut findings = Vec::new();
@@ -144,6 +150,7 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
             path,
             raw: raw_lines[index],
             line: stripped_code.trim(),
+            syntax_line: syntax_lines[index].trim(),
             sink_line: stripped_sink.trim(),
             uncommented_line: uncommented_lines[index],
             code_line: code_lines[index],
@@ -155,6 +162,7 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
             inside_async: inside_async[index],
             tooling,
             command_line,
+            typescript,
         };
         analyze_style(&line, &mut findings);
         analyze_execution_sinks(&line, &mut findings);
@@ -655,10 +663,10 @@ fn line_number(source: &str, offset: usize) -> usize {
 }
 
 fn analyze_style(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
-    if uses_explicit_any(line.line) {
+    if line.typescript && uses_explicit_any(line.syntax_line) {
         line.add(findings, "ts-any", "explicit any type used");
     }
-    if uses_non_null_assertion(line.line) {
+    if line.typescript && uses_non_null_assertion(line.syntax_line) {
         line.add(findings, "ts-non-null-assertion", "non-null assertion used");
     }
     if leaves_console_logging(line) {
@@ -938,6 +946,12 @@ fn finding(
 
 fn is_javascript(path: &str) -> bool {
     [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]
+        .iter()
+        .any(|extension| path.ends_with(extension))
+}
+
+fn is_typescript(path: &str) -> bool {
+    [".ts", ".tsx", ".mts", ".cts"]
         .iter()
         .any(|extension| path.ends_with(extension))
 }
@@ -2172,7 +2186,7 @@ static ASYNC_FUNCTION_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 static SYNC_FUNCTION_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*function(?:\s*\*)?\s+[A-Za-z_$][\w$]*\s*\(").unwrap());
 static NON_NULL_ASSERTION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"!\s*(?:\.|\)|;|,|\])").unwrap());
+    LazyLock::new(|| Regex::new(r"[A-Za-z0-9_$)\]}]!\s*(?:\.|\)|;|,|\])").unwrap());
 static DIRECT_EVAL_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:^|[^\w$?.])eval\s*\(").unwrap());
 static GLOBAL_EVAL_CALL: LazyLock<Regex> =
@@ -2428,6 +2442,45 @@ try { JSON.parse(payload); } catch (error) { recover(error); }\n"
                 ("ts-inner-html".to_owned(), "src/app.ts".to_owned(), 3,),
                 ("ts-hardcoded-secret".to_owned(), "src/app.ts".to_owned(), 5,),
             ])
+        );
+    }
+
+    #[test]
+    fn limits_typescript_syntax_rules_and_ignores_regex_literals() {
+        let sources = BTreeMap::from([
+            (
+                "src/rules.js".to_owned(),
+                "const lookbehind = /(?<!,)/u;\nconst punctuation = /[~!]/u;".to_owned(),
+            ),
+            (
+                "src/rules.ts".to_owned(),
+                "const shebang = /^#!.*/;\n\
+const punctuation = /[~!]/u;\n\
+const safe = !/^(?:https?:)?\\/\\//.test(filename);\n\
+const value: any = load();\n\
+const definite = value!.name;\n"
+                    .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| matches!(
+                    finding.code.as_str(),
+                    "ts-any" | "ts-non-null-assertion"
+                ))
+                .map(|finding| (finding.code, finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("ts-any".to_owned(), "src/rules.ts".to_owned(), 4),
+                (
+                    "ts-non-null-assertion".to_owned(),
+                    "src/rules.ts".to_owned(),
+                    5
+                ),
+            ]
         );
     }
 

@@ -39,6 +39,7 @@ struct Parameter {
 }
 struct ParameterGroup {
     names: Vec<String>,
+    declaration_names: Vec<String>,
     declarations: Vec<(String, usize)>,
 }
 

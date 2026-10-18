@@ -69,6 +69,7 @@ struct MutableStateScope {
     parenthesis_depth: isize,
     class_depth: Option<isize>,
     private_class: bool,
+    intentionally_mutable_class: bool,
 }
 
 impl MutableStateScope {
@@ -81,6 +82,7 @@ impl MutableStateScope {
         };
         self.class_depth = Some(self.depth + count_byte(line, b'{'));
         self.private_class = name.as_str().starts_with('_');
+        self.intentionally_mutable_class = explicitly_mutable_type(name.as_str());
     }
 
     fn is_direct_member(&self) -> bool {
@@ -92,6 +94,8 @@ impl MutableStateScope {
         self.parenthesis_depth += count_byte(line, b'(') - count_byte(line, b')');
         if self.class_depth.is_some_and(|class| self.depth < class) {
             self.class_depth = None;
+            self.private_class = false;
+            self.intentionally_mutable_class = false;
         }
     }
 }
@@ -101,6 +105,9 @@ fn mutable_state_candidate<'a>(
     syntax: MutableStateSyntax,
     scope: &MutableStateScope,
 ) -> Option<&'a str> {
+    if scope.intentionally_mutable_class && scope.is_direct_member() {
+        return None;
+    }
     if let Some(name) = explicit_mutable_field(line) {
         return Some(name);
     }
@@ -116,6 +123,12 @@ fn mutable_state_candidate<'a>(
 
 fn is_excluded_mutable_state(name: &str) -> bool {
     name.starts_with('_')
+}
+
+fn explicitly_mutable_type(name: &str) -> bool {
+    name.strip_prefix("Mutable")
+        .and_then(|suffix| suffix.chars().next())
+        .is_some_and(char::is_uppercase)
 }
 
 fn public_mutable_state_finding(path: &str, line: usize, name: &str) -> Finding {
@@ -136,7 +149,7 @@ fn explicit_mutable_field(line: &str) -> Option<&str> {
         .strip_prefix("static")
         .map(str::trim_start)
         .unwrap_or(remainder);
-    if ["final", "readonly", "const"]
+    if ["const", "event", "final", "readonly"]
         .iter()
         .any(|keyword| starts_keyword(qualifiers, keyword))
     {
@@ -230,7 +243,10 @@ fn is_commented_code_candidate(lines: &[&str], candidate: &CommentCandidate<'_>)
         && COMMENTED_CODE.is_match(candidate.body)
         && !MEMBER_ACCESS_PROSE.is_match(candidate.body)
         && !DIRECTIVE.is_match(candidate.body)
+        && !DOCUMENTATION_PLACEHOLDER.is_match(candidate.body)
+        && !LATEX_MATH.is_match(candidate.body)
         && !is_documented_example(lines, candidate.line_index)
+        && !is_inline_syntax_example(lines, candidate)
 }
 
 fn commented_code_finding(path: &str, line: usize) -> Finding {
@@ -245,7 +261,7 @@ fn commented_code_finding(path: &str, line: usize) -> Finding {
 }
 
 fn is_documented_example(lines: &[&str], line_index: usize) -> bool {
-    for index in (0..line_index).rev() {
+    for index in (0..=line_index).rev() {
         let Some(comment) = HASH_OR_SLASH_COMMENT.captures(lines[index]) else {
             return false;
         };
@@ -256,14 +272,27 @@ fn is_documented_example(lines: &[&str], line_index: usize) -> bool {
     false
 }
 
-const PLACEHOLDER_NAMES: [&str; 9] = [
-    "asdf", "bar", "baz", "dummy", "foo", "obj", "stuff", "thing", "whatever",
+fn is_inline_syntax_example(lines: &[&str], candidate: &CommentCandidate<'_>) -> bool {
+    if MULTIPLE_EXAMPLE_STATEMENTS.is_match(candidate.body) {
+        return true;
+    }
+    COMMENTED_DECLARATION.is_match(candidate.body)
+        && lines[candidate.line_index + 1..]
+            .iter()
+            .map(|line| line.trim())
+            .find(|line| !line.is_empty() && !HASH_OR_SLASH_COMMENT.is_match(line))
+            .is_some_and(|line| OBJECT_PROPERTY.is_match(line))
+}
+
+const PLACEHOLDER_NAMES: [&str; 8] = [
+    "asdf", "bar", "baz", "dummy", "foo", "stuff", "thing", "whatever",
 ];
 
 struct PlaceholderIdentifierCandidate<'a> {
     name: &'a str,
     declaration_line: &'a str,
     line: usize,
+    scope_depth: isize,
 }
 
 fn placeholder_identifiers(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
@@ -274,7 +303,7 @@ fn placeholder_identifiers(context: &SourceAnalysisContext<'_>) -> Vec<Finding> 
         .filter(|path| is_production_source(path))
     {
         let lines = context.masked_lines(path);
-        let candidates = placeholder_identifier_candidates(lines);
+        let candidates = placeholder_identifier_candidates(path, lines);
         findings.extend(
             candidates
                 .into_iter()
@@ -285,20 +314,57 @@ fn placeholder_identifiers(context: &SourceAnalysisContext<'_>) -> Vec<Finding> 
     findings
 }
 
-fn placeholder_identifier_candidates(lines: &[String]) -> Vec<PlaceholderIdentifierCandidate<'_>> {
+fn placeholder_identifier_candidates<'a>(
+    path: &str,
+    lines: &'a [String],
+) -> Vec<PlaceholderIdentifierCandidate<'a>> {
+    let comment_only = comment_only_lines(lines, extension(path) == ".py");
+    let mut depth = 0;
+    let mut candidates = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if !comment_only[index] {
+            candidates.extend(
+                PLACEHOLDER_DECLARATION
+                    .captures_iter(line)
+                    .map(|declaration| {
+                        let complete = declaration.get(0).unwrap();
+                        PlaceholderIdentifierCandidate {
+                            name: declaration.name("name").unwrap().as_str(),
+                            declaration_line: line,
+                            line: index + 1,
+                            scope_depth: depth + brace_delta(&line[..complete.start()]),
+                        }
+                    }),
+            );
+        }
+        depth += brace_delta(line);
+    }
+    candidates
+}
+
+fn comment_only_lines(lines: &[String], supports_hash: bool) -> Vec<bool> {
+    let mut in_block = false;
     lines
         .iter()
-        .enumerate()
-        .flat_map(|(index, line)| {
-            PLACEHOLDER_DECLARATION
-                .captures_iter(line)
-                .map(move |declaration| PlaceholderIdentifierCandidate {
-                    name: declaration.name("name").unwrap().as_str(),
-                    declaration_line: line,
-                    line: index + 1,
-                })
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if in_block {
+                if trimmed.contains("*/") {
+                    in_block = false;
+                }
+                return true;
+            }
+            if trimmed.starts_with("/*") {
+                in_block = !trimmed.contains("*/");
+                return true;
+            }
+            trimmed.starts_with("//") || (supports_hash && trimmed.starts_with('#'))
         })
         .collect()
+}
+
+fn brace_delta(source: &str) -> isize {
+    count_byte(source, b'{') - count_byte(source, b'}')
 }
 
 fn qualifies_placeholder_identifier(
@@ -313,15 +379,27 @@ fn qualifies_placeholder_identifier(
         return false;
     }
     EXPOSED.is_match(candidate.declaration_line)
-        || placeholder_identifier_use_count(candidate.name, lines) >= 3
+        || placeholder_identifier_use_count(candidate, lines) >= 3
 }
 
-fn placeholder_identifier_use_count(name: &str, lines: &[String]) -> usize {
-    let identifier = Regex::new(&format!(r"\b{}\b", regex::escape(name))).unwrap();
-    lines
+fn placeholder_identifier_use_count(
+    candidate: &PlaceholderIdentifierCandidate<'_>,
+    lines: &[String],
+) -> usize {
+    let identifier = Regex::new(&format!(r"\b{}\b", regex::escape(candidate.name))).unwrap();
+    let mut depth = lines[..candidate.line - 1]
         .iter()
-        .map(|line| identifier.find_iter(line).count())
-        .sum()
+        .map(|line| brace_delta(line))
+        .sum::<isize>();
+    let mut uses = 0;
+    for line in &lines[candidate.line - 1..] {
+        uses += identifier.find_iter(line).count();
+        depth += brace_delta(line);
+        if candidate.scope_depth > 0 && depth < candidate.scope_depth {
+            break;
+        }
+    }
+    uses
 }
 
 fn placeholder_identifier_finding(
@@ -1009,17 +1087,21 @@ fn finding(
     }
 }
 
-static CLASS_DECLARATION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b(?:class|struct)\s+(?P<name>[A-Za-z_$]\w*)").unwrap());
+static CLASS_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^\s*(?:(?:abstract|declare|default|export|final|internal|private|protected|public|readonly|sealed|static)\s+)*(?:class|struct)\s+(?P<name>[A-Za-z_$]\w*)",
+    )
+    .unwrap()
+});
 static PUBLIC_FIELD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^\s*public\s+(?:static\s+)?(?:[A-Za-z_$][\w$<>,?\[\].]*\s+)+(?P<name>\w+)\s*(?:=|;)",
+        r"^\s*public\s+(?:static\s+)?(?:[A-Za-z_$][\w$<>,?\[\].]*\s+)+(?P<name>\w+)\s*(?:;|=(?:[^>]|$))",
     )
     .unwrap()
 });
 static DART_FIELD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^\s*(?:late\s+)?(?:var|[A-Za-z_$][\w$<>,?\[\].]*)\s+(?P<name>[A-Za-z$][\w$]*)\s*(?:=|;)",
+        r"^\s*(?:late\s+)?(?:var|[A-Za-z_$][\w$<>,?\[\].]*)\s+(?P<name>[A-Za-z$][\w$]*)\s*(?:;|=(?:[^=>]|$))",
     )
     .unwrap()
 });
@@ -1036,10 +1118,22 @@ static COMMENTED_CODE: LazyLock<Regex> = LazyLock::new(|| {
 static MEMBER_ACCESS_PROSE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_$]\w*(?:\.[A-Za-z_$]\w*)+\s+[A-Za-z]").unwrap());
 static DOCUMENTATION_EXAMPLE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:example|expands?\s+to|code\s+(?:like|such\s+as)|calls?\s+this\s+like|following\s+code)\b").unwrap()
+    Regex::new(r"(?i)\b(?:examples?|e\.?g\.?|i\.?e\.?|snippets?|expands?\s+to|ends?\s+up\s+like|code\s+(?:like|such\s+as)|calls?\s+this\s+like|following\s+code|(?:may|would)\s+look\s+like|looks?\s+like(?:\s+this)?)\b").unwrap()
 });
+static DOCUMENTATION_PLACEHOLDER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[[a-z][a-z0-9]*(?:_[a-z0-9]+)+\]").unwrap());
 static DIRECTIVE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(?:include|define|pragma|region|ifn?def)\b").unwrap());
+static LATEX_MATH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\\(?:approx|cdot|frac|geq|infty|leq|prod|sqrt|sum|times)\b|[_^]\{").unwrap()
+});
+static MULTIPLE_EXAMPLE_STATEMENTS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r";\s*(?:new\s+|(?:const|let|return|throw|var)\s+|[A-Za-z_$]\w*\s*[.(])").unwrap()
+});
+static COMMENTED_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:const|let|var)\b.*;?\s*$").unwrap());
+static OBJECT_PROPERTY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z_$]\w*\s*:").unwrap());
 static PLACEHOLDER_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:export\s+|public\s+)?(?:class|interface|enum|struct|def|function|fn|proc|func|void|var|let|const|final|[A-Z][\w$<>,?\[\].]*)\s+(?P<name>[A-Za-z_$][\w$]*)").unwrap()
 });
@@ -1205,15 +1299,23 @@ mod tests {
         let sources = sources(&[
             (
                 "lib/account.dart",
-                "class Account {\n  int balance = 0;\n  final String id = 'stable';\n  int _cached = 0;\n}\nclass _Scanner {\n  int offset = 0;\n}",
+                "class Account {\n  int balance = 0;\n  final String id = 'stable';\n  int _cached = 0;\n  bool operator ==(Object other) => identical(this, other);\n}\nclass _Scanner {\n  int offset = 0;\n}",
             ),
             (
                 "src/User.java",
-                "class User {\n public String name;\n public final String id = \"stable\";\n}",
+                "class User {\n public String name;\n public final String id = \"stable\";\n}\nclass MutablePair {\n public Object left;\n public Object right;\n}",
             ),
             (
                 "src/session.ts",
                 "class Session {\n token: string = '';\n readonly id: string = '';\n private secret: string = '';\n constructor(\n   kind: string,\n   options: { message?: string } = {}\n ) {}\n}",
+            ),
+            (
+                "src/Signals.cs",
+                "class Signals {\n public int Mutable;\n public int Derived => Mutable;\n public event Action Changed;\n}",
+            ),
+            (
+                "src/imports.js",
+                "/** A class of analyzer dependencies. */\nconst first = require('./first'),\n  CodePath = require('./code-path');",
             ),
         ]);
         let context = unchanged(&sources);
@@ -1226,6 +1328,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "public mutable field `balance` exposes writable state",
+                "public mutable field `Mutable` exposes writable state",
                 "public mutable field `name` exposes writable state",
                 "public mutable field `token` exposes writable state",
             ]
@@ -1242,6 +1345,30 @@ mod tests {
             (
                 "src/generator.py",
                 "# return legacy();\n# ContentType.toString already handles this;",
+            ),
+            (
+                "middleware/example.go",
+                "// A route may look like:\n\
+// r.Get(\"/long\", handler)\n\
+const route = true\n\
+// e.g. foo.a = 0;\n\
+const assignment = true\n\
+// P[m, n] \\approx 1 - e^{-m^2/2n}\n\
+const probability = true\n\
+// run();\n\
+// Here's a snippet for generated output:",
+            ),
+            (
+                "src/visitor.js",
+                "return {\n\
+// var {x} = value;\n\
+ObjectPattern: checkPattern,\n\
+// var value = {x: 'y'}\n\
+ObjectExpression: checkObject,\n\
+}\n\
+if (ready ||\n\
+// new (a().b)(); new (a.b().c)();\n\
+fallback) run();",
             ),
         ]);
         let context = unchanged(&sources);
@@ -1260,7 +1387,7 @@ mod tests {
     fn requires_placeholder_exposure_or_repeated_use() {
         let sources = sources(&[(
             "src/api.ts",
-            "export class Foo {}\nfunction small() { const obj = make(); }\nfunction use() { let dummy = make(); return dummy + dummy; }",
+            "/// pub struct Foo {}\n/** public class Bar {} */\nexport class Foo {}\nfunction small() { const obj = make(); }\nfunction use() { let dummy = make(); return dummy + dummy; }",
         )]);
         let context = unchanged(&sources);
         let findings = placeholder_identifiers(&context);

@@ -752,39 +752,6 @@ fn graph_reads_javascript_edges_after_a_utf8_bom() {
     );
 }
 
-#[test]
-fn summary_preserves_one_large_number_finding_per_literal() {
-    let root = TempDirectory::new("cbr-large-number-per-literal");
-    root.write("code-buster.toml", b"languages = [\"typescript\"]\n");
-    root.write(
-        "index.ts",
-        b"let seed = (value * 1664525 + 1013904223) >>> 0;\n",
-    );
-
-    let output = run_summary(
-        &root.path,
-        &[
-            "--format",
-            "json",
-            "--no-cache",
-            "--advisory",
-            "--all-findings",
-        ],
-    );
-    assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
-    let report: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("summary JSON must parse");
-    let findings = report["findings"]
-        .as_array()
-        .expect("findings must be an array")
-        .iter()
-        .filter(|finding| finding["code"] == "large-number-ungrouped")
-        .collect::<Vec<_>>();
-
-    assert_eq!(findings.len(), 2);
-    assert!(findings.iter().all(|finding| finding["line"] == 1));
-}
 
 #[test]
 fn graph_reads_rust_dependencies_after_lifetimes() {

@@ -201,6 +201,7 @@ struct CiPolicyEvidence<'a> {
     has_clippy: bool,
     has_checked_format: bool,
     has_audit: bool,
+    uses_pre_commit: bool,
 }
 
 impl<'a> CiPolicyEvidence<'a> {
@@ -209,10 +210,12 @@ impl<'a> CiPolicyEvidence<'a> {
         if self.first_rust_command.is_none() && CARGO_RUST_COMMAND.is_match(line) {
             self.first_rust_command = Some((path, line_index + 1));
         }
-        self.has_clippy |= CARGO_CLIPPY_COMMAND.is_match(line);
+        self.has_clippy |=
+            CARGO_CLIPPY_COMMAND.is_match(line) || MAKE_CLIPPY_COMMAND.is_match(line);
         self.has_checked_format |=
             CARGO_CHECKED_FORMAT.is_match(line) || DIRECT_RUSTFMT_CHECK.is_match(line);
         self.has_audit |= CARGO_AUDIT_COMMAND.is_match(line) || AUDIT_ACTION.is_match(line);
+        self.uses_pre_commit |= PRE_COMMIT_ACTION.is_match(line);
         if !self
             .unlocked_commands
             .iter()
@@ -223,6 +226,13 @@ impl<'a> CiPolicyEvidence<'a> {
         {
             self.unlocked_commands.push((path, line_index + 1));
         }
+    }
+
+    fn observe_delegated_command(&mut self, raw_line: &str) {
+        let line = ci_line_without_comment(raw_line);
+        self.has_clippy |= CARGO_CLIPPY_COMMAND.is_match(line);
+        self.has_checked_format |=
+            CARGO_CHECKED_FORMAT.is_match(line) || DIRECT_RUSTFMT_CHECK.is_match(line);
     }
 }
 
@@ -239,7 +249,71 @@ fn ci_policy_evidence<'context>(
             evidence.observe(path, line_index, raw_line);
         }
     }
+    if evidence.uses_pre_commit {
+        let targets = pre_commit_make_targets(context);
+        observe_make_target_commands(context, &targets, &mut evidence);
+    }
     evidence
+}
+
+fn pre_commit_make_targets(context: &SourceAnalysisContext<'_>) -> BTreeSet<String> {
+    context
+        .auxiliary_files()
+        .iter()
+        .filter(|(path, _)| {
+            is_named_path(path, ".pre-commit-config.yaml")
+                || is_named_path(path, ".pre-commit-config.yml")
+        })
+        .flat_map(|(_, source)| source.lines())
+        .filter_map(|line| {
+            let line = line.trim();
+            line.strip_prefix("- ")
+                .unwrap_or(line)
+                .trim_start()
+                .strip_prefix("entry:")
+        })
+        .filter_map(|entry| {
+            let mut words = entry
+                .trim()
+                .trim_matches(|character| matches!(character, '"' | '\''))
+                .split_whitespace();
+            (words.next() == Some("make")).then_some(words)
+        })
+        .flatten()
+        .filter(|word| !word.starts_with('-') && !word.contains('='))
+        .map(|word| {
+            word.trim_matches(|character| matches!(character, '"' | '\''))
+                .to_owned()
+        })
+        .collect()
+}
+
+fn observe_make_target_commands<'context>(
+    context: &'context SourceAnalysisContext<'_>,
+    targets: &BTreeSet<String>,
+    evidence: &mut CiPolicyEvidence<'context>,
+) {
+    if targets.is_empty() {
+        return;
+    }
+    for (_, source) in context
+        .auxiliary_files()
+        .iter()
+        .filter(|(path, _)| is_named_path(path, "Makefile"))
+    {
+        let mut selected = false;
+        for line in source.lines() {
+            if !line.starts_with(char::is_whitespace) && line.contains(':') {
+                let names = line
+                    .split_once(':')
+                    .map_or("", |(names, _)| names)
+                    .split_whitespace();
+                selected = names.into_iter().any(|name| targets.contains(name));
+            } else if selected && !line.trim().is_empty() {
+                evidence.observe_delegated_command(line);
+            }
+        }
+    }
 }
 
 fn is_named_path(path: &str, name: &str) -> bool {
@@ -428,6 +502,10 @@ static CARGO_CLIPPY_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static MAKE_CLIPPY_COMMAND: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\bmake\b[^\n#]*\bclippy(?:\b|[-_])").unwrap());
+static PRE_COMMIT_ACTION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)^\s*(?:-\s+)?uses\s*:\s*["']?pre-commit/action@"#).unwrap());
 static CARGO_CHECKED_FORMAT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?ix)(?:^\s*(?:(?:-\s+)?(?:run|script)\s*:\s*|-\s+|sh\s+(?:-[A-Z]+\s+)?["']?)?|[;&|]\s*)["']?cargo\s+(?:\+\S+\s+)?fmt\b[^;&|]*--check\b"#,
@@ -591,6 +669,45 @@ mod tests {
             ]);
             assert!(findings.is_empty(), "unexpected finding for {evidence}");
         }
+    }
+
+    #[test]
+    fn accepts_clippy_and_format_checks_delegated_by_ci() {
+        let direct_make = analyze_auxiliary([
+            (
+                "Cargo.toml",
+                "[package]\nname = \"app\"\nrust-version = \"1.85\"",
+            ),
+            (
+                ".github/workflows/ci.yml",
+                "steps:\n  - run: cargo test\n  - run: make clippy-full\n  - run: cargo fmt --all -- --check",
+            ),
+        ]);
+        assert!(
+            direct_make.is_empty(),
+            "unexpected findings: {direct_make:?}"
+        );
+
+        let pre_commit = analyze_auxiliary([
+            (
+                "Cargo.toml",
+                "[package]\nname = \"app\"\nrust-version = \"1.85\"",
+            ),
+            (
+                ".github/workflows/ci.yml",
+                "steps:\n  - run: cargo test\n  - uses: pre-commit/action@0123456789abcdef",
+            ),
+            (
+                ".pre-commit-config.yaml",
+                "repos:\n  - repo: local\n    hooks:\n      - entry: make lint-rust",
+            ),
+            ("Makefile", "lint-rust:\n\t$(MAKE) -C core lint-rust"),
+            (
+                "core/Makefile",
+                "lint-rust:\n\tcargo fmt --all -- --check\n\tcargo clippy --tests",
+            ),
+        ]);
+        assert!(pre_commit.is_empty(), "unexpected findings: {pre_commit:?}");
     }
 
     #[test]

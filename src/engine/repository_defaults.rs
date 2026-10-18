@@ -322,6 +322,8 @@ fn is_repository_metadata_file(relative: &Path) -> bool {
     let lower = name.to_ascii_lowercase();
     [
         "analysis_options.yaml",
+        ".pre-commit-config.yaml",
+        ".pre-commit-config.yml",
         "cargo.lock",
         "cargo.toml",
         "go.mod",
@@ -334,6 +336,7 @@ fn is_repository_metadata_file(relative: &Path) -> bool {
         "pubspec.yaml",
         "pyproject.toml",
         "requirements.txt",
+        "makefile",
     ]
     .contains(&lower.as_str())
         || lower.ends_with(".sln")
@@ -497,6 +500,9 @@ const EXAMPLE_IGNORES: &[&str] = &[
     "**/docs_src/**",
     "**/evals/**",
     "**/example_*/**",
+    "**/*_example/**",
+    "**/*-example/**",
+    "**/example-*/**",
     "**/*-examples/**",
     "**/sample/**",
     "**/samples/**",
@@ -555,6 +561,8 @@ mod tests {
             "[package]\nname = \"member\"\nrust-version = \"1.85\"\n",
         )
         .unwrap();
+        fs::write(root.path().join("Makefile"), "lint:\n\tcargo clippy\n").unwrap();
+        fs::write(root.path().join(".pre-commit-config.yaml"), "repos: []\n").unwrap();
         fs::write(
             dependency.join("package.json"),
             r#"{"dependencies":{"svelte":"5.0.0"}}"#,
@@ -571,7 +579,12 @@ mod tests {
                 .iter()
                 .map(|file| file.relative.as_str())
                 .collect::<Vec<_>>(),
-            ["member/Cargo.toml", "package.json"]
+            [
+                ".pre-commit-config.yaml",
+                "Makefile",
+                "member/Cargo.toml",
+                "package.json"
+            ]
         );
         assert_eq!(
             crate::languages::detect_versions(&inspection.metadata_files).get("rust"),

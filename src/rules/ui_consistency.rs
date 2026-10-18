@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 
+use super::standalone_template_scope;
 use crate::dart_null_assertion::dart_source_with_interpolations;
 use crate::findings::{Finding, Severity};
 use crate::rule_catalog;
@@ -71,23 +72,24 @@ impl CssBlockScanner {
 }
 
 fn css_duplicate_declaration_sets(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
-    let mut by_signature = Vec::<(String, Vec<CssBlock>)>::new();
+    let mut by_signature = Vec::<(String, String, Vec<CssBlock>)>::new();
     for block in css_blocks(context.sources()) {
         if block.declarations.len() < 4 {
             continue;
         }
         let signature = declaration_signature(&block.declarations);
-        if let Some((_, matches)) = by_signature
+        let scope = standalone_template_scope(&block.path);
+        if let Some((_, _, matches)) = by_signature
             .iter_mut()
-            .find(|(existing, _)| existing == &signature)
+            .find(|(existing, existing_scope, _)| existing == &signature && existing_scope == scope)
         {
             matches.push(block);
         } else {
-            by_signature.push((signature, vec![block]));
+            by_signature.push((signature, scope.to_owned(), vec![block]));
         }
     }
     let mut findings = Vec::new();
-    for (_, matches) in by_signature {
+    for (_, _, matches) in by_signature {
         if matches.len() < 2 {
             continue;
         }
@@ -139,11 +141,12 @@ struct CssTokenUsage<'a> {
     property: String,
     value: String,
     path: &'a str,
+    scope: &'a str,
     line: usize,
 }
 
 struct GroupedCssTokens<'a> {
-    definitions: BTreeMap<String, CssToken<'a>>,
+    definitions: BTreeMap<&'a str, BTreeMap<String, CssToken<'a>>>,
     usages: Vec<CssTokenUsage<'a>>,
 }
 
@@ -242,18 +245,22 @@ fn extract_css_token_usages(
 }
 
 fn group_css_token_candidates<'a>(candidates: &'a CssTokenCandidates<'a>) -> GroupedCssTokens<'a> {
-    let mut definitions = BTreeMap::new();
+    let mut definitions = BTreeMap::<&str, BTreeMap<String, CssToken<'_>>>::new();
     for candidate in &candidates.definitions {
         let source = &candidates.sources[candidate.source];
         let value = normalize_css_value(&source.source[candidate.value.clone()]);
         if !useful_token_value(&value) {
             continue;
         }
-        definitions.entry(value).or_insert_with(|| CssToken {
-            name: source.source[candidate.property.clone()].trim(),
-            path: source.path,
-            line: candidate.line,
-        });
+        definitions
+            .entry(standalone_template_scope(source.path))
+            .or_default()
+            .entry(value)
+            .or_insert_with(|| CssToken {
+                name: source.source[candidate.property.clone()].trim(),
+                path: source.path,
+                line: candidate.line,
+            });
     }
     let usages = candidates
         .usages
@@ -264,6 +271,7 @@ fn group_css_token_candidates<'a>(candidates: &'a CssTokenCandidates<'a>) -> Gro
                 property: source.source[candidate.property.clone()].to_ascii_lowercase(),
                 value: normalize_css_value(&source.source[candidate.value.clone()]),
                 path: source.path,
+                scope: standalone_template_scope(source.path),
                 line: candidate.line,
             }
         })
@@ -282,7 +290,7 @@ fn css_token_drift_findings(grouped: GroupedCssTokens<'_>) -> Vec<Finding> {
             if usage.property.starts_with("--") || usage.value.contains("var(") {
                 return None;
             }
-            let token = grouped.definitions.get(&usage.value)?;
+            let token = grouped.definitions.get(usage.scope)?.get(&usage.value)?;
             Some(finding(
                 "css-design-token-drift",
                 usage.path,
@@ -1023,6 +1031,24 @@ mod tests {
         assert_eq!(findings[0].code, "css-duplicate-declaration-set");
         assert_eq!(findings[0].line, 1);
         assert_eq!(findings[0].related_files.len(), 1);
+    }
+
+    #[test]
+    fn keeps_standalone_scaffold_templates_in_separate_css_domains() {
+        let fixture = Fixture::new([
+            (
+                "packages/create-app/template-react/src/index.css",
+                ":root { --brand: #369; }\n.primary { color: #fff; background: #123; padding: 12px 24px; border-radius: 6px; }",
+            ),
+            (
+                "packages/create-app/template-react-ts/src/index.css",
+                ".primary { color: #fff; background: #123; padding: 12px 24px; border-radius: 6px; }\n.accent { color: #369; }",
+            ),
+        ]);
+        let context = fixture.context();
+
+        assert!(css_duplicate_declaration_sets(&context).is_empty());
+        assert!(css_design_token_drift(&context).is_empty());
     }
 
     #[test]

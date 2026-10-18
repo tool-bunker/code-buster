@@ -139,6 +139,7 @@ fn normalize_same_value_operands<'a>(
         || tail.starts_with('[')
         || tail.starts_with("->")
         || tail.starts_with("::")
+        || continues_right_operand(tail)
     {
         return None;
     }
@@ -148,6 +149,16 @@ fn normalize_same_value_operands<'a>(
         start: candidate.complete.start(),
     })
 }
+fn continues_right_operand(tail: &str) -> bool {
+    let bytes = tail.as_bytes();
+    match bytes {
+        [b'&', rest @ ..] => rest.first() != Some(&b'&'),
+        [b'|', rest @ ..] => rest.first() != Some(&b'|'),
+        [b'^' | b'+' | b'-' | b'*' | b'/' | b'%' | b'<' | b'>', ..] => true,
+        _ => false,
+    }
+}
+
 
 fn excludes_same_value_candidate(
     lines: &[&str],

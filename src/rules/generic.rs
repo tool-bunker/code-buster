@@ -82,10 +82,9 @@ fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, source: &str) {
             continue;
         }
         let code = strip_comments(line, &mut in_block_comment);
-        for candidate in large_number_candidates(&code) {
-            if excludes_large_number_candidate(&language, raw_lines[index], &code, candidate) {
-                continue;
-            }
+        if large_number_candidates(&code).any(|candidate| {
+            !excludes_large_number_candidate(&language, raw_lines[index], &code, candidate)
+        }) {
             findings.push(large_number_finding(path, index + 1));
         }
     }
@@ -926,7 +925,8 @@ static COMPARISON: LazyLock<Regex> = LazyLock::new(|| {
 static LEADING_CAST: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:\(\s*(?:(?:const|volatile|signed|unsigned|struct)\s+)*[A-Za-z_]\w*(?:\s*[*&]\s*)*\)\s*)+$").unwrap()
 });
-static NAN_CONTEXT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bnan\b").unwrap());
+static NAN_CONTEXT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(?:isnan|nan)\b").unwrap());
 static FOLLOWING_NAN_GUARD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(?:unexpected\s+nan|nan\s+cannot\s+equal)\b").unwrap());
 static NO_SELF_COMPARE: LazyLock<Regex> =

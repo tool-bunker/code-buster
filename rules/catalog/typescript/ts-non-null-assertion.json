@@ -2,15 +2,15 @@
   "id": "ts-non-null-assertion",
   "language": "typescript",
   "group": "style",
-  "listingTitle": "Ts non null assertion",
-  "title": "Review non null assertion",
+  "listingTitle": "TypeScript non-null assertion",
+  "title": "Review non-null assertion",
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 2,
-  "semanticMaturity": "text",
+  "why": "A non-null assertion suppresses TypeScript's null check and can move a mistaken invariant into a runtime failure.",
+  "suggestion": "Narrow the value with a guard or encode the invariant in its type; reserve assertions for values guaranteed by construction.",
+  "version": 3,
+  "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
     "style"
@@ -23,10 +23,11 @@
   ],
   "implementation": "src/languages/typescript/rules.rs",
   "languages": [
-    "javascript",
     "typescript"
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Detects postfix non-null assertion syntax after masking comments, string literals, template literals, and regular-expression literals."
+  ]
 }

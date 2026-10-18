@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Independent selectors with the same substantial style can drift instead of evolving as one component.",
   "suggestion": "Extract a shared component class, utility, or custom property set when the selectors represent one visual role.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Nested CSS blocks and semantically equivalent shorthand declarations are not compared."
+    "Nested CSS blocks and semantically equivalent shorthand declarations are not compared; standalone scaffold template roots are compared independently."
   ]
 }

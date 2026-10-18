@@ -1095,15 +1095,9 @@ fn inside_offload(file: &RustFile<'_>, scope_start: usize, call_offset: usize) -
         let Some(open) = file.masked[start..].find('(').map(|offset| start + offset) else {
             continue;
         };
-        let Some(block_open) = file.masked[open..].find('{').map(|offset| open + offset) else {
-            continue;
-        };
-        if block_open > call_offset {
-            continue;
-        }
         if file
-            .matching(block_open, b'{', b'}')
-            .is_some_and(|block_close| block_close >= call_offset)
+            .matching(open, b'(', b')')
+            .is_some_and(|close| close >= call_offset)
         {
             return true;
         }
@@ -1634,7 +1628,7 @@ static BLOCKING_CALL: LazyLock<Regex> = LazyLock::new(|| {
 });
 static OFFLOAD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"\b(?:tokio::task::spawn_blocking|async_std::task::spawn_blocking|smol::unblock)\s*\(",
+        r"\b(?:tokio::task::spawn_blocking|async_std::task::spawn_blocking|smol::unblock|(?:[A-Za-z_]\w*::)*asyncify)\s*\(",
     )
     .unwrap()
 });
@@ -1837,6 +1831,7 @@ async fn refresh() {
     tokio::task::spawn_blocking(|| {
         std::fs::read_to_string(path)
     }).await.unwrap();
+    asyncify(|| std::fs::copy(from, to)).await;
 }
 "#;
         let codes = findings(source)
