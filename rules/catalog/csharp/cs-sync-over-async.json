@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Blocking on Task.Result or Wait ties up a thread and can deadlock when continuations need the captured synchronization context.",
   "suggestion": "Make the caller async and await the task so the thread can return to the scheduler.",
-  "version": 6,
+  "version": 7,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,6 @@
   "languageVersions": [],
   "limitations": [
     "GetAwaiter().GetResult() is reported directly; Result and Wait require an explicitly typed Task or ValueTask receiver, or a local var assigned directly from an unawaited Async-suffixed call.",
-    "Result guarded by a nearby IsCompleted check is excluded; aliases, wrappers, and task types hidden behind interfaces are not inferred."
+    "Result and GetAwaiter().GetResult() guarded by a nearby IsCompleted or IsCompletedSuccessfully check are excluded; aliases, wrappers, and task types hidden behind interfaces are not inferred."
   ]
 }

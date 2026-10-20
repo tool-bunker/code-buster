@@ -84,7 +84,7 @@ fn classify_line_findings(
         && !masked.trim_start().starts_with("import ")
         && OBJECT_INPUT_STREAM.is_match(masked);
     *reported_object_input_stream |= object_input_stream;
-    let print_stacktrace = PRINT_STACKTRACE.is_match(masked);
+    let print_stacktrace = !allow_console_output && PRINT_STACKTRACE.is_match(masked);
     let sensitive_random =
         raw.contains("new Random(") && SENSITIVE_RANDOM.is_match(&raw.to_ascii_lowercase());
     let sql_string_build = has_sql_string_build(raw);
@@ -1348,7 +1348,7 @@ static CATCH_EXCEPTION: LazyLock<Regex> =
 static OBJECT_INPUT_STREAM: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bObjectInputStream\b").unwrap());
 static PRINT_STACKTRACE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\.printStackTrace\s*\(").unwrap());
+    LazyLock::new(|| Regex::new(r"\b[a-z_$][\w$]*\.printStackTrace\s*\(").unwrap());
 static SENSITIVE_RANDOM: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"token|secret|password|passwd|api_key|apikey|nonce|salt|key").unwrap()
 });
@@ -1624,7 +1624,14 @@ String outputExample = \"System.err.println(value)\";\n"
             ),
             (
                 "service/src/main/java/CommandLineUtils.java".to_owned(),
-                "System.err.println(message);".to_owned(),
+                "System.err.println(message);\n\
+                 error.printStackTrace();\n\
+                 Functions.printStackTrace(error, writer);"
+                    .to_owned(),
+            ),
+            (
+                "service/src/main/java/StackTraceFormatter.java".to_owned(),
+                "Functions.printStackTrace(error, writer);".to_owned(),
             ),
             (
                 "service/src/main/java/ViolationReporter.java".to_owned(),

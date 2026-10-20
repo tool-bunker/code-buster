@@ -364,6 +364,9 @@ fn synchronously_waits(state: &State<'_>, index: usize, line: &str) -> bool {
     if SYNC_EVENT_WAIT.is_match(code) {
         return false;
     }
+    if let Some(capture) = TASK_GET_RESULT.captures(code) {
+        return !guarded_completed_result(state, index, &capture[1]);
+    }
     if code.contains(".GetAwaiter().GetResult()") {
         return true;
     }
@@ -1315,7 +1318,7 @@ static READONLY_HTTP_CLIENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\breadonly\s+(?:System\.Net\.Http\.)?HttpClient\??\s+([A-Za-z_]\w*)\s*;").unwrap()
 });
 static ASYNC_VOID_HANDLER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\basync\s+void\s+[A-Za-z_]\w*\s*\(\s*object\??\s+sender\s*,\s*(?:[A-Za-z_]\w*\.)*(?:[A-Za-z_]\w*)?EventArgs\??\s+[A-Za-z_]\w*\s*\)").unwrap()
+    Regex::new(r"\basync\s+void\s+[A-Za-z_]\w*\s*\(\s*object\??\s+[A-Za-z_]\w*\s*,\s*(?:[A-Za-z_]\w*\.)*(?:[A-Za-z_]\w*)?EventArgs(?:\s*<[^>()]+>)?\??\s+[A-Za-z_]\w*\s*\)").unwrap()
 });
 static ASYNC_VOID_OVERRIDE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\boverride\s+async\s+void\b").unwrap());
@@ -1325,6 +1328,9 @@ static TASK_WAIT_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\.Wait\s*\(").unwrap());
 static TASK_RESULT_MEMBER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\.Result\b").unwrap());
+static TASK_GET_RESULT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_]\w*)\.GetAwaiter\s*\(\s*\)\.GetResult\s*\(\s*\)").unwrap()
+});
 static WEAK_LOCK_LITERAL_OR_TYPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"^\s*lock\s*\(\s*(?:this\b|typeof\s*\(|(?:@|\$|@\$|\$@)?"|(?:System\.)?String\.Intern\s*\()"#,
@@ -1566,6 +1572,8 @@ var com = new ServicedComponent();\n\
             "class Safe {\n\
 private async void Click(object sender, EventArgs e) {}\n\
 protected override async void OnClose(EventArgs e) {}\n\
+private async void Generic(object? source, GenericEventArgs<User> args) {}\n\
+private async void Renamed(object? source, EventArgs? args) {}\n\
 private async void Refresh() {}\n\
 public static HttpClient Shared { get; } = new HttpClient();\n\
 private readonly HttpClient Cached;\n\
@@ -1593,10 +1601,10 @@ var formatter = new BinaryFormatter();\n\
         assert_eq!(
             findings,
             vec![
-                ("cs-async-void".to_owned(), 4),
-                ("cs-new-httpclient".to_owned(), 11),
-                ("cs-non-short-circuit-bool".to_owned(), 13),
-                ("cs-binaryformatter".to_owned(), 16),
+                ("cs-async-void".to_owned(), 6),
+                ("cs-new-httpclient".to_owned(), 13),
+                ("cs-non-short-circuit-bool".to_owned(), 15),
+                ("cs-binaryformatter".to_owned(), 18),
             ]
         );
     }
@@ -1761,11 +1769,14 @@ Save(entry, output);\n\
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
     #[test]
-    fn accepts_non_task_result_members_and_completed_value_tasks() {
+    fn accepts_non_task_result_members_and_completed_tasks() {
         let source = "class SafeResult {\n\
 +  int Read(Outcome outcome, ValueTask<int> task) {\n\
 +    if (task.IsCompleted) {\n\
 +      return task.Result;\n\
++    }\n\
++    if (task.IsCompletedSuccessfully) {\n\
++      return task.GetAwaiter().GetResult();\n\
 +    }\n\
 +    return outcome.Result;\n\
 +  }\n\

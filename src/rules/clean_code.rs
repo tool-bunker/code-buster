@@ -31,14 +31,17 @@ fn public_mutable_state(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     {
         let syntax = MutableStateSyntax::for_path(path);
         let mut scope = MutableStateScope::default();
+        let mut java_cli_binding = false;
         for (index, line) in context.masked_lines(path).iter().enumerate() {
             scope.observe_class_declaration(line, syntax);
             if let Some(name) = mutable_state_candidate(line, syntax, &scope)
+                && !java_cli_binding
                 && !is_excluded_mutable_state(name)
                 && scope.mark_current_type_reported()
             {
                 findings.push(public_mutable_state_finding(path, index + 1, name));
             }
+            java_cli_binding = next_java_cli_binding_state(line, java_cli_binding);
             scope.advance(line);
         }
     }
@@ -213,6 +216,17 @@ fn intentionally_mutable_type(name: &str) -> bool {
         || ["Config", "Configuration", "Options", "Settings"]
             .iter()
             .any(|suffix| name.ends_with(suffix))
+}
+
+fn next_java_cli_binding_state(line: &str, current: bool) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("@Argument") || trimmed.starts_with("@Option") {
+        true
+    } else if trimmed.is_empty() || trimmed.starts_with('@') {
+        current
+    } else {
+        false
+    }
 }
 
 fn public_mutable_state_finding(path: &str, line: usize, name: &str) -> Finding {
@@ -1410,7 +1424,7 @@ mod tests {
             ),
             (
                 "src/User.java",
-                "public class User {\n public String name;\n public String displayName;\n public final String id = \"stable\";\n private static class Hidden {\n  public String leaked;\n }\n}\nclass MutablePair {\n public Object left;\n public Object right;\n}\npublic class ServerOptions {\n public String host;\n public int port;\n}",
+                "public class User {\n public String name;\n public String displayName;\n public final String id = \"stable\";\n private static class Hidden {\n  public String leaked;\n }\n}\nclass MutablePair {\n public Object left;\n public Object right;\n}\npublic class ServerOptions {\n public String host;\n public int port;\n}\npublic class CliAction {\n @Argument(required = true)\n @SuppressWarnings(\"compatibility\")\n public String input;\n}",
             ),
             (
                 "src/session.ts",

@@ -274,6 +274,7 @@ fn input_does_not_require_label(tag: &str) -> bool {
         .any(|candidate| input_type.eq_ignore_ascii_case(candidate))
         || HIDDEN_ATTRIBUTE.is_match(tag)
         || input_type.eq_ignore_ascii_case("image") && !attribute(tag, "alt").is_empty()
+        || !attribute(tag, "is").is_empty() && !attribute(tag, "label").is_empty()
         || ARIA_LABEL.is_match(tag)
 }
 
@@ -688,6 +689,7 @@ mod tests {
   <a target="_blank" rel="noopener">open</a>
   <img src="https://example.test/logo.png" alt="Logo">
   <label for="name">Name</label><input id="name">
+  <input is="emby-input" label="Server">
   <form method="post"></form>
 </body>
 </html>"#;

@@ -16,6 +16,7 @@
 - Recognize CamelCase test-support and `qa` source trees, Java main entry points, explicit console utilities, and compound tool trees; accept PascalCase compound partial-file names; and exclude Java string operators inside literals or boolean String-method comparisons plus symbolic token and configuration labels from advisory findings.
 - Group repeated commented-out-code findings to one representative per file, exclude dense protocol enum value catalogs from digit-grouping advice, and keep C# operator declarations out of public mutable-state findings.
 - Group public mutable-state findings per type and recognize intentionally mutable configuration models; scope CSS token comparisons to compatible properties within module asset roots and restore CSS punctuation normalization; and exclude Java option, query, metadata, and status labels from secret findings.
+- Exclude args4j-bound Java command fields from public mutable-state advice, Java command-line stack traces and conventional stacktrace-routing helpers, generic C# event handlers from async-void advice, and completed-task result extraction; recognize label attributes on customized built-in HTML inputs.
 
 ## 0.11.0
 

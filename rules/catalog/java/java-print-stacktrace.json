@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "This Java construct can weaken correctness, observability, or security.",
   "suggestion": "Use the safer Java API or pattern described by the rule.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Calls in tests and explicit command-line sources are allowed. Elsewhere, calls on lowercase variable receivers are reported while conventional uppercase utility-class helpers that route a stack trace to an explicit destination are excluded."
+  ]
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Publicly writable state lets callers bypass invariants and couples them to representation details.",
   "suggestion": "Make the field private and expose behavior or a deliberately constrained immutable view.",
-  "version": 9,
+  "version": 10,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -27,6 +27,6 @@
   "languageVersions": [],
   "limitations": [
     "Types explicitly named Mutable followed by a domain type name and configuration models ending in Config, Configuration, Options, or Settings are treated as intentionally mutable containers.",
-    "At most one representative finding is reported per type. Class, enum, record, and struct declarations must begin a source statement; declaration prose, C# expression-bodied properties, events, and operator declarations, plus Dart operator declarations, are excluded. Java and C# fields are reported only when every enclosing type is public."
+    "At most one representative finding is reported per type. Java fields bound by args4j `@Argument` or `@Option` annotations are excluded. Class, enum, record, and struct declarations must begin a source statement; declaration prose, C# expression-bodied properties, events, and operator declarations, plus Dart operator declarations, are excluded. Java and C# fields are reported only when every enclosing type is public."
   ]
 }

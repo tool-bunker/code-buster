@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "async void exceptions cannot be awaited/caught by callers and complicate testing, except for event handlers.",
   "suggestion": "Return Task/ValueTask unless this is a UI/event handler with documented intent.",
-  "version": 6,
+  "version": 7,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Single-line overrides and event handlers using EventArgs-derived types, including generic event argument types, are excluded."
+  ]
 }

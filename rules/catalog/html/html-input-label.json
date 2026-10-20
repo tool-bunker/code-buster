@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "This frontend construct can weaken accessibility, security, or maintainability.",
   "suggestion": "Use the safer accessible frontend pattern described by the rule.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Customized built-in inputs with both `is` and non-empty `label` attributes are treated as labeled component contracts."
+  ]
 }
