@@ -142,7 +142,11 @@ fn analyze_structure(state: &mut State<'_>, index: usize, line: &str, legacy_lin
             false,
         );
     }
-    if !legacy_line.starts_with('#') && RUNTIME_TYPE.is_match(legacy_line) {
+    if !legacy_line.starts_with('#')
+        && !legacy_line.starts_with("using ")
+        && !legacy_line.starts_with("global using ")
+        && RUNTIME_TYPE.is_match(legacy_line)
+    {
         state.add(
             "cs-runtime-type-alias",
             index,
@@ -1601,6 +1605,7 @@ var formatter = new BinaryFormatter();\n\
         let sources = BTreeMap::from([(
             "Generator.cs".to_owned(),
             concat!(
+                "using RuntimeInt = System.Int32;\n",
                 "class Generator {\n",
                 "private string Generated = $$\"\"\"\n",
                 "/// generated P:Example.Item(System.Int32)\n",
@@ -1620,7 +1625,7 @@ var formatter = new BinaryFormatter();\n\
             .map(|finding| finding.line)
             .collect::<Vec<_>>();
 
-        assert_eq!(runtime_alias_lines, vec![7]);
+        assert_eq!(runtime_alias_lines, vec![8]);
     }
 
     #[test]

@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "C# keyword aliases such as int and string are concise and remain consistent across target runtimes.",
   "suggestion": "Use the corresponding C# keyword alias unless the runtime type name is required for reflection or static member access.",
-  "version": 6,
+  "version": 7,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,6 +28,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Comments, strings, and preprocessor directives such as region labels are excluded."
+    "Comments, strings, preprocessor directives such as region labels, and using-alias directives are excluded."
   ]
 }

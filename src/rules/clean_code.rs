@@ -49,6 +49,7 @@ enum MutableStateSyntax {
     Dart,
     Script,
     CSharp,
+    Java,
     ExplicitOnly,
 }
 
@@ -60,6 +61,8 @@ impl MutableStateSyntax {
             Self::Script
         } else if path.ends_with(".cs") {
             Self::CSharp
+        } else if path.ends_with(".java") {
+            Self::Java
         } else {
             Self::ExplicitOnly
         }
@@ -100,8 +103,10 @@ impl MutableStateScope {
             awaiting_body: opening_braces == 0,
             private_class: name.as_str().starts_with('_'),
             intentionally_mutable_class: explicitly_mutable_type(name.as_str()),
-            externally_visible: !matches!(syntax, MutableStateSyntax::CSharp)
-                || (parent_is_visible && contains_identifier(line, "public")),
+            externally_visible: !matches!(
+                syntax,
+                MutableStateSyntax::CSharp | MutableStateSyntax::Java
+            ) || (parent_is_visible && contains_identifier(line, "public")),
         });
     }
 
@@ -161,8 +166,10 @@ fn mutable_state_candidate<'a>(
         return None;
     }
     if let Some(name) = explicit_mutable_field(line) {
-        if matches!(syntax, MutableStateSyntax::CSharp)
-            && (!scope.is_direct_member() || !scope.externally_visible())
+        if matches!(
+            syntax,
+            MutableStateSyntax::CSharp | MutableStateSyntax::Java
+        ) && (!scope.is_direct_member() || !scope.externally_visible())
         {
             return None;
         }
@@ -176,6 +183,7 @@ fn mutable_state_candidate<'a>(
         MutableStateSyntax::Script => script_mutable_field(line),
         MutableStateSyntax::Dart
         | MutableStateSyntax::CSharp
+        | MutableStateSyntax::Java
         | MutableStateSyntax::ExplicitOnly => None,
     }
 }
@@ -836,7 +844,16 @@ fn inconsistent_peer_file_naming(context: &SourceAnalysisContext<'_>) -> Vec<Fin
             .or_default()
             .push(path.clone());
     }
-    let role_names = ["index", "main", "benchmark", "mod", "rules", "types"];
+    let role_names = [
+        "index",
+        "main",
+        "benchmark",
+        "mod",
+        "rules",
+        "types",
+        "package-info",
+        "module-info",
+    ];
     let mut findings = Vec::new();
     for peers in by_directory.values() {
         if peers.len() < 6 {
@@ -1154,7 +1171,7 @@ fn finding(
 
 static CLASS_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^\s*(?:(?:abstract|declare|default|export|file|final|internal|partial|private|protected|public|readonly|ref|sealed|static|strictfp|unsafe)\s+)*(?:class|struct|record(?:\s+(?:class|struct))?)\s+(?P<name>[A-Za-z_$]\w*)",
+        r"^\s*(?:(?:abstract|declare|default|export|file|final|internal|partial|private|protected|public|readonly|ref|sealed|static|strictfp|unsafe)\s+)*(?:class|enum|struct|record(?:\s+(?:class|struct))?)\s+(?P<name>[A-Za-z_$]\w*)",
     )
     .unwrap()
 });
@@ -1368,7 +1385,7 @@ mod tests {
             ),
             (
                 "src/User.java",
-                "class User {\n public String name;\n public final String id = \"stable\";\n}\nclass MutablePair {\n public Object left;\n public Object right;\n}",
+                "public class User {\n public String name;\n public final String id = \"stable\";\n private static class Hidden {\n  public String leaked;\n }\n}\nclass MutablePair {\n public Object left;\n public Object right;\n}",
             ),
             (
                 "src/session.ts",
@@ -1577,6 +1594,21 @@ fallback) run();",
             ("src/commands/graph.rs", ""),
             ("src/commands/rules.rs", ""),
             ("src/commands/repository_view.rs", ""),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(inconsistent_peer_file_naming(&context).is_empty());
+    }
+
+    #[test]
+    fn accepts_standard_java_metadata_file_names() {
+        let sources = sources(&[
+            ("src/main/java/example/Alpha.java", ""),
+            ("src/main/java/example/Bravo.java", ""),
+            ("src/main/java/example/Charlie.java", ""),
+            ("src/main/java/example/Delta.java", ""),
+            ("src/main/java/example/Echo.java", ""),
+            ("src/main/java/example/package-info.java", ""),
         ]);
         let context = unchanged(&sources);
 

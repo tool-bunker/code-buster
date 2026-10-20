@@ -11,6 +11,8 @@
 
 - Exclude generated amalgamated source bundles and C++ placement-new expressions from ownership findings, and keep C++ operator overloads out of single-use wrapper findings.
 - Recognize standard C# generated-file headers, exclude C# preprocessor labels and non-public type state, treat Java tool trees as command-line programs, and stop parsing hexadecimal or binary literals as ungrouped decimal numbers.
+- Treat JMH and documentation source trees as examples, exclude standard Java package and module metadata files from peer naming findings, ignore mutable fields inside non-public Java types, and accept C# runtime types in using-alias directives.
+- Recognize anchored and self-closing C# generated-file comments without mistaking source-generator string templates for generated source.
 
 ## 0.11.0
 
