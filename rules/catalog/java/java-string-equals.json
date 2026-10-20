@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This Java construct can weaken correctness, observability, or security.",
-  "suggestion": "Use the safer Java API or pattern described by the rule.",
-  "version": 1,
+  "why": "Java identity operators compare String references rather than their character content.",
+  "suggestion": "Use equals, Objects.equals, or a deliberate null-safe comparison for String values.",
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Operators inside literal text and boolean comparisons against String predicate methods are excluded."
+  ]
 }

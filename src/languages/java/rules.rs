@@ -46,6 +46,7 @@ fn line_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, source) in sources {
         let mut in_block_comment = false;
+        let allow_console_output = is_java_test_or_command_line_source(path, source);
         let mut reported_object_input_stream = false;
         for (index, raw) in source.split('\n').enumerate() {
             let (without_comments, next_block_state) =
@@ -54,10 +55,10 @@ fn line_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
             let masked = mask_quoted_text(&without_comments);
             let line_number = index + 1;
             let candidates = classify_line_findings(
-                path,
                 raw,
                 &without_comments,
                 &masked,
+                allow_console_output,
                 &mut reported_object_input_stream,
             );
             findings.extend(
@@ -72,10 +73,10 @@ fn line_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
 }
 
 fn classify_line_findings(
-    path: &str,
     raw: &str,
     without_comments: &str,
     masked: &str,
+    allow_console_output: bool,
     reported_object_input_stream: &mut bool,
 ) -> [Option<JavaLineFinding>; 8] {
     let catch_exception = CATCH_EXCEPTION.is_match(masked);
@@ -87,8 +88,8 @@ fn classify_line_findings(
     let sensitive_random =
         raw.contains("new Random(") && SENSITIVE_RANDOM.is_match(&raw.to_ascii_lowercase());
     let sql_string_build = has_sql_string_build(raw);
-    let string_identity = STRING_IDENTITY.is_match(without_comments);
-    let system_out = !is_java_test_or_command_line_source(path) && SYSTEM_OUT.is_match(masked);
+    let string_identity = has_string_identity_comparison(without_comments);
+    let system_out = !allow_console_output && SYSTEM_OUT.is_match(masked);
     let thread_sleep = THREAD_SLEEP.is_match(masked);
 
     [
@@ -137,9 +138,72 @@ fn has_sql_string_build(line: &str) -> bool {
     })
 }
 
-fn is_java_test_or_command_line_source(path: &str) -> bool {
+fn has_string_identity_comparison(line: &str) -> bool {
+    STRING_IDENTITY.find_iter(line).any(|candidate| {
+        !inside_java_quote(line, candidate.start())
+            && !is_boolean_string_method_comparison(line, candidate.start(), candidate.end())
+    })
+}
+
+fn is_boolean_string_method_comparison(line: &str, start: usize, end: usize) -> bool {
+    BOOLEAN_OPERAND.is_match(&line[..start]) && line[end..].trim_start().starts_with('.')
+}
+
+#[derive(Clone, Copy)]
+enum JavaQuotePosition {
+    Code,
+    Quoted { delimiter: u8, escaped: bool },
+}
+
+impl JavaQuotePosition {
+    fn advance(self, byte: u8) -> Self {
+        match self {
+            Self::Code if matches!(byte, b'"' | b'\'') => Self::Quoted {
+                delimiter: byte,
+                escaped: false,
+            },
+            Self::Code => Self::Code,
+            Self::Quoted {
+                delimiter,
+                escaped: true,
+            } => Self::Quoted {
+                delimiter,
+                escaped: false,
+            },
+            Self::Quoted {
+                delimiter,
+                escaped: false,
+            } if byte == b'\\' => Self::Quoted {
+                delimiter,
+                escaped: true,
+            },
+            Self::Quoted {
+                delimiter,
+                escaped: false,
+            } if byte == delimiter => Self::Code,
+            quoted @ Self::Quoted { .. } => quoted,
+        }
+    }
+}
+
+fn inside_java_quote(line: &str, offset: usize) -> bool {
+    let state = line.as_bytes()[..offset]
+        .iter()
+        .copied()
+        .fold(JavaQuotePosition::Code, JavaQuotePosition::advance);
+    matches!(state, JavaQuotePosition::Quoted { .. })
+}
+
+fn is_java_test_or_command_line_source(path: &str, source: &str) -> bool {
     let normalized = path.replace('\\', "/").to_ascii_lowercase();
-    JAVA_TEST_PATH.is_match(&normalized) || JAVA_CLI_PATH.is_match(&normalized)
+    let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    JAVA_TEST_PATH.is_match(&normalized)
+        || JAVA_CLI_PATH.is_match(&normalized)
+        || file_name.contains("CommandLine")
+        || file_name.contains("Console")
+        || file_name.ends_with("Cli.java")
+        || JAVA_MAIN_METHOD.is_match(source)
+        || PRINT_TO_CONSOLE_METHOD.is_match(source)
 }
 
 fn empty_catches(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
@@ -244,6 +308,7 @@ fn is_non_secret_literal(
     normalized_literal: &str,
 ) -> bool {
     normalized_identifier == normalized_literal
+        || literal.trim().len() != literal.len()
         || (normalized_literal
             .chars()
             .all(|value| value.is_ascii_digit())
@@ -290,13 +355,16 @@ fn is_symbolic_credential_reference(
     {
         return true;
     }
-    if literal.contains('-') && normalized_literal.ends_with(normalized_identifier) {
+    if (literal.contains('-') || literal.contains('_'))
+        && normalized_literal.ends_with(normalized_identifier)
+    {
         return true;
     }
-    identifier.to_ascii_lowercase().ends_with("_key")
-        && normalized_identifier
-            .strip_suffix("key")
+    ["key", "token", "password", "secret"].iter().any(|suffix| {
+        normalized_identifier
+            .strip_suffix(suffix)
             .is_some_and(|prefix| prefix == normalized_literal)
+    })
 }
 
 fn weak_crypto(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
@@ -1290,13 +1358,24 @@ static SQL_STRING_BUILD: LazyLock<Regex> = LazyLock::new(|| {
 static STRING_IDENTITY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:==|!=)\s*"(?:\\.|[^"\\])*"|"(?:\\.|[^"\\])*"\s*(?:==|!=)"#).unwrap()
 });
+static BOOLEAN_OPERAND: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:true|false)\s*$").unwrap());
 static SYSTEM_OUT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"System\.(?:out|err)\.println\s*\(").unwrap());
 static THREAD_SLEEP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Thread\.sleep\s*\(").unwrap());
+static JAVA_MAIN_METHOD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\bpublic\s+static\s+void\s+main\s*\(\s*(?:final\s+)?String\s*(?:\[\s*\]\s*\w+|\w+\s*\[\s*\]|\.\.\.\s*\w+)",
+    )
+    .unwrap()
+});
+static PRINT_TO_CONSOLE_METHOD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bprintToConsole\s*\(").unwrap());
 static JAVA_TEST_PATH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(^|/)(?:src/test|tests?)(/|$)").unwrap());
-static JAVA_CLI_PATH: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(^|/)(?:cli|tools?|[^/]+-cli)(/|$)").unwrap());
+static JAVA_CLI_PATH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(^|/)(?:cli|tools?|[^/]+-cli|[^/]*(?:-|_)tools?(?:[-_][^/]*)?)(/|$)").unwrap()
+});
 static EMPTY_CATCH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)\bcatch\s*\([^()]*\)\s*\{\s*\}").unwrap());
 static IGNORED_CATCH_PARAMETER: LazyLock<Regex> = LazyLock::new(|| {
@@ -1316,13 +1395,13 @@ static NON_CREDENTIAL_KEY: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 static NON_CREDENTIAL_ROLE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:^|_)(?:prefix|suffix|cache|header|claim|message|name|path|pattern|regex|property|success|failure|template|format)(?:_|$)").unwrap()
+    Regex::new(r"(?i)(?:^|_)(?:prefix|suffix|cache|header|claim|message|name|path|pattern|regex|property|success|failure|template|format|metadata|descriptor|descriptors|label|field|xfield|column|location|description|parameter|expiration|id|redacted|invalid|missing|mismatch|mismatching|option|query)(?:_|$)").unwrap()
 });
 static UPPERCASE_IDENTIFIER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Z][A-Z0-9_]*$").unwrap());
 static SYMBOLIC_LITERAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^(?:[A-Z][A-Z0-9_]*|[A-Za-z][A-Za-z0-9]*(?:[.:][A-Za-z0-9_]+)+|[A-Za-z0-9_]+[:_])$",
+        r"^(?:[A-Z][A-Z0-9_]*|[A-Za-z][A-Za-z0-9]*(?:[.:][A-Za-z0-9_]+)+|[A-Za-z0-9_]+[:_]|_[a-z0-9_]+|</?[A-Za-z][A-Za-z0-9_-]*>|\[[A-Za-z][A-Za-z0-9_-]*\]|[a-z]+(?:[A-Z][A-Za-z0-9]*)+)$",
     )
     .unwrap()
 });
@@ -1415,6 +1494,7 @@ mod tests {
 +    String query = \"SELECT * FROM users WHERE id=\" + id;\n\
 +    Cipher.getInstance(\"DES\");\n\
 +    try { work(); } catch (Exception error) {}\n\
++    String mismatch = \"vector dimensions incompatible: \" + left + \"!= \" + right;\n\
 +  }\n\
 +}\n"
                     .replace("\n+", "\n"),
@@ -1530,6 +1610,28 @@ String outputExample = \"System.err.println(value)\";\n"
             (
                 "tools/src/main/java/MetadataCommand.java".to_owned(),
                 "System.out.println(metadata);".to_owned(),
+            ),
+            (
+                "build-tools-internal/src/main/java/BuildReporter.java".to_owned(),
+                "System.out.println(summary);".to_owned(),
+            ),
+            (
+                "service/src/main/java/Command.java".to_owned(),
+                "public static void main(String[] args) {\n\
+                 System.out.println(result);\n\
+                 }"
+                .to_owned(),
+            ),
+            (
+                "service/src/main/java/CommandLineUtils.java".to_owned(),
+                "System.err.println(message);".to_owned(),
+            ),
+            (
+                "service/src/main/java/ViolationReporter.java".to_owned(),
+                "void printToConsole() {\n\
+                 System.out.println(report);\n\
+                 }"
+                .to_owned(),
             ),
             (
                 "service/src/main/java/Worker.java".to_owned(),
@@ -1695,6 +1797,61 @@ String outputExample = \"System.err.println(value)\";\n"
                 ("java-ignored-future".to_owned(), 4),
                 ("java-linked-list-indexed-loop".to_owned(), 7),
             ]
+        );
+    }
+
+    #[test]
+    fn distinguishes_secrets_from_symbolic_token_labels() {
+        let sources = BTreeMap::from([(
+            "Secrets.java".to_owned(),
+            "String api_token = \"real-secret-value\";\n\
+             String DEFAULT_SUPERUSER_PASSWORD = \"cassandra\";\n\
+             String DEFAULT_UNK_TOKEN = \"<unk>\";\n\
+             String MASK_TOKEN = \"[MASK]\";\n\
+             String BY_TOKEN = \" by \";\n\
+             String TOKEN_METADATA_NAME = \"saml_nameid_val\";\n\
+             String API_KEY_ID_KEY = \"_security_api_key_id\";\n\
+             String WEB_IDENTITY_TOKEN_FILE_LOCATION = \"service/token-file\";\n\
+             String MISSING_PASSWORD_MESSAGE = \"No password is configured.\";\n\
+             String AUTH_API_KEY = \"apiKey\";\n\
+             String API_KEY_EXPIRATION = \"30m\";\n\
+             String COLUMN_TOKEN_VALUE = \"token_value\";\n\
+             String REMOVED_TOKEN = \"removed\";\n\
+             String TOKEN = \"ownership_token\";\n\
+             String PASSWD_OPTION = \"password\";\n\
+             String MISMATCHING_TOKEN = \"token did not match\";\n\
+             String TOKEN_QUERY = \"/latest/api/token\";"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-hardcoded-secret")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+
+    #[test]
+    fn distinguishes_string_identity_from_boolean_string_methods() {
+        let sources = BTreeMap::from([(
+            "Comparisons.java".to_owned(),
+            "if (false == \"http\".equals(scheme)) {}\n\
+             if (\"js\" == language) {}"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-string-equals")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![2]
         );
     }
 }

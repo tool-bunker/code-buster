@@ -13,6 +13,9 @@
 - Recognize standard C# generated-file headers, exclude C# preprocessor labels and non-public type state, treat Java tool trees as command-line programs, and stop parsing hexadecimal or binary literals as ungrouped decimal numbers.
 - Treat JMH and documentation source trees as examples, exclude standard Java package and module metadata files from peer naming findings, ignore mutable fields inside non-public Java types, and accept C# runtime types in using-alias directives.
 - Recognize anchored and self-closing C# generated-file comments without mistaking source-generator string templates for generated source.
+- Recognize CamelCase test-support and `qa` source trees, Java main entry points, explicit console utilities, and compound tool trees; accept PascalCase compound partial-file names; and exclude Java string operators inside literals or boolean String-method comparisons plus symbolic token and configuration labels from advisory findings.
+- Group repeated commented-out-code findings to one representative per file, exclude dense protocol enum value catalogs from digit-grouping advice, and keep C# operator declarations out of public mutable-state findings.
+- Group public mutable-state findings per type and recognize intentionally mutable configuration models; scope CSS token comparisons to compatible properties within module asset roots and restore CSS punctuation normalization; and exclude Java option, query, metadata, and status labels from secret findings.
 
 ## 0.11.0
 

@@ -76,6 +76,8 @@ fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, source: &str) {
     let masked = mask_generic_rule_strings(&preprocessed, path);
     let mut in_block_comment = false;
     let mut language = LargeNumberLanguageExclusions::new(path);
+    let first_finding = findings.len();
+    let mut protocol_enum_catalog = true;
 
     for (index, line) in masked.iter().enumerate() {
         if language.excludes_line(line) {
@@ -85,8 +87,13 @@ fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, source: &str) {
         if large_number_candidates(&code).any(|candidate| {
             !excludes_large_number_candidate(&language, raw_lines[index], &code, candidate)
         }) {
+            protocol_enum_catalog &= PROTOCOL_ENUM_VALUE.is_match(&code);
             findings.push(large_number_finding(path, index + 1));
         }
+    }
+
+    if protocol_enum_catalog && findings.len() - first_finding >= 20 {
+        findings.truncate(first_finding);
     }
 }
 
@@ -958,6 +965,8 @@ static ARGUMENT_LITERAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:^|[\[(,])\s*[rRuUbBfF]{0,2}(?:\"(?P<double>(?:\\.|[^\"\\])*)\"|'(?P<single>(?:\\.|[^'\\])*)')"#).unwrap()
 });
 static LARGE_NUMBER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d{7,}").unwrap());
+static PROTOCOL_ENUM_VALUE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*[A-Z][A-Za-z0-9_]*\s*=\s*-?\d{7,}[uUlL]*\s*,?\s*$").unwrap());
 static URL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<>\"']+"#).unwrap());
 static COMMIT_LINK: LazyLock<Result<Regex, regex::Error>> = LazyLock::new(|| {

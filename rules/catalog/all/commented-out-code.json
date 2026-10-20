@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Disabled source in comments rots, obscures current behavior, and duplicates version-control history.",
   "suggestion": "Delete the disabled code and recover it from version control if it is needed later.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Recognizes likely disabled statements in single-line slash and hash comments; documented examples and common mathematical notation are excluded."
+    "Recognizes likely disabled statements in single-line slash and hash comments, reports one representative location per file, and excludes documented examples and common mathematical notation."
   ]
 }

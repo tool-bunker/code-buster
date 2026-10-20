@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A lone naming-style outlier makes related files harder to scan and discover.",
   "suggestion": "Rename the file to the dominant convention used by its peers.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Conventional role and metadata files such as index, main, package-info, and module-info are excluded."
+    "Conventional role and metadata files and PascalCase compound partial-file names are excluded."
   ]
 }

@@ -331,6 +331,30 @@ bool nested(bool ready) {
         );
     }
 
+
+    #[test]
+    fn excludes_dense_protocol_enum_value_catalogs() {
+        let protocol = (0..20)
+            .map(|index| format!("VALUE_4x4_{index} = {},", 10_000_000 + index))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let sources = BTreeMap::from([
+            ("Protocol.cs".to_owned(), protocol),
+            (
+                "Timeout.cs".to_owned(),
+                "const int timeout = 10000000;".to_owned(),
+            ),
+        ]);
+
+        assert_eq!(
+            analyze(&sources, &config())
+                .into_iter()
+                .filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            vec![("Timeout.cs".to_owned(), 1)]
+        );
+    }
     fn config() -> Config {
         Config::defaults(".".into())
     }

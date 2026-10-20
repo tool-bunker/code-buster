@@ -253,7 +253,7 @@ fn group_css_token_candidates<'a>(candidates: &'a CssTokenCandidates<'a>) -> Gro
             continue;
         }
         definitions
-            .entry(standalone_template_scope(source.path))
+            .entry(css_token_scope(source.path))
             .or_default()
             .entry(value)
             .or_insert_with(|| CssToken {
@@ -271,7 +271,7 @@ fn group_css_token_candidates<'a>(candidates: &'a CssTokenCandidates<'a>) -> Gro
                 property: source.source[candidate.property.clone()].to_ascii_lowercase(),
                 value: normalize_css_value(&source.source[candidate.value.clone()]),
                 path: source.path,
-                scope: standalone_template_scope(source.path),
+                scope: css_token_scope(source.path),
                 line: candidate.line,
             }
         })
@@ -291,6 +291,9 @@ fn css_token_drift_findings(grouped: GroupedCssTokens<'_>) -> Vec<Finding> {
                 return None;
             }
             let token = grouped.definitions.get(usage.scope)?.get(&usage.value)?;
+            if !css_token_matches_property(token.name, &usage.property) {
+                return None;
+            }
             Some(finding(
                 "css-design-token-drift",
                 usage.path,
@@ -304,6 +307,22 @@ fn css_token_drift_findings(grouped: GroupedCssTokens<'_>) -> Vec<Finding> {
             ))
         })
         .collect()
+}
+
+fn css_token_scope(path: &str) -> &str {
+    let template_scope = standalone_template_scope(path);
+    if !template_scope.is_empty() {
+        return template_scope;
+    }
+    ["/Assets/", "/assets/"]
+        .into_iter()
+        .filter_map(|marker| path.find(marker))
+        .min()
+        .map_or("", |offset| &path[..offset])
+}
+
+fn css_token_matches_property(token: &str, property: &str) -> bool {
+    !token.to_ascii_lowercase().contains("radius") || property.contains("radius")
 }
 
 fn css_blocks(sources: &BTreeMap<String, String>) -> Vec<CssBlock> {
@@ -373,7 +392,7 @@ fn normalize_css_value(value: &str) -> String {
     let mut normalized = value.trim().to_ascii_lowercase();
     normalized = WHITESPACE.replace_all(&normalized, " ").into_owned();
     normalized = CSS_PUNCTUATION_SPACE
-        .replace_all(&normalized, |_: &Captures<'_>| "$1")
+        .replace_all(&normalized, "$1")
         .into_owned();
     normalized = CSS_ZERO_UNIT.replace_all(&normalized, "0").into_owned();
     CSS_SIX_DIGIT_HEX
@@ -1131,7 +1150,33 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(
             findings[0].message,
-            "`background-color` repeats `hsl$1240$16%$197%$1` instead of `--color-secondary`"
+            "`background-color` repeats `hsl(240,6%,97%)` instead of `--color-secondary`"
+        );
+    }
+
+    #[test]
+    fn isolates_asset_roots_and_token_meanings() {
+        let fixture = Fixture::new([
+            (
+                "src/First/Assets/tokens.css",
+                ":root { --border-radius: 0.5rem; }",
+            ),
+            (
+                "src/First/Assets/card.css",
+                ".card { gap: 0.5rem; border-radius: 0.5rem; }",
+            ),
+            (
+                "src/Second/Assets/panel.css",
+                ".panel { border-radius: 0.5rem; }",
+            ),
+        ]);
+
+        assert_eq!(
+            css_design_token_drift(&fixture.context())
+                .into_iter()
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            vec![("src/First/Assets/card.css".to_owned(), 1)]
         );
     }
 

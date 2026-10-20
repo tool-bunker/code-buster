@@ -35,6 +35,7 @@ fn public_mutable_state(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
             scope.observe_class_declaration(line, syntax);
             if let Some(name) = mutable_state_candidate(line, syntax, &scope)
                 && !is_excluded_mutable_state(name)
+                && scope.mark_current_type_reported()
             {
                 findings.push(public_mutable_state_finding(path, index + 1, name));
             }
@@ -76,6 +77,7 @@ struct MutableTypeScope {
     private_class: bool,
     intentionally_mutable_class: bool,
     externally_visible: bool,
+    mutable_state_reported: bool,
 }
 
 #[derive(Default)]
@@ -102,11 +104,12 @@ impl MutableStateScope {
             depth: self.depth + opening_braces.max(1),
             awaiting_body: opening_braces == 0,
             private_class: name.as_str().starts_with('_'),
-            intentionally_mutable_class: explicitly_mutable_type(name.as_str()),
+            intentionally_mutable_class: intentionally_mutable_type(name.as_str()),
             externally_visible: !matches!(
                 syntax,
                 MutableStateSyntax::CSharp | MutableStateSyntax::Java
             ) || (parent_is_visible && contains_identifier(line, "public")),
+            mutable_state_reported: false,
         });
     }
 
@@ -114,6 +117,17 @@ impl MutableStateScope {
         self.type_scopes.last().is_some_and(|scope| {
             !scope.awaiting_body && scope.depth == self.depth && self.parenthesis_depth == 0
         })
+    }
+
+    fn mark_current_type_reported(&mut self) -> bool {
+        let Some(scope) = self.type_scopes.last_mut() else {
+            return true;
+        };
+        if scope.mutable_state_reported {
+            return false;
+        }
+        scope.mutable_state_reported = true;
+        true
     }
 
     fn private_class(&self) -> bool {
@@ -192,10 +206,13 @@ fn is_excluded_mutable_state(name: &str) -> bool {
     name.starts_with('_')
 }
 
-fn explicitly_mutable_type(name: &str) -> bool {
+fn intentionally_mutable_type(name: &str) -> bool {
     name.strip_prefix("Mutable")
         .and_then(|suffix| suffix.chars().next())
         .is_some_and(char::is_uppercase)
+        || ["Config", "Configuration", "Options", "Settings"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
 }
 
 fn public_mutable_state_finding(path: &str, line: usize, name: &str) -> Finding {
@@ -225,6 +242,7 @@ fn explicit_mutable_field(line: &str) -> Option<&str> {
     PUBLIC_FIELD
         .captures(line)
         .and_then(|captures| captures.name("name"))
+        .filter(|name| name.as_str() != "operator")
         .map(|name| name.as_str())
 }
 
@@ -269,11 +287,11 @@ fn commented_out_code(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     {
         let lines = source.split('\n').collect::<Vec<_>>();
         let supports_hash = matches!(extension(path).as_str(), ".mojo" | ".nim" | ".php" | ".py");
-        findings.extend(
-            comment_candidates(&lines, supports_hash)
-                .filter(|candidate| is_commented_code_candidate(&lines, candidate))
-                .map(|candidate| commented_code_finding(path, candidate.line_index + 1)),
-        );
+        if let Some(candidate) = comment_candidates(&lines, supports_hash)
+            .find(|candidate| is_commented_code_candidate(&lines, candidate))
+        {
+            findings.push(commented_code_finding(path, candidate.line_index + 1));
+        }
     }
     findings
 }
@@ -901,6 +919,13 @@ fn is_naming_outlier(
     if paths.len() != 1 || role_names.contains(&file_stem(&paths[0])) {
         return false;
     }
+    let stem = file_stem(&paths[0]);
+    if dominant_style == "PascalCase"
+        && stem.starts_with(|character: char| character.is_ascii_uppercase())
+        && stem.contains('_')
+    {
+        return false;
+    }
     dominant_style != "lowercase" || !matches!(style, "snake_case" | "kebab-case")
 }
 
@@ -1385,7 +1410,7 @@ mod tests {
             ),
             (
                 "src/User.java",
-                "public class User {\n public String name;\n public final String id = \"stable\";\n private static class Hidden {\n  public String leaked;\n }\n}\nclass MutablePair {\n public Object left;\n public Object right;\n}",
+                "public class User {\n public String name;\n public String displayName;\n public final String id = \"stable\";\n private static class Hidden {\n  public String leaked;\n }\n}\nclass MutablePair {\n public Object left;\n public Object right;\n}\npublic class ServerOptions {\n public String host;\n public int port;\n}",
             ),
             (
                 "src/session.ts",
@@ -1393,7 +1418,7 @@ mod tests {
             ),
             (
                 "src/Signals.cs",
-                "public partial class Signals\n{\n public int Mutable;\n public int Derived => Mutable;\n public event Action Changed;\n private class Hidden\n {\n  public int Leaked;\n }\n}\ninternal struct Native\n{\n public IntPtr Handle;\n}",
+                "public partial class Signals\n{\n public int Mutable;\n public int AlsoMutable;\n public int Derived => Mutable;\n public event Action Changed;\n public static bool operator ==(Signals left, Signals right) => true;\n private class Hidden\n {\n  public int Leaked;\n }\n}\ninternal struct Native\n{\n public IntPtr Handle;\n}",
             ),
             (
                 "src/imports.js",
@@ -1462,6 +1487,26 @@ fallback) run();",
                 .map(|finding| (finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
             vec![("lib/service.dart", 1), ("src/generator.py", 1)]
+        );
+    }
+
+    #[test]
+    fn groups_commented_code_per_file() {
+        let sources = sources(&[(
+            "src/legacy.cs",
+            "// var first = legacy.Load();\n\
+             // first.Run();\n\
+             int active = 1;\n\
+             // return legacy.Save();",
+        )]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            commented_out_code(&context)
+                .into_iter()
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![1]
         );
     }
 
@@ -1615,6 +1660,20 @@ fallback) run();",
         assert!(inconsistent_peer_file_naming(&context).is_empty());
     }
 
+    #[test]
+    fn accepts_compound_pascal_name_among_pascal_peers() {
+        let sources = sources(&[
+            ("src/Parser.cs", ""),
+            ("src/Lexer.cs", ""),
+            ("src/Token.cs", ""),
+            ("src/Syntax.cs", ""),
+            ("src/Trivia.cs", ""),
+            ("src/Parser_Async.cs", ""),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(inconsistent_peer_file_naming(&context).is_empty());
+    }
     #[test]
     fn changed_public_api_accepts_a_concept_related_changed_test() {
         let sources = sources(&[(

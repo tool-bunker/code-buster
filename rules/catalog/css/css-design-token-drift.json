@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Repeating a token value directly creates another place that must change when the design system evolves.",
   "suggestion": "Use the existing CSS custom property when the raw value has the same visual meaning.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only exact normalized values with an existing CSS custom property in the same repository or standalone scaffold template root are compared."
+    "Only exact normalized values with a compatible CSS custom property in the same module asset root or standalone scaffold template root are compared."
   ]
 }

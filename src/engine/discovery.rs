@@ -828,7 +828,9 @@ fn classify_path(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
     let segments = normalized.split('/').collect::<Vec<_>>();
     let name = segments.last().copied().unwrap_or_default();
 
-    if is_classified_test(&normalized, name, &segments, policy) {
+    if CAMEL_CASE_TEST_SEGMENT.is_match(relative)
+        || is_classified_test(&normalized, name, &segments, policy)
+    {
         return SourceRole::Test;
     }
     if is_generated_file_name(name) {
@@ -895,6 +897,7 @@ const TEST_PATH_SEGMENTS: &[&str] = &[
     ".fixtures",
     "fixture",
     "fixtures",
+    "qa",
 ];
 
 const TEST_PATH_SUFFIXES: &[&str] = &[
@@ -1754,8 +1757,12 @@ static BACKUP_FILE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$").unwrap());
 static TEST_HELPER_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:test_?util|test_?helpers?)\.[^.]+$").unwrap());
-static SRC_TEST_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:^|/)src/[^/]*test(?:fixtures)?(?:/|$)").unwrap());
+static SRC_TEST_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|/)src/(?:test(?:fixtures)?|[^/]+[-_]test(?:fixtures)?)(?:/|$)").unwrap()
+});
+static CAMEL_CASE_TEST_SEGMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[/\\])[^/\\]*Test(?:s|Utilities|\d+)?(?:[._-][^/\\]*)?(?:[/\\]|$)").unwrap()
+});
 static LUA_SHEBANG_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^#!\s*(\S+)(?:\s+(.*))?$").unwrap());
 static LUA_COMMAND_REGEX: LazyLock<Regex> =
@@ -1820,6 +1827,10 @@ mod tests {
             "devel-common/src/tests_common/pytest_plugin.py",
             "pkgs/http_client_conformance_tests/lib/src/abort_server.dart",
             "lib/src/abort_tests.dart",
+            "src/Features/CSharpTest/ParserTests.cs",
+            "src/EditorFeatures/CSharpTest2/CompletionTests.cs",
+            "src/Workspaces/CoreTestUtilities/TestHost.cs",
+            "src/Scripting/CSharpTest.Desktop/SessionTests.cs",
         ] {
             assert_eq!(
                 classify_path(path, &RepositoryPolicy::default()),
@@ -1832,6 +1843,10 @@ mod tests {
                 "src/common_testing/runtime.py",
                 &RepositoryPolicy::default()
             ),
+            SourceRole::Production
+        );
+        assert_eq!(
+            classify_path("src/Contest/Score.cs", &RepositoryPolicy::default()),
             SourceRole::Production
         );
     }
