@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- Detect repeated Python list front removal, index-driven Rust UTF-8 character traversal, growing Node.js buffer concatenation, and constant JavaScript Intl formatter construction inside loops.
+- Flag private Rust and C++ generics whose resolved project uses all select one concrete type, while abstaining on inferred, public, header, overloaded, or externally referenced contracts.
+
+### Fixed
+
+- Exclude generated amalgamated source bundles and C++ placement-new expressions from ownership findings, and keep C++ operator overloads out of single-use wrapper findings.
+- Recognize standard C# generated-file headers, exclude C# preprocessor labels and non-public type state, treat Java tool trees as command-line programs, and stop parsing hexadecimal or binary literals as ungrouped decimal numbers.
+
 ## 0.11.0
 
 ### Added

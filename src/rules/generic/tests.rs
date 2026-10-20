@@ -188,6 +188,10 @@ bool isnan(float sample) { return sample != sample; }
                     "seeds.ts",
                     "const seed = 1664525 + 1013904223;",
                 ),
+                (
+                    "lookup.java",
+                    "int hex = 0x00000000;\nint binary = 0b00000000;\nlong decimal = 10000000L;",
+                ),
             ]),
             &config(),
         );
@@ -201,6 +205,7 @@ bool isnan(float sample) { return sample != sample; }
             vec![
                 ("Server.java", 2),
                 ("benchmark.cpp", 4),
+                ("lookup.java", 3),
                 ("permissions.cpp", 2),
                 ("seeds.ts", 1),
                 ("stats.py", 4),

@@ -936,6 +936,19 @@ fn analyze_performance(
             "linear list membership is checked inside a loop",
         );
     }
+    if PYTHON_LIST_FRONT_REMOVAL
+        .captures_iter(&current.code)
+        .any(|capture| state.list_variables.contains(&capture[1]))
+    {
+        add_finding(
+            disabled,
+            findings,
+            path,
+            "py-list-front-removal-in-loop",
+            current.number(),
+            "removing the first list element repeatedly shifts the remaining elements",
+        );
+    }
     if PYTHON_IN_PLACE_CONCAT
         .captures(current.line())
         .is_some_and(|capture| {
@@ -1523,6 +1536,8 @@ static PYTHON_CONSTANT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 });
 static PYTHON_MEMBERSHIP: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[A-Za-z_]\w*\s+(?:not\s+)?in\s+([A-Za-z_]\w*)\b").unwrap());
+static PYTHON_LIST_FRONT_REMOVAL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*pop\s*\(\s*0\s*\)").unwrap());
 static PYTHON_IN_PLACE_CONCAT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\+=").unwrap());
 static COMPOUND_HEADER: LazyLock<Regex> =
@@ -1815,6 +1830,31 @@ ignore = [\"E402\", \"E722\"]\n"
                 ("py-linear-membership-in-loop".to_owned(), 5),
                 ("py-string-concat-in-loop".to_owned(), 6),
             ]
+        );
+    }
+
+    #[test]
+    fn reports_front_removal_only_for_proven_lists_inside_loops() {
+        let sources = BTreeMap::from([(
+            "queue.py".to_owned(),
+            "def drain(queue: list[str], custom):\n\
++    while queue:\n\
++        consume(queue.pop(0))\n\
++        custom.pop(0)\n\
++    queue.pop(0)\n\
++    # queue.pop(0)\n\
++    example = 'queue.pop(0)'\n"
+                .replace("\n+", "\n"),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "py-list-front-removal-in-loop")
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            vec![("queue.py".to_owned(), 3)]
         );
     }
 

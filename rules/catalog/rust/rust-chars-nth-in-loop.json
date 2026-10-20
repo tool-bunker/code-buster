@@ -1,0 +1,26 @@
+{
+  "id": "rust-chars-nth-in-loop",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Avoid repeatedly indexing Rust strings by character",
+  "title": "Avoid repeatedly indexing Rust strings by character",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "chars().nth(index) starts decoding UTF-8 from the beginning, so index-driven use inside a loop can become quadratic.",
+  "suggestion": "Iterate with chars or char_indices once, or materialize an index only when repeated random character access is required.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["rust", "cargo"],
+  "implementation": "src/languages/rust/rules.rs",
+  "languages": ["rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only identifier receivers followed by chars().nth(identifier) inside recognized braced loops are reported.",
+    "Receiver types, iterator reuse, loop bounds, aliases, and whether indexing is material on the current path are not inferred."
+  ]
+}

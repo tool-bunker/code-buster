@@ -1611,6 +1611,45 @@ pub fn display_name(value: &str) -> String {
         "`normalize_name` has one caller and only forwards unchanged arguments to `normalize`"
     );
 }
+
+#[test]
+fn summary_ignores_cpp_operator_overload_wrappers() {
+    let root = TempDirectory::new("cb-cpp-operator-wrapper");
+    root.write(
+        "src/approx.cpp",
+        br#"class Approx {
+public:
+    explicit Approx(double value);
+};
+
+Approx::Approx(double value) {}
+
+namespace literals {
+Approx operator ""_a(long double value) {
+    return Approx(value);
+}
+
+Approx operator ""_a(unsigned long long value) {
+    return Approx(value);
+}
+}
+"#,
+    );
+
+    let output = run_summary(&root.path, &["--format", "json", "--advisory"]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+
+    assert!(
+        report["findings"]
+            .as_array()
+            .expect("findings must be an array")
+            .iter()
+            .all(|finding| finding["code"] != "single-use-trivial-wrapper")
+    );
+}
 #[test]
 fn summary_groups_concentrated_yagni_findings_by_file() {
     let root = TempDirectory::new("cbr-yagni-concentration");

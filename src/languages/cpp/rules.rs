@@ -378,6 +378,7 @@ fn raw_owning_new(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
                 continue;
             }
             if !RAW_NEW_ALLOCATION.is_match(line)
+                || PLACEMENT_OR_PARENTHESIZED_NEW.is_match(line)
                 || has_explicit_qt_parent(line, &qt_owned_types)
                 || is_immediately_transferred(&lines, index)
             {
@@ -970,6 +971,8 @@ static USING_NAMESPACE_STD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*using namespace std;\s*$").unwrap());
 static RAW_NEW_ALLOCATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:=\s*new\s|^\s*new\s)").unwrap());
+static PLACEMENT_OR_PARENTHESIZED_NEW: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bnew\s*\(").unwrap());
 static NEW_CONSTRUCTION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bnew\s+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)(?:\s*<[^;{}()]*>)?\s*\(([^;{}]*)\)")
         .unwrap()
@@ -1245,7 +1248,8 @@ EM_JS(void, makeWidget, (), { Widget* hidden = new Widget(); });\n\
 EM_ASM({\n\
   Widget* embedded = new Widget();\n\
 });\n\
-Widget* visible = new Widget();\n"
+Widget* visible = new Widget();\n\
+new (storage) Widget();\n"
                     .to_owned(),
             ),
         ]);

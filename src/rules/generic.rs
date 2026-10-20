@@ -117,6 +117,7 @@ fn parse_large_number_candidate<'a>(
     if matches!(previous, Some(b'0'..=b'9' | b'.'))
         || matches!(next, Some(b'0'..=b'9' | b'.'))
         || is_legacy_octal(literal)
+        || has_non_decimal_base_prefix(code, number.start())
     {
         return None;
     }
@@ -125,6 +126,24 @@ fn parse_large_number_candidate<'a>(
         start: number.start(),
         end: number.end(),
     })
+}
+
+fn has_non_decimal_base_prefix(code: &str, number_start: usize) -> bool {
+    let bytes = code.as_bytes();
+    let mut token_start = number_start;
+    while token_start > 0
+        && matches!(
+            bytes[token_start - 1],
+            b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F' | b'x' | b'X' | b'_'
+        )
+    {
+        token_start -= 1;
+    }
+    bytes.get(token_start).copied() == Some(b'0')
+        && matches!(
+            bytes.get(token_start + 1).copied(),
+            Some(b'x' | b'X' | b'b' | b'B')
+        )
 }
 
 fn excludes_large_number_candidate(

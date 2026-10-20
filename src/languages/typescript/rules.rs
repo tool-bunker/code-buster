@@ -142,6 +142,12 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
         &sink_source,
         &performance,
     ));
+    findings.extend(buffer_concat_findings(path, &sink_source, &inside_loop));
+    findings.extend(intl_formatter_findings(
+        path,
+        &uncommented_source,
+        &inside_loop,
+    ));
 
     for index in 0..raw_lines.len() {
         let stripped_code = strip_literals(code_lines[index]);
@@ -300,6 +306,116 @@ fn filtered_first_match_findings(
         ));
     }
     findings
+}
+fn buffer_concat_findings(path: &str, source: &str, inside_loop: &[bool]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for assignment in BUFFER_CONCAT_ASSIGNMENT.captures_iter(source) {
+        let (Some(whole), Some(destination)) = (assignment.get(0), assignment.get(1)) else {
+            continue;
+        };
+        let array_open = whole.end() - 1;
+        let Some(array_close) = matching_delimiter(source, array_open, b'[', b']') else {
+            continue;
+        };
+        let Some(elements) = split_top_level(&source[array_open + 1..array_close]) else {
+            continue;
+        };
+        if elements.len() < 2
+            || !elements
+                .iter()
+                .any(|element| *element == destination.as_str())
+        {
+            continue;
+        }
+        let line = line_number(source, whole.start());
+        if !inside_loop.get(line - 1).copied().unwrap_or(false) {
+            continue;
+        }
+        findings.push(finding(
+            "js-buffer-concat-in-loop",
+            path,
+            line,
+            line,
+            "Buffer.concat repeatedly copies the accumulated buffer inside a loop",
+            "high",
+        ));
+    }
+    findings
+}
+
+fn intl_formatter_findings(path: &str, source: &str, inside_loop: &[bool]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for constructor in INTL_FORMATTER_CONSTRUCTOR.find_iter(source) {
+        if !is_code_offset(source, constructor.start()) {
+            continue;
+        }
+        let open = constructor.end() - 1;
+        let Some(arguments) = call_arguments(source, open) else {
+            continue;
+        };
+        if !static_intl_configuration(&arguments) {
+            continue;
+        }
+        let line = line_number(source, constructor.start());
+        if !inside_loop.get(line - 1).copied().unwrap_or(false) {
+            continue;
+        }
+        findings.push(finding(
+            "js-intl-formatter-in-loop",
+            path,
+            line,
+            line,
+            "constant Intl formatter is constructed inside a loop",
+            "high",
+        ));
+    }
+    findings
+}
+
+fn static_intl_configuration(arguments: &[&str]) -> bool {
+    match arguments {
+        [] => true,
+        [locale] => static_intl_locale(locale),
+        [locale, options] => static_intl_locale(locale) && static_intl_options(options),
+        _ => false,
+    }
+}
+
+fn static_intl_locale(source: &str) -> bool {
+    let source = source.trim();
+    if matches!(source, "undefined" | "null") || is_static_string_literal(source) {
+        return true;
+    }
+    if !(source.starts_with('[') && source.ends_with(']')) {
+        return false;
+    }
+    split_top_level(&source[1..source.len() - 1]).is_some_and(|items| {
+        !items.is_empty() && items.iter().all(|item| is_static_string_literal(item))
+    })
+}
+
+fn static_intl_options(source: &str) -> bool {
+    let source = source.trim();
+    if matches!(source, "undefined" | "null") {
+        return true;
+    }
+    if !(source.starts_with('{') && source.ends_with('}')) {
+        return false;
+    }
+    split_top_level(&source[1..source.len() - 1]).is_some_and(|properties| {
+        properties.iter().all(|property| {
+            property
+                .split_once(':')
+                .is_some_and(|(_, value)| static_intl_option_value(value))
+        })
+    })
+}
+
+fn static_intl_option_value(source: &str) -> bool {
+    let source = source.trim();
+    is_static_string_literal(source)
+        || matches!(source, "true" | "false" | "null" | "undefined")
+        || source.parse::<f64>().is_ok()
 }
 
 fn skip_ascii_whitespace(source: &str, mut offset: usize) -> usize {
@@ -2146,6 +2262,12 @@ static ARRAY_SHIFT: LazyLock<Regex> =
 static ARRAY_UNSHIFT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*unshift\s*\(").unwrap());
 static REDUCE_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.\s*reduce\s*\(").unwrap());
+static BUFFER_CONCAT_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_$][\w$]*)\s*=\s*Buffer\s*\.\s*concat\s*\(\s*\[").unwrap()
+});
+static INTL_FORMATTER_CONSTRUCTOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bnew\s+Intl\s*\.\s*(?:DateTimeFormat|NumberFormat|Collator)\s*\(").unwrap()
+});
 static FILTER_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*filter\s*\(").unwrap());
 static FILTER_FIRST_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
@@ -2620,6 +2742,99 @@ const example = 'items.forEach(async () => work())';\n"
                 .all(|finding| finding.code != "js-async-foreach")
         );
     }
+    #[test]
+    fn reports_accumulating_buffers_and_constant_intl_formatters_inside_loops() {
+        let sources = BTreeMap::from([(
+            "src/format.ts".to_owned(),
+            r#"function format(chunks: Buffer[]) {
+  let buffer = Buffer.alloc(0);
+  for (const chunk of chunks) {
+    buffer = Buffer.concat([
+      buffer,
+      chunk,
+    ]);
+    const date = new Intl.DateTimeFormat(
+      "en-US",
+      { dateStyle: "medium" },
+    );
+    const number = new Intl.NumberFormat();
+    consume(date, number);
+  }
+  return buffer;
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "js-buffer-concat-in-loop" | "js-intl-formatter-in-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.path, finding.line, finding.confidence))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "js-buffer-concat-in-loop".to_owned(),
+                    "src/format.ts".to_owned(),
+                    4,
+                    "high".to_owned(),
+                ),
+                (
+                    "js-intl-formatter-in-loop".to_owned(),
+                    "src/format.ts".to_owned(),
+                    8,
+                    "high".to_owned(),
+                ),
+                (
+                    "js-intl-formatter-in-loop".to_owned(),
+                    "src/format.ts".to_owned(),
+                    12,
+                    "high".to_owned(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_non_accumulating_buffers_and_dynamic_or_reused_intl_formatters() {
+        let sources = BTreeMap::from([(
+            "src/safe-format.ts".to_owned(),
+            r#"const stable = new Intl.DateTimeFormat("en-US");
+function format(chunks: Buffer[], locale: string, options: Intl.NumberFormatOptions) {
+  let buffer = Buffer.alloc(0);
+  for (const chunk of chunks) {
+    consume(Buffer.concat([chunk]));
+    buffer = Buffer.concat([chunk]);
+    const localized = new Intl.DateTimeFormat(locale);
+    const configured = new Intl.NumberFormat("en-US", options);
+    // buffer = Buffer.concat([buffer, chunk]);
+    const example = 'new Intl.Collator()';
+    consume(localized, configured);
+  }
+  buffer = Buffer.concat([buffer, Buffer.from("done")]);
+  return buffer;
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "js-buffer-concat-in-loop" | "js-intl-formatter-in-loop"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+
     #[test]
     fn reports_javascript_loop_and_async_performance_patterns() {
         let sources = BTreeMap::from([(

@@ -1,0 +1,27 @@
+{
+  "id": "single-concrete-generic",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Review unused generic flexibility",
+  "title": "Review unused generic flexibility",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "yagni",
+  "why": "A private generic used with only one concrete type carries abstraction and monomorphization cost without providing current variation.",
+  "suggestion": "Use the concrete type until another real caller requires generic behavior, or document the external contract that needs the type parameter.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability", "performance"],
+  "requirements": ["functions"],
+  "packs": ["yagni"],
+  "implementation": "src/rules/yagni.rs",
+  "languages": ["cpp", "rust"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Requires exactly one used type parameter, at least two visible explicit type applications, one identical concrete type, a unique declaration name, and no unresolved bare references.",
+    "Rust public and contract functions are excluded; C++ support is limited to static definitions in source files, excluding headers.",
+    "Inferred type arguments, macros, aliases, overloads, external consumers, compile-time impact, and profile-guided hot-path cost are not inferred."
+  ]
+}

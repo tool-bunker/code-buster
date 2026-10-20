@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "suspicious",
-  "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
-  "suggestion": "Clarify the intent or replace the suspicious construct.",
-  "version": 6,
+  "why": "Long decimal literals are hard to verify visually and easy to mistype.",
+  "suggestion": "Group decimal digits with the language's separator syntax so scale and transpositions are easier to review.",
+  "version": 7,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -25,5 +25,7 @@
   "languages": [],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Prefixed hexadecimal and binary literals are excluded because the decimal digit-grouping guidance does not apply."
+  ]
 }

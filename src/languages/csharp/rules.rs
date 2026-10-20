@@ -142,7 +142,7 @@ fn analyze_structure(state: &mut State<'_>, index: usize, line: &str, legacy_lin
             false,
         );
     }
-    if RUNTIME_TYPE.is_match(legacy_line) {
+    if !legacy_line.starts_with('#') && RUNTIME_TYPE.is_match(legacy_line) {
         state.add(
             "cs-runtime-type-alias",
             index,
@@ -1606,6 +1606,7 @@ var formatter = new BinaryFormatter();\n\
                 "/// generated P:Example.Item(System.Int32)\n",
                 "// generated source with { braces }\n",
                 "\"\"\";\n",
+                "#region Hidden System.Object members\n",
                 "System.Int32 Parse(System.Int32 value) => value;\n",
                 "}\n",
             )
@@ -1619,7 +1620,7 @@ var formatter = new BinaryFormatter();\n\
             .map(|finding| finding.line)
             .collect::<Vec<_>>();
 
-        assert_eq!(runtime_alias_lines, vec![6]);
+        assert_eq!(runtime_alias_lines, vec![7]);
     }
 
     #[test]

@@ -217,6 +217,9 @@ fn trivial_forwarder(function: &FunctionSource) -> Option<String> {
     }
 
     let open = declaration_open(source, &function.name)?;
+    if language == "cpp" && contains_word(&source[..open], "operator") {
+        return None;
+    }
     let close = matching_delimiter(source, open, b'(', b')')?;
     let parameters = forwarded_parameter_names(&source[open + 1..close], language)?;
     let (target, arguments) = direct_forwarding_call(&source[close + 1..])?;

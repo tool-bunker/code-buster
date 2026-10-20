@@ -1,0 +1,26 @@
+{
+  "id": "js-buffer-concat-in-loop",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Avoid repeatedly concatenating growing Node.js buffers",
+  "title": "Avoid repeatedly concatenating growing Node.js buffers",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Assigning Buffer.concat back to one of its input buffers copies all accumulated bytes on every loop iteration and can produce quadratic work.",
+  "suggestion": "Collect chunks and concatenate once after the loop, or write them directly to a stream or preallocated destination.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct assignments whose Buffer.concat array contains the same destination identifier inside a recognized braced loop are reported.",
+    "Aliases of Buffer, property destinations, reassignment through helper functions, bounded loop counts, and total byte volume are not inferred."
+  ]
+}

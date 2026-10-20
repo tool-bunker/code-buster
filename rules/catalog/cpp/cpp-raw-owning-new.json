@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "This construct weakens C++ type, lifetime, or interface safety.",
   "suggestion": "Use the safer typed C++ alternative described by the rule.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Placement new and parenthesized new expressions are excluded because this token-level rule cannot infer their ownership semantics."
+  ]
 }

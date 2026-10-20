@@ -1,0 +1,26 @@
+{
+  "id": "js-intl-formatter-in-loop",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Reuse constant JavaScript Intl formatters",
+  "title": "Reuse constant JavaScript Intl formatters",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Intl formatter construction resolves locale data and options, so rebuilding an equivalent formatter on every iteration repeats avoidable setup work.",
+  "suggestion": "Create the formatter once outside the loop and reuse its format or compare method.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct DateTimeFormat, NumberFormat, and Collator construction with no arguments or literal locale and simple literal options inside recognized braced loops is reported.",
+    "Formatter aliases, dynamic locale data, nested option values, wrapper factories, and hot-path frequency are not inferred."
+  ]
+}

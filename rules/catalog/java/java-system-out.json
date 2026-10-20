@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "Direct console output is hard to route, filter, or correlate in services.",
   "suggestion": "Use the project's logging framework.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Test trees and conventional CLI, tool, or tools path segments are treated as intentional console applications."
+  ]
 }

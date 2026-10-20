@@ -1,0 +1,26 @@
+{
+  "id": "py-list-front-removal-in-loop",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Avoid removing the front of Python lists in loops",
+  "title": "Avoid removing the front of Python lists in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "list.pop(0) shifts every remaining element, so repeated front removal can produce quadratic work.",
+  "suggestion": "Advance through an iterator or use collections.deque and popleft when queue semantics are required.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only variables explicitly annotated as list or List, or assigned a list literal or list constructor, are tracked.",
+    "Aliases, reassignment, collection size, loop bounds, and intentionally small lists are not inferred."
+  ]
+}

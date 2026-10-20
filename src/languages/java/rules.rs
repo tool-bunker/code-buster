@@ -1296,7 +1296,7 @@ static THREAD_SLEEP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Thread\.sle
 static JAVA_TEST_PATH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(^|/)(?:src/test|tests?)(/|$)").unwrap());
 static JAVA_CLI_PATH: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(^|/)(?:cli|[^/]+-cli)(/|$)").unwrap());
+    LazyLock::new(|| Regex::new(r"(^|/)(?:cli|tools?|[^/]+-cli)(/|$)").unwrap());
 static EMPTY_CATCH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)\bcatch\s*\([^()]*\)\s*\{\s*\}").unwrap());
 static IGNORED_CATCH_PARAMETER: LazyLock<Regex> = LazyLock::new(|| {
@@ -1526,6 +1526,10 @@ String outputExample = \"System.err.println(value)\";\n"
             (
                 "app-cli/src/main/java/Command.java".to_owned(),
                 "System.out.println(result);".to_owned(),
+            ),
+            (
+                "tools/src/main/java/MetadataCommand.java".to_owned(),
+                "System.out.println(metadata);".to_owned(),
             ),
             (
                 "service/src/main/java/Worker.java".to_owned(),

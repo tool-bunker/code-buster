@@ -793,6 +793,7 @@ fn analyze_loop_performance(
     analyze_loop_membership(path, file, &loops, &scopes, findings);
     analyze_loop_front_removal(path, file, &loops, &scopes, findings);
     analyze_loop_front_insertion(path, file, &loops, &scopes, findings);
+    analyze_loop_chars_nth(path, file, &loops, findings);
 }
 
 fn analyze_loop_regex(
@@ -925,6 +926,30 @@ fn analyze_loop_front_insertion(
                 path,
                 line,
                 "inserting at the front of a Vec repeatedly shifts existing elements",
+            ));
+        }
+    }
+}
+
+fn analyze_loop_chars_nth(
+    path: &str,
+    file: &RustFile<'_>,
+    loops: &[RustLoop],
+    findings: &mut Vec<Finding>,
+) {
+    let mut reported = BTreeSet::new();
+    for current in loops {
+        let repeated = &file.masked[current.body_start..current.body_end];
+        for access in CHARS_NTH_WITH_INDEX.find_iter(repeated) {
+            let absolute = current.body_start + access.start();
+            if file.excluded(absolute) || !reported.insert(absolute) {
+                continue;
+            }
+            findings.push(finding(
+                "rust-chars-nth-in-loop",
+                path,
+                file.line_at(absolute),
+                "chars().nth(index) rescans UTF-8 text from the beginning inside a loop",
             ));
         }
     }
@@ -1589,6 +1614,10 @@ static VEC_FRONT_REMOVAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*remove\s*\(\s*0\s*\)").unwrap());
 static VEC_FRONT_INSERTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*\.\s*insert\s*\(\s*0\s*,").unwrap());
+static CHARS_NTH_WITH_INDEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[A-Za-z_]\w*\s*\.\s*chars\s*\(\s*\)\s*\.\s*nth\s*\(\s*[A-Za-z_]\w*\s*\)")
+        .unwrap()
+});
 static MAP_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"\b(?:([A-Za-z_]\w*)\s*:\s*(?:&\s*(?:mut\s*)?)?(?:(?:std::collections::)?(?:HashMap|BTreeMap))\s*<|let\s+(?:mut\s+)?([A-Za-z_]\w*)\s*=\s*(?:(?:std::collections::)?(?:HashMap|BTreeMap))(?:::[A-Za-z_]\w*)?\s*::)",
@@ -2080,6 +2109,34 @@ async fn safe(values: &Mutex<Vec<u8>>, mut queue: Vec<u8>) {
                 ("rust-sync-lock-across-await".to_owned(), 4),
                 ("rust-vec-front-removal-in-loop".to_owned(), 7),
             ]
+        );
+    }
+
+    #[test]
+    fn reports_variable_chars_nth_traversal_only_inside_loops() {
+        let source = r#"fn scan(text: &str) {
+    for index in 0..text.len() {
+        let current = text
+            .chars()
+            .nth(index);
+        consume(current);
+    }
+    let first = text.chars().nth(0);
+    let selected = text.chars().nth(position);
+    // text.chars().nth(index)
+    let example = "text.chars().nth(index)";
+    for character in text.chars() {
+        consume(character);
+    }
+}"#;
+
+        assert_eq!(
+            findings(source)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-chars-nth-in-loop")
+                .map(|finding| (finding.path, finding.line, finding.confidence))
+                .collect::<Vec<_>>(),
+            vec![("src/lib.rs".to_owned(), 3, "high".to_owned(),)]
         );
     }
 

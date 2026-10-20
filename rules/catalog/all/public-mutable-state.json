@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Publicly writable state lets callers bypass invariants and couples them to representation details.",
   "suggestion": "Make the field private and expose behavior or a deliberately constrained immutable view.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -27,6 +27,6 @@
   "languageVersions": [],
   "limitations": [
     "Types explicitly named Mutable followed by a domain type name are treated as intentionally mutable containers.",
-    "Class and struct declarations must begin a source statement; declaration prose, C# expression-bodied properties and events, and Dart operator declarations are excluded."
+    "Class, record, and struct declarations must begin a source statement; declaration prose, C# expression-bodied properties and events, and Dart operator declarations are excluded. C# fields are reported only when every enclosing type is public."
   ]
 }

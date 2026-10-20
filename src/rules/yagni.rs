@@ -1,4 +1,5 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -9,9 +10,10 @@ use crate::constant_arguments::{
 use crate::findings::{Finding, Severity};
 use crate::function_sources::FunctionSource;
 use crate::rule_catalog;
+use crate::rust_rules::function_lexical_facts;
 use crate::trivial_wrappers::{
-    direct_returned_expression, forwarded_parameter_names, matching_delimiter, source_language,
-    split_top_level,
+    direct_returned_expression, forwarded_parameter_names, mask_comments_and_strings,
+    matching_delimiter, source_language, split_top_level,
 };
 use crate::yagni_call_index::{Call, YagniCallIndex};
 
@@ -21,6 +23,302 @@ pub(crate) fn analyze(index: &YagniCallIndex<'_>) -> Vec<Finding> {
     findings.extend(unused_optional_parameters(index));
     findings.extend(unused_configuration_options(index));
     findings
+}
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum GenericLanguage {
+    Cpp,
+    Rust,
+}
+
+struct GenericCandidate<'a> {
+    function: &'a FunctionSource,
+    parameter: String,
+    language: GenericLanguage,
+}
+
+struct GenericCall {
+    concrete_type: String,
+    path: String,
+}
+
+pub(crate) fn single_concrete_generics(
+    index: &YagniCallIndex<'_>,
+    sources: &BTreeMap<String, String>,
+) -> Vec<Finding> {
+    let masked_sources = sources
+        .iter()
+        .filter_map(|(path, source)| {
+            generic_language(path).map(|language| {
+                let masked = match language {
+                    GenericLanguage::Rust => function_lexical_facts(source).0,
+                    GenericLanguage::Cpp => mask_comments_and_strings(source),
+                };
+                (path.clone(), masked)
+            })
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut candidates = rust_generic_candidates(index);
+    candidates.extend(cpp_generic_candidates(index, &masked_sources));
+
+    candidates
+        .into_iter()
+        .filter_map(|candidate| {
+            let calls = concrete_generic_calls(&candidate, &masked_sources)?;
+            let concrete_type = &calls[0].concrete_type;
+            let mut result = finding(
+                "single-concrete-generic",
+                candidate.function,
+                format!(
+                    "`{}` is generic over `{}`, but all {} visible explicit uses select `{concrete_type}`",
+                    candidate.function.name,
+                    candidate.parameter,
+                    calls.len()
+                ),
+            );
+            result.related_files = calls
+                .into_iter()
+                .map(|call| call.path)
+                .filter(|path| path != &candidate.function.path)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            Some(result)
+        })
+        .collect()
+}
+
+fn rust_generic_candidates<'a>(index: &'a YagniCallIndex<'_>) -> Vec<GenericCandidate<'a>> {
+    index
+        .ordered
+        .iter()
+        .copied()
+        .filter_map(|function| {
+            if !function.path.ends_with(".rs")
+                || !is_private(function)
+                || function.contract_signature
+                || index.name_counts.get(function.name.as_str()) != Some(&1)
+            {
+                return None;
+            }
+            let capture = RUST_SINGLE_TYPE_GENERIC.captures(&function.source)?;
+            if capture.name("name")?.as_str() != function.name {
+                return None;
+            }
+            let parameter = capture.name("parameter")?.as_str().to_owned();
+            (identifier_count(
+                &crate::constant_arguments::code_without_comments_and_strings(function),
+                &parameter,
+            ) >= 2)
+                .then_some(GenericCandidate {
+                    function,
+                    parameter,
+                    language: GenericLanguage::Rust,
+                })
+        })
+        .collect()
+}
+
+fn cpp_generic_candidates<'a>(
+    index: &'a YagniCallIndex<'_>,
+    sources: &BTreeMap<String, String>,
+) -> Vec<GenericCandidate<'a>> {
+    let mut result = Vec::new();
+    for (path, source) in sources {
+        if generic_language(path) != Some(GenericLanguage::Cpp) || is_cpp_header(path) {
+            continue;
+        }
+        for capture in CPP_SINGLE_TYPE_GENERIC.captures_iter(source) {
+            let (Some(name), Some(parameter)) = (capture.name("name"), capture.name("parameter"))
+            else {
+                continue;
+            };
+            let line = source_line(source, name.start());
+            let Some(function) = index.ordered.iter().copied().find(|function| {
+                function.path == *path && function.name == name.as_str() && function.line == line
+            }) else {
+                continue;
+            };
+            if !is_private(function)
+                || index.name_counts.get(function.name.as_str()) != Some(&1)
+                || identifier_count(
+                    &crate::constant_arguments::code_without_comments_and_strings(function),
+                    parameter.as_str(),
+                ) == 0
+            {
+                continue;
+            }
+            result.push(GenericCandidate {
+                function,
+                parameter: parameter.as_str().to_owned(),
+                language: GenericLanguage::Cpp,
+            });
+        }
+    }
+    result
+}
+
+fn concrete_generic_calls(
+    candidate: &GenericCandidate<'_>,
+    sources: &BTreeMap<String, String>,
+) -> Option<Vec<GenericCall>> {
+    let mut reference_count = 0;
+    let mut calls = Vec::new();
+    for (path, source) in sources {
+        if generic_language(path) != Some(candidate.language) {
+            continue;
+        }
+        for identifier in IDENTIFIER
+            .find_iter(source)
+            .filter(|identifier| identifier.as_str() == candidate.function.name)
+        {
+            reference_count += 1;
+            let Some(concrete_type) = explicit_generic_call(
+                source,
+                identifier.end(),
+                candidate.language,
+                &candidate.parameter,
+            ) else {
+                continue;
+            };
+            calls.push(GenericCall {
+                concrete_type,
+                path: path.clone(),
+            });
+        }
+    }
+    let (first, remaining) = calls.split_first()?;
+    (calls.len() >= 2
+        && reference_count == calls.len() + 1
+        && remaining
+            .iter()
+            .all(|call| call.concrete_type == first.concrete_type))
+    .then_some(calls)
+}
+
+fn explicit_generic_call(
+    source: &str,
+    identifier_end: usize,
+    language: GenericLanguage,
+    parameter: &str,
+) -> Option<String> {
+    let mut cursor = skip_whitespace(source, identifier_end);
+    if language == GenericLanguage::Rust {
+        (source.as_bytes().get(cursor..cursor + 2) == Some(b"::")).then_some(())?;
+        cursor = skip_whitespace(source, cursor + 2);
+    }
+    (source.as_bytes().get(cursor) == Some(&b'<')).then_some(())?;
+    let close = matching_angle(source, cursor)?;
+    let argument = single_generic_argument(&source[cursor + 1..close])?;
+    let after = skip_whitespace(source, close + 1);
+    (source.as_bytes().get(after) == Some(&b'(') && concrete_type_argument(argument, parameter))
+        .then(|| normalize_type(argument))
+}
+
+fn matching_angle(source: &str, open: usize) -> Option<usize> {
+    let mut depth = 0_usize;
+    for (relative, byte) in source.as_bytes()[open..].iter().enumerate() {
+        match byte {
+            b'<' => depth += 1,
+            b'>' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(open + relative);
+                }
+            }
+            b';' | b'{' | b'}' if depth == 1 => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn single_generic_argument(source: &str) -> Option<&str> {
+    let mut angle_depth = 0_usize;
+    let mut delimiter_depth = 0_usize;
+    for byte in source.bytes() {
+        match byte {
+            b'<' => angle_depth += 1,
+            b'>' => angle_depth = angle_depth.checked_sub(1)?,
+            b'(' | b'[' => delimiter_depth += 1,
+            b')' | b']' => delimiter_depth = delimiter_depth.checked_sub(1)?,
+            b',' if angle_depth == 0 && delimiter_depth == 0 => return None,
+            _ => {}
+        }
+    }
+    (angle_depth == 0 && delimiter_depth == 0)
+        .then(|| source.trim())
+        .filter(|argument| !argument.is_empty())
+}
+
+fn concrete_type_argument(argument: &str, parameter: &str) -> bool {
+    let argument = argument.trim();
+    if argument == parameter
+        || matches!(
+            argument,
+            "_" | "auto" | "decltype(auto)" | "impl Trait" | "dyn Trait"
+        )
+        || GENERIC_TYPE_VARIABLE.is_match(argument)
+        || !TYPE_ARGUMENT.is_match(argument)
+    {
+        return false;
+    }
+    let simple = argument
+        .chars()
+        .all(|character| character == '_' || character.is_ascii_alphanumeric());
+    !simple
+        || PRIMITIVE_TYPE.is_match(argument)
+        || argument.chars().next().is_some_and(char::is_uppercase)
+}
+
+fn normalize_type(source: &str) -> String {
+    source
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn skip_whitespace(source: &str, mut cursor: usize) -> usize {
+    while source
+        .as_bytes()
+        .get(cursor)
+        .is_some_and(u8::is_ascii_whitespace)
+    {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn generic_language(path: &str) -> Option<GenericLanguage> {
+    match Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())?
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "rs" => Some(GenericLanguage::Rust),
+        "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => Some(GenericLanguage::Cpp),
+        _ => None,
+    }
+}
+
+fn is_cpp_header(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "h" | "hh" | "hpp" | "hxx"
+    )
+}
+
+fn source_line(source: &str, offset: usize) -> usize {
+    source[..offset.min(source.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
 }
 
 fn single_product_factories(index: &YagniCallIndex<'_>) -> Vec<Finding> {
@@ -509,6 +807,32 @@ static CALLBACK_NAME: LazyLock<Regex> = LazyLock::new(|| {
     .expect("callback name regex")
 });
 
+static RUST_SINGLE_TYPE_GENERIC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?m)^[ \t]*(?:(?:const|async|unsafe)[ \t]+)*(?:extern[ \t]+"[^"]+"[ \t]+)?fn[ \t]+(?P<name>[A-Za-z_]\w*)[ \t]*<[ \t]*(?P<parameter>[A-Za-z_]\w*)(?:[ \t]*:[^,>{}\r\n]+)?[ \t]*>[ \t]*\("#,
+    )
+    .expect("Rust single-type generic regex")
+});
+static CPP_SINGLE_TYPE_GENERIC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]*template[ \t]*<[ \t]*(?:typename|class)[ \t]+(?P<parameter>[A-Za-z_]\w*)[ \t]*>[ \t]*\r?\n[ \t]*static[ \t]+[^\r\n;{}()]*?[ \t*&](?P<name>[A-Za-z_]\w*)[ \t]*\(",
+    )
+    .expect("C++ single-type generic regex")
+});
+static TYPE_ARGUMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[A-Za-z_][A-Za-z0-9_:<>,*&'\[\]\s]*$").expect("type argument regex")
+});
+static GENERIC_TYPE_VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[^A-Za-z0-9_])[TUVKE](?:$|[^A-Za-z0-9_])")
+        .expect("generic type variable regex")
+});
+static PRIMITIVE_TYPE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:bool|char|double|f(?:32|64)|float|i(?:8|16|32|64|128|size)|int|long|short|size_t|str|String|u(?:8|16|32|64|128|size)|unsigned)$",
+    )
+    .expect("primitive type regex")
+});
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -523,6 +847,79 @@ mod tests {
             .into_iter()
             .map(|finding| finding.code)
             .collect()
+    }
+    fn generic_findings(path: &str, source: &str) -> Vec<Finding> {
+        let sources = BTreeMap::from([(path.to_owned(), source.to_owned())]);
+        let functions = function_sources::extract(&sources);
+        let index = YagniCallIndex::new(&functions);
+        single_concrete_generics(&index, &sources)
+    }
+
+    #[test]
+    fn reports_private_generics_with_one_concrete_type_in_rust_and_cpp() {
+        let fixtures = [
+            (
+                "src/interpolate.rs",
+                "fn interpolate<T: Copy>(left: T, right: T) -> T { choose(left, right) }\n\
+                 fn first() { consume(interpolate::<f32>(1.0, 2.0)); }\n\
+                 fn second() { consume(interpolate::<f32>(3.0, 4.0)); }\n",
+                1,
+                "f32",
+            ),
+            (
+                "src/interpolate.cpp",
+                "template <typename T>\n\
+                 static T interpolate(T left, T right) { return choose(left, right); }\n\
+                 void first() { consume(interpolate<float>(1.0f, 2.0f)); }\n\
+                 void second() { consume(interpolate<float>(3.0f, 4.0f)); }\n",
+                2,
+                "float",
+            ),
+        ];
+
+        for (path, source, line, concrete_type) in fixtures {
+            let findings = generic_findings(path, source);
+            assert_eq!(findings.len(), 1, "{path}: {findings:?}");
+            let finding = &findings[0];
+            assert_eq!(finding.code, "single-concrete-generic");
+            assert_eq!(finding.path, path);
+            assert_eq!(finding.line, line);
+            assert_eq!(finding.confidence, "high");
+            assert!(finding.message.contains(concrete_type), "{path}");
+        }
+    }
+
+    #[test]
+    fn accepts_public_inferred_varying_and_single_use_generics() {
+        let rust = r#"pub fn public<T: Copy>(value: T) -> T { value }
+fn varied<T: Copy>(value: T) -> T { value }
+fn inferred<T: Copy>(value: T) -> T { value }
+fn once<T: Copy>(value: T) -> T { value }
+fn use_all() {
+    consume(varied::<f32>(1.0));
+    consume(varied::<f64>(2.0));
+    consume(inferred(1_u32));
+    consume(inferred(2_u32));
+    consume(once::<u32>(1));
+    // once::<u32>(2)
+    let example = "once::<u32>(3)";
+}"#;
+        let cpp = r#"template <typename T>
+T public_template(T value) { return value; }
+template <typename T>
+static T varied(T value) { return value; }
+void use_all() {
+    consume(varied<float>(1.0f));
+    consume(varied<double>(2.0));
+}"#;
+
+        assert!(generic_findings("src/generics.rs", rust).is_empty());
+        assert!(generic_findings("src/generics.cpp", cpp).is_empty());
+        assert!(generic_findings(
+            "include/generics.hpp",
+            "template <typename T>\nstatic T local(T value) { return value; }\nvoid a() { local<int>(1); }\nvoid b() { local<int>(2); }\n",
+        )
+        .is_empty());
     }
 
     #[test]

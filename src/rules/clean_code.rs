@@ -32,7 +32,7 @@ fn public_mutable_state(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
         let syntax = MutableStateSyntax::for_path(path);
         let mut scope = MutableStateScope::default();
         for (index, line) in context.masked_lines(path).iter().enumerate() {
-            scope.observe_class_declaration(line);
+            scope.observe_class_declaration(line, syntax);
             if let Some(name) = mutable_state_candidate(line, syntax, &scope)
                 && !is_excluded_mutable_state(name)
             {
@@ -48,6 +48,7 @@ fn public_mutable_state(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
 enum MutableStateSyntax {
     Dart,
     Script,
+    CSharp,
     ExplicitOnly,
 }
 
@@ -57,45 +58,96 @@ impl MutableStateSyntax {
             Self::Dart
         } else if is_script_path(path) {
             Self::Script
+        } else if path.ends_with(".cs") {
+            Self::CSharp
         } else {
             Self::ExplicitOnly
         }
     }
 }
 
+#[derive(Clone, Copy)]
+struct MutableTypeScope {
+    depth: isize,
+    awaiting_body: bool,
+    private_class: bool,
+    intentionally_mutable_class: bool,
+    externally_visible: bool,
+}
+
 #[derive(Default)]
 struct MutableStateScope {
     depth: isize,
     parenthesis_depth: isize,
-    class_depth: Option<isize>,
-    private_class: bool,
-    intentionally_mutable_class: bool,
+    type_scopes: Vec<MutableTypeScope>,
 }
 
 impl MutableStateScope {
-    fn observe_class_declaration(&mut self, line: &str) {
+    fn observe_class_declaration(&mut self, line: &str, syntax: MutableStateSyntax) {
         let Some(name) = CLASS_DECLARATION
             .captures(line)
             .and_then(|class| class.name("name"))
         else {
             return;
         };
-        self.class_depth = Some(self.depth + count_byte(line, b'{'));
-        self.private_class = name.as_str().starts_with('_');
-        self.intentionally_mutable_class = explicitly_mutable_type(name.as_str());
+        let opening_braces = count_byte(line, b'{');
+        let parent_is_visible = self
+            .type_scopes
+            .last()
+            .is_none_or(|scope| scope.externally_visible);
+        self.type_scopes.push(MutableTypeScope {
+            depth: self.depth + opening_braces.max(1),
+            awaiting_body: opening_braces == 0,
+            private_class: name.as_str().starts_with('_'),
+            intentionally_mutable_class: explicitly_mutable_type(name.as_str()),
+            externally_visible: !matches!(syntax, MutableStateSyntax::CSharp)
+                || (parent_is_visible && contains_identifier(line, "public")),
+        });
     }
 
     fn is_direct_member(&self) -> bool {
-        self.class_depth == Some(self.depth) && self.parenthesis_depth == 0
+        self.type_scopes.last().is_some_and(|scope| {
+            !scope.awaiting_body && scope.depth == self.depth && self.parenthesis_depth == 0
+        })
+    }
+
+    fn private_class(&self) -> bool {
+        self.type_scopes
+            .last()
+            .is_some_and(|scope| scope.private_class)
+    }
+
+    fn intentionally_mutable_class(&self) -> bool {
+        self.type_scopes
+            .last()
+            .is_some_and(|scope| scope.intentionally_mutable_class)
+    }
+
+    fn externally_visible(&self) -> bool {
+        self.type_scopes
+            .last()
+            .is_some_and(|scope| scope.externally_visible)
     }
 
     fn advance(&mut self, line: &str) {
-        self.depth += count_byte(line, b'{') - count_byte(line, b'}');
+        let opening_braces = count_byte(line, b'{');
+        self.depth += opening_braces - count_byte(line, b'}');
         self.parenthesis_depth += count_byte(line, b'(') - count_byte(line, b')');
-        if self.class_depth.is_some_and(|class| self.depth < class) {
-            self.class_depth = None;
-            self.private_class = false;
-            self.intentionally_mutable_class = false;
+        if opening_braces > 0
+            && let Some(scope) = self
+                .type_scopes
+                .last_mut()
+                .filter(|scope| scope.awaiting_body)
+        {
+            scope.depth = self.depth;
+            scope.awaiting_body = false;
+        }
+        while self
+            .type_scopes
+            .last()
+            .is_some_and(|scope| !scope.awaiting_body && self.depth < scope.depth)
+        {
+            self.type_scopes.pop();
         }
     }
 }
@@ -105,19 +157,26 @@ fn mutable_state_candidate<'a>(
     syntax: MutableStateSyntax,
     scope: &MutableStateScope,
 ) -> Option<&'a str> {
-    if scope.intentionally_mutable_class && scope.is_direct_member() {
+    if scope.intentionally_mutable_class() && scope.is_direct_member() {
         return None;
     }
     if let Some(name) = explicit_mutable_field(line) {
+        if matches!(syntax, MutableStateSyntax::CSharp)
+            && (!scope.is_direct_member() || !scope.externally_visible())
+        {
+            return None;
+        }
         return Some(name);
     }
     if !scope.is_direct_member() {
         return None;
     }
     match syntax {
-        MutableStateSyntax::Dart if !scope.private_class => dart_mutable_field(line),
+        MutableStateSyntax::Dart if !scope.private_class() => dart_mutable_field(line),
         MutableStateSyntax::Script => script_mutable_field(line),
-        MutableStateSyntax::Dart | MutableStateSyntax::ExplicitOnly => None,
+        MutableStateSyntax::Dart
+        | MutableStateSyntax::CSharp
+        | MutableStateSyntax::ExplicitOnly => None,
     }
 }
 
@@ -1016,6 +1075,12 @@ fn starts_keyword(source: &str, keyword: &str) -> bool {
             .is_some_and(char::is_whitespace)
 }
 
+fn contains_identifier(source: &str, identifier: &str) -> bool {
+    source
+        .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .any(|candidate| candidate == identifier)
+}
+
 fn is_script_path(path: &str) -> bool {
     matches!(extension(path).as_str(), ".js" | ".jsx" | ".ts" | ".tsx")
 }
@@ -1089,7 +1154,7 @@ fn finding(
 
 static CLASS_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^\s*(?:(?:abstract|declare|default|export|final|internal|private|protected|public|readonly|sealed|static)\s+)*(?:class|struct)\s+(?P<name>[A-Za-z_$]\w*)",
+        r"^\s*(?:(?:abstract|declare|default|export|file|final|internal|partial|private|protected|public|readonly|ref|sealed|static|strictfp|unsafe)\s+)*(?:class|struct|record(?:\s+(?:class|struct))?)\s+(?P<name>[A-Za-z_$]\w*)",
     )
     .unwrap()
 });
@@ -1311,7 +1376,7 @@ mod tests {
             ),
             (
                 "src/Signals.cs",
-                "class Signals {\n public int Mutable;\n public int Derived => Mutable;\n public event Action Changed;\n}",
+                "public partial class Signals\n{\n public int Mutable;\n public int Derived => Mutable;\n public event Action Changed;\n private class Hidden\n {\n  public int Leaked;\n }\n}\ninternal struct Native\n{\n public IntPtr Handle;\n}",
             ),
             (
                 "src/imports.js",

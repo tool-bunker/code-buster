@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This C# construct can weaken clarity, reliability, or security.",
-  "suggestion": "Use the safer modern .NET alternative described by the rule.",
-  "version": 5,
+  "why": "C# keyword aliases such as int and string are concise and remain consistent across target runtimes.",
+  "suggestion": "Use the corresponding C# keyword alias unless the runtime type name is required for reflection or static member access.",
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Comments, strings, and preprocessor directives such as region labels are excluded."
+  ]
 }
