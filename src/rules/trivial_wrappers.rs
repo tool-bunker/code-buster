@@ -43,6 +43,13 @@ fn eligible_wrapper_target<'a>(
     target: &'a str,
 ) -> Option<&'a str> {
     let wrapper = ordered[index];
+    let wrapper_matches = ordered
+        .iter()
+        .filter(|candidate| candidate.name == wrapper.name)
+        .count();
+    if wrapper_matches != 1 {
+        return None;
+    }
     let target_matches = ordered
         .iter()
         .enumerate()
@@ -211,6 +218,7 @@ fn trivial_forwarder(function: &FunctionSource) -> Option<String> {
         language,
         "cpp" | "csharp" | "dart" | "go" | "java" | "javascript" | "typescript" | "python" | "rust"
     ) || !is_private(function, language)
+        || is_python_protocol_adapter(function, language)
         || contains_word_case_insensitive(source, "override")
     {
         return None;
@@ -232,6 +240,10 @@ fn trivial_forwarder(function: &FunctionSource) -> Option<String> {
         .filter(|argument| !argument.is_empty())
         .collect::<Vec<_>>();
     (arguments == parameters).then(|| target.to_owned())
+}
+
+fn is_python_protocol_adapter(function: &FunctionSource, language: &str) -> bool {
+    language == "python" && function.name.starts_with("__") && function.name.ends_with("__")
 }
 pub(crate) fn source_language(path: &str) -> Option<&'static str> {
     let lower = path.to_ascii_lowercase();
@@ -722,4 +734,91 @@ fn is_identifier_start(character: char) -> bool {
 
 fn is_identifier_char(character: char) -> bool {
     is_identifier_start(character) || character.is_ascii_digit()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FunctionSource, analyze};
+
+    #[test]
+    fn excludes_python_protocol_dunder_adapters() {
+        let functions = vec![
+            function(
+                "set",
+                1,
+                "def set(self, key, value):\n    self.values[key] = value",
+            ),
+            function(
+                "__setitem__",
+                4,
+                "def __setitem__(self, key, value):\n    self.set(key, value)",
+            ),
+            function(
+                "update",
+                7,
+                "def update(self, key, value):\n    self.__setitem__(key, value)",
+            ),
+        ];
+
+        assert!(analyze(&functions).is_empty());
+    }
+
+    #[test]
+    fn excludes_homonymous_methods_from_single_caller_resolution() {
+        let functions = vec![
+            function("_stop", 1, "def _stop(self):\n    self.running = False"),
+            function("_force_stop", 4, "def _force_stop(self):\n    self._stop()"),
+            function(
+                "_force_stop",
+                7,
+                "def _force_stop(self):\n    self.cleanup()\n    self._stop()",
+            ),
+        ];
+
+        assert!(analyze(&functions).is_empty());
+    }
+
+    #[test]
+    fn excludes_project_wide_override_hooks_from_single_caller_resolution() {
+        let functions = vec![
+            function(
+                "_from_array",
+                1,
+                "def _from_array(self, value):\n    return value",
+            ),
+            function(
+                "_convert_result",
+                4,
+                "def _convert_result(self, value):\n    return self._from_array(value)",
+            ),
+            function(
+                "consume",
+                7,
+                "def consume(self, value):\n    return self._convert_result(value)",
+            ),
+            function_at(
+                "specialized.py",
+                "_convert_result",
+                1,
+                "def _convert_result(self, value):\n    return self.normalize(value)",
+            ),
+        ];
+
+        assert!(analyze(&functions).is_empty());
+    }
+
+    fn function(name: &str, line: usize, source: &str) -> FunctionSource {
+        function_at("headers.py", name, line, source)
+    }
+
+    fn function_at(path: &str, name: &str, line: usize, source: &str) -> FunctionSource {
+        FunctionSource {
+            path: path.to_owned(),
+            name: name.to_owned(),
+            line,
+            end_line: line + 1,
+            contract_signature: false,
+            source: source.to_owned(),
+        }
+    }
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "This scripting construct can weaken correctness, security, or runtime performance.",
   "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Wildcard imports in package __init__.py facades and imports suppressed with noqa F403 are excluded."
+  ]
 }

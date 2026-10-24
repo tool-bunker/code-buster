@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "List membership is linear, so checking the same list inside another loop can create quadratic work.",
   "suggestion": "Convert the lookup collection to a set before the loop when ordering and duplicates are not part of the membership semantics.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only variables explicitly annotated as list or List, or assigned a list literal or list constructor, are tracked.",
-    "Collection size, reassignment, variable shadowing, and intentionally small lookup lists are not inferred."
+    "Collection size, reassignment, variable shadowing, and intentionally small lookup lists are not inferred.",
+    "Comprehension and generator iteration clauses are excluded because `for item in values` is iteration, not membership testing."
   ]
 }

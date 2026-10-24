@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "security",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
+  "why": "Text-mode open calls without an explicit encoding depend on the host locale and can decode the same file differently across environments.",
+  "suggestion": "Pass an explicit encoding for text files; use a binary mode when bytes are intended.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only bare builtin-style open calls are recognized; methods named open and qualified APIs are excluded.",
+    "Dynamic mode values are reviewed unless the call itself proves binary mode."
+  ]
 }

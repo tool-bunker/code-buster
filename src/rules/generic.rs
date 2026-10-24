@@ -84,10 +84,21 @@ fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, source: &str) {
             continue;
         }
         let code = strip_comments(line, &mut in_block_comment);
-        if large_number_candidates(&code).any(|candidate| {
-            !excludes_large_number_candidate(&language, raw_lines[index], &code, candidate)
+        let code_without_hash_comment = if path.ends_with(".py") {
+            code.split_once('#')
+                .map_or(code.as_str(), |(before, _)| before)
+        } else {
+            code.as_str()
+        };
+        if large_number_candidates(code_without_hash_comment).any(|candidate| {
+            !excludes_large_number_candidate(
+                &language,
+                raw_lines[index],
+                code_without_hash_comment,
+                candidate,
+            )
         }) {
-            protocol_enum_catalog &= PROTOCOL_ENUM_VALUE.is_match(&code);
+            protocol_enum_catalog &= PROTOCOL_ENUM_VALUE.is_match(code_without_hash_comment);
             findings.push(large_number_finding(path, index + 1));
         }
     }

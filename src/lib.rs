@@ -1,3 +1,17 @@
+//! Code Buster is a repository-aware static analyzer for AI-assisted development.
+//!
+//! Most users should install and run the `cb` command-line application:
+//!
+//! ```text
+//! cargo install code-buster --locked
+//! cb summary
+//! ```
+//!
+//! See the [Code Buster documentation](https://toolbunker.dev/codebuster/docs/)
+//! for installation, configuration, commands, and rule documentation.
+
+#![warn(missing_docs)]
+
 mod app;
 mod engine;
 mod graph;
@@ -70,6 +84,13 @@ use rules::{
 use std::ffi::OsString;
 use std::process::ExitCode;
 
+/// Runs Code Buster with the supplied command-line arguments.
+///
+/// The arguments must not include the executable name. The returned exit code
+/// is the status produced by the selected Code Buster command.
+///
+/// Most applications should invoke the installed `cb` executable instead of
+/// using this library entry point directly.
 pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     match cli::parse(arguments) {
         Ok(cli::Command::Help) => {

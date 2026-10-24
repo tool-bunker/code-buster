@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "JWT decoding without an explicit algorithm policy can accept unintended token configurations.",
   "suggestion": "Pass a fixed algorithms allowlist and keep signature verification enabled.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -30,7 +30,7 @@
   ],
   "languageVersions": [],
   "limitations": [
-    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
-    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+    "Balanced single-line and multiline jwt.decode calls are inspected for an algorithms argument and explicitly disabled signature verification.",
+    "Framework wrappers, aliased decoders, generated routes, runtime registrations, and external infrastructure cannot be resolved."
   ]
 }

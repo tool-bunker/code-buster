@@ -1,0 +1,26 @@
+{
+  "id": "js-growing-array-copy-in-loop",
+  "language": "typescript",
+  "group": "performance",
+  "listingTitle": "Avoid repeatedly copying growing JavaScript arrays",
+  "title": "Avoid repeatedly copying growing JavaScript arrays",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Reassigning an array from a spread or concat of its previous value copies every accumulated element on each iteration, producing quadratic copying as the array grows.",
+  "suggestion": "Keep the array locally owned and append with push, or collect chunks and flatten once after the loop.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["typescript"],
+  "implementation": "src/languages/typescript/rules.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct same-line self-reassignment with leading array spread or concat inside recognized braced loops is reported.",
+    "The destination must be a typed array, array parameter, or array-literal variable declared outside the loop; aliases, immutable-state requirements, and actual iteration counts are not inferred."
+  ]
+}

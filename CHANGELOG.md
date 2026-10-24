@@ -6,6 +6,7 @@
 
 - Detect repeated Python list front removal, index-driven Rust UTF-8 character traversal, growing Node.js buffer concatenation, and constant JavaScript Intl formatter construction inside loops.
 - Flag private Rust and C++ generics whose resolved project uses all select one concrete type, while abstaining on inferred, public, header, overloaded, or externally referenced contracts.
+- Detect JavaScript loops that repeatedly copy a growing array through spread or concat, and repeated locale formatting with stable locale options that can reuse an `Intl` formatter.
 
 ### Fixed
 
@@ -17,6 +18,11 @@
 - Group repeated commented-out-code findings to one representative per file, exclude dense protocol enum value catalogs from digit-grouping advice, and keep C# operator declarations out of public mutable-state findings.
 - Group public mutable-state findings per type and recognize intentionally mutable configuration models; scope CSS token comparisons to compatible properties within module asset roots and restore CSS punctuation normalization; and exclude Java option, query, metadata, and status labels from secret findings.
 - Exclude args4j-bound Java command fields from public mutable-state advice, Java command-line stack traces and conventional stacktrace-routing helpers, generic C# event handlers from async-void advice, and completed-task result extraction; recognize label attributes on customized built-in HTML inputs.
+- Reduce Python false positives by recognizing packaged pytest utilities, TYPE_CHECKING import preambles, inherited and visitor method names, multiline control-flow headers, nested synchronous functions, retained asyncio tasks, non-file `open` methods, reviewed broad exceptions, and non-literal credential-like arguments.
+- Reduce advisory noise by classifying Python `conftest.py`, profiling trees, and auto-generated Python tables correctly; honor reviewed Python suppressions and package facades; exclude protocol dunders, homonymous methods, module-main demos, trivial sentinels and unit conversions, unrestricted whole-value regexes, shell command strings, and Python comment text from unrelated findings.
+- Recognize `testing.py`, `testutils.py`, OpenAPI-codegen directories and explicit generated-code headers; accept curated Python package facades, exported test-support APIs, and test command entry points; ignore comprehension iteration as list membership, UI and documentation metadata or embedded examples as secrets, non-database `.get()` calls in loops, verified multiline JWT decoding, Python comment comparisons, and self-inequality NaN checks; and scope repeated policy literals to sibling files while excluding comments and generic clamp calls.
+- Ignore Python `debug=True` keyword arguments outside application run calls, honor S608 review directives across continued SQL expressions, accept broad exception handlers that immediately translate or rethrow failures, classify bundled `externals` dependencies as vendored, and require dynamic SQL strings to begin with a SQL statement.
+- Classify built `doc/html` and `docs/_build` output as generated, recognize root `t/` trees and `pytest.py` modules as test support, and treat `thirdparty`, `thirdparty_files`, `_vendor`, and `_vendored` directories as vendored.
 
 ## 0.11.0
 

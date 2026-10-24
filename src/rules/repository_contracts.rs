@@ -40,6 +40,15 @@ fn production_imports_test_code(
             .classified_dependencies(source)
             .filter(|target| excluded.contains(target))
         {
+            if is_test_command_entrypoint(source)
+                || explicitly_exports_test_support(
+                    source,
+                    target,
+                    prepared.sources.get(source).map(String::as_str),
+                )
+            {
+                continue;
+            }
             let line = dependency_line(prepared.sources.get(source), target);
             findings.push(Finding {
                 code: "production-imports-test-code".to_owned(),
@@ -60,6 +69,54 @@ fn production_imports_test_code(
         }
     }
     findings
+}
+
+fn is_test_command_entrypoint(source_path: &str) -> bool {
+    let path = Path::new(source_path);
+    path.file_name().and_then(|name| name.to_str()) == Some("test.py")
+        && path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| matches!(name, "cmd" | "command" | "commands"))
+}
+
+fn explicitly_exports_test_support(
+    source_path: &str,
+    target_path: &str,
+    source: Option<&str>,
+) -> bool {
+    let Some(source) = source else {
+        return false;
+    };
+    let source_path = Path::new(source_path);
+    let target_path = Path::new(target_path);
+    if source_path.file_name().and_then(|name| name.to_str()) != Some("__init__.py")
+        || target_path.file_name().and_then(|name| name.to_str()) != Some("__init__.py")
+        || source_path.parent() != target_path.parent().and_then(Path::parent)
+    {
+        return false;
+    }
+    let Some(module) = target_path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+    else {
+        return false;
+    };
+    let imported = source.lines().map(str::trim).any(|line| {
+        line.strip_prefix("from . import ").is_some_and(|names| {
+            names
+                .split(|character: char| character.is_whitespace() || character == ',')
+                .any(|name| name == module)
+        })
+    });
+    let exported = source.find("__all__").is_some_and(|start| {
+        source[start..]
+            .split(['"', '\''])
+            .any(|export| export == module)
+    });
+    imported && exported
 }
 
 fn dependency_line(source: Option<&String>, target: &str) -> usize {

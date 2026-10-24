@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "security",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
+  "why": "Enabling framework or application debug mode can expose internal state and unsafe development behavior.",
+  "suggestion": "Disable debug mode in shipped configuration and application run calls.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,5 +28,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "The rule detects DEBUG assignments, debug mapping entries, and common application run calls; unrelated debug keyword arguments are ignored."
+  ]
 }

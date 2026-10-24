@@ -9,7 +9,7 @@
   "legacyGroup": "suspicious",
   "why": "Long decimal literals are hard to verify visually and easy to mistype.",
   "suggestion": "Group decimal digits with the language's separator syntax so scale and transpositions are easier to review.",
-  "version": 8,
+  "version": 9,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Prefixed hexadecimal and binary literals and dense protocol enum value catalogs are excluded because decimal digit-grouping guidance does not apply."
+    "Strings, comments, prefixed hexadecimal and binary literals, and dense protocol enum value catalogs are excluded because decimal digit-grouping guidance does not apply."
   ]
 }

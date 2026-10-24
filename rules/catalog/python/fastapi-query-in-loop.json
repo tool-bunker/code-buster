@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Database access inside a loop creates an N+1 query pattern.",
   "suggestion": "Batch or eager-load the related data outside the loop.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -30,7 +30,7 @@
   ],
   "languageVersions": [],
   "limitations": [
-    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
-    "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+    "Loop bodies are scanned for common database query, execute, scalar, and session or repository get calls.",
+    "Generic get methods are excluded because they commonly represent dictionaries, HTTP clients, and file-transfer clients."
   ]
 }

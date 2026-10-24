@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 3,
+  "why": "Catching Exception or BaseException can hide programming defects and make unrelated failures look recoverable.",
+  "suggestion": "Catch the expected exception types, or explicitly suppress BLE001 when a boundary must contain unknown failures.",
+  "version": 5,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Explicit Ruff BLE001 noqa directives, inline Pylint disables, and configured Pylint broad-exception suppressions are honored.",
+    "Handlers whose first executable statement rethrows or translates the exception are treated as explicit exception boundaries."
+  ]
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A placeholder name hides the role of a declaration once it escapes a tiny local scope.",
   "suggestion": "Rename the declaration for the domain concept or responsibility it represents.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -27,6 +27,6 @@
   "languageVersions": [],
   "limitations": [
     "Only a conservative list of conventional placeholder names is inspected.",
-    "Comment-only declarations are excluded and local usage is bounded to the enclosing brace scope."
+    "Comment-only declarations, Python declarations inside a module main demonstration guard, and local uses outside the enclosing brace scope are excluded."
   ]
 }

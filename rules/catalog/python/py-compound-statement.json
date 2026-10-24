@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
+  "why": "Placing a compound statement body on its header line makes control flow easier to overlook during review.",
+  "suggestion": "Move the body to its own indented line.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only suite colons at bracket depth zero and semicolon-separated statements are recognized.",
+    "Walrus operators, slices, comprehensions, and multiline headers are excluded."
+  ]
 }

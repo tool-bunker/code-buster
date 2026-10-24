@@ -145,8 +145,13 @@ if (item. property == property) return false;
 if (other != other) return false;
 if (mask == mask & bits) return false;
 if (count == count) return true;
+if (alpha == alpha || beta != beta) return false;
 bool isnan(float sample) { return sample != sample; }
+if (unknown != unknown) return false;
 "#,
+            ), (
+                "comments.py",
+                "# Note: infinity <= infinity is true",
             )]),
             &config(),
         );
@@ -157,7 +162,7 @@ bool isnan(float sample) { return sample != sample; }
                 .filter(|finding| finding.code == "operation-on-same-value")
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
-            vec![9]
+            vec![9, 10]
         );
     }
 
@@ -251,6 +256,7 @@ bool isnan(float sample) { return sample != sample; }
                     "setup.py",
                     r#"subprocess.run(["cmake", "--version"])
 subprocess.run("sysctl -n value".split())
+subprocess.run("black module.py", shell=True)
 subprocess.run(["cmake --version"])
 "#,
                 ),
@@ -272,7 +278,7 @@ Process.start('unsafe command', []);
                 .filter(|finding| finding.code == "suspicious-command-arg-space")
                 .map(|finding| (finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
-            vec![("setup.py", 3), ("tool.dart", 4)]
+            vec![("setup.py", 4), ("tool.dart", 4)]
         );
     }
 
@@ -328,6 +334,26 @@ bool nested(bool ready) {
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
             vec![4]
+        );
+    }
+
+    #[test]
+    fn excludes_python_strings_and_comments_from_large_number_advice() {
+        let findings = analyze(
+            &sources(&[(
+                "patterns.py",
+                "pattern = r\"release-20080830\"\nvalue = 12345678  # example 87654321",
+            )]),
+            &config(),
+        );
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![2]
         );
     }
 

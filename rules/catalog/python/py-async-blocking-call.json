@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "A synchronous sleep, HTTP request, or subprocess call blocks the event-loop thread and delays unrelated coroutines.",
   "suggestion": "Use the library's async API or move unavoidable blocking work to asyncio.to_thread.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only direct time.sleep, requests.get, requests.post, and subprocess.run calls inside async def bodies are recognized.",
+    "Only direct time.sleep, requests.get, requests.post, and subprocess.run calls inside the active async function scope are recognized.",
+    "Nested synchronous functions are excluded.",
     "Aliases, wrappers, executor offloading on surrounding lines, and third-party blocking APIs are not inferred."
   ]
 }

@@ -417,11 +417,12 @@ fn placeholder_identifier_candidates<'a>(
     path: &str,
     lines: &'a [String],
 ) -> Vec<PlaceholderIdentifierCandidate<'a>> {
-    let comment_only = comment_only_lines(lines, extension(path) == ".py");
+    let python = extension(path) == ".py";
+    let comment_only = comment_only_lines(lines, python);
     let mut depth = 0;
     let mut candidates = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        if !comment_only[index] {
+        if !comment_only[index] && !(python && is_in_python_main_guard(lines, index)) {
             candidates.extend(
                 PLACEHOLDER_DECLARATION
                     .captures_iter(line)
@@ -439,6 +440,29 @@ fn placeholder_identifier_candidates<'a>(
         depth += brace_delta(line);
     }
     candidates
+}
+
+fn is_in_python_main_guard(lines: &[String], line_index: usize) -> bool {
+    let candidate_indent = leading_whitespace_width(&lines[line_index]);
+    lines[..line_index]
+        .iter()
+        .enumerate()
+        .rev()
+        .filter(|(_, line)| PYTHON_MAIN_GUARD_MASKED.is_match(line.trim()))
+        .any(|(guard_index, guard)| {
+            let guard_indent = leading_whitespace_width(guard);
+            candidate_indent > guard_indent
+                && lines[guard_index + 1..=line_index].iter().all(|line| {
+                    let trimmed = line.trim();
+                    trimmed.is_empty()
+                        || trimmed.starts_with('#')
+                        || leading_whitespace_width(line) > guard_indent
+                })
+        })
+}
+
+fn leading_whitespace_width(line: &str) -> usize {
+    line.len() - line.trim_start().len()
 }
 
 fn comment_only_lines(lines: &[String], supports_hash: bool) -> Vec<bool> {
@@ -586,6 +610,7 @@ struct PolicyGroup<'a> {
 
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
 struct PolicyKey<'a> {
+    scope: &'a str,
     concept: String,
     literal: &'a str,
 }
@@ -613,6 +638,11 @@ fn collect_policy_literals<'a>(context: &'a SourceAnalysisContext<'_>) -> Vec<Po
         .filter(|path| is_production_source(path))
     {
         for (index, line) in context.masked_lines(path).iter().enumerate() {
+            let line = if path.ends_with(".py") {
+                line.split_once('#').map_or(line.as_str(), |(code, _)| code)
+            } else {
+                line.as_str()
+            };
             collect_line_policy_literals(line, path, index + 1, &mut literals);
         }
     }
@@ -640,6 +670,7 @@ fn collect_line_policy_literals<'a>(
                     first_line_literal,
                     concept.name,
                     literal.as_str(),
+                    line,
                     path,
                     line_number,
                 );
@@ -674,6 +705,7 @@ fn collect_line_policy_literals<'a>(
             first_line_literal,
             concept,
             literal,
+            line,
             path,
             line_number,
         );
@@ -756,10 +788,11 @@ fn push_line_policy_literal<'a>(
     first_line_literal: usize,
     concept: &'a str,
     literal: &'a str,
+    source_line: &str,
     path: &'a str,
     line: usize,
 ) {
-    if is_excluded_policy_literal(concept, literal)
+    if is_excluded_policy_literal(concept, literal, source_line)
         || literals[first_line_literal..].iter().any(|existing| {
             existing.concept.eq_ignore_ascii_case(concept) && existing.literal == literal
         })
@@ -782,9 +815,19 @@ fn is_named_policy_gap(gap: &str) -> bool {
     !gap.contains(';') && gap.chars().count() <= 40
 }
 
-fn is_excluded_policy_literal(concept: &str, literal: &str) -> bool {
+fn is_excluded_policy_literal(concept: &str, literal: &str, line: &str) -> bool {
+    let normalized = literal.strip_suffix(".0").unwrap_or(literal);
     concept.eq_ignore_ascii_case("count")
-        || matches!(literal, "-1" | "0" | "1" | "2" | "10" | "100")
+        || (["min", "max"]
+            .iter()
+            .any(|excluded| concept.eq_ignore_ascii_case(excluded))
+            && is_policy_call(line, concept))
+        || matches!(normalized, "-1" | "0" | "1" | "2" | "10" | "100" | "1024")
+}
+
+fn is_policy_call(line: &str, concept: &str) -> bool {
+    line.match_indices(concept)
+        .any(|(start, _)| line[start + concept.len()..].trim_start().starts_with('('))
 }
 
 fn group_policy_literals<'a>(literals: Vec<PolicyLiteral<'a>>) -> PolicyGroups<'a> {
@@ -792,6 +835,7 @@ fn group_policy_literals<'a>(literals: Vec<PolicyLiteral<'a>>) -> PolicyGroups<'
     for (order, literal) in literals.into_iter().enumerate() {
         let group = groups
             .entry(PolicyKey {
+                scope: policy_scope(literal.path),
                 concept: literal.concept.to_ascii_lowercase(),
                 literal: literal.literal,
             })
@@ -805,6 +849,10 @@ fn group_policy_literals<'a>(literals: Vec<PolicyLiteral<'a>>) -> PolicyGroups<'
         });
     }
     groups
+}
+
+fn policy_scope(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(directory, _)| directory)
 }
 
 fn qualify_policy_groups<'groups, 'source>(
@@ -1260,6 +1308,8 @@ static PLACEHOLDER_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static TRAILING_DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+$").unwrap());
 static EXPOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:export|public)\b").unwrap());
+static PYTHON_MAIN_GUARD_MASKED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^if\s+__name__\s*==\s*:\s*$").unwrap());
 static ORCHESTRATOR_NAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(?:main|bootstrap|migrate|transaction)\b").unwrap());
 static BOUNDARIES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
@@ -1546,6 +1596,23 @@ fallback) run();",
     }
 
     #[test]
+    fn ignores_placeholder_identifiers_in_python_main_demos() {
+        let sources = sources(&[(
+            "src/repr.py",
+            "if __name__ == \"__main__\":\n    class Foo:\n        pass\n    foo = Foo()\n    print(foo)\n\nclass Bar:\n    pass\nbar = Bar()\nprint(Bar)\n",
+        )]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            placeholder_identifiers(&context)
+                .into_iter()
+                .map(|finding| finding.message)
+                .collect::<Vec<_>>(),
+            vec!["`Bar` is a placeholder name used beyond a tiny local scope"]
+        );
+    }
+
+    #[test]
     fn separates_policy_concepts_and_ignores_tests_and_common_literals() {
         let sources = sources(&[
             ("lib/a.dart", "if (size > 30) reject();"),
@@ -1574,6 +1641,38 @@ fallback) run();",
                 "src/b.rs",
                 "let duration = other.parse::<f64>();\nlet retries = other.parse::<u64>();",
             ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(repeated_policy_literals(&context).is_empty());
+    }
+
+    #[test]
+    fn ignores_common_policy_sentinels_and_unit_conversions() {
+        let sources = sources(&[
+            (
+                "lib/a.py",
+                "value = max(0.0, value)\nmegabytes = limit / 1024",
+            ),
+            (
+                "lib/b.py",
+                "value = max(0.0, value)\nkilobytes = size // 1024",
+            ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(repeated_policy_literals(&context).is_empty());
+    }
+
+    #[test]
+    fn scopes_policy_repetition_and_ignores_python_comments_and_clamp_functions() {
+        let sources = sources(&[
+            ("api/a.py", "# timeout can consume 50% of the request"),
+            ("api/b.py", "# timeout can consume 50% of the response"),
+            ("first/settings.py", "if timeout > 30: stop()"),
+            ("second/settings.py", "if timeout > 30: stop()"),
+            ("math/a.py", "value = min(32, value)"),
+            ("math/b.py", "value = min(32, value)"),
         ]);
         let context = unchanged(&sources);
 

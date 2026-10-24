@@ -416,18 +416,74 @@ fn collect_jwt_candidates<'a>(
     source: &'a PySource<'_>,
     collect: &mut impl FnMut(AuthenticationCandidate<'a>),
 ) {
-    for captures in JWT_DECODE.captures_iter(source.code) {
-        let (Some(matched), Some(call)) = (captures.get(0), captures.get(1)) else {
+    for matched in JWT_DECODE.find_iter(source.code) {
+        let Some(call) = python_call_expression(source.code, matched.start()) else {
             continue;
         };
         collect(AuthenticationCandidate {
             path: source.path,
             line: source.line_at(matched.start()),
-            kind: AuthenticationCandidateKind::InsecureJwtDecode {
-                call: call.as_str(),
-            },
+            kind: AuthenticationCandidateKind::InsecureJwtDecode { call },
         });
     }
+}
+
+#[derive(Default)]
+struct PythonCallState {
+    quote: Option<char>,
+    escaped: bool,
+    comment: bool,
+}
+
+impl PythonCallState {
+    fn skips_structure(&mut self, character: char) -> bool {
+        if self.comment {
+            self.comment = character != '\n';
+            return true;
+        }
+        if self.quote.is_some() {
+            self.advance_quote(character);
+            return true;
+        }
+        match character {
+            '#' => self.comment = true,
+            '\'' | '"' => self.quote = Some(character),
+            _ => return false,
+        }
+        true
+    }
+
+    fn advance_quote(&mut self, character: char) {
+        if self.escaped {
+            self.escaped = false;
+        } else if character == '\\' {
+            self.escaped = true;
+        } else if self.quote == Some(character) {
+            self.quote = None;
+        }
+    }
+}
+
+fn python_call_expression(source: &str, start: usize) -> Option<&str> {
+    let open = source[start..].find('(')? + start;
+    let mut depth = 0_usize;
+    let mut state = PythonCallState::default();
+    for (relative, character) in source[open..].char_indices() {
+        if state.skips_structure(character) {
+            continue;
+        }
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(&source[start..open + relative + character.len_utf8()]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn violates_authentication_policy(candidate: &AuthenticationCandidate<'_>) -> bool {
@@ -1068,8 +1124,8 @@ regexes! {
     ROLE_CHECK = r"\b(?:has_role|require_role|current_user\.(?:role|roles|is_admin))\b";
     PASSWORD_ASSIGNMENT = r"(?i)\bpassword\s*=\s*(?:payload|request|user_in|data)\.password\b";
     PASSWORD_HASH = r"(?i)\b(?:hash|bcrypt|argon|password_hasher)\b";
-    JWT_DECODE = r"\b(?:jwt|jose\.jwt)\.decode\s*\(([^\n]*)";
-    DISABLED_SIGNATURE = r#"verify_signature["']?s*:s*False"#;
+    JWT_DECODE = r"\b(?:jwt|jose\.jwt)\.decode\s*\(";
+    DISABLED_SIGNATURE = r#"(?i)(?:verify_signature\s*=\s*false|["']verify_signature["']\s*:\s*false)"#;
     PERMISSIVE_CORS = r#"allow_origins\s*=\s*\[\s*["']\*["']"#;
     RATE_LIMIT = r"(?i)\b(?:Limiter|RateLimiter|slowapi|rate_limit|throttle)\b";
     SECURITY_HEADERS = r"\b(?:SecurityHeadersMiddleware|TrustedHostMiddleware|X-Content-Type-Options|Content-Security-Policy|Strict-Transport-Security)\b";
@@ -1088,7 +1144,7 @@ regexes! {
     FUNCTION_DECLARATION = r"(?m)^(async\s+)?def\s+([A-Za-z_]\w*)\s*\([^\n]*\)(?:\s*->\s*[^:]+)?\s*:";
     ROUTE_DECORATOR = r#"(?m)^\s*@(?:\w+\.)?(get|post|put|patch|delete)\s*\(\s*(["'])([^"']+)(["'])([^\n]*)\)\s*$"#;
     LOOP_HEADER = r"^\s*for\s+[^:]+:\s*$";
-    LOOP_QUERY = r"^(?:\w+\.)?(?:execute|query|get)\s*\(";
+    LOOP_QUERY = r"^(?:(?:[A-Za-z_]\w*\.)?(?:execute|query|scalar|scalars)|(?:\w*(?:session|database|repository|repo|store|_db)|db)\.get)\s*\(";
 }
 
 #[cfg(test)]
@@ -1231,6 +1287,48 @@ async def read_user(id: int, principal: User = Depends(get_current_user)) -> Use
         ] {
             assert!(!findings.contains(code), "unexpected {code}: {findings:?}");
         }
+    }
+
+    #[test]
+    fn accepts_multiline_verified_jwt_and_non_database_gets_in_loops() {
+        let findings = codes(
+            r#"import jwt
+def decode(token, key, algorithms):
+    return jwt.decode(
+        token,
+        key,
+        audience="api",
+        algorithms=algorithms,
+    )
+def collect(labels, conn, items):
+    for item in items:
+        labels.get(item)
+    for item in items:
+        conn.get(item)
+"#,
+        );
+
+        assert!(!findings.contains("fastapi-insecure-jwt-decode"));
+        assert!(!findings.contains("fastapi-query-in-loop"));
+    }
+
+    #[test]
+    fn reports_disabled_signature_and_database_gets_in_loops() {
+        let findings = codes(
+            r#"import jwt
+def decode(token):
+    jwt.decode(
+        token,
+        options={"verify_signature": False},
+    )
+def collect(session, items):
+    for item in items:
+        session.get(Item, item)
+"#,
+        );
+
+        assert!(findings.contains("fastapi-insecure-jwt-decode"));
+        assert!(findings.contains("fastapi-query-in-loop"));
     }
 
     #[test]

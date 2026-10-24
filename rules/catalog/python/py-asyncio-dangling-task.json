@@ -9,7 +9,7 @@
   "legacyGroup": "reliability",
   "why": "The event loop keeps weak task references, so a discarded task can disappear before completion and its exception can be lost.",
   "suggestion": "Await the task, retain it until completion, or use asyncio.TaskGroup for structured concurrency.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["reliability"],
@@ -21,6 +21,8 @@
   "languageVersions": [],
   "limitations": [
     "Only discarded direct asyncio.create_task and asyncio.ensure_future expression statements are reported.",
-    "Imported aliases, custom task factories, and references retained indirectly by wrappers are not inferred."
+    "Tasks nested in assignments, collection construction or mutation, awaits, and other retaining expressions are excluded.",
+    "Statements suppressed with noqa RUF006 are treated as reviewed intentional task detachment.",
+    "Imported aliases and custom task factories are not inferred."
   ]
 }

@@ -44,17 +44,26 @@ struct SourceLine<'a> {
 #[derive(Default)]
 struct PerformanceFacts {
     arrays: BTreeSet<String>,
+    outer_arrays: BTreeSet<String>,
     strings: BTreeSet<String>,
     direct_sync_fs: BTreeSet<String>,
     fs_namespaces: BTreeSet<String>,
 }
 
 impl PerformanceFacts {
-    fn from_source(source: &str) -> Self {
-        let arrays = ARRAY_DECLARATION
-            .captures_iter(source)
-            .map(|capture| capture[1].to_owned())
-            .collect();
+    fn from_source(source: &str, inside_loop: &[bool]) -> Self {
+        let mut arrays = BTreeSet::new();
+        let mut outer_arrays = BTreeSet::new();
+        for capture in ARRAY_DECLARATION.captures_iter(source) {
+            let name = capture[1].to_owned();
+            arrays.insert(name.clone());
+            if capture.get(0).is_some_and(|whole| {
+                let line = line_number(source, whole.start());
+                !inside_loop.get(line - 1).copied().unwrap_or(false)
+            }) {
+                outer_arrays.insert(name);
+            }
+        }
         let strings = STRING_DECLARATION
             .captures_iter(source)
             .map(|capture| capture[1].to_owned())
@@ -77,6 +86,7 @@ impl PerformanceFacts {
         );
         Self {
             arrays,
+            outer_arrays,
             strings,
             direct_sync_fs,
             fs_namespaces,
@@ -132,7 +142,7 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     let syntax_source = mask_javascript_strings_and_comments(source);
     let syntax_lines = syntax_source.split('\n').collect::<Vec<_>>();
     let (inside_loop, inside_async) = scopes_by_line(&code_lines);
-    let performance = PerformanceFacts::from_source(&uncommented_source);
+    let performance = PerformanceFacts::from_source(&uncommented_source, &inside_loop);
     let mut findings = Vec::new();
     findings.extend(async_foreach_findings(path, &sink_source));
     findings.extend(child_process_shell_findings(path, &uncommented_source));
@@ -144,6 +154,11 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     ));
     findings.extend(buffer_concat_findings(path, &sink_source, &inside_loop));
     findings.extend(intl_formatter_findings(
+        path,
+        &uncommented_source,
+        &inside_loop,
+    ));
+    findings.extend(locale_format_findings(
         path,
         &uncommented_source,
         &inside_loop,
@@ -366,6 +381,35 @@ fn intl_formatter_findings(path: &str, source: &str, inside_loop: &[bool]) -> Ve
             line,
             line,
             "constant Intl formatter is constructed inside a loop",
+            "high",
+        ));
+    }
+    findings
+}
+
+fn locale_format_findings(path: &str, source: &str, inside_loop: &[bool]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for formatter in LOCALE_FORMAT_CALL.find_iter(source) {
+        if !is_code_offset(source, formatter.start()) {
+            continue;
+        }
+        let open = formatter.end() - 1;
+        let Some(arguments) = call_arguments(source, open) else {
+            continue;
+        };
+        if !static_intl_configuration(&arguments) {
+            continue;
+        }
+        let line = line_number(source, formatter.start());
+        if !inside_loop.get(line - 1).copied().unwrap_or(false) {
+            continue;
+        }
+        findings.push(finding(
+            "js-locale-format-in-loop",
+            path,
+            line,
+            line,
+            "locale formatting repeatedly resolves the same formatter inside a loop",
             "high",
         ));
     }
@@ -973,6 +1017,13 @@ fn analyze_repeated_performance(
             "immutable string is concatenated inside a loop",
         );
     }
+    if repeatedly_copies_growing_array(line.sink_line, facts) {
+        line.add(
+            findings,
+            "js-growing-array-copy-in-loop",
+            "rebuilding an array from its previous value repeatedly copies accumulated elements",
+        );
+    }
     if ARRAY_SHIFT
         .captures_iter(line.line)
         .any(|capture| facts.arrays.contains(&capture[1]))
@@ -993,6 +1044,15 @@ fn analyze_repeated_performance(
             "inserting at the front of an array repeatedly shifts existing elements",
         );
     }
+}
+
+fn repeatedly_copies_growing_array(line: &str, facts: &PerformanceFacts) -> bool {
+    GROWING_ARRAY_SPREAD
+        .captures_iter(line)
+        .any(|capture| capture[1] == capture[2] && facts.outer_arrays.contains(&capture[1]))
+        || GROWING_ARRAY_CONCAT
+            .captures_iter(line)
+            .any(|capture| capture[1] == capture[2] && facts.outer_arrays.contains(&capture[1]))
 }
 
 fn node_fs_constant_imports(path: &str, source: &str) -> Vec<Finding> {
@@ -2268,6 +2328,8 @@ static BUFFER_CONCAT_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
 static INTL_FORMATTER_CONSTRUCTOR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bnew\s+Intl\s*\.\s*(?:DateTimeFormat|NumberFormat|Collator)\s*\(").unwrap()
 });
+static LOCALE_FORMAT_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.\s*toLocale(?:String|DateString|TimeString)\s*\(").unwrap());
 static FILTER_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*filter\s*\(").unwrap());
 static FILTER_FIRST_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
@@ -2282,6 +2344,12 @@ static JAVASCRIPT_IDENTIFIER_PREFIX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_$][\w$]*").unwrap());
 static IN_PLACE_CONCAT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\+=").unwrap());
+static GROWING_ARRAY_SPREAD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_$][\w$]*)\s*=\s*\[\s*\.\.\.\s*([A-Za-z_$][\w$]*)\b").unwrap()
+});
+static GROWING_ARRAY_CONCAT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*\.\s*concat\s*\(").unwrap()
+});
 static CALL_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b([A-Za-z_$][\w$]*)(?:\s*\.\s*([A-Za-z_$][\w$]*))?\s*\(").unwrap()
 });
@@ -3009,6 +3077,77 @@ function once(queue: string[]) {
                 matches!(
                     finding.code.as_str(),
                     "js-accumulating-spread" | "js-array-unshift-in-loop" | "js-filter-first-match"
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+
+    #[test]
+    fn reports_growing_array_copies_and_repeated_locale_formatting() {
+        let sources = BTreeMap::from([(
+            "src/render.ts".to_owned(),
+            r#"function render(values: string[], dates: Date[]) {
+  let spreadOutput: string[] = [];
+  let concatOutput: string[] = [];
+  for (const value of values) {
+    spreadOutput = [...spreadOutput, value];
+    concatOutput = concatOutput.concat(value);
+  }
+  for (const date of dates) {
+    labels.push(date.toLocaleDateString("en-US", { year: "numeric" }));
+  }
+  return { spreadOutput, concatOutput };
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| matches!(
+                    finding.code.as_str(),
+                    "js-growing-array-copy-in-loop" | "js-locale-format-in-loop"
+                ))
+                .map(|finding| (finding.code, finding.line))
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                ("js-growing-array-copy-in-loop".to_owned(), 5),
+                ("js-growing-array-copy-in-loop".to_owned(), 6),
+                ("js-locale-format-in-loop".to_owned(), 9),
+            ])
+        );
+    }
+
+    #[test]
+    fn accepts_local_arrays_pushes_cached_formatters_and_dynamic_locales() {
+        let sources = BTreeMap::from([(
+            "src/render.ts".to_owned(),
+            r#"function render(values: string[], dates: Date[], locale: string, options: object) {
+  const output: string[] = [];
+  const formatter = new Intl.DateTimeFormat("en-US", { year: "numeric" });
+  for (const value of values) {
+    output.push(value);
+    let local: string[] = [];
+    local = [...local, value];
+  }
+  for (const date of dates) {
+    labels.push(formatter.format(date));
+    labels.push(date.toLocaleDateString(locale, options));
+  }
+  return [...output];
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "js-growing-array-copy-in-loop" | "js-locale-format-in-loop"
                 )
             })
             .collect::<Vec<_>>();

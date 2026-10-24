@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 4,
+  "why": "Unexpected mixed-case function names make Python APIs less predictable unless an inherited or framework protocol fixes the spelling.",
+  "suggestion": "Use lower_snake_case for project-owned functions while preserving required external protocol names.",
+  "version": 5,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "HTTP handlers, test lifecycle hooks, AST-style visitor hooks, COM methods, monkey-patch replacements, and methods marked override are excluded.",
+    "Other dynamically discovered framework callbacks may still require an explicit project lint policy."
+  ]
 }

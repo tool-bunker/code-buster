@@ -78,10 +78,15 @@ fn append_same_value_operations(findings: &mut Vec<Finding>, path: &str, source:
     for (index, line) in lines.iter().enumerate() {
         let stripped = strip_generic_strings(line);
         let code = strip_comments(&stripped, &mut in_block_comment);
-        let Some(comparison) = same_value_comparison(&code) else {
+        let code = if path.ends_with(".py") {
+            code.split_once('#').map_or(code.as_str(), |(before, _)| before)
+        } else {
+            code.as_str()
+        };
+        let Some(comparison) = same_value_comparison(code) else {
             continue;
         };
-        if excludes_same_value_candidate(&lines, index, &code, comparison) {
+        if excludes_same_value_candidate(&lines, index, code, comparison) {
             continue;
         }
         findings.push(same_value_finding(path, index + 1, comparison));
@@ -109,6 +114,7 @@ fn same_value_comparison(code: &str) -> Option<SameValueComparison<'_>> {
         .filter_map(parse_comparison_candidate)
         .find_map(|candidate| normalize_same_value_operands(code, candidate))
 }
+
 
 fn parse_comparison_candidate(
     captures: regex::Captures<'_>,
@@ -166,7 +172,8 @@ fn excludes_same_value_candidate(
     code: &str,
     comparison: SameValueComparison<'_>,
 ) -> bool {
-    excludes_intentional_self_comparison(lines, line_index, comparison)
+    comparison.operator == "!="
+        || excludes_intentional_self_comparison(lines, line_index, comparison)
         || excludes_same_value_context(code, comparison)
 }
 
@@ -349,25 +356,10 @@ fn suspicious_command_arguments(sources: &BTreeMap<String, String>) -> Vec<Findi
                 continue;
             };
             let arguments = &code[call.end()..];
-            let has_embedded_space = ARGUMENT_LITERAL.captures_iter(arguments).any(|capture| {
-                let Some(complete) = capture.get(0) else {
-                    return false;
-                };
-                let Some(literal) = capture
-                    .name("double")
-                    .or_else(|| capture.name("single"))
-                    .map(|literal| literal.as_str())
-                else {
-                    return false;
-                };
-                if !literal.chars().any(char::is_whitespace) {
-                    return false;
-                }
-                let preceding = arguments[..complete.start()].trim_end();
-                let following = arguments[complete.end()..].trim_start();
-                !preceding.ends_with(".split") && !following.starts_with(".split(")
-            });
-            if has_embedded_space {
+            if call.as_str().starts_with("subprocess.") && arguments.contains("shell=True") {
+                continue;
+            }
+            if command_argument_has_embedded_space(arguments) {
                 findings.push(finding(
                     "suspicious-command-arg-space",
                     path,
@@ -379,4 +371,25 @@ fn suspicious_command_arguments(sources: &BTreeMap<String, String>) -> Vec<Findi
         }
     }
     findings
+}
+
+fn command_argument_has_embedded_space(arguments: &str) -> bool {
+    ARGUMENT_LITERAL.captures_iter(arguments).any(|capture| {
+        let Some(complete) = capture.get(0) else {
+            return false;
+        };
+        let Some(literal) = capture
+            .name("double")
+            .or_else(|| capture.name("single"))
+            .map(|literal| literal.as_str())
+        else {
+            return false;
+        };
+        if !literal.chars().any(char::is_whitespace) {
+            return false;
+        }
+        let preceding = arguments[..complete.start()].trim_end();
+        let following = arguments[complete.end()..].trim_start();
+        !preceding.ends_with(".split") && !following.starts_with(".split(")
+    })
 }

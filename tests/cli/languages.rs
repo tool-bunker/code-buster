@@ -2099,3 +2099,45 @@ fn summary_reports_production_imports_of_excluded_test_code() {
     assert_eq!(findings[0]["path"], "src/main.ts");
     assert_eq!(findings[0]["related_files"][0], "tests/fixture.ts");
 }
+
+#[test]
+fn summary_accepts_explicit_python_test_support_exports() {
+    let root = TempDirectory::new("cb-python-test-support-export");
+    root.write(
+        "package/__init__.py",
+        b"from . import testing\n__all__ = [\"testing\"]\n",
+    );
+    root.write(
+        "package/runtime.py",
+        b"from . import testing\n\ndef run():\n    return testing.helper()\n",
+    );
+    root.write(
+        "package/commands/test.py",
+        b"from package import testing\n\ndef run_tests():\n    return testing.helper()\n",
+    );
+    root.write(
+        "package/testing/__init__.py",
+        b"def helper():\n    return \"fixture\"\n",
+    );
+
+    let output = run_summary(
+        &root.path,
+        &[
+            "--format",
+            "json",
+            "--no-cache",
+            "--only",
+            "production-imports-test-code",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+    let findings = report["findings"]
+        .as_array()
+        .expect("findings must be an array");
+    assert_eq!(findings.len(), 1, "unexpected findings: {findings:#?}");
+    assert_eq!(findings[0]["path"], "package/runtime.py");
+}

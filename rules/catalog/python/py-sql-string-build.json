@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "security",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
+  "why": "Dynamically constructed SQL can mix untrusted values into executable query text.",
+  "suggestion": "Bind data values as parameters; use an explicit noqa S608 review when trusted identifiers must be interpolated.",
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only string literals that begin with a SQL statement are considered; natural-language messages are ignored, including prompts that begin with `Select from` but have no projection.",
+    "An S608 noqa directive suppresses the complete continued SQL expression containing it."
+  ]
 }

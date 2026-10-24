@@ -155,7 +155,10 @@ fn report_leading_wildcard(
     pattern: &str,
     findings: &mut Vec<Finding>,
 ) {
-    if pattern.starts_with(".*") || pattern.starts_with(".+") {
+    let suffix = pattern
+        .strip_prefix(".*")
+        .or_else(|| pattern.strip_prefix(".+"));
+    if suffix.is_some_and(|suffix| !matches!(suffix, "" | "$" | r"\z" | r"\Z")) {
         findings.push(finding(
             "regex-leading-dot-star",
             path,
@@ -820,6 +823,22 @@ final validationEmail = RegExp('.*(a+)+|');"#;
                 "regex-single-literal".to_owned(),
                 "regex-unanchored-validation".to_owned(),
             ])
+        );
+    }
+
+    #[test]
+    fn ignores_regexes_that_only_match_an_unrestricted_value() {
+        let mut findings = Vec::new();
+        report_leading_wildcard("patterns.py", 1, ".*", &mut findings);
+        report_leading_wildcard("patterns.py", 2, ".+$", &mut findings);
+        report_leading_wildcard("patterns.py", 3, ".*required", &mut findings);
+
+        assert_eq!(
+            findings
+                .into_iter()
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![3]
         );
     }
 

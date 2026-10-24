@@ -68,8 +68,10 @@ fn analyze_source(
 struct PythonScanState {
     saw_code: bool,
     import_continuation_depth: isize,
+    expression_depth: isize,
+    expression_start: Option<usize>,
     type_checking_indent: Option<usize>,
-    async_indent: Option<usize>,
+    function_scopes: Vec<(usize, bool)>,
     loop_indents: Vec<usize>,
     loop_suspension_indents: Vec<usize>,
     list_variables: BTreeSet<String>,
@@ -91,11 +93,13 @@ impl PythonScanState {
         let line = stripped.trim();
         let indent = leading_indent(raw);
         let in_import_continuation = self.import_continuation_depth > 0;
+        let in_expression_continuation = self.expression_depth > 0;
+        let expression_start = self.expression_start;
         let in_type_checking_block = self
             .type_checking_indent
             .is_some_and(|value| indent > value);
         self.update_type_checking_scope(line, indent);
-        self.update_async_scope(line, indent);
+        let in_async_function = self.update_function_scope(line, indent);
         let in_loop = self.update_loop_scope(line, indent);
 
         PythonLine {
@@ -106,8 +110,10 @@ impl PythonScanState {
             comment,
             indent,
             in_import_continuation,
+            in_expression_continuation,
+            expression_start,
             in_type_checking_block,
-            in_async_function: self.async_indent.is_some(),
+            in_async_function,
             in_loop,
             saw_code: self.saw_code,
         }
@@ -133,24 +139,32 @@ impl PythonScanState {
 
     fn update_type_checking_scope(&mut self, line: &str, indent: usize) {
         if self.type_checking_indent.is_some_and(|value| {
-            !line.is_empty() && indent <= value && !line.starts_with("if TYPE_CHECKING:")
+            !line.is_empty() && indent <= value && !is_type_checking_header(line)
         }) {
             self.type_checking_indent = None;
         }
-        if line.starts_with("if TYPE_CHECKING:") {
+        if is_type_checking_header(line) {
             self.type_checking_indent = Some(indent);
         }
     }
 
-    fn update_async_scope(&mut self, line: &str, indent: usize) {
-        if line.starts_with("async def ") {
-            self.async_indent = Some(indent);
+    fn update_function_scope(&mut self, line: &str, indent: usize) -> bool {
+        if !line.is_empty() {
+            while self
+                .function_scopes
+                .last()
+                .is_some_and(|(scope_indent, _)| indent <= *scope_indent)
+            {
+                self.function_scopes.pop();
+            }
         }
-        if self.async_indent.is_some_and(|value| {
-            !line.is_empty() && indent <= value && !line.starts_with("async def ")
-        }) {
-            self.async_indent = None;
+        if is_python_function_header(line) {
+            self.function_scopes
+                .push((indent, line.starts_with("async def ")));
         }
+        self.function_scopes
+            .last()
+            .is_some_and(|(_, is_async)| *is_async)
     }
 
     fn update_loop_scope(&mut self, line: &str, indent: usize) -> bool {
@@ -198,6 +212,14 @@ impl PythonScanState {
             self.saw_code = true;
         }
         self.update_import_continuation(current);
+        let previous_depth = self.expression_depth;
+        self.expression_depth =
+            (previous_depth + bracket_delta(&mask_strings(&current.code))).max(0);
+        if previous_depth == 0 && self.expression_depth > 0 {
+            self.expression_start = Some(current.index);
+        } else if self.expression_depth == 0 {
+            self.expression_start = None;
+        }
     }
 
     fn update_import_continuation(&mut self, current: &PythonLine<'_>) {
@@ -224,6 +246,10 @@ fn is_python_function_header(line: &str) -> bool {
     line.starts_with("def ") || line.starts_with("async def ")
 }
 
+fn is_type_checking_header(line: &str) -> bool {
+    matches!(line, "if TYPE_CHECKING:" | "if typing.TYPE_CHECKING:")
+}
+
 fn is_python_loop_header(line: &str) -> bool {
     (line.starts_with("while ") || line.starts_with("for ") || line.starts_with("async for "))
         && line.ends_with(':')
@@ -231,7 +257,11 @@ fn is_python_loop_header(line: &str) -> bool {
 
 fn is_executable_python_line(current: &PythonLine<'_>) -> bool {
     let line = current.line();
-    if line.is_empty() || current.in_import_continuation {
+    if line.is_empty()
+        || current.in_import_continuation
+        || current.in_type_checking_block
+        || is_type_checking_header(line)
+    {
         return false;
     }
     !["#", "import ", "from ", "\"\"\"", "'''", "__"]
@@ -251,6 +281,8 @@ struct PythonLine<'a> {
     comment: &'a str,
     indent: usize,
     in_import_continuation: bool,
+    in_expression_continuation: bool,
+    expression_start: Option<usize>,
     in_type_checking_block: bool,
     in_async_function: bool,
     in_loop: bool,
@@ -320,6 +352,9 @@ fn report_wildcard_import(
     findings: &mut Vec<Finding>,
 ) {
     let line = current.line();
+    if has_noqa_for(current.comment, "F403") || is_package_init(path) {
+        return;
+    }
     if line.starts_with("from ") && line.ends_with(" import *") {
         add_finding(
             disabled,
@@ -363,10 +398,7 @@ fn report_compound_statement(
     findings: &mut Vec<Finding>,
 ) {
     let line = current.line();
-    let compound_header = line.rfind(':').is_some_and(|colon| {
-        COMPOUND_HEADER.is_match(line) && !line[colon + 1..].trim().is_empty()
-    });
-    if compound_header || COMPOUND_AFTER_SEMICOLON.is_match(line) {
+    if has_inline_compound_body(line) || COMPOUND_AFTER_SEMICOLON.is_match(line) {
         add_finding(
             disabled,
             findings,
@@ -436,7 +468,7 @@ fn analyze_language_constructs(
         findings,
     );
     report_mutable_default(path, current, function, disabled, findings);
-    report_exception_handler(path, current, disabled, findings);
+    report_exception_handler(path, lines, current, disabled, findings);
     report_dynamic_execution(path, current, function, disabled, findings);
     report_shell_execution(path, current, disabled, findings);
     report_runtime_assert(path, current, disabled, findings);
@@ -457,10 +489,12 @@ fn report_function_name(
     if !name.chars().any(|character| character.is_ascii_uppercase())
         || HTTP_REQUEST_HANDLER_METHOD.is_match(name)
         || PYTHON_TEST_LIFECYCLE_METHOD.is_match(name)
+        || PYTHON_VISITOR_METHOD.is_match(name)
     {
         return;
     }
     if is_com_interface_method(lines, current.index, current.indent)
+        || has_override_decorator(lines, current.index, current.indent)
         || monkey_patch_replacements.contains(name)
     {
         return;
@@ -496,6 +530,7 @@ fn report_mutable_default(
 
 fn report_exception_handler(
     path: &str,
+    lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
@@ -511,7 +546,11 @@ fn report_exception_handler(
             "bare except catches all exceptions",
         );
     }
-    if line.starts_with("except Exception") || line.starts_with("except BaseException") {
+    if (line.starts_with("except Exception") || line.starts_with("except BaseException"))
+        && !broad_handler_immediately_raises(lines, current)
+        && !has_noqa_for(current.comment, "BLE001")
+        && !has_pylint_disable(current.comment, &["broad-except", "broad-exception-caught"])
+    {
         add_finding(
             disabled,
             findings,
@@ -595,8 +634,8 @@ fn analyze_security(
     report_requests_call(path, lines, current, disabled, findings);
     report_yaml_load(path, lines, current, disabled, findings);
     report_pickle_load(path, current, disabled, findings);
-    report_dynamic_sql(path, current, disabled, findings);
-    report_hardcoded_secret(path, current, disabled, findings);
+    report_dynamic_sql(path, lines, current, disabled, findings);
+    report_hardcoded_secret(path, lines, current, disabled, findings);
     report_weak_hash(path, lines, current, disabled, findings);
     report_unsafe_tempfile(path, current, disabled, findings);
     report_debug_enabled(path, current, disabled, findings);
@@ -680,11 +719,14 @@ fn report_pickle_load(
 
 fn report_dynamic_sql(
     path: &str,
+    lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    if has_dynamic_sql_string_expression(&current.code) {
+    if has_dynamic_sql_string_expression(&current.code)
+        && !expression_has_noqa(lines, current, "S608")
+    {
         add_finding(
             disabled,
             findings,
@@ -698,11 +740,14 @@ fn report_dynamic_sql(
 
 fn report_hardcoded_secret(
     path: &str,
+    lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    if has_hardcoded_secret(&current.code, path) {
+    if has_hardcoded_secret(&current.code, path, current.in_expression_continuation)
+        && !is_secret_form_metadata(lines, current)
+    {
         add_finding(
             disabled,
             findings,
@@ -759,7 +804,12 @@ fn report_debug_enabled(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    if DEBUG_ENABLED.is_match(current.line()) {
+    let continued_keyword = current.in_expression_continuation
+        && current
+            .line()
+            .get(..5)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("debug"));
+    if DEBUG_ENABLED.is_match(&current.code) && !continued_keyword {
         add_finding(
             disabled,
             findings,
@@ -791,8 +841,10 @@ fn report_dangling_asyncio_task(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    if current.line().starts_with("asyncio.create_task(")
-        || current.line().starts_with("asyncio.ensure_future(")
+    if !current.in_expression_continuation
+        && !has_noqa_for(current.comment, "RUF006")
+        && (current.line().starts_with("asyncio.create_task(")
+            || current.line().starts_with("asyncio.ensure_future("))
     {
         add_finding(
             disabled,
@@ -835,7 +887,10 @@ fn report_open_without_encoding(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    if !OPEN_CALL.is_match(current.line()) || expects_open_failure(lines, current.index) {
+    if defines_function_named(current.line(), "open")
+        || !OPEN_CALL.is_match(current.line())
+        || expects_open_failure(lines, current.index)
+    {
         return;
     }
     let call = continued_call(lines, current.index);
@@ -921,12 +976,7 @@ fn analyze_performance(
             "constant regular expression is compiled inside a loop",
         );
     }
-    if !current.line().starts_with("for ")
-        && !current.line().starts_with("async for ")
-        && PYTHON_MEMBERSHIP
-            .captures_iter(current.line())
-            .any(|capture| state.list_variables.contains(&capture[1]))
-    {
+    if has_linear_list_membership(current.line(), state) {
         add_finding(
             disabled,
             findings,
@@ -975,6 +1025,23 @@ fn analyze_performance(
     }
 }
 
+fn has_linear_list_membership(line: &str, state: &PythonScanState) -> bool {
+    !line.starts_with("for ")
+        && !line.starts_with("async for ")
+        && PYTHON_MEMBERSHIP.captures_iter(line).any(|capture| {
+            state.list_variables.contains(&capture[1])
+                && !is_iteration_clause(line, capture.get(0).unwrap().start())
+        })
+}
+
+fn is_iteration_clause(line: &str, membership_start: usize) -> bool {
+    line[..membership_start]
+        .trim_end()
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .next_back()
+        == Some("for")
+}
+
 fn next_statement_is_break(lines: &[&str], current: &PythonLine<'_>) -> bool {
     lines[current.index + 1..]
         .iter()
@@ -993,7 +1060,11 @@ fn disabled_by_project_policy(context: &SourceAnalysisContext<'_>) -> BTreeSet<&
     let pylint = document
         .get("tool")
         .and_then(|value| value.get("pylint"))
-        .and_then(|value| value.get("messages_control"))
+        .and_then(|value| {
+            value
+                .get("messages_control")
+                .or_else(|| value.get("MESSAGES CONTROL"))
+        })
         .and_then(|value| value.get("disable"))
         .and_then(Value::as_array)
         .into_iter()
@@ -1019,7 +1090,7 @@ fn disabled_by_project_policy(context: &SourceAnalysisContext<'_>) -> BTreeSet<&
     if pylint.contains("dangerous-default-value") {
         disabled.insert("py-mutable-default");
     }
-    if pylint.contains("broad-exception-caught") {
+    if pylint.contains("broad-exception-caught") || pylint.contains("broad-except") {
         disabled.insert("py-broad-except");
     }
     if ruff.contains("E402") {
@@ -1079,6 +1150,32 @@ fn continued_call(lines: &[&str], start: usize) -> String {
         }
     }
     call
+}
+
+fn has_inline_compound_body(line: &str) -> bool {
+    if !COMPOUND_HEADER.is_match(line) {
+        return false;
+    }
+    let mut depth = 0_isize;
+    for (index, character) in line.char_indices() {
+        match character {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = (depth - 1).max(0),
+            ':' if depth == 0 && line.as_bytes().get(index + 1) != Some(&b'=') => {
+                return !line[index + 1..].trim().is_empty();
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn defines_function_named(line: &str, expected: &str) -> bool {
+    FUNCTION.captures(line).is_some_and(|captures| {
+        captures
+            .get(1)
+            .is_some_and(|name| name.as_str() == expected)
+    })
 }
 
 fn uses_safe_ruamel_yaml(lines: &[&str], index: usize) -> bool {
@@ -1148,6 +1245,22 @@ fn is_com_interface_method(lines: &[&str], method_index: usize, method_indent: u
     false
 }
 
+fn has_override_decorator(lines: &[&str], method_index: usize, method_indent: usize) -> bool {
+    for raw in lines[..method_index].iter().rev() {
+        let candidate = raw.trim();
+        if candidate.is_empty() || candidate.starts_with('#') {
+            continue;
+        }
+        if leading_indent(raw) != method_indent || !candidate.starts_with('@') {
+            return false;
+        }
+        if matches!(candidate, "@override" | "@typing.override") {
+            return true;
+        }
+    }
+    false
+}
+
 fn monkey_patch_replacements(lines: &[&str]) -> BTreeSet<String> {
     let mut replacements = BTreeSet::new();
     for raw in lines {
@@ -1166,12 +1279,36 @@ fn monkey_patch_replacements(lines: &[&str]) -> BTreeSet<String> {
     replacements
 }
 
+fn broad_handler_immediately_raises(lines: &[&str], current: &PythonLine<'_>) -> bool {
+    lines[current.index + 1..]
+        .iter()
+        .map(|raw| (leading_indent(raw), code_before_comment(raw).trim()))
+        .find(|(_, line)| !line.is_empty())
+        .is_some_and(|(indent, line)| indent > current.indent && is_raise_statement(line))
+}
+
+fn is_raise_statement(line: &str) -> bool {
+    line == "raise" || line.starts_with("raise ")
+}
+
+fn expression_has_noqa(lines: &[&str], current: &PythonLine<'_>, code: &str) -> bool {
+    let start = current.expression_start.unwrap_or(current.index);
+    lines[start..=current.index].iter().any(|raw| {
+        let source = code_before_comment(raw);
+        has_noqa_for(&raw[source.len()..], code)
+    })
+}
+
 fn is_test_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/").to_ascii_lowercase();
     let name = normalized.rsplit('/').next().unwrap_or(&normalized);
     PYTHON_TEST_DIRECTORY.is_match(&normalized)
         || name.starts_with("test_")
         || name.ends_with("_test.py")
+}
+
+fn is_package_init(path: &str) -> bool {
+    path == "__init__.py" || path.ends_with("/__init__.py")
 }
 
 fn has_noqa_for(comment: &str, code: &str) -> bool {
@@ -1185,6 +1322,24 @@ fn has_noqa_for(comment: &str, code: &str) -> bool {
         .as_str()
         .split(|character: char| character.is_whitespace() || character == ',')
         .any(|listed| listed.eq_ignore_ascii_case(code))
+}
+
+fn has_pylint_disable(comment: &str, codes: &[&str]) -> bool {
+    let normalized = comment.to_ascii_lowercase();
+    normalized
+        .split("pylint:")
+        .skip(1)
+        .filter_map(|directive| directive.trim_start().strip_prefix("disable"))
+        .map(|directive| {
+            directive
+                .trim_start()
+                .strip_prefix('=')
+                .unwrap_or(directive)
+        })
+        .flat_map(|directive| {
+            directive.split(|character: char| character.is_whitespace() || character == ',')
+        })
+        .any(|listed| codes.contains(&listed))
 }
 
 fn code_before_comment(line: &str) -> &str {
@@ -1446,10 +1601,15 @@ fn mask_strings(line: &str) -> Cow<'_, str> {
     })
 }
 
-fn has_hardcoded_secret(code: &str, path: &str) -> bool {
-    let secret = HARDCODED_SECRET_ASSIGNMENT
+fn has_hardcoded_secret(code: &str, path: &str, in_expression_continuation: bool) -> bool {
+    let secret = HARDCODED_SECRET_MAP_ENTRY
         .find(code)
-        .or_else(|| HARDCODED_SECRET_MAP_ENTRY.find(code));
+        .filter(|matched| !is_inside_quoted_string(code, matched.start()))
+        .or_else(|| {
+            (!in_expression_continuation)
+                .then(|| HARDCODED_SECRET_ASSIGNMENT.find(code))
+                .flatten()
+        });
     let Some(secret) = secret else {
         return false;
     };
@@ -1457,11 +1617,59 @@ fn has_hardcoded_secret(code: &str, path: &str) -> bool {
     if REPEATED_FILLER_SECRET.is_match(code)
         || EMPTY_HARDCODED_SECRET.is_match(code)
         || is_symbolic_secret_value(text)
+        || is_secret_metadata_label(text)
         || is_placeholder_secret(text, path)
+        || is_non_alphanumeric_secret_marker(text)
     {
         return false;
     }
     true
+}
+
+fn is_inside_quoted_string(code: &str, offset: usize) -> bool {
+    QUOTED_STRING
+        .find_iter(code)
+        .any(|literal| literal.start() < offset && offset < literal.end())
+}
+
+fn is_secret_form_metadata(lines: &[&str], current: &PythonLine<'_>) -> bool {
+    if !HARDCODED_SECRET_MAP_ENTRY.is_match(&current.code) {
+        return false;
+    }
+    if is_secret_form_metadata_container(&current.code) {
+        return true;
+    }
+
+    let mut outer_indent = current.indent;
+    for raw in lines[..current.index].iter().rev() {
+        let code = code_before_comment(raw).trim();
+        if code.is_empty() {
+            continue;
+        }
+        let indent = leading_indent(raw);
+        if indent >= outer_indent {
+            continue;
+        }
+        outer_indent = indent;
+        if is_secret_form_metadata_container(code) {
+            return true;
+        }
+        if !(code.ends_with('{') || code.ends_with('[')) {
+            return false;
+        }
+    }
+    false
+}
+
+fn is_secret_form_metadata_container(code: &str) -> bool {
+    [
+        "\"relabeling\"",
+        "'relabeling'",
+        "\"placeholders\"",
+        "'placeholders'",
+    ]
+    .iter()
+    .any(|name| code.contains(name))
 }
 
 fn is_symbolic_secret_value(text: &str) -> bool {
@@ -1476,6 +1684,18 @@ fn is_symbolic_secret_value(text: &str) -> bool {
         .or_else(|| literal.get(2))
         .map_or("", |value| value.as_str());
     normalize_secret(name.as_str()) == normalize_secret(value)
+}
+
+fn is_secret_metadata_label(text: &str) -> bool {
+    let Some(literal) = SECRET_STRING_LITERAL.captures_iter(text).last() else {
+        return false;
+    };
+    let value = literal
+        .get(1)
+        .or_else(|| literal.get(2))
+        .map_or("", |value| value.as_str())
+        .trim();
+    SECRET_METADATA_LABEL.is_match(value)
 }
 
 fn normalize_secret(value: &str) -> String {
@@ -1497,6 +1717,20 @@ fn is_placeholder_secret(text: &str, path: &str) -> bool {
         .trim();
     DOCUMENTATION_SECRET_PLACEHOLDER.is_match(value)
         || is_test_path(path) && TEST_SECRET_PLACEHOLDER.is_match(value)
+}
+
+fn is_non_alphanumeric_secret_marker(text: &str) -> bool {
+    let Some(literal) = SECRET_STRING_LITERAL.captures_iter(text).last() else {
+        return false;
+    };
+    let value = literal
+        .get(1)
+        .or_else(|| literal.get(2))
+        .map_or("", |value| value.as_str());
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|character| !character.is_ascii_alphanumeric())
 }
 
 fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding {
@@ -1566,8 +1800,12 @@ static WEAK_HASH: LazyLock<Regex> = LazyLock::new(|| {
 });
 static WEAK_HASH_SAFE_INTENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\busedforsecurity\s*=\s*False\b").unwrap());
-static DEBUG_ENABLED: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bdebug\s*=\s*true").unwrap());
+static DEBUG_ENABLED: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(?:^\s*debug\s*=\s*true\b|\b(?:app|application)\.run\s*\([^#]*\bdebug\s*=\s*true\b|["']debug["']\s*:\s*true\b)"#,
+    )
+    .unwrap()
+});
 static OPEN_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^\w.])open\s*\(").unwrap());
 static BINARY_OPEN_MODE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)["'][rwa+x]*b[rwa+x]*["']"#).unwrap());
@@ -1583,7 +1821,10 @@ static YAML_CONSTRUCTION: LazyLock<Regex> =
 static SAFE_YAML_TYPE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)\btyp\s*=\s*["']safe["']"#).unwrap());
 static SQL_STATEMENT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:select\b[^\n]*\bfrom\b|insert\s+into\b|update\s+[A-Za-z_][\w.]*\s+set\b|delete\s+from\b)").unwrap()
+    Regex::new(
+        r#"(?i)^["']\s*(?:select\s+\S+[^\n]*\s+from\b|insert\s+into\b|update\s+[A-Za-z_][\w.]*\s+set\b|delete\s+from\b)"#,
+    )
+    .unwrap()
 });
 static PYTHON_F_STRING_PREFIX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(?:^|[^\w])(?:f[r]?|r[f])$").unwrap());
@@ -1610,6 +1851,8 @@ static HTTP_REQUEST_HANDLER_METHOD: LazyLock<Regex> = LazyLock::new(|| {
 });
 static PYTHON_TEST_LIFECYCLE_METHOD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:setUp|tearDown)(?:Class|Module)?$").unwrap());
+static PYTHON_VISITOR_METHOD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:visit|leave)_[A-Z]").unwrap());
 static EXPECTED_OPEN_FAILURE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:with\s+)?(?:(?:self\.)?assertRaises|pytest\.raises)\(\s*(?:FileNotFoundError|PermissionError|IsADirectoryError)\s*\)\s*:\s*$").unwrap()
 });
@@ -1617,10 +1860,10 @@ static QUOTED_STRING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"#).unwrap()
 });
 static HARDCODED_SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)\b(?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)\s*=\s*[rRuUbBfF]{0,2}(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*(?:[,}\])]|$)"#).unwrap()
+    Regex::new(r#"(?i)^\s*(?:[A-Za-z_]\w*\.)*(?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)\s*=\s*[rRuUbB]{0,2}(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*(?:[,}\])]|$)"#).unwrap()
 });
 static HARDCODED_SECRET_MAP_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)["'](?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)["']\s*:\s*[rRuUbBfF]{0,2}(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*(?:[,}\])]|$)"#).unwrap()
+    Regex::new(r#"(?i)["'](?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)["']\s*:\s*[rRuUbB]{0,2}(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*(?:[,}\])]|$)"#).unwrap()
 });
 static EMPTY_HARDCODED_SECRET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)(?:(?:\b(?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)\s*=)|(?:["'](?:password|passwd|secret|api_?key|token|access_token|refresh_token|auth_token|bearer_token|client_secret|secret_key)["']\s*:))\s*[rRuUbBfF]{0,2}(?:"\s*"|'\s*')"#).unwrap()
@@ -1631,7 +1874,10 @@ static SECRET_NAME: LazyLock<Regex> = LazyLock::new(|| {
 static SECRET_STRING_LITERAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[rRuUbBfF]{0,2}(?:"([^"]*)"|'([^']*)')"#).unwrap());
 static DOCUMENTATION_SECRET_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(?:none|null|undefined)$|(?:^|[-_])your(?:[-_])(?:[a-z0-9]+[-_])*(?:key|token|secret|password|credential)(?:$|[-_])|(?:^|[-_])replace[-_]?me(?:$|[-_])").unwrap()
+    Regex::new(r"(?i)^(?:none|null|undefined|incorrect|invalid|wrong(?:[-_][a-z0-9]+)?|\[%key:[^]]+%\])$|(?:^|[-_])your(?:[-_])(?:[a-z0-9]+[-_])*(?:key|token|secret|password|credential)(?:$|[-_])|(?:^|[-_])replace[-_]?me(?:$|[-_])").unwrap()
+});
+static SECRET_METADATA_LABEL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^(?:secrets? backend|(?:client )?(?:secret|password|token|api key) (?:field|label|name|identifier|id|endpoint|url))$").unwrap()
 });
 static TEST_SECRET_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(?:test|test[-_](?:api[-_]?key|key|token|secret|password)|fc[-_]test)$")
@@ -1726,6 +1972,35 @@ mod tests {
     }
 
     #[test]
+    fn accepts_package_facades_and_explicit_wildcard_suppressions() {
+        let sources = BTreeMap::from([
+            (
+                "package/__init__.py".to_owned(),
+                "from .api import *\nfrom package.models import *\n__all__ = [\"run\"]\n"
+                    .to_owned(),
+            ),
+            (
+                "module.py".to_owned(),
+                "from package import *\nfrom generated import *  # noqa: F403\n".to_owned(),
+            ),
+            (
+                "unbounded/__init__.py".to_owned(),
+                "from .api import *\n".to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "py-wildcard-import")
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            vec![("module.py".to_owned(), 1)]
+        );
+    }
+
+    #[test]
     fn preserves_import_and_async_scope_state() {
         let sources = BTreeMap::from([(
             "state.py".to_owned(),
@@ -1805,6 +2080,198 @@ ignore = [\"E402\", \"E722\"]\n"
 
         assert!(analyze(&context).is_empty());
     }
+
+    #[test]
+    fn honors_inline_and_legacy_broad_exception_suppressions() {
+        let inline_sources = BTreeMap::from([
+            (
+                "inline.py".to_owned(),
+                "try:\n    run()\nexcept Exception:  # noqa: BLE001\n    recover()\n"
+                    .to_owned(),
+            ),
+            (
+                "pylint_inline.py".to_owned(),
+                "try:\n    run()\nexcept Exception:  # pylint: disable=broad-except\n    recover()\n"
+                    .to_owned(),
+            ),
+        ]);
+        let inline_context = SourceAnalysisContext::unchanged(&inline_sources);
+        assert!(
+            analyze(&inline_context)
+                .iter()
+                .all(|finding| finding.code != "py-broad-except")
+        );
+
+        let policy_sources = BTreeMap::from([(
+            "policy.py".to_owned(),
+            "try:\n    run()\nexcept Exception:\n    recover()\n".to_owned(),
+        )]);
+        let auxiliary = BTreeMap::from([(
+            "pyproject.toml".to_owned(),
+            "[tool.pylint.\"MESSAGES CONTROL\"]\ndisable = [\"broad-except\"]\n".to_owned(),
+        )]);
+        let base = BTreeMap::new();
+        let changed = BTreeSet::new();
+        let policy_context = SourceAnalysisContext::with_auxiliary(
+            &policy_sources,
+            &base,
+            &changed,
+            false,
+            &auxiliary,
+        );
+        assert!(
+            analyze(&policy_context)
+                .iter()
+                .all(|finding| finding.code != "py-broad-except")
+        );
+    }
+
+    #[test]
+    fn accepts_reviewed_security_and_exception_boundaries() {
+        let sources = BTreeMap::from([(
+            "boundaries.py".to_owned(),
+            r#"try:
+    parse(value)
+except Exception as error:
+    raise DomainError("invalid value") from error
+
+ConsoleMessage(
+    "details",
+    debug=True,
+)
+query = text(
+    f"SELECT * FROM {table}"  # noqa: S608
+    f" WHERE id = {column}"
+)
+
+try:
+    parse(other)
+except Exception:
+    recover()
+
+raise ValueError(f"Task {task} is unsupported. Select task from {available_tasks}.")
+prompt = f"Select from your existing {kind} credential blocks"
+
+debug = True
+unsafe_query = f"SELECT * FROM users WHERE id = {user_id}"
+app.run(debug=True)
+"#
+            .to_owned(),
+        )]);
+
+        let findings = analyze(&SourceAnalysisContext::unchanged(&sources));
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "py-broad-except")
+                .count(),
+            1
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "py-debug-enabled")
+                .count(),
+            2
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "py-sql-string-build")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn accepts_python_protocols_and_multiline_headers() {
+        let sources = BTreeMap::from([(
+            "protocols.py".to_owned(),
+            r#"from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from package import Model
+from runtime import value
+
+class Handler:
+    @override
+    def shouldRollover(self, record):
+        return False
+
+    def visit_FunctionDef(self, node):
+        return node
+
+    def open(self):
+        return None
+
+if (loaded := load(
+    value
+)):
+    consume(loaded)
+items = [item for item in values if (selected := choose(item))]
+handle = open("data.txt")
+if ready: run()
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "py-import-not-top"
+                        | "py-function-naming"
+                        | "py-open-no-encoding"
+                        | "py-compound-statement"
+                )
+            })
+            .map(|finding| finding.code)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                "py-open-no-encoding".to_owned(),
+                "py-compound-statement".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_only_literal_secret_assignments_and_map_entries() {
+        let sources = BTreeMap::from([(
+            "secrets.py".to_owned(),
+            r#"API_KEY = "actual-static-api-key"
+client = Client(api_key="responseFieldName")
+other_client = Client(
+    api_key="anotherResponseField",
+)
+token = f"{secrets.token_urlsafe(16)}.{extension}"
+password = "*"
+labels = {"password": "[%key:common::password%]"}
+credentials = {"token": "actual-static-token"}
+connection_form = {
+    "relabeling": {"password": "Client Secret"},
+    "placeholders": {
+        "password": "secret",
+    },
+}
+metadata = {"secret": "secrets backend"}
+examples = {"example": '{"password": "password_for_server"}'}
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "py-hardcoded-secret")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![1, 9]
+        );
+    }
     #[test]
     fn reports_python_loop_performance_patterns() {
         let sources = BTreeMap::from([(
@@ -1871,6 +2338,7 @@ ignore = [\"E402\", \"E722\"]\n"
 +        message += value\n\
 +        if value in allowed:\n\
 +            output.append(value)\n\
++        copied = [item for item in values]\n\
 +        def deferred():\n\
 +            return re.compile(r\"deferred\")\n\
 +    return \"\".join(output)\n\
@@ -1913,6 +2381,7 @@ ignore = [\"E402\", \"E722\"]\n"
     subprocess.run(["checked"], check=True)
     result = subprocess.run(["inspected"])
     return subprocess.run(["returned"])
+    asyncio.create_task(documented())  # noqa: RUF006
 "#
             .to_owned(),
         )]);
@@ -1935,6 +2404,40 @@ ignore = [\"E402\", \"E722\"]\n"
                 ("py-subprocess-run-unchecked".to_owned(), 6),
             ]
         );
+    }
+
+    #[test]
+    fn accepts_tasks_retained_by_multiline_expressions_and_nested_sync_work() {
+        let sources = BTreeMap::from([(
+            "retained.py".to_owned(),
+            r#"async def run(values):
+    def blocking_request():
+        return requests.get(url)
+    tasks = []
+    tasks.append(
+        asyncio.create_task(save())
+    )
+    pending = [
+        asyncio.create_task(process(value))
+        for value in values
+    ]
+    asyncio.create_task(discarded())
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "py-asyncio-dangling-task" | "py-async-blocking-call"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![("py-asyncio-dangling-task".to_owned(), 12)]);
     }
 
     #[test]

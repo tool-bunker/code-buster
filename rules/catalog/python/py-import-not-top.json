@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 3,
+  "why": "Imports after executable module code can make dependency loading conditional or order-dependent.",
+  "suggestion": "Keep ordinary imports in the module preamble; retain local imports only when delayed loading is intentional.",
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Imports inside TYPE_CHECKING blocks and imports following a top-level TYPE_CHECKING preamble are accepted.",
+    "The rule does not infer whether other late imports intentionally avoid cycles or optional dependencies."
+  ]
 }

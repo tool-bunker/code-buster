@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Production code that depends on tests, fixtures, mocks, benchmarks, or examples can fail in packaged builds and reverses the intended dependency direction.",
   "suggestion": "Move shared behavior into production code and import it from both production and test code.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,7 @@
   "languageVersions": [],
   "limitations": [
     "Only imports resolved by Code Buster's static dependency graph are reported.",
-    "The rule is disabled when tests or examples are explicitly included in the analysis."
+    "The rule is disabled when tests or examples are explicitly included in the analysis.",
+    "Python package initializers that explicitly import and list an immediate test-support subpackage in __all__, plus conventional commands/test.py test runners, are treated as intentional test entry points."
   ]
 }
