@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.0
+
 ### Added
 
 - Detect repeated Python list front removal, index-driven Rust UTF-8 character traversal, growing Node.js buffer concatenation, and constant JavaScript Intl formatter construction inside loops.

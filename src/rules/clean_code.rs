@@ -422,7 +422,7 @@ fn placeholder_identifier_candidates<'a>(
     let mut depth = 0;
     let mut candidates = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        if !comment_only[index] && !(python && is_in_python_main_guard(lines, index)) {
+        if !(comment_only[index] || (python && is_in_python_main_guard(lines, index))) {
             candidates.extend(
                 PLACEHOLDER_DECLARATION
                     .captures_iter(line)
