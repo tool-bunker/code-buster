@@ -989,6 +989,7 @@ fn is_test_path(normalized: &str, name: &str, segments: &[&str]) -> bool {
     TEST_HELPER_REGEX.is_match(name)
         || segments.first() == Some(&"t")
         || is_source_test_path(normalized)
+        || is_resource_test_corpus(segments)
         || TEST_PATH_SEGMENTS
             .iter()
             .any(|candidate| segments.contains(candidate))
@@ -996,6 +997,15 @@ fn is_test_path(normalized: &str, name: &str, segments: &[&str]) -> bool {
             .iter()
             .any(|candidate| segments.contains(candidate))
         || segments.iter().copied().any(is_test_path_segment)
+}
+
+fn is_resource_test_corpus(segments: &[&str]) -> bool {
+    segments
+        .windows(2)
+        .any(|parts| parts == ["resources", "corpus"])
+        || segments.windows(3).any(|parts| {
+            parts[0] == "resources" && parts[1] == "inline" && matches!(parts[2], "err" | "ok")
+        })
 }
 
 fn is_source_test_path(normalized: &str) -> bool {
@@ -1916,6 +1926,9 @@ mod tests {
             "src/EditorFeatures/CSharpTest2/CompletionTests.cs",
             "src/Workspaces/CoreTestUtilities/TestHost.cs",
             "src/Scripting/CSharpTest.Desktop/SessionTests.cs",
+            "crates/ty_python_semantic/resources/corpus/cyclic_symbol.py",
+            "crates/ruff_python_parser/resources/inline/err/invalid.py",
+            "crates/ruff_python_parser/resources/inline/ok/valid.py",
         ] {
             assert_eq!(
                 classify_path(path, &RepositoryPolicy::default()),

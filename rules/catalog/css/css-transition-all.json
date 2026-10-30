@@ -1,0 +1,25 @@
+{
+  "id": "css-transition-all",
+  "language": "css",
+  "group": "performance",
+  "listingTitle": "List transitioned CSS properties explicitly",
+  "title": "List transitioned CSS properties explicitly",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Transitioning every property can animate unexpected state changes and makes layout or paint work easy to introduce accidentally.",
+  "suggestion": "Replace `all` with the specific properties whose changes should animate.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["css", "ui", "svelte"],
+  "implementation": "src/languages/css/rules.rs",
+  "languages": ["css", "html"],
+  "frameworks": ["svelte"],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit `all` values in transition and transition-property declarations are reported; custom properties are not resolved. Plain CSS and CSS in Svelte style blocks are analyzed."
+  ]
+}

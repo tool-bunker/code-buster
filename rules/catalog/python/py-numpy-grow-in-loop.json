@@ -1,0 +1,26 @@
+{
+  "id": "py-numpy-grow-in-loop",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Collect NumPy chunks before concatenating",
+  "title": "Collect NumPy chunks before concatenating",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "NumPy arrays do not grow in place, so assigning append, concatenate, vstack, or hstack back to an input array inside a loop repeatedly reallocates and copies it.",
+  "suggestion": "Collect chunks in a Python list and concatenate or stack them once after the loop.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only qualified calls through an alias established by import numpy are reported for append, concatenate, vstack, and hstack.",
+    "The assigned variable must also occur in the call arguments and have a visible assignment outside the active loop; array size, loop bounds, parameters, and hidden ownership are not inferred."
+  ]
+}

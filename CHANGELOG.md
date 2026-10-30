@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+
+- Add conservative Python checks for unawaited local coroutines, swallowed exceptions, unclosed resources, control flow in `finally`, unsafe archive extraction, predictable security tokens, database work in loops, subprocesses without timeouts, unbounded retries, traceback-resetting raises, sensitive-data logging, and provider-side mock targets.
+- Add Python performance checks for eager `any` and `all` comprehensions, repeated list searches, sequence rebuilding, quadratic list flattening, NumPy array growth, and eager debug or info log formatting.
+- Add manifest-scoped Bevy checks for conflicting ECS access, commands issued after despawn, discarded asset handles, dynamic font atlas growth, and per-frame asset creation.
+- Add web checks for broad and layout-triggering CSS transitions, suppressed keyboard focus indicators, unmuted autoplay video, and unnamed inline graphics.
+- Add `cb review --pr` to resolve the pull-request merge base from the CI target branch, `origin/HEAD`, or conventional main branches.
+
+### Changed
+
+- Replace the FastAPI-only database-session and query-in-loop findings with generic `py-resource-not-closed` and `py-query-in-loop` coverage so Python projects receive one finding per issue.
+- Index candidate generic references in one source pass and expose individual YAGNI checks in `--profile`, avoiding a full-project rescan for every generic candidate.
+- Pre-index Rust function-local collection, map, and string declarations once for loop and allocation checks, and expose individual Rust checks in `--profile` instead of repeatedly scanning every extracted function for each source file.
+- Redesign `cb --help` with grouped commands and options, practical examples, and terminal-aware color.
+- Analyze plain CSS inside Svelte style blocks for transition and focus findings while preserving source line numbers.
+
+### Fixed
+
+- Reduce new web-rule noise by matching replacement focus styles across CSS blocks, ignoring non-focusable anchors and pointer-only focus suppression, parsing Svelte expression attributes safely, and accepting forwarded graphic attributes or labelled interactive ancestors.
+
 ## 0.12.0
 
 ### Added

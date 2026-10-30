@@ -1,0 +1,26 @@
+{
+  "id": "bevy-dropped-asset-handle",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Retain loaded Bevy asset handles",
+  "title": "Retain loaded Bevy asset handles",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "AssetServer load methods return strong handles that keep loading or loaded assets alive; immediately discarding the handle makes the request ineffective or allows the asset to be unloaded.",
+  "suggestion": "Store the handle in a component, resource, asset collection, or another owner for as long as the asset is needed.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability", "correctness"],
+  "requirements": ["sourceText", "functions", "manifest"],
+  "packs": ["bevy"],
+  "implementation": "src/rules/frameworks/bevy.rs",
+  "languages": ["rust"],
+  "frameworks": ["bevy"],
+  "languageVersions": [],
+  "limitations": [
+    "Only standalone load, load_untyped, and load_folder calls through a direct Res<AssetServer> binding, including let _ discards, are reported.",
+    "Aliases, wrapper methods, deliberate cache warming, and handles retained through indirect APIs are not inferred."
+  ]
+}

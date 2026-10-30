@@ -70,8 +70,8 @@ use rules::{
     catalog as rule_catalog, clean_code as clean_code_rules, complexity, constant_arguments,
     diff_quality as diff_quality_rules, duplication, feature_flags,
     frameworks::{
-        fastapi as fastapi_rules, flutter as flutter_quality_rules, pixijs as pixijs_rules,
-        svelte as svelte_rules,
+        bevy as bevy_rules, fastapi as fastapi_rules, flutter as flutter_quality_rules,
+        pixijs as pixijs_rules, svelte as svelte_rules,
     },
     generated_code_risks, generic as generic_rules, github_actions as github_actions_rules,
     layout as layout_rules, object_soup as object_soup_rules, oop as oop_rules,
@@ -94,7 +94,7 @@ use std::process::ExitCode;
 pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     match cli::parse(arguments) {
         Ok(cli::Command::Help) => {
-            println!("{}", cli::usage());
+            println!("{}", cli::usage(reporting::terminal::colors_enabled()));
             ExitCode::SUCCESS
         }
         Ok(cli::Command::Version) => {

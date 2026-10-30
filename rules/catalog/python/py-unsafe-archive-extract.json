@@ -1,0 +1,26 @@
+{
+  "id": "py-unsafe-archive-extract",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Validate archive extraction paths",
+  "title": "Validate archive extraction paths",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "Archive entries can escape the intended destination through traversal paths or unsafe link metadata.",
+  "suggestion": "Validate every resolved member path against the destination, or use the tar data filter where supported.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "hotspot",
+  "taxonomy": ["security"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Receivers are tracked only from direct tarfile.open and zipfile.ZipFile assignments or one-line context managers.",
+    "Tar extraction with filter=data is accepted, as is the Python 3.14 data-filter default when pyproject.toml requires Python 3.14 or newer; custom validation helpers for zip extraction are not inferred, so this hotspot is advisory by default."
+  ]
+}

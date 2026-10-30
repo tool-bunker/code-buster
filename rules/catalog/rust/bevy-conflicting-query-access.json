@@ -1,0 +1,26 @@
+{
+  "id": "bevy-conflicting-query-access",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Keep Bevy query access compatible",
+  "title": "Keep Bevy query access compatible",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "A Bevy system that requests overlapping component access with at least one mutable reference fails system parameter validation and panics at runtime.",
+  "suggestion": "Make the queries provably disjoint with opposing With/Without filters, combine compatible access into one query, or use ParamSet for sequential access.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability", "correctness"],
+  "requirements": ["sourceText", "functions", "manifest"],
+  "packs": ["bevy"],
+  "implementation": "src/rules/frameworks/bevy.rs",
+  "languages": ["rust"],
+  "frameworks": ["bevy"],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit Query component reference types are compared; aliases, custom SystemParam implementations, broad EntityRef access, and indirect query construction are not resolved.",
+    "Directly queried references and Ref<T> data are treated as implicit With filters; opposing With/Without filters prove disjointness, while ParamSet and Extract world boundaries are kept separate."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "py-coroutine-not-awaited",
+  "language": "python",
+  "group": "correctness",
+  "listingTitle": "Await direct coroutine calls",
+  "title": "Await direct coroutine calls",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "Calling an async function without awaiting, returning, or scheduling its coroutine leaves the intended work unexecuted.",
+  "suggestion": "Await the coroutine, return it to the caller, or schedule it through structured concurrency.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["correctness"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct expression-statement calls to async functions declared in the same file are reported.",
+    "Awaited, returned, assigned, collected, scheduler-wrapped, and multiline enclosing-expression calls are excluded.",
+    "Imported coroutines and dynamically resolved methods are not inferred."
+  ]
+}

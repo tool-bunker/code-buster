@@ -1,0 +1,26 @@
+{
+  "id": "bevy-dynamic-font-atlas-growth",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Avoid dynamic Bevy font atlas growth",
+  "title": "Avoid dynamic Bevy font atlas growth",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Bevy creates a separate font atlas for each font and size, and dynamically interpolating TextFont font_size or UiScale scale can create expensive atlas memory that is not reclaimed.",
+  "suggestion": "Keep font sizes discrete and animate Transform::scale instead, or explicitly configure TextSettings when dynamic font sizes are intentional.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["performance", "memory"],
+  "requirements": ["sourceText", "functions", "manifest"],
+  "packs": ["bevy"],
+  "implementation": "src/rules/frameworks/bevy.rs",
+  "languages": ["rust"],
+  "frameworks": ["bevy"],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct compound mutations or assignments involving common time/interpolation expressions in Update or FixedUpdate systems are reported.",
+    "The rule recognizes direct TextFont query loop bindings and ResMut<UiScale> bindings, and is disabled when allow_dynamic_font_size: true is present."
+  ]
+}

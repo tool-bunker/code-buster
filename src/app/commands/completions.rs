@@ -9,6 +9,9 @@ pub fn execute(shell: &str) {
              complete -c cb -l cache-dir -r\n\
              complete -c cb -l cache\n\
              complete -c cb -l profile\n\
+             complete -c cb -l pr\n\
+             complete -c cb -l changed\n\
+             complete -c cb -l changed-base -r\n\
              complete -c cb -l format -a \"text json ndjson markdown sarif junit mermaid plan actions\""
         ),
         "powershell" | "pwsh" => format!(
@@ -25,6 +28,9 @@ pub fn execute(shell: &str) {
              '--lang[language]:' \
              '--cache[reuse analysis cache]' \
              '--profile[measure uncached rule-pack execution]' \
+             '--pr[review the current pull-request changes]' \
+             '--changed[review working-tree changes from HEAD]' \
+             '--changed-base[review changes from a Git revision]:revision:' \
              '--cache-dir[cache directory]:dir:_files -/' \
              '--format[format]:(text json ndjson markdown sarif junit mermaid plan actions)'"
         ),

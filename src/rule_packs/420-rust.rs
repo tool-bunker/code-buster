@@ -11,10 +11,14 @@ pub(super) const PACK: RulePack = RulePack::main(
 );
 
 fn analyze(context: &RulePackContext<'_, '_, '_>) -> Result<RulePackOutput, String> {
-    Ok(RulePackOutput::findings(
-        crate::rust_rules::analyze_with_functions(
-            context.source_context.sources(),
-            context.functions,
-        ),
-    ))
+    let output = crate::rust_rules::analyze_profiled(
+        context.source_context.sources(),
+        context.functions,
+        context.collect_timings,
+    );
+    Ok(RulePackOutput {
+        findings: output.findings,
+        shared_durations_microseconds: output.shared_durations_microseconds,
+        rule_durations_microseconds: output.rule_durations_microseconds,
+    })
 }

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
+use std::time::Instant;
 
 use regex::Regex;
 
@@ -20,30 +21,112 @@ pub fn analyze(sources: &BTreeMap<String, String>) -> Vec<Finding> {
     analyze_with_functions(sources, &functions)
 }
 
+pub struct RustAnalysisOutput {
+    pub findings: Vec<Finding>,
+    pub shared_durations_microseconds: BTreeMap<String, u128>,
+    pub rule_durations_microseconds: BTreeMap<String, u128>,
+}
+
+#[cfg(test)]
 pub fn analyze_with_functions(
     sources: &BTreeMap<String, String>,
     functions: &[FunctionSource],
 ) -> Vec<Finding> {
-    let mut findings = object_soup_rules::rust(functions);
-    for (path, source) in sources.iter().filter(|(path, _)| path.ends_with(".rs")) {
-        let file = RustFile::new(source);
-        analyze_simple_rules(path, &file, &mut findings);
-        analyze_hardcoded_secrets(path, &file, &mut findings);
-        analyze_unsafe_blocks(path, &file, &mut findings);
-        analyze_static_mut(path, &file, &mut findings);
-        analyze_raw_ownership(path, &file, &mut findings);
-        analyze_impl_into(path, &file, &mut findings);
-        analyze_manual_send_sync(path, &file, &mut findings);
-        analyze_shell_commands(path, &file, &mut findings);
-        analyze_ffi_panics(path, &file, &mut findings);
-        analyze_async_blocking(path, &file, &mut findings);
-        analyze_sync_lock_across_await(path, &file, &mut findings);
-        analyze_loop_performance(path, &file, functions, &mut findings);
-        analyze_map_double_lookup(path, &file, functions, &mut findings);
-        analyze_format_allocations(path, &file, functions, &mut findings);
-        analyze_unbounded_channels(path, &file, &mut findings);
+    analyze_profiled(sources, functions, false).findings
+}
+
+pub fn analyze_profiled(
+    sources: &BTreeMap<String, String>,
+    functions: &[FunctionSource],
+    collect_timings: bool,
+) -> RustAnalysisOutput {
+    let mut findings = Vec::new();
+    let mut shared_durations = BTreeMap::new();
+    let mut rule_durations = BTreeMap::new();
+    macro_rules! run {
+        ($name:literal, $analysis:expr) => {{
+            if collect_timings {
+                let started = Instant::now();
+                $analysis;
+                record_duration(&mut rule_durations, $name, started);
+            } else {
+                $analysis;
+            }
+        }};
     }
-    findings
+    let started = collect_timings.then(Instant::now);
+    let scope_index = RustScopeIndex::new(functions);
+    if let Some(started) = started {
+        record_duration(&mut shared_durations, "rust-scope-index", started);
+    }
+    run!("rust-object-soup", {
+        findings.extend(object_soup_rules::rust(functions))
+    });
+    for (path, source) in sources.iter().filter(|(path, _)| path.ends_with(".rs")) {
+        let started = collect_timings.then(Instant::now);
+        let file = RustFile::new(source);
+        if let Some(started) = started {
+            record_duration(&mut shared_durations, "rust-file-index", started);
+        }
+        analyze_simple_rules(
+            path,
+            &file,
+            &mut findings,
+            collect_timings,
+            &mut rule_durations,
+        );
+        run!("rust-hardcoded-secrets", {
+            analyze_hardcoded_secrets(path, &file, &mut findings)
+        });
+        run!("rust-unsafe-blocks", {
+            analyze_unsafe_blocks(path, &file, &mut findings)
+        });
+        run!("rust-static-mut", {
+            analyze_static_mut(path, &file, &mut findings)
+        });
+        run!("rust-raw-ownership", {
+            analyze_raw_ownership(path, &file, &mut findings)
+        });
+        run!("rust-impl-into", {
+            analyze_impl_into(path, &file, &mut findings)
+        });
+        run!("rust-manual-send-sync", {
+            analyze_manual_send_sync(path, &file, &mut findings)
+        });
+        run!("rust-shell-command", {
+            analyze_shell_commands(path, &file, &mut findings)
+        });
+        run!("rust-ffi-panic", {
+            analyze_ffi_panics(path, &file, &mut findings)
+        });
+        run!("rust-async-blocking", {
+            analyze_async_blocking(path, &file, &mut findings)
+        });
+        run!("rust-lock-across-await", {
+            analyze_sync_lock_across_await(path, &file, &mut findings)
+        });
+        run!("rust-loop-performance", {
+            analyze_loop_performance(path, &file, scope_index.linear(path), &mut findings)
+        });
+        run!("rust-map-double-lookup", {
+            analyze_map_double_lookup(path, &file, scope_index.maps(path), &mut findings)
+        });
+        run!("rust-format-allocation", {
+            analyze_format_allocations(path, &file, scope_index.strings(path), &mut findings)
+        });
+        run!("rust-unbounded-channel", {
+            analyze_unbounded_channels(path, &file, &mut findings)
+        });
+    }
+    RustAnalysisOutput {
+        findings,
+        shared_durations_microseconds: shared_durations,
+        rule_durations_microseconds: rule_durations,
+    }
+}
+
+fn record_duration(durations: &mut BTreeMap<String, u128>, name: &str, started: Instant) {
+    *durations.entry(name.to_owned()).or_default() += started.elapsed().as_micros();
 }
 
 struct SimpleRule {
@@ -53,20 +136,29 @@ struct SimpleRule {
     allowed_lints: &'static [&'static str],
 }
 
-fn analyze_simple_rules(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
+fn analyze_simple_rules(
+    path: &str,
+    file: &RustFile<'_>,
+    findings: &mut Vec<Finding>,
+    collect_timings: bool,
+    durations: &mut BTreeMap<String, u128>,
+) {
     for rule in SIMPLE_RULES.iter() {
-        if file_allows_rule(file.source, rule.allowed_lints) {
-            continue;
-        }
-        let allowed_lines = attributed_allowed_lines(&file.masked, rule.allowed_lints);
-        let mut source_offset = 0usize;
-        for (index, line) in file.masked.split('\n').enumerate() {
-            if reportable_simple_match(file, rule, &allowed_lines, index, line, source_offset)
-                .is_some()
-            {
-                findings.push(finding(rule.code, path, index + 1, rule.message));
+        let started = collect_timings.then(Instant::now);
+        if !file_allows_rule(file.source, rule.allowed_lints) {
+            let allowed_lines = attributed_allowed_lines(&file.masked, rule.allowed_lints);
+            let mut source_offset = 0usize;
+            for (index, line) in file.masked.split('\n').enumerate() {
+                if reportable_simple_match(file, rule, &allowed_lines, index, line, source_offset)
+                    .is_some()
+                {
+                    findings.push(finding(rule.code, path, index + 1, rule.message));
+                }
+                source_offset += line.len() + 1;
             }
-            source_offset += line.len() + 1;
+        }
+        if let Some(started) = started {
+            record_duration(durations, rule.code, started);
         }
     }
 }
@@ -781,18 +873,84 @@ struct NamedScope {
     names: BTreeSet<String>,
 }
 
+struct RustScopeIndex<'a> {
+    linear: BTreeMap<&'a str, Vec<NamedScope>>,
+    maps: BTreeMap<&'a str, Vec<NamedScope>>,
+    strings: BTreeMap<&'a str, Vec<NamedScope>>,
+}
+
+impl<'a> RustScopeIndex<'a> {
+    fn new(functions: &'a [FunctionSource]) -> Self {
+        let mut result = Self {
+            linear: BTreeMap::new(),
+            maps: BTreeMap::new(),
+            strings: BTreeMap::new(),
+        };
+        for function in functions
+            .iter()
+            .filter(|function| function.path.ends_with(".rs"))
+        {
+            let (masked, _, _) = scan_rust(&function.source);
+            collect_named_scope(
+                &mut result.linear,
+                function,
+                &masked,
+                &LINEAR_COLLECTION_DECLARATION,
+            );
+            collect_named_scope(&mut result.maps, function, &masked, &MAP_DECLARATION);
+            collect_named_scope(&mut result.strings, function, &masked, &STRING_DECLARATION);
+        }
+        result
+    }
+
+    fn linear(&self, path: &str) -> &[NamedScope] {
+        self.linear.get(path).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    fn maps(&self, path: &str) -> &[NamedScope] {
+        self.maps.get(path).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    fn strings(&self, path: &str) -> &[NamedScope] {
+        self.strings.get(path).map(Vec::as_slice).unwrap_or(&[])
+    }
+}
+
+fn collect_named_scope<'a>(
+    scopes: &mut BTreeMap<&'a str, Vec<NamedScope>>,
+    function: &'a FunctionSource,
+    masked: &str,
+    declaration: &Regex,
+) {
+    let names = declaration
+        .captures_iter(masked)
+        .filter_map(|capture| capture.get(1).or_else(|| capture.get(2)))
+        .map(|name| name.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
+    if names.is_empty() {
+        return;
+    }
+    scopes
+        .entry(function.path.as_str())
+        .or_default()
+        .push(NamedScope {
+            start_line: function.line,
+            end_line: function.end_line,
+            names,
+        });
+}
+
 fn analyze_loop_performance(
     path: &str,
     file: &RustFile<'_>,
-    functions: &[FunctionSource],
+    scopes: &[NamedScope],
     findings: &mut Vec<Finding>,
 ) {
     let loops = rust_loops(file);
     analyze_loop_regex(path, file, &loops, findings);
-    let scopes = named_scopes(path, functions, &LINEAR_COLLECTION_DECLARATION);
-    analyze_loop_membership(path, file, &loops, &scopes, findings);
-    analyze_loop_front_removal(path, file, &loops, &scopes, findings);
-    analyze_loop_front_insertion(path, file, &loops, &scopes, findings);
+    analyze_loop_membership(path, file, &loops, scopes, findings);
+    analyze_loop_front_removal(path, file, &loops, scopes, findings);
+    analyze_loop_front_insertion(path, file, &loops, scopes, findings);
     analyze_loop_chars_nth(path, file, &loops, findings);
 }
 
@@ -958,16 +1116,15 @@ fn analyze_loop_chars_nth(
 fn analyze_map_double_lookup(
     path: &str,
     file: &RustFile<'_>,
-    functions: &[FunctionSource],
+    scopes: &[NamedScope],
     findings: &mut Vec<Finding>,
 ) {
-    let scopes = named_scopes(path, functions, &MAP_DECLARATION);
     for guard in MAP_CONTAINS_GUARD.captures_iter(&file.masked) {
         let (Some(whole), Some(map), Some(key)) = (guard.get(0), guard.get(1), guard.get(2)) else {
             continue;
         };
         let line = file.line_at(whole.start());
-        if !scope_contains(&scopes, map.as_str(), line) || file.excluded(whole.start()) {
+        if !scope_contains(scopes, map.as_str(), line) || file.excluded(whole.start()) {
             continue;
         }
         let open = whole.end() - 1;
@@ -998,17 +1155,16 @@ fn analyze_map_double_lookup(
 fn analyze_format_allocations(
     path: &str,
     file: &RustFile<'_>,
-    functions: &[FunctionSource],
+    scopes: &[NamedScope],
     findings: &mut Vec<Finding>,
 ) {
-    let scopes = named_scopes(path, functions, &STRING_DECLARATION);
     for append in FORMAT_APPEND.captures_iter(&file.masked) {
         let (Some(whole), Some(name)) = (append.get(0), append.get(1).or_else(|| append.get(2)))
         else {
             continue;
         };
         let line = file.line_at(whole.start());
-        if scope_contains(&scopes, name.as_str(), line) && !file.excluded(whole.start()) {
+        if scope_contains(scopes, name.as_str(), line) && !file.excluded(whole.start()) {
             findings.push(finding(
                 "rust-format-append",
                 path,
@@ -1041,26 +1197,6 @@ fn scope_contains(scopes: &[NamedScope], name: &str, line: usize) -> bool {
     scopes.iter().any(|scope| {
         scope.start_line <= line && line <= scope.end_line && scope.names.contains(name)
     })
-}
-
-fn named_scopes(path: &str, functions: &[FunctionSource], declaration: &Regex) -> Vec<NamedScope> {
-    functions
-        .iter()
-        .filter(|function| function.path == path)
-        .filter_map(|function| {
-            let masked = RustFile::new(&function.source).masked;
-            let names = declaration
-                .captures_iter(&masked)
-                .filter_map(|capture| capture.get(1).or_else(|| capture.get(2)))
-                .map(|name| name.as_str().to_owned())
-                .collect::<BTreeSet<_>>();
-            (!names.is_empty()).then_some(NamedScope {
-                start_line: function.line,
-                end_line: function.end_line,
-                names,
-            })
-        })
-        .collect()
 }
 
 fn rust_loops(file: &RustFile<'_>) -> Vec<RustLoop> {

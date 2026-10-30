@@ -16,12 +16,40 @@ pub fn analyze(sources: &BTreeMap<String, String>) -> Vec<Finding> {
     }
     findings
 }
+pub(crate) fn analyze_svelte_styles(sources: &BTreeMap<String, String>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for (path, source) in sources
+        .iter()
+        .filter(|(path, _)| path.to_ascii_lowercase().ends_with(".svelte"))
+    {
+        for capture in SVELTE_STYLE_BLOCK.captures_iter(source) {
+            let (Some(attributes), Some(body)) = (capture.get(1), capture.get(2)) else {
+                continue;
+            };
+            if SVELTE_STYLE_LANGUAGE
+                .captures(attributes.as_str())
+                .and_then(|capture| capture.get(1).or_else(|| capture.get(2)))
+                .is_some_and(|language| !language.as_str().eq_ignore_ascii_case("css"))
+            {
+                continue;
+            }
+            let css = mask_css_comments(body.as_str());
+            let line_offset = source.as_bytes()[..body.start()]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count();
+            analyze_structured_css(path, &css, line_offset, &mut findings);
+        }
+    }
+    findings
+}
 
 fn analyze_file(path: &str, original: &str, findings: &mut Vec<Finding>) {
     let source = mask_css_comments(original);
     let lower_source = source.to_ascii_lowercase();
     let lines = source.split('\n').collect::<Vec<_>>();
     let saw_reduced_motion = lower_source.contains("prefers-reduced-motion");
+    analyze_structured_css(path, &source, 0, findings);
     let mut state = CssBlockState::default();
 
     for (index, raw) in lines.iter().enumerate() {
@@ -308,6 +336,383 @@ impl CssCommentMasker {
 
 fn mask_css_comments(source: &str) -> String {
     CssCommentMasker::new(source).mask()
+}
+#[derive(Clone, Copy)]
+struct CssDeclaration {
+    property_start: usize,
+    property_end: usize,
+    value_start: usize,
+    value_end: usize,
+    line: usize,
+}
+
+struct CssRuleBlock {
+    header_start: usize,
+    header_end: usize,
+    declarations: Vec<CssDeclaration>,
+    in_keyframes: bool,
+}
+
+#[derive(Clone, Copy)]
+enum CssStructureState {
+    Code,
+    Quoted(u8),
+}
+
+struct CssStructureScanner<'a> {
+    source: &'a str,
+    bytes: &'a [u8],
+    index: usize,
+    parentheses: usize,
+    line: usize,
+    statement_start: usize,
+    statement_line: usize,
+    state: CssStructureState,
+    stack: Vec<CssRuleBlock>,
+    blocks: Vec<CssRuleBlock>,
+}
+
+impl<'a> CssStructureScanner<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            bytes: source.as_bytes(),
+            index: 0,
+            parentheses: 0,
+            line: 1,
+            statement_start: 0,
+            statement_line: 1,
+            state: CssStructureState::Code,
+            stack: Vec::new(),
+            blocks: Vec::new(),
+        }
+    }
+
+    fn scan(mut self) -> Vec<CssRuleBlock> {
+        while let Some(&byte) = self.bytes.get(self.index) {
+            match self.state {
+                CssStructureState::Code => self.consume_code(byte),
+                CssStructureState::Quoted(delimiter) => self.consume_quoted(byte, delimiter),
+            }
+            if byte == b'\n' {
+                self.line += 1;
+            }
+            self.index += 1;
+        }
+        self.blocks
+    }
+
+    fn consume_code(&mut self, byte: u8) {
+        match byte {
+            delimiter @ (b'"' | b'\'') => {
+                self.state = CssStructureState::Quoted(delimiter);
+            }
+            b'(' => self.parentheses += 1,
+            b')' => self.parentheses = self.parentheses.saturating_sub(1),
+            b'{' if self.parentheses == 0 => self.open_block(),
+            b';' if self.parentheses == 0 => self.finish_declaration(),
+            b'}' if self.parentheses == 0 => self.close_block(),
+            _ => {}
+        }
+    }
+
+    fn consume_quoted(&mut self, byte: u8, delimiter: u8) {
+        if byte == b'\\' {
+            self.index += usize::from(self.index + 1 < self.bytes.len());
+        } else if byte == delimiter {
+            self.state = CssStructureState::Code;
+        }
+    }
+
+    fn open_block(&mut self) {
+        let (header_start, header_end) =
+            trim_css_range(self.bytes, self.statement_start, self.index);
+        let header = &self.source[header_start..header_end];
+        let in_keyframes = self.stack.last().is_some_and(|block| block.in_keyframes)
+            || is_keyframes_header(header);
+        self.stack.push(CssRuleBlock {
+            header_start,
+            header_end,
+            declarations: Vec::new(),
+            in_keyframes,
+        });
+        self.advance_statement();
+    }
+
+    fn finish_declaration(&mut self) {
+        self.record_declaration(self.index);
+        self.advance_statement();
+    }
+
+    fn close_block(&mut self) {
+        self.record_declaration(self.index);
+        if let Some(block) = self.stack.pop() {
+            self.blocks.push(block);
+        }
+        self.advance_statement();
+    }
+
+    fn record_declaration(&mut self, end: usize) {
+        let Some(block) = self.stack.last_mut() else {
+            return;
+        };
+        let Some((property_start, property_end, value_start, value_end)) =
+            parse_css_declaration(self.bytes, self.statement_start, end)
+        else {
+            return;
+        };
+        let line = self.statement_line
+            + self.source[self.statement_start..property_start]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count();
+        block.declarations.push(CssDeclaration {
+            property_start,
+            property_end,
+            value_start,
+            value_end,
+            line,
+        });
+    }
+
+    fn advance_statement(&mut self) {
+        self.statement_start = self.index + 1;
+        self.statement_line = self.line;
+    }
+}
+
+fn trim_css_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
+    while start < end && is_css_whitespace(bytes[start]) {
+        start += 1;
+    }
+    while end > start && is_css_whitespace(bytes[end - 1]) {
+        end -= 1;
+    }
+    (start, end)
+}
+
+fn parse_css_declaration(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize, usize, usize)> {
+    let (start, end) = trim_css_range(bytes, start, end);
+    let colon = bytes[start..end]
+        .iter()
+        .position(|byte| *byte == b':')
+        .map(|offset| start + offset)?;
+    let (property_start, property_end) = trim_css_range(bytes, start, colon);
+    let (value_start, value_end) = trim_css_range(bytes, colon + 1, end);
+    let property = std::str::from_utf8(&bytes[property_start..property_end]).ok()?;
+    if property.is_empty()
+        || property.starts_with("--")
+        || !property
+            .bytes()
+            .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
+    {
+        return None;
+    }
+    Some((property_start, property_end, value_start, value_end))
+}
+
+fn is_keyframes_header(header: &str) -> bool {
+    let header = header.trim();
+    header
+        .get(.."@keyframes".len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("@keyframes"))
+        || header
+            .get(.."@-webkit-keyframes".len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("@-webkit-keyframes"))
+}
+
+fn analyze_structured_css(
+    path: &str,
+    source: &str,
+    line_offset: usize,
+    findings: &mut Vec<Finding>,
+) {
+    let blocks = CssStructureScanner::new(source).scan();
+    let focus_indicators = focus_indicator_targets(source, &blocks);
+    for block in &blocks {
+        analyze_transition_declarations(path, source, block, line_offset, findings);
+        analyze_focus_indicator(
+            path,
+            source,
+            block,
+            line_offset,
+            &focus_indicators,
+            findings,
+        );
+    }
+}
+
+fn analyze_transition_declarations(
+    path: &str,
+    source: &str,
+    block: &CssRuleBlock,
+    line_offset: usize,
+    findings: &mut Vec<Finding>,
+) {
+    for declaration in &block.declarations {
+        let property = &source[declaration.property_start..declaration.property_end];
+        let value = &source[declaration.value_start..declaration.value_end];
+        if is_transition_property(property) {
+            if TRANSITION_ALL_VALUE.is_match(value) {
+                findings.push(finding(
+                    "css-transition-all",
+                    path,
+                    declaration.line + line_offset,
+                    "transition applies to every property",
+                ));
+            }
+            if let Some(layout_property) = LAYOUT_TRANSITION_PROPERTY
+                .captures(value)
+                .and_then(|capture| capture.get(1))
+            {
+                findings.push(finding(
+                    "css-layout-property-animation",
+                    path,
+                    declaration.line + line_offset,
+                    &format!(
+                        "transition animates layout property: {}",
+                        layout_property.as_str()
+                    ),
+                ));
+            }
+        } else if block.in_keyframes && is_layout_property(property) {
+            findings.push(finding(
+                "css-layout-property-animation",
+                path,
+                declaration.line + line_offset,
+                &format!("keyframes animate layout property: {property}"),
+            ));
+        }
+    }
+}
+
+fn is_transition_property(property: &str) -> bool {
+    property.eq_ignore_ascii_case("transition")
+        || property.eq_ignore_ascii_case("transition-property")
+        || property.eq_ignore_ascii_case("-webkit-transition")
+        || property.eq_ignore_ascii_case("-webkit-transition-property")
+}
+
+fn is_layout_property(property: &str) -> bool {
+    [
+        "width",
+        "height",
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "inset",
+        "inset-block",
+        "inset-block-start",
+        "inset-block-end",
+        "inset-inline",
+        "inset-inline-start",
+        "inset-inline-end",
+        "flex-basis",
+        "grid-template-columns",
+        "grid-template-rows",
+    ]
+    .iter()
+    .any(|candidate| property.eq_ignore_ascii_case(candidate))
+}
+
+fn focus_indicator_targets(source: &str, blocks: &[CssRuleBlock]) -> BTreeSet<String> {
+    let mut targets = BTreeSet::new();
+    for block in blocks {
+        if block.in_keyframes
+            || !block.declarations.iter().any(|declaration| {
+                let property = &source[declaration.property_start..declaration.property_end];
+                let value = &source[declaration.value_start..declaration.value_end];
+                supplies_focus_indicator(property, value)
+            })
+        {
+            continue;
+        }
+        let selector = &source[block.header_start..block.header_end];
+        targets.extend(focus_targets(selector));
+    }
+    targets
+}
+
+fn analyze_focus_indicator(
+    path: &str,
+    source: &str,
+    block: &CssRuleBlock,
+    line_offset: usize,
+    focus_indicators: &BTreeSet<String>,
+    findings: &mut Vec<Finding>,
+) {
+    if block.in_keyframes {
+        return;
+    }
+    let selector = &source[block.header_start..block.header_end];
+    let targets = focus_targets(selector);
+    if targets.is_empty() {
+        return;
+    }
+    let suppressed = block.declarations.iter().find(|declaration| {
+        let property = &source[declaration.property_start..declaration.property_end];
+        let value = &source[declaration.value_start..declaration.value_end];
+        suppresses_outline(property, value)
+    });
+    if let Some(suppressed) = suppressed
+        && !targets
+            .iter()
+            .all(|target| focus_indicators.contains(target))
+    {
+        findings.push(finding(
+            "css-focus-indicator-suppressed",
+            path,
+            suppressed.line + line_offset,
+            "focus indicator is removed without a visible replacement",
+        ));
+    }
+}
+
+fn focus_targets(selector: &str) -> BTreeSet<String> {
+    selector_list(selector)
+        .into_iter()
+        .filter(|part| {
+            FOCUS_PSEUDO.is_match(part)
+                && !MOUSE_ONLY_FOCUS_SELECTOR.is_match(part)
+                && !NON_INTERACTIVE_ANCHOR_FOCUS.is_match(part)
+        })
+        .map(normalize_focus_target)
+        .collect()
+}
+
+fn normalize_focus_target(selector: &str) -> String {
+    FOCUS_PSEUDO
+        .replace_all(selector, "$after")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn suppresses_outline(property: &str, value: &str) -> bool {
+    (property.eq_ignore_ascii_case("outline") || property.eq_ignore_ascii_case("outline-style"))
+        && OUTLINE_NONE_VALUE.is_match(value)
+        || property.eq_ignore_ascii_case("outline-width") && ZERO_CSS_VALUE.is_match(value)
+}
+
+fn supplies_focus_indicator(property: &str, value: &str) -> bool {
+    if (property.eq_ignore_ascii_case("outline") || property.eq_ignore_ascii_case("outline-style"))
+        && !OUTLINE_NONE_VALUE.is_match(value)
+        || property.eq_ignore_ascii_case("box-shadow") && !NONE_CSS_VALUE.is_match(value)
+    {
+        return true;
+    }
+    (property.eq_ignore_ascii_case("background")
+        || property.eq_ignore_ascii_case("background-color")
+        || property.eq_ignore_ascii_case("border")
+        || property
+            .get(.."border-".len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("border-")))
+        && !INVISIBLE_FOCUS_VALUE.is_match(value)
 }
 
 fn is_universal_box_sizing_reset(selector: &str, lines: &[&str], start: usize) -> bool {
@@ -754,6 +1159,38 @@ static MOTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static MOTION_DURATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\d*\.?\d+)(?:ms|s)\b").unwrap());
+static TRANSITION_ALL_VALUE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:^|[\s,])all(?:$|[\s,])").unwrap());
+static LAYOUT_TRANSITION_PROPERTY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)(?:^|[^a-z0-9_-])(width|height|top|right|bottom|left|inset(?:-(?:block|inline)(?:-(?:start|end))?)?|flex-basis|grid-template-(?:columns|rows))(?:$|[^a-z0-9_-])",
+    )
+    .unwrap()
+});
+static FOCUS_PSEUDO: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i):focus(?:-visible)?(?P<after>[^a-z0-9_-]|$)").unwrap());
+static MOUSE_ONLY_FOCUS_SELECTOR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i):focus\s*:\s*not\(\s*:focus-visible\s*\)").unwrap());
+static NON_INTERACTIVE_ANCHOR_FOCUS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:^|[\s>+~,])a\s*:not\(\s*\[\s*href\s*\]\s*\).*:focus").unwrap()
+});
+static OUTLINE_NONE_VALUE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^\s*(?:none|0(?:[a-z%]+)?(?:\s+[^!]+)?)(?:\s*!important)?\s*$").unwrap()
+});
+static ZERO_CSS_VALUE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*0(?:[a-z%]+)?(?:\s*!important)?\s*$").unwrap());
+static NONE_CSS_VALUE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*(?:none|initial|unset)(?:\s*!important)?\s*$").unwrap());
+static INVISIBLE_FOCUS_VALUE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)^\s*(?:none|transparent|initial|inherit|unset|revert|0(?:[a-z%]+)?)(?:\s*!important)?\s*$",
+    )
+    .unwrap()
+});
+static SVELTE_STYLE_BLOCK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<style\b([^>]*)>(.*?)</style\s*>").unwrap());
+static SVELTE_STYLE_LANGUAGE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)\blang\s*=\s*(?:"([^"]+)"|'([^']+)')"#).unwrap());
 
 #[cfg(test)]
 mod tests {
@@ -834,6 +1271,134 @@ mod tests {
 
         assert_eq!(motion.len(), 1);
         assert_eq!(motion[0].line, 5);
+    }
+
+    #[test]
+    fn reports_explicit_and_layout_transitions_and_suppressed_focus() {
+        let source = r#".button:focus-visible {
+  outline:
+    none;
+  transition:
+    all 200ms ease;
+}
+.panel {
+  transition-property:
+    width,
+    opacity;
+}
+@keyframes expand {
+  from { height: 0; }
+  to { height: 10rem; }
+}"#;
+        let found = findings(source);
+        let lines = |code: &str| {
+            found
+                .iter()
+                .filter(|finding| finding.code == code)
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(lines("css-transition-all"), vec![4]);
+        assert_eq!(lines("css-layout-property-animation"), vec![8, 13, 14]);
+        assert_eq!(lines("css-focus-indicator-suppressed"), vec![2]);
+    }
+
+    #[test]
+    fn accepts_composited_motion_and_visible_focus_contracts() {
+        let source = r#".button:focus {
+  outline: none;
+}
+.button:focus-visible {
+  outline: 2px solid currentColor;
+}
+.link:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px currentColor;
+}
+.summary:focus {
+  box-shadow: 0 0 0 3px currentColor;
+}
+.summary:focus-visible {
+  outline: none;
+}
+.close:hover,
+.close:focus-visible {
+  outline: none;
+  border-color: currentColor;
+}
+.menu:hover,
+.menu:focus-visible {
+  outline: none;
+  background-color: CanvasText;
+}
+.mouse-only:focus:not(:focus-visible) {
+  outline: none;
+}
+a:not([href]):focus {
+  outline: none;
+}
+.panel {
+  transition: transform 200ms ease, opacity 200ms ease;
+}
+@keyframes enter {
+  from { transform: translateY(1rem); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}"#;
+        let codes = findings(source)
+            .into_iter()
+            .map(|finding| finding.code)
+            .collect::<BTreeSet<_>>();
+
+        assert!(!codes.contains("css-transition-all"));
+        assert!(!codes.contains("css-layout-property-animation"));
+        assert!(!codes.contains("css-focus-indicator-suppressed"));
+    }
+
+    #[test]
+    fn analyzes_plain_css_inside_svelte_style_blocks() {
+        let source = r#"<script>
+  const example = "transition: all 1s";
+</script>
+<style>
+  .panel { transition: all 200ms; }
+  @keyframes grow { to { height: 10rem; } }
+</style>
+<style lang="scss">
+  .ignored { transition: all 1s; }
+</style>"#;
+        let found = analyze_svelte_styles(&BTreeMap::from([(
+            "Component.svelte".to_owned(),
+            source.to_owned(),
+        )]));
+        let evidence = found
+            .into_iter()
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            evidence,
+            vec![
+                ("css-transition-all".to_owned(), 5),
+                ("css-layout-property-animation".to_owned(), 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_new_css_rule_text_inside_comments_and_strings() {
+        let source = r#"/* .fake:focus-visible { outline: none; transition: all 1s; } */
+.real::before {
+  content: ".fake { transition: width 1s; }";
+}"#;
+        let codes = findings(source)
+            .into_iter()
+            .map(|finding| finding.code)
+            .collect::<BTreeSet<_>>();
+
+        assert!(!codes.contains("css-transition-all"));
+        assert!(!codes.contains("css-layout-property-animation"));
+        assert!(!codes.contains("css-focus-indicator-suppressed"));
     }
 
     #[test]

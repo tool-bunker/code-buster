@@ -1,0 +1,26 @@
+{
+  "id": "html-video-autoplay-unmuted",
+  "language": "html",
+  "group": "correctness",
+  "listingTitle": "Mute autoplaying video",
+  "title": "Mute autoplaying video",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "correctness",
+  "why": "Browsers commonly block autoplaying video with audio, and unexpected playback can disrupt users and assistive technology.",
+  "suggestion": "Add the muted attribute when autoplay is intentional, or remove autoplay and require an explicit user action.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["correctness", "accessibility"],
+  "requirements": ["sourceText"],
+  "packs": ["html", "ui", "svelte"],
+  "implementation": "src/languages/html/rules.rs",
+  "languages": ["html"],
+  "frameworks": ["svelte"],
+  "languageVersions": [],
+  "limitations": [
+    "The rule checks native video start tags in HTML, HTM, and Svelte files; videos created by scripts and uppercase Svelte components are not treated as native elements.",
+    "A present muted binding is accepted because its runtime value cannot be inferred statically."
+  ]
+}

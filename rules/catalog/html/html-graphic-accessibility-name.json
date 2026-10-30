@@ -1,0 +1,26 @@
+{
+  "id": "html-graphic-accessibility-name",
+  "language": "html",
+  "group": "accessibility",
+  "listingTitle": "Name or hide inline graphics",
+  "title": "Name or hide inline graphics",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "style",
+  "why": "An inline SVG or canvas without an accessible name, fallback, or explicit decorative role can expose an unexplained graphic to assistive technology.",
+  "suggestion": "Give meaningful graphics an aria-label, aria-labelledby reference, SVG title, or canvas fallback; mark decorative graphics aria-hidden or role=presentation.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["accessibility"],
+  "requirements": ["sourceText"],
+  "packs": ["html", "ui", "svelte"],
+  "implementation": "src/languages/html/rules.rs",
+  "languages": ["html"],
+  "frameworks": ["svelte"],
+  "languageVersions": [],
+  "limitations": [
+    "The rule checks native inline SVG and canvas elements in HTML, HTM, and Svelte files; framework components, uppercase Svelte components, and graphics created by scripts are not treated as native elements.",
+    "Literal accessible attributes, dynamic ARIA label bindings, SVG title content, canvas fallback text, labelled ancestors, SVG symbol-definition containers, and Svelte graphics forwarding spread attributes are accepted."
+  ]
+}

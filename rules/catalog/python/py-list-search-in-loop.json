@@ -1,0 +1,26 @@
+{
+  "id": "py-list-search-in-loop",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Avoid repeated linear list searches",
+  "title": "Avoid repeated linear list searches",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Calling count or index on a list scans it linearly, so repeating the search in a loop can make the surrounding operation quadratic.",
+  "suggestion": "Precompute counts or indexes, or use a set or dictionary when repeated lookup is the intended operation.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only count and index calls on variables explicitly annotated as lists or initialized with a list expression are reported inside tracked loops.",
+    "A search immediately followed by a same-scope break is accepted; mutation, reassignment, and exact loop bounds are not inferred."
+  ]
+}

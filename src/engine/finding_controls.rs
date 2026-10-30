@@ -199,7 +199,14 @@ pub(crate) fn mode_for_code<'a>(code: &str, config: &'a Config, group: &str) -> 
     }
     if matches!(
         code,
-        "flutter-gesture-semantic-gap" | "flutter-listener-without-remove"
+        "flutter-gesture-semantic-gap"
+            | "flutter-listener-without-remove"
+            | "py-exception-swallowed"
+            | "py-raise-destroys-traceback"
+            | "py-resource-not-closed"
+            | "py-subprocess-no-timeout"
+            | "py-unbounded-retry-loop"
+            | "py-unsafe-archive-extract"
     ) {
         return "count";
     }
@@ -239,6 +246,39 @@ mod tests {
         let source = "const value = '// code-buster-ignore';\nrun();\n";
 
         assert!(!suppressed(source, &finding("complex-function", 2)));
+    }
+
+    #[test]
+    fn applies_new_python_rule_groups_and_default_modes() {
+        let mut config = Config::defaults(std::path::PathBuf::new());
+        for (code, expected_group, expected_mode) in [
+            ("py-coroutine-not-awaited", "correctness", "report"),
+            ("py-exception-swallowed", "reliability", "count"),
+            ("py-resource-not-closed", "reliability", "count"),
+            ("py-finally-control-flow", "correctness", "report"),
+            ("py-unsafe-archive-extract", "security", "count"),
+            ("py-insecure-random-token", "security", "report"),
+            ("py-query-in-loop", "performance", "count"),
+            ("py-subprocess-no-timeout", "reliability", "count"),
+            ("py-unbounded-retry-loop", "reliability", "count"),
+            ("py-raise-destroys-traceback", "correctness", "count"),
+            ("py-sensitive-data-logging", "security", "report"),
+            ("py-test-mocked-target-wrong", "correctness", "report"),
+        ] {
+            let group = crate::rule_catalog::descriptor(code)
+                .expect("new Python rule must be registered")
+                .group;
+            assert_eq!(group, expected_group, "{code}");
+            assert_eq!(mode_for_code(code, &config, group), expected_mode, "{code}");
+        }
+
+        config
+            .rule_modes
+            .insert("py-subprocess-no-timeout".to_owned(), "report".to_owned());
+        assert_eq!(
+            mode_for_code("py-subprocess-no-timeout", &config, "reliability"),
+            "report"
+        );
     }
 
     fn suppressed(source: &str, finding: &Finding) -> bool {

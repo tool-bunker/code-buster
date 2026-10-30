@@ -1,3 +1,4 @@
+pub(crate) mod bevy;
 pub(crate) mod fastapi;
 pub(crate) mod flutter;
 pub(crate) mod pixijs;

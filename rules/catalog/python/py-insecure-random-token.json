@@ -1,0 +1,26 @@
+{
+  "id": "py-insecure-random-token",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Use cryptographic randomness for tokens",
+  "title": "Use cryptographic randomness for tokens",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "Python's random module is deterministic and unsuitable for credentials, reset codes, nonces, and session identifiers.",
+  "suggestion": "Use the secrets module or a cryptographically secure system random source.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "hotspot",
+  "taxonomy": ["security"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct assignments to credential-shaped names from common random module APIs are reported.",
+    "Aliases, wrappers, and application-specific security names are not inferred."
+  ]
+}

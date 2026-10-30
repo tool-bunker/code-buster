@@ -21,9 +21,11 @@ fn is_markup_path(path: &str) -> bool {
 
 fn analyze_file(path: &str, source: &str, findings: &mut Vec<Finding>) {
     let markup = mask_html_comments(source);
+    let semantic_markup = mask_html_raw_text(&markup);
+    let is_svelte = path.to_ascii_lowercase().ends_with(".svelte");
+    analyze_media_accessibility(path, &semantic_markup, is_svelte, findings);
     let lines = source.split('\n').collect::<Vec<_>>();
     let masked_lines = markup.split('\n').collect::<Vec<_>>();
-    let is_svelte = path.to_ascii_lowercase().ends_with(".svelte");
     let input_label_lines = inputs_without_label(&markup);
 
     {
@@ -220,6 +222,295 @@ fn mask_html_comments(source: &str) -> String {
         }
     }
     String::from_utf8(bytes).expect("masked HTML must remain UTF-8")
+}
+fn mask_html_raw_text(source: &str) -> String {
+    let mut bytes = source.as_bytes().to_vec();
+    for capture in RAW_TEXT_ELEMENT.captures_iter(source) {
+        let Some(content) = capture.get(1) else {
+            continue;
+        };
+        for byte in &mut bytes[content.start()..content.end()] {
+            if *byte != b'\n' {
+                *byte = b' ';
+            }
+        }
+    }
+    String::from_utf8(bytes).expect("masked HTML raw text must remain UTF-8")
+}
+
+struct MarkupTag<'a> {
+    raw: &'a str,
+    name: &'a str,
+    start: usize,
+    end: usize,
+    closing: bool,
+    self_closing: bool,
+}
+
+struct MarkupTagScanner<'a> {
+    source: &'a str,
+    bytes: &'a [u8],
+    cursor: usize,
+}
+
+impl<'a> MarkupTagScanner<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            bytes: source.as_bytes(),
+            cursor: 0,
+        }
+    }
+
+    fn tag_end(&self, mut index: usize) -> Option<usize> {
+        let mut braces = 0usize;
+        let mut quoted = None;
+        while let Some(&byte) = self.bytes.get(index) {
+            if let Some(delimiter) = quoted {
+                if byte == b'\\' {
+                    index += usize::from(index + 1 < self.bytes.len());
+                } else if byte == delimiter {
+                    quoted = None;
+                }
+            } else {
+                match byte {
+                    delimiter @ (b'"' | b'\'' | b'`') => quoted = Some(delimiter),
+                    b'{' => braces += 1,
+                    b'}' => braces = braces.saturating_sub(1),
+                    b'>' if braces == 0 => return Some(index + 1),
+                    _ => {}
+                }
+            }
+            index += 1;
+        }
+        None
+    }
+}
+
+impl<'a> Iterator for MarkupTagScanner<'a> {
+    type Item = MarkupTag<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(relative) = self.bytes[self.cursor..]
+            .iter()
+            .position(|byte| *byte == b'<')
+        {
+            let start = self.cursor + relative;
+            let mut index = start + 1;
+            let closing = self.bytes.get(index) == Some(&b'/');
+            index += usize::from(closing);
+            let name_start = index;
+            if !self.bytes.get(index).is_some_and(u8::is_ascii_alphabetic) {
+                self.cursor = index.saturating_add(1);
+                continue;
+            }
+            while self
+                .bytes
+                .get(index)
+                .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b':'))
+            {
+                index += 1;
+            }
+            let name_end = index;
+            let Some(end) = self.tag_end(index) else {
+                self.cursor = index;
+                continue;
+            };
+            self.cursor = end;
+            let self_closing = self.bytes[start..end - 1]
+                .iter()
+                .rev()
+                .find(|byte| !byte.is_ascii_whitespace())
+                == Some(&b'/');
+            return Some(MarkupTag {
+                raw: &self.source[start..end],
+                name: &self.source[name_start..name_end],
+                start,
+                end,
+                closing,
+                self_closing,
+            });
+        }
+        None
+    }
+}
+
+fn analyze_media_accessibility(
+    path: &str,
+    source: &str,
+    is_svelte: bool,
+    findings: &mut Vec<Finding>,
+) {
+    let mut stack = Vec::<HtmlAncestor<'_>>::new();
+    for tag in MarkupTagScanner::new(source) {
+        if tag.closing {
+            close_ancestor(&mut stack, tag.name, is_svelte);
+            continue;
+        }
+        analyze_open_media_tag(path, source, is_svelte, &tag, &stack, findings);
+        if !tag.self_closing && !is_void_html_element(tag.name) {
+            stack.push(HtmlAncestor {
+                name: tag.name,
+                accessible_context: has_accessible_context(tag.raw, tag.name, is_svelte),
+            });
+        }
+    }
+}
+
+fn close_ancestor<'a>(stack: &mut Vec<HtmlAncestor<'a>>, closing_name: &str, is_svelte: bool) {
+    if let Some(index) = stack
+        .iter()
+        .rposition(|ancestor| same_markup_name(ancestor.name, closing_name, is_svelte))
+    {
+        stack.truncate(index);
+    }
+}
+
+fn analyze_open_media_tag(
+    path: &str,
+    source: &str,
+    is_svelte: bool,
+    tag: &MarkupTag<'_>,
+    ancestors: &[HtmlAncestor<'_>],
+    findings: &mut Vec<Finding>,
+) {
+    let line = line_at(source, tag.start);
+    if is_native_markup_tag(tag.name, "video", is_svelte)
+        && AUTOPLAY_ATTRIBUTE.is_match(tag.raw)
+        && !MUTED_ATTRIBUTE.is_match(tag.raw)
+    {
+        findings.push(finding(
+            "html-video-autoplay-unmuted",
+            path,
+            line,
+            "autoplay video is not muted",
+        ));
+    }
+    if (is_native_markup_tag(tag.name, "svg", is_svelte)
+        || is_native_markup_tag(tag.name, "canvas", is_svelte))
+        && !graphic_is_accessible(
+            source,
+            tag.end,
+            tag.name,
+            tag.raw,
+            tag.self_closing,
+            is_svelte,
+            ancestors,
+        )
+    {
+        findings.push(finding(
+            "html-graphic-accessibility-name",
+            path,
+            line,
+            &format!("<{}> has no accessible name or decorative role", tag.name),
+        ));
+    }
+}
+
+fn is_native_markup_tag(name: &str, expected: &str, is_svelte: bool) -> bool {
+    if is_svelte {
+        name == expected
+    } else {
+        name.eq_ignore_ascii_case(expected)
+    }
+}
+
+fn same_markup_name(left: &str, right: &str, is_svelte: bool) -> bool {
+    if is_svelte {
+        left == right
+    } else {
+        left.eq_ignore_ascii_case(right)
+    }
+}
+
+struct HtmlAncestor<'a> {
+    name: &'a str,
+    accessible_context: bool,
+}
+
+fn graphic_is_accessible(
+    source: &str,
+    end: usize,
+    name: &str,
+    tag: &str,
+    self_closing: bool,
+    is_svelte: bool,
+    ancestors: &[HtmlAncestor<'_>],
+) -> bool {
+    is_explicitly_hidden(tag)
+        || has_accessible_name(tag)
+        || has_decorative_role(tag)
+        || is_svelte && SVELTE_SPREAD_ATTRIBUTE.is_match(tag)
+        || ancestors.iter().any(|ancestor| ancestor.accessible_context)
+        || !self_closing && graphic_has_fallback(source, end, name)
+}
+
+fn has_accessible_context(tag: &str, name: &str, is_svelte: bool) -> bool {
+    is_explicitly_hidden(tag)
+        || has_accessible_name(tag)
+        || (!attribute(tag, "title").trim().is_empty()
+            && (["a", "button"]
+                .iter()
+                .any(|candidate| name.eq_ignore_ascii_case(candidate))
+                || is_svelte && name.as_bytes().first().is_some_and(u8::is_ascii_uppercase)))
+}
+
+fn is_explicitly_hidden(tag: &str) -> bool {
+    attribute(tag, "aria-hidden").eq_ignore_ascii_case("true")
+        || HIDDEN_ATTRIBUTE.is_match(tag)
+        || INLINE_HIDDEN_STYLE.is_match(tag)
+}
+
+fn has_accessible_name(tag: &str) -> bool {
+    !attribute(tag, "aria-label").trim().is_empty()
+        || !attribute(tag, "aria-labelledby").trim().is_empty()
+        || DYNAMIC_ARIA_LABEL.is_match(tag)
+}
+
+fn has_decorative_role(tag: &str) -> bool {
+    ["none", "presentation"]
+        .iter()
+        .any(|role| attribute(tag, "role").eq_ignore_ascii_case(role))
+}
+
+fn graphic_has_fallback(source: &str, end: usize, name: &str) -> bool {
+    let remainder = &source[end..];
+    if name.eq_ignore_ascii_case("svg") {
+        let Some(closing) = SVG_CLOSE.find(remainder) else {
+            return false;
+        };
+        let body = &remainder[..closing.start()];
+        SVG_TITLE_CONTENT.is_match(body) || SVG_DEFINITION.is_match(body)
+    } else {
+        let Some(closing) = CANVAS_CLOSE.find(remainder) else {
+            return false;
+        };
+        has_visible_fallback_text(&remainder[..closing.start()])
+    }
+}
+
+fn has_visible_fallback_text(source: &str) -> bool {
+    let mut in_tag = false;
+    for character in source.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag && !character.is_whitespace() && !matches!(character, '{' | '}') => {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn is_void_html_element(name: &str) -> bool {
+    [
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+        "source", "track", "wbr",
+    ]
+    .iter()
+    .any(|candidate| name.eq_ignore_ascii_case(candidate))
 }
 
 #[derive(Default)]
@@ -631,6 +922,30 @@ static HEAD_TEMPLATE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static JEKYLL_SEO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\{%\s*seo\b[^%]*%\}").unwrap());
+static RAW_TEXT_ELEMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?is)<(?:script|style)\b[^>]*>(.*?)</(?:script|style)\s*>").unwrap()
+});
+static AUTOPLAY_ATTRIBUTE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:^|\s)autoplay(?:\s|=|/?>)").unwrap());
+static MUTED_ATTRIBUTE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:^|\s)muted(?:\s|=|/?>)").unwrap());
+static DYNAMIC_ARIA_LABEL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(?:^|\s)(?::|v-bind:)?aria-label(?:ledby)?\s*=\s*(?:\{[^}]+\}|["'][^"']+["'])"#,
+    )
+    .unwrap()
+});
+static SVELTE_SPREAD_ATTRIBUTE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{\s*\.\.\.[^}]+\}").unwrap());
+static INLINE_HIDDEN_STYLE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)\bstyle\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)"#)
+        .unwrap()
+});
+static SVG_CLOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)</svg\s*>").unwrap());
+static CANVAS_CLOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)</canvas\s*>").unwrap());
+static SVG_TITLE_CONTENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<title\b[^>]*>\s*[^<\s]").unwrap());
+static SVG_DEFINITION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<symbol\b").unwrap());
 
 #[cfg(test)]
 mod tests {
@@ -728,6 +1043,73 @@ mod tests {
             .into_iter()
             .all(|finding| finding.code != "html-duplicate-id")
         );
+    }
+
+    #[test]
+    fn reports_unmuted_autoplay_and_unlabelled_graphics() {
+        let source = r#"<video
+  autoplay
+  src="intro.mp4"></video>
+<svg>
+  <path d="M0 0h10v10z"></path>
+</svg>
+<canvas></canvas>"#;
+        let findings = analyze(&BTreeMap::from([(
+            "index.html".to_owned(),
+            source.to_owned(),
+        )]));
+        let lines = |code: &str| {
+            findings
+                .iter()
+                .filter(|finding| finding.code == code)
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(lines("html-video-autoplay-unmuted"), vec![1]);
+        assert_eq!(lines("html-graphic-accessibility-name"), vec![4, 7]);
+    }
+
+    #[test]
+    fn accepts_muted_video_and_accessible_or_decorative_graphics() {
+        let source = r#"<video autoplay muted src="intro.mp4"></video>
+<video controls src="interview.mp4"></video>
+<svg aria-hidden="true"><path></path></svg>
+<svg role="presentation"><path></path></svg>
+<svg><title>Quarterly sales</title><path></path></svg>
+<button aria-label="Save"><svg><path></path></svg></button>
+<canvas>Quarterly sales chart</canvas>
+<svg><symbol id="check"><path></path></symbol></svg>
+<script>const sample = '<video autoplay><svg></svg>';</script>
+<!-- <video autoplay></video><canvas></canvas> -->"#;
+        let new_codes = codes(source)
+            .into_iter()
+            .filter(|code| {
+                code == "html-video-autoplay-unmuted" || code == "html-graphic-accessibility-name"
+            })
+            .collect::<BTreeSet<_>>();
+
+        assert!(new_codes.is_empty());
+    }
+
+    #[test]
+    fn accepts_dynamic_svelte_media_accessibility_bindings_and_components() {
+        let source = r#"<video autoplay={start} muted={silent}></video>
+<svg aria-label={iconName}><path></path></svg>
+<svg onmousemove={(event) => { point = event.clientX; }} role="presentation"></svg>
+<svg {...restProps}><path></path></svg>
+<Button title="Toggle theme"><svg><path></path></svg></Button>
+<Video autoplay></Video>
+<Canvas></Canvas>"#;
+        let findings = analyze(&BTreeMap::from([(
+            "component.svelte".to_owned(),
+            source.to_owned(),
+        )]));
+
+        assert!(findings.into_iter().all(|finding| {
+            finding.code != "html-video-autoplay-unmuted"
+                && finding.code != "html-graphic-accessibility-name"
+        }));
     }
 
     #[test]

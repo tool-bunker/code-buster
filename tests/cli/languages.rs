@@ -302,7 +302,7 @@ fn summary_reports_complete_python_rule_family() {
           except Exception:\n\
               print(error)\n\
           except:\n\
-              pass\n\
+          \x20\x20\x20\x20pass\n\
           pickle.load(stream)\n\
           hashlib.md5(data)\n\
           debug = True\n\
@@ -354,7 +354,7 @@ fn summary_reports_complete_python_rule_family() {
             ("py-backslash-continuation", 17, 17),
             ("py-broad-except", 21, 21),
             ("py-logging-exception", 22, 22),
-            ("py-bare-except", 23, 23),
+            ("py-exception-swallowed", 23, 23),
             ("py-pickle", 25, 25),
             ("py-weak-hash", 26, 26),
             ("py-debug-enabled", 27, 27),

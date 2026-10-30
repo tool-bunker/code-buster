@@ -26,7 +26,6 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
 struct PySource<'a> {
     path: &'a str,
     code: &'a str,
-    lines: Vec<&'a str>,
     functions: Vec<Function<'a>>,
 }
 
@@ -103,15 +102,10 @@ struct DatabaseCandidate<'a> {
 }
 
 enum DatabaseCandidateKind<'a> {
-    SessionLifecycle {
-        function_name: &'a str,
-        body: &'a str,
-    },
     TransactionFailure {
         function_name: &'a str,
         body: &'a str,
     },
-    QueryInLoop,
     UnboundedQuery {
         expression: &'a str,
     },
@@ -154,7 +148,6 @@ impl<'a> Project<'a> {
                 PySource {
                     path,
                     code,
-                    lines,
                     functions,
                 }
             })
@@ -601,7 +594,6 @@ fn collect_database_candidates<'a>(
 ) {
     for source in &project.sources {
         collect_function_database_candidates(source, &mut collect);
-        collect_query_in_loop_candidates(source, &mut collect);
         collect_unbounded_query_candidates(source, &mut collect);
     }
 }
@@ -611,16 +603,6 @@ fn collect_function_database_candidates<'a>(
     collect: &mut impl FnMut(DatabaseCandidate<'a>),
 ) {
     for function in &source.functions {
-        if SESSION_CREATION.is_match(function.body) {
-            collect(DatabaseCandidate {
-                path: source.path,
-                line: function.line,
-                kind: DatabaseCandidateKind::SessionLifecycle {
-                    function_name: function.name,
-                    body: function.body,
-                },
-            });
-        }
         if function.body.contains(".commit(") && EXCEPT.is_match(function.body) {
             collect(DatabaseCandidate {
                 path: source.path,
@@ -631,19 +613,6 @@ fn collect_function_database_candidates<'a>(
                 },
             });
         }
-    }
-}
-
-fn collect_query_in_loop_candidates<'a>(
-    source: &PySource<'a>,
-    collect: &mut impl FnMut(DatabaseCandidate<'a>),
-) {
-    for line in query_in_loop_lines(&source.lines) {
-        collect(DatabaseCandidate {
-            path: source.path,
-            line,
-            kind: DatabaseCandidateKind::QueryInLoop,
-        });
     }
 }
 
@@ -664,26 +633,16 @@ fn collect_unbounded_query_candidates<'a>(
 
 fn violates_database_policy(candidate: &DatabaseCandidate<'_>) -> bool {
     match &candidate.kind {
-        DatabaseCandidateKind::SessionLifecycle { body, .. } => !SESSION_CLEANUP.is_match(body),
         DatabaseCandidateKind::TransactionFailure { body, .. } => !body.contains(".rollback("),
-        DatabaseCandidateKind::QueryInLoop => true,
         DatabaseCandidateKind::UnboundedQuery { expression } => !QUERY_BOUND.is_match(expression),
     }
 }
 
 fn emit_database_finding(candidate: DatabaseCandidate<'_>, findings: &mut Vec<Finding>) {
     let (code, message) = match candidate.kind {
-        DatabaseCandidateKind::SessionLifecycle { function_name, .. } => (
-            "fastapi-db-session-not-closed",
-            format!("{function_name} creates a database session without closing it"),
-        ),
         DatabaseCandidateKind::TransactionFailure { function_name, .. } => (
             "fastapi-transaction-without-rollback",
             format!("{function_name} handles a commit failure without rollback"),
-        ),
-        DatabaseCandidateKind::QueryInLoop => (
-            "fastapi-query-in-loop",
-            "database query executes inside a loop".to_owned(),
         ),
         DatabaseCandidateKind::UnboundedQuery { .. } => (
             "fastapi-unbounded-query",
@@ -964,31 +923,6 @@ fn extract_routes<'a>(source: &PySource<'a>) -> Vec<Route<'a>> {
     routes
 }
 
-fn query_in_loop_lines(lines: &[&str]) -> Vec<usize> {
-    let mut result = Vec::new();
-    for (index, header) in lines.iter().enumerate() {
-        if !LOOP_HEADER.is_match(header) {
-            continue;
-        }
-        let loop_indent = leading_indent(header);
-        let stop = (index + 10).min(lines.len());
-        for (candidate, raw) in lines.iter().enumerate().take(stop).skip(index + 1) {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            if leading_indent(raw) <= loop_indent {
-                break;
-            }
-            if LOOP_QUERY.is_match(trimmed) {
-                result.push(candidate + 1);
-                break;
-            }
-        }
-    }
-    result
-}
-
 fn returns_non_none(body: &str) -> bool {
     body.lines().any(|line| {
         let trimmed = line.trim_start();
@@ -1129,8 +1063,6 @@ regexes! {
     PERMISSIVE_CORS = r#"allow_origins\s*=\s*\[\s*["']\*["']"#;
     RATE_LIMIT = r"(?i)\b(?:Limiter|RateLimiter|slowapi|rate_limit|throttle)\b";
     SECURITY_HEADERS = r"\b(?:SecurityHeadersMiddleware|TrustedHostMiddleware|X-Content-Type-Options|Content-Security-Policy|Strict-Transport-Security)\b";
-    SESSION_CREATION = r"\b\w+\s*=\s*(?:Session|SessionLocal|AsyncSession)\s*\(";
-    SESSION_CLEANUP = r"\b(?:with|async with)\b|\.close\s*\(|finally\s*:";
     EXCEPT = r"\bexcept\b";
     UNBOUNDED_QUERY = r"\.(?:query\([^\n]+\)|execute\(\s*select\([^\n]+\))[^\n]*(?:\.all\s*\(\)|\.scalars\s*\(\)\.all\s*\(\))";
     QUERY_BOUND = r"\.(?:limit|offset)\s*\(";
@@ -1143,8 +1075,6 @@ regexes! {
     API_TEST_PATH = r"(?:api|integration|route|endpoint|client)";
     FUNCTION_DECLARATION = r"(?m)^(async\s+)?def\s+([A-Za-z_]\w*)\s*\([^\n]*\)(?:\s*->\s*[^:]+)?\s*:";
     ROUTE_DECORATOR = r#"(?m)^\s*@(?:\w+\.)?(get|post|put|patch|delete)\s*\(\s*(["'])([^"']+)(["'])([^\n]*)\)\s*$"#;
-    LOOP_HEADER = r"^\s*for\s+[^:]+:\s*$";
-    LOOP_QUERY = r"^(?:(?:[A-Za-z_]\w*\.)?(?:execute|query|scalar|scalars)|(?:\w*(?:session|database|repository|repo|store|_db)|db)\.get)\s*\(";
 }
 
 #[cfg(test)]
@@ -1251,9 +1181,7 @@ def save(items):
             "fastapi-missing-rate-limit",
             "fastapi-missing-security-headers",
             "fastapi-request-data-logging",
-            "fastapi-db-session-not-closed",
             "fastapi-transaction-without-rollback",
-            "fastapi-query-in-loop",
             "fastapi-unbounded-query",
             "fastapi-background-task-heavy-work",
             "fastapi-global-mutable-cache",
@@ -1287,82 +1215,6 @@ async def read_user(id: int, principal: User = Depends(get_current_user)) -> Use
         ] {
             assert!(!findings.contains(code), "unexpected {code}: {findings:?}");
         }
-    }
-
-    #[test]
-    fn accepts_multiline_verified_jwt_and_non_database_gets_in_loops() {
-        let findings = codes(
-            r#"import jwt
-def decode(token, key, algorithms):
-    return jwt.decode(
-        token,
-        key,
-        audience="api",
-        algorithms=algorithms,
-    )
-def collect(labels, conn, items):
-    for item in items:
-        labels.get(item)
-    for item in items:
-        conn.get(item)
-"#,
-        );
-
-        assert!(!findings.contains("fastapi-insecure-jwt-decode"));
-        assert!(!findings.contains("fastapi-query-in-loop"));
-    }
-
-    #[test]
-    fn reports_disabled_signature_and_database_gets_in_loops() {
-        let findings = codes(
-            r#"import jwt
-def decode(token):
-    jwt.decode(
-        token,
-        options={"verify_signature": False},
-    )
-def collect(session, items):
-    for item in items:
-        session.get(Item, item)
-"#,
-        );
-
-        assert!(findings.contains("fastapi-insecure-jwt-decode"));
-        assert!(findings.contains("fastapi-query-in-loop"));
-    }
-
-    #[test]
-    fn bounds_query_in_loop_by_indentation_and_scan_window() {
-        let sources = BTreeMap::from([(
-            "app/db.py".to_owned(),
-            r#"def load(items):
-    for item in items:
-        prepare(item)
-        session.execute(select(Item))
-    session.query(Item).get(1)
-    for delayed in items:
-        prepare(delayed)
-        step_one()
-        step_two()
-        step_three()
-        step_four()
-        step_five()
-        step_six()
-        step_seven()
-        step_eight()
-        session.query(Item).get(delayed.id)
-"#
-            .to_owned(),
-        )]);
-        let findings = analyze(&SourceAnalysisContext::unchanged(&sources));
-        assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| finding.code == "fastapi-query-in-loop")
-                .map(|finding| finding.line)
-                .collect::<Vec<_>>(),
-            vec![4]
-        );
     }
 
     #[test]

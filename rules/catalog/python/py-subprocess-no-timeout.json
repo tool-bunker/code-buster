@@ -1,0 +1,26 @@
+{
+  "id": "py-subprocess-no-timeout",
+  "language": "python",
+  "group": "reliability",
+  "listingTitle": "Bound subprocess runtime",
+  "title": "Bound subprocess runtime",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "A subprocess without a timeout can block a worker indefinitely when the child hangs or waits for unavailable input.",
+  "suggestion": "Pass a justified timeout and handle TimeoutExpired at the process boundary.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only subprocess.run calls are checked, and an explicit timeout=None remains unbounded.",
+    "A directly discarded unchecked call reports py-subprocess-run-unchecked instead, avoiding duplicate findings."
+  ]
+}

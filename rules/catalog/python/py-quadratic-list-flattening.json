@@ -1,0 +1,26 @@
+{
+  "id": "py-quadratic-list-flattening",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Avoid flattening lists with sum",
+  "title": "Avoid flattening lists with sum",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Using an empty list as the start value for sum repeatedly copies the accumulated list and makes flattening quadratic in the total output size.",
+  "suggestion": "Use itertools.chain.from_iterable or a nested list comprehension to flatten the input in linear time.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only calls named sum whose second positional argument or start keyword is a literal empty list are reported.",
+    "Shadowing of the Python built-in and the element types produced by the iterable are not resolved."
+  ]
+}

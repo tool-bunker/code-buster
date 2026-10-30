@@ -1,0 +1,26 @@
+{
+  "id": "py-eager-any-all-comprehension",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Let any and all short-circuit generators",
+  "title": "Let any and all short-circuit generators",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "A list comprehension evaluates every item and allocates the complete result before any or all can inspect it, preventing short-circuiting.",
+  "suggestion": "Pass a generator expression directly to any or all instead of constructing an intermediate list.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct single-line or multiline list comprehensions passed to unqualified calls named any or all are reported; comprehensions containing await are excluded because a generator replacement would be asynchronous.",
+    "Shadowing of the Python built-ins and unreviewed side effects are not inferred; adjacent comments explicitly requiring every operation to run or disabling short-circuiting are accepted."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "bevy-frame-asset-allocation",
+  "language": "rust",
+  "group": "performance",
+  "listingTitle": "Avoid creating Bevy assets every frame",
+  "title": "Avoid creating Bevy assets every frame",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Calling Assets::add from an Update or FixedUpdate system creates distinct assets repeatedly, causing allocation, asset-storage, extraction, and possible GPU resource churn.",
+  "suggestion": "Create reusable assets during setup or state entry, retain their handles, and mutate or reuse those assets from per-frame systems.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["performance", "memory"],
+  "requirements": ["sourceText", "functions", "manifest"],
+  "packs": ["bevy"],
+  "implementation": "src/rules/frameworks/bevy.rs",
+  "languages": ["rust"],
+  "frameworks": ["bevy"],
+  "languageVersions": [],
+  "limitations": [
+    "The rule requires a named function registered directly in Update or FixedUpdate and an add call through a direct ResMut<Assets<T>> parameter.",
+    "Custom schedules, aliases, indirect allocation helpers, and custom run conditions are not resolved; systems gated by Added, Changed, Without, removal, or message parameters are conservatively excluded."
+  ]
+}

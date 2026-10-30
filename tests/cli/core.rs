@@ -13,22 +13,31 @@ fn version_identifies_the_rust_executable() {
 }
 
 #[test]
-fn help_lists_the_implemented_commands() {
+fn help_groups_commands_options_and_examples_without_redirected_color() {
     let output = run(&["--help"]);
 
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8(output.stdout).expect("stdout must be UTF-8");
-    assert_eq!(
-        stdout.lines().nth(1),
-        Some(
-            "Commands: summary review inspect graph dead duplication quality rules baseline fix init doctor config update completions version"
-        )
-    );
-    assert!(stdout.contains("-r, --root"));
+    assert!(stdout.starts_with("Code Buster\nRepository-aware static analysis"));
+    for section in [
+        "Usage",
+        "Commands",
+        "Change review",
+        "Scope",
+        "Findings and output",
+        "Focused views",
+        "Workflow",
+        "Examples",
+    ] {
+        assert!(stdout.contains(&format!("\n{section}\n")), "{section}");
+    }
+    assert!(stdout.contains("review"));
+    assert!(stdout.contains("--pr"));
     assert!(stdout.contains("--include-tests"));
     assert!(stdout.contains("--all-findings"));
     assert!(stdout.contains("--profile"));
     assert!(stdout.contains("--dry-run"));
+    assert!(!stdout.contains("\u{1b}["));
     assert!(output.stderr.is_empty());
 }
 
@@ -81,6 +90,14 @@ fn consolidated_views_reject_ambiguous_or_misplaced_options() {
         (
             &["review", "--related"][..],
             "--related is only supported by cb inspect",
+        ),
+        (
+            &["summary", "--pr"][..],
+            "--pr is only supported by cb review",
+        ),
+        (
+            &["review", "--pr", "--changed"][..],
+            "--pr cannot be combined with --changed or --changed-base",
         ),
     ] {
         let output = run(arguments);

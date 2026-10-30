@@ -1,0 +1,27 @@
+{
+  "id": "py-resource-not-closed",
+  "language": "python",
+  "group": "reliability",
+  "listingTitle": "Close locally created resources",
+  "title": "Close locally created resources",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "A locally owned file, socket, client, cursor, or database session can leak operating-system or connection-pool resources when no close boundary is visible.",
+  "suggestion": "Use a context manager, close the resource in finally, or make the ownership transfer explicit by returning or storing it.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct local assignments from common file, socket, HTTP client, cursor, and recognized requests or SQL session constructors are tracked.",
+    "Close calls, context-manager use, returns, yields, collection or attribute ownership transfers, chained constructor calls, and owner connection cleanup are accepted.",
+    "Cleanup or ownership transfer hidden behind arbitrary helper calls is not inferred, so this rule is advisory by default."
+  ]
+}

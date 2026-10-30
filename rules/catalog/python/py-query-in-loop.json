@@ -1,0 +1,26 @@
+{
+  "id": "py-query-in-loop",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Batch database work outside loops",
+  "title": "Batch database work outside loops",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Issuing a database operation for each loop item creates N+1 latency and load that grows linearly with the collection.",
+  "suggestion": "Fetch or mutate the required records in one batch outside the loop.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct execute, query, scalar, scalars, and get calls on database-shaped receivers such as cursor, connection, session, engine, database, or repository variables are reported.",
+    "Unqualified calls and methods on receivers without database-oriented names are excluded; calls hidden behind application helpers are not inferred."
+  ]
+}

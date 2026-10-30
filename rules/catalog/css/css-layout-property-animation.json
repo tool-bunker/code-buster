@@ -1,0 +1,26 @@
+{
+  "id": "css-layout-property-animation",
+  "language": "css",
+  "group": "performance",
+  "listingTitle": "Avoid animating layout properties",
+  "title": "Avoid animating layout properties",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "performance",
+  "why": "Animating dimensions, positions, flex bases, or grid tracks can trigger layout work on every frame and degrade responsiveness.",
+  "suggestion": "Prefer transform or opacity when the same visual effect is possible, and measure before retaining a layout animation.",
+  "version": 2,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["css", "ui", "svelte"],
+  "implementation": "src/languages/css/rules.rs",
+  "languages": ["css", "html"],
+  "frameworks": ["svelte"],
+  "languageVersions": [],
+  "limitations": [
+    "The rule reports explicit hard layout properties in transition declarations and keyframes in plain CSS and CSS in Svelte style blocks; custom properties and runtime-generated CSS are not resolved.",
+    "Intentional measured layout animations remain advisory because transform-based replacements are not always equivalent."
+  ]
+}

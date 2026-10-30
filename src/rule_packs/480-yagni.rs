@@ -14,10 +14,14 @@ fn analyze(context: &RulePackContext<'_, '_, '_>) -> Result<RulePackOutput, Stri
     let index = context
         .yagni_index
         .ok_or_else(|| "YAGNI index is unavailable".to_owned())?;
-    let mut findings = crate::yagni_rules::analyze(index);
-    findings.extend(crate::yagni_rules::single_concrete_generics(
+    let output = crate::yagni_rules::analyze_profiled(
         index,
         context.source_context.sources(),
-    ));
-    Ok(RulePackOutput::findings(findings))
+        context.collect_timings,
+    );
+    Ok(RulePackOutput {
+        findings: output.findings,
+        shared_durations_microseconds: BTreeMap::new(),
+        rule_durations_microseconds: output.rule_durations_microseconds,
+    })
 }

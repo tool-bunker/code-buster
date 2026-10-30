@@ -1,0 +1,26 @@
+{
+  "id": "py-logging-eager-format",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Defer debug and info message formatting",
+  "title": "Defer debug and info message formatting",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "F-strings, format calls, and string concatenation build the complete message before debug or info logging can decide whether the level is enabled.",
+  "suggestion": "Pass the format string and values separately to the standard logging API so formatting is deferred until the record is emitted.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only debug and info calls on conventional logging, log, logger, or logger-suffixed receivers are examined.",
+    "F-string, string format, and top-level string concatenation arguments are reported; custom logger semantics and eager computation of separately passed arguments are not inferred."
+  ]
+}

@@ -165,6 +165,8 @@ fn completions_target_cb_and_include_profile_in_option_aware_shells() {
         assert!(!script.contains("cbr"));
         if matches!(shell, "fish" | "zsh") {
             assert!(script.contains("profile"));
+            assert!(script.contains("--pr") || script.contains("-l pr"));
+            assert!(script.contains("changed-base"));
         }
     }
 }
@@ -510,6 +512,52 @@ fn review_with_a_changed_base_defaults_to_changed_line_findings() {
         .map(|finding| finding["line"].as_u64().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(review_print_lines, vec![2]);
+}
+
+#[test]
+fn review_pr_resolves_the_branch_point_and_reviews_committed_changes() {
+    let root = TempDirectory::new("cb-review-pr");
+    root.write(
+        "lib/main.dart",
+        b"void main() {\n  print('before');\n  print('stable');\n}\n",
+    );
+    git(&root.path, &["init", "-q"]);
+    git(&root.path, &["branch", "-M", "main"]);
+    git(&root.path, &["config", "user.name", "Code Buster Test"]);
+    git(
+        &root.path,
+        &["config", "user.email", "code-buster@example.invalid"],
+    );
+    git(&root.path, &["add", "lib/main.dart"]);
+    git(&root.path, &["commit", "-qm", "baseline"]);
+    git(&root.path, &["checkout", "-qb", "feature"]);
+    root.write(
+        "lib/main.dart",
+        b"void main() {\n  print('after');\n  print('stable');\n}\n",
+    );
+    git(&root.path, &["add", "lib/main.dart"]);
+    git(&root.path, &["commit", "-qm", "feature"]);
+
+    let review = Command::new(env!("CARGO_BIN_EXE_cb"))
+        .args(["review", "--root"])
+        .arg(&root.path)
+        .args(["--pr", "--all-findings", "--format", "json", "--no-cache"])
+        .env_remove("GITHUB_BASE_REF")
+        .output()
+        .expect("PR review must execute");
+
+    assert_eq!(review.status.code(), Some(0));
+    assert!(review.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&review.stdout).expect("PR review must emit JSON");
+    let print_lines = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|finding| finding["code"] == "dart-print")
+        .map(|finding| finding["line"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(print_lines, vec![2]);
 }
 
 #[test]

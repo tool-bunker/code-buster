@@ -1,0 +1,26 @@
+{
+  "id": "py-raise-destroys-traceback",
+  "language": "python",
+  "group": "correctness",
+  "listingTitle": "Preserve caught exception tracebacks",
+  "title": "Preserve caught exception tracebacks",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "Raising the caught exception object by name resets traceback context to the new raise site and obscures the original failure path.",
+  "suggestion": "Use a bare raise inside the exception handler.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["correctness"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only exact raise statements using the alias from the enclosing except header are reported.",
+    "Exception aliases passed through helpers are not tracked."
+  ]
+}

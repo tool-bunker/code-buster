@@ -1,0 +1,26 @@
+{
+  "id": "py-finally-control-flow",
+  "language": "python",
+  "group": "correctness",
+  "listingTitle": "Keep control flow out of finally",
+  "title": "Keep control flow out of finally",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "Return, break, or continue in a finally suite can suppress an exception or replace an earlier return value.",
+  "suggestion": "Perform cleanup in finally and move control flow after the try statement.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["correctness"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Control flow inside nested function and class definitions is excluded.",
+    "The rule reports one representative control-flow statement per finally suite."
+  ]
+}

@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::LazyLock;
+use std::time::Instant;
 
 use regex::Regex;
 
@@ -17,12 +18,70 @@ use crate::trivial_wrappers::{
 };
 use crate::yagni_call_index::{Call, YagniCallIndex};
 
+pub(crate) struct YagniAnalysisOutput {
+    pub(crate) findings: Vec<Finding>,
+    pub(crate) rule_durations_microseconds: BTreeMap<String, u128>,
+}
+
+#[cfg(test)]
 pub(crate) fn analyze(index: &YagniCallIndex<'_>) -> Vec<Finding> {
-    let mut findings = single_product_factories(index);
-    findings.extend(unused_customization_hooks(index));
-    findings.extend(unused_optional_parameters(index));
-    findings.extend(unused_configuration_options(index));
-    findings
+    analyze_core(index, false).findings
+}
+
+fn analyze_core(index: &YagniCallIndex<'_>, collect_timings: bool) -> YagniAnalysisOutput {
+    let mut findings = Vec::new();
+    let mut durations = BTreeMap::new();
+    macro_rules! run {
+        ($name:literal, $analysis:expr) => {{
+            if collect_timings {
+                let started = Instant::now();
+                findings.extend($analysis);
+                durations.insert($name.to_owned(), started.elapsed().as_micros());
+            } else {
+                findings.extend($analysis);
+            }
+        }};
+    }
+    run!("single-product-factory", single_product_factories(index));
+    run!(
+        "unused-customization-hook",
+        unused_customization_hooks(index)
+    );
+    run!(
+        "unused-optional-parameter",
+        unused_optional_parameters(index)
+    );
+    run!(
+        "unused-configuration-option",
+        unused_configuration_options(index)
+    );
+    YagniAnalysisOutput {
+        findings,
+        rule_durations_microseconds: durations,
+    }
+}
+
+pub(crate) fn analyze_profiled(
+    index: &YagniCallIndex<'_>,
+    sources: &BTreeMap<String, String>,
+    collect_timings: bool,
+) -> YagniAnalysisOutput {
+    let mut output = analyze_core(index, collect_timings);
+    if collect_timings {
+        let started = Instant::now();
+        output
+            .findings
+            .extend(single_concrete_generics(index, sources));
+        output.rule_durations_microseconds.insert(
+            "single-concrete-generic".to_owned(),
+            started.elapsed().as_micros(),
+        );
+    } else {
+        output
+            .findings
+            .extend(single_concrete_generics(index, sources));
+    }
+    output
 }
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum GenericLanguage {
@@ -39,6 +98,74 @@ struct GenericCandidate<'a> {
 struct GenericCall {
     concrete_type: String,
     path: String,
+}
+
+#[derive(Clone, Copy)]
+struct GenericReference {
+    source_index: usize,
+    identifier_end: usize,
+}
+
+struct GenericSource<'a> {
+    path: &'a str,
+    source: &'a str,
+}
+
+struct GenericUseIndex<'source, 'candidate> {
+    sources: Vec<GenericSource<'source>>,
+    references: BTreeMap<&'candidate str, Vec<GenericReference>>,
+}
+
+impl<'source, 'candidate> GenericUseIndex<'source, 'candidate> {
+    fn new<'function>(
+        candidates: &'candidate [GenericCandidate<'function>],
+        masked_sources: &'source BTreeMap<String, String>,
+    ) -> Self {
+        let sources = masked_sources
+            .iter()
+            .map(|(path, source)| GenericSource {
+                path: path.as_str(),
+                source: source.as_str(),
+            })
+            .collect::<Vec<_>>();
+        let candidate_languages = candidates
+            .iter()
+            .map(|candidate| (candidate.function.name.as_str(), candidate.language))
+            .collect::<BTreeMap<_, _>>();
+        let mut references = BTreeMap::new();
+        if candidate_languages.is_empty() {
+            return Self {
+                sources,
+                references,
+            };
+        }
+        for (source_index, source) in sources.iter().enumerate() {
+            let Some(language) = generic_language(source.path) else {
+                continue;
+            };
+            for identifier in IDENTIFIER.find_iter(source.source) {
+                let Some((canonical, candidate_language)) =
+                    candidate_languages.get_key_value(identifier.as_str())
+                else {
+                    continue;
+                };
+                if language != *candidate_language {
+                    continue;
+                }
+                references
+                    .entry(*canonical)
+                    .or_insert_with(Vec::new)
+                    .push(GenericReference {
+                        source_index,
+                        identifier_end: identifier.end(),
+                    });
+            }
+        }
+        Self {
+            sources,
+            references,
+        }
+    }
 }
 
 pub(crate) fn single_concrete_generics(
@@ -60,10 +187,11 @@ pub(crate) fn single_concrete_generics(
     let mut candidates = rust_generic_candidates(index);
     candidates.extend(cpp_generic_candidates(index, &masked_sources));
 
+    let use_index = GenericUseIndex::new(&candidates, &masked_sources);
     candidates
-        .into_iter()
+        .iter()
         .filter_map(|candidate| {
-            let calls = concrete_generic_calls(&candidate, &masked_sources)?;
+            let calls = concrete_generic_calls(candidate, &use_index)?;
             let concrete_type = &calls[0].concrete_type;
             let mut result = finding(
                 "single-concrete-generic",
@@ -159,36 +287,28 @@ fn cpp_generic_candidates<'a>(
 
 fn concrete_generic_calls(
     candidate: &GenericCandidate<'_>,
-    sources: &BTreeMap<String, String>,
+    index: &GenericUseIndex<'_, '_>,
 ) -> Option<Vec<GenericCall>> {
-    let mut reference_count = 0;
+    let references = index.references.get(candidate.function.name.as_str())?;
     let mut calls = Vec::new();
-    for (path, source) in sources {
-        if generic_language(path) != Some(candidate.language) {
+    for reference in references {
+        let source = &index.sources[reference.source_index];
+        let Some(concrete_type) = explicit_generic_call(
+            source.source,
+            reference.identifier_end,
+            candidate.language,
+            &candidate.parameter,
+        ) else {
             continue;
-        }
-        for identifier in IDENTIFIER
-            .find_iter(source)
-            .filter(|identifier| identifier.as_str() == candidate.function.name)
-        {
-            reference_count += 1;
-            let Some(concrete_type) = explicit_generic_call(
-                source,
-                identifier.end(),
-                candidate.language,
-                &candidate.parameter,
-            ) else {
-                continue;
-            };
-            calls.push(GenericCall {
-                concrete_type,
-                path: path.clone(),
-            });
-        }
+        };
+        calls.push(GenericCall {
+            concrete_type,
+            path: source.path.to_owned(),
+        });
     }
     let (first, remaining) = calls.split_first()?;
     (calls.len() >= 2
-        && reference_count == calls.len() + 1
+        && references.len() == calls.len() + 1
         && remaining
             .iter()
             .all(|call| call.concrete_type == first.concrete_type))

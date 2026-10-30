@@ -1,72 +1,210 @@
+use std::env;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 
 use clap::{ArgAction, Parser};
-const USAGE_HEADER: &str = "Usage: cb <command> [options]\nCommands: summary review inspect graph dead duplication quality rules baseline fix init doctor config update completions version";
 
-pub fn usage() -> String {
-    format!("{USAGE_HEADER}\n{}", argument_usage())
+const COMMANDS: &[(&str, &str)] = &[
+    ("summary", "Analyze the repository and show its health."),
+    ("review", "Review findings, changes, plans, or actions."),
+    (
+        "inspect",
+        "Explain a file, relationship, or dependency path.",
+    ),
+    ("graph", "Render the repository dependency graph."),
+    ("dead", "Find unreachable production files and exports."),
+    ("duplication", "Find repeated source blocks."),
+    (
+        "quality",
+        "Show scores, complexity, hotspots, or structure.",
+    ),
+    ("rules", "List rules or explain one rule."),
+    ("baseline", "Create, update, prune, or inspect a baseline."),
+    ("fix", "Preview or apply supported safe fixes."),
+    ("init", "Create a starter Code Buster configuration."),
+    ("doctor", "Diagnose setup and source discovery."),
+    ("config", "Explain configuration or selected files."),
+    ("update", "Update the installed Code Buster executable."),
+    ("completions", "Generate shell completion data."),
+    ("version", "Print version and runtime information."),
+];
+
+pub fn usage(color: bool) -> String {
+    let mut output = String::new();
+    write_styled(&mut output, color, "1;36", "Code Buster");
+    output.push_str("\nRepository-aware static analysis across languages and frameworks.\n");
+
+    write_section(&mut output, color, "Usage");
+    output.push_str("  cb [command] [options]\n");
+    output.push_str("  cb                         Run the default summary\n");
+
+    write_section(&mut output, color, "Commands");
+    write_rows(&mut output, color, COMMANDS);
+
+    write_section(&mut output, color, "Change review");
+    write_rows(
+        &mut output,
+        color,
+        &[
+            (
+                "--pr",
+                "Review the current branch from its pull-request merge base.",
+            ),
+            (
+                "--changed",
+                "Review staged, unstaged, and untracked changes from HEAD.",
+            ),
+            (
+                "--changed-base <REV>",
+                "Review changes from a Git revision.",
+            ),
+            ("--changed-lines", "Keep findings located on changed lines."),
+        ],
+    );
+
+    write_section(&mut output, color, "Scope");
+    write_rows(
+        &mut output,
+        color,
+        &[
+            (
+                "-r, --root <PATH>",
+                "Set the repository root. Default: current directory.",
+            ),
+            ("-l, --lang <LANG>", "Analyze one language."),
+            (
+                "--languages <A,B>",
+                "Analyze a comma-separated language list.",
+            ),
+            ("--include <GLOB>", "Include matching paths. Repeatable."),
+            ("--exclude <GLOB>", "Exclude matching paths. Repeatable."),
+            ("--all", "Include all source classifications."),
+            ("--include-tests", "Include test sources."),
+            (
+                "--include-examples",
+                "Include example and benchmark sources.",
+            ),
+            ("--include-vendored", "Include vendored sources."),
+        ],
+    );
+
+    write_section(&mut output, color, "Findings and output");
+    write_rows(
+        &mut output,
+        color,
+        &[
+            ("--advisory", "Show advisory findings in detail."),
+            ("--all-findings", "Show actionable and advisory findings."),
+            ("--group <GROUP>", "Limit findings to one canonical group."),
+            ("--only <RULE>", "Limit findings to one rule or family."),
+            ("--inactive", "Include inactive rules when listing rules."),
+            (
+                "-n, --top <COUNT>",
+                "Limit ranked output. Default: no limit.",
+            ),
+            (
+                "--format <FORMAT>",
+                "text, json, ndjson, markdown, sarif, junit, or mermaid.",
+            ),
+            ("--output <PATH>", "Write the report to a file."),
+            (
+                "--fail-on-issues",
+                "Return a failing status when actionable findings exist.",
+            ),
+            ("--ci", "Use CI behavior and fail on actionable findings."),
+            (
+                "--allow-empty",
+                "Allow analysis with no selected source files.",
+            ),
+            ("--verbose", "Show scope and analysis-stage details."),
+        ],
+    );
+
+    write_section(&mut output, color, "Focused views");
+    write_rows(
+        &mut output,
+        color,
+        &[
+            ("--score", "Show per-file quality scores."),
+            ("--complexity", "Show function and cognitive complexity."),
+            ("--hotspots", "Show ranked maintenance hotspots."),
+            ("--structure", "Show repository structure findings."),
+            ("--related", "Show files related to an inspected target."),
+            ("--why", "Explain why an inspected target is reachable."),
+            (
+                "--path",
+                "Find a dependency path between inspected targets.",
+            ),
+            ("--files", "Show files selected by resolved configuration."),
+        ],
+    );
+
+    write_section(&mut output, color, "Workflow");
+    write_rows(
+        &mut output,
+        color,
+        &[
+            ("--baseline <PATH>", "Read or write a finding baseline."),
+            (
+                "--ingest-sarif <PATH>",
+                "Import SARIF findings. Repeatable.",
+            ),
+            ("--profile", "Measure uncached rule-pack execution."),
+            (
+                "--[no-]cache",
+                "Enable or disable the external analysis cache.",
+            ),
+            ("--cache-dir <PATH>", "Use a custom cache directory."),
+            ("--force", "Allow an intentional replacement or update."),
+            ("--dry-run", "Preview a write-capable command."),
+            ("-h, --help", "Show this help."),
+            ("--version", "Print version information."),
+        ],
+    );
+
+    write_section(&mut output, color, "Examples");
+    output.push_str(
+        "  cb\n\
+         \x20 cb review --pr --advisory\n\
+         \x20 cb review --changed\n\
+         \x20 cb quality --complexity\n\
+         \x20 cb rules rust-unwrap\n",
+    );
+    output
 }
 
-pub fn argument_usage() -> String {
-    [
-        ("-r, --root", "(defaults to \".\")"),
-        ("-l, --lang", ""),
-        ("    --language", ""),
-        ("    --languages=<LANG,LANG>", ""),
-        ("-n, --top", "(defaults to \"0\")"),
-        ("    --format", "(text, json, ndjson, markdown, sarif, junit, mermaid; review also supports plan and actions)"),
-        ("    --include", ""),
-        ("    --exclude", ""),
-        ("    --only", ""),
-        ("    --score", "Show per-file quality scores."),
-        ("    --complexity", "Show complexity findings."),
-        ("    --hotspots", "Show ranked maintenance hotspots."),
-        ("    --structure", "Show repository structure findings."),
-        ("    --related", "Show files related to an inspected target."),
-        ("    --why", "Explain why an inspected target is reachable."),
-        ("    --path", "Find a dependency path between two inspected targets."),
-        ("    --files", "Show files selected by the resolved configuration."),
-        ("    --baseline", ""),
-        ("    --ingest-sarif", ""),
-        ("    --output", ""),
-        ("    --changed-base", ""),
-        ("    --changed", ""),
-        ("    --changed-lines", ""),
-        ("    --fail-on-issues", ""),
-        ("    --verbose", ""),
-        (
-            "    --profile",
-            "Measure uncached rule-pack execution and print a timing profile.",
-        ),
-        ("    --ci", ""),
-        ("    --allow-empty", ""),
-        (
-            "    --[no-]cache",
-            "Reuse analysis results from the external user cache.",
-        ),
-        ("", "(defaults to on)"),
-        (
-            "    --cache-dir=<PATH>",
-            "Store analysis cache files in PATH instead of the user cache.",
-        ),
-        ("    --all", ""),
-        ("    --advisory", ""),
-        ("    --all-findings", ""),
-        ("    --group", ""),
-        ("    --inactive", ""),
-        ("    --include-tests", ""),
-        ("    --include-examples", ""),
-        ("    --include-vendored", ""),
-        ("    --force", ""),
-        ("    --dry-run", ""),
-        ("-h, --help", ""),
-        ("    --version", ""),
-    ]
-    .into_iter()
-    .map(|(option, description)| format!("{option:<31}{description}"))
-    .collect::<Vec<_>>()
-    .join("\n")
+pub const fn argument_usage() -> &'static str {
+    "Usage: cb <command> [options]\nRun `cb --help` for commands, options, and examples."
+}
+
+fn write_section(output: &mut String, color: bool, title: &str) {
+    output.push('\n');
+    write_styled(output, color, "1;34", title);
+    output.push('\n');
+}
+
+fn write_rows(output: &mut String, color: bool, rows: &[(&str, &str)]) {
+    const LABEL_WIDTH: usize = 29;
+    for (label, description) in rows {
+        output.push_str("  ");
+        write_styled(output, color, "36", label);
+        output.extend(std::iter::repeat_n(
+            ' ',
+            LABEL_WIDTH.saturating_sub(label.chars().count()),
+        ));
+        write_styled(output, color, "2", description);
+        output.push('\n');
+    }
+}
+
+fn write_styled(output: &mut String, color: bool, ansi: &str, value: &str) {
+    if color {
+        let _ = write!(output, "\u{1b}[{ansi}m{value}\u{1b}[0m");
+    } else {
+        output.push_str(value);
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -260,6 +398,8 @@ struct ParsedArguments {
     #[arg(long)]
     changed: bool,
     #[arg(long)]
+    pr: bool,
+    #[arg(long)]
     changed_lines: bool,
     #[arg(long)]
     fail_on_issues: bool,
@@ -341,7 +481,9 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
     let config_files = parsed.files;
     let command = parsed.command;
     let targets = parsed.targets;
-    let changed_base = if parsed.changed {
+    let changed_base = if parsed.pr {
+        Some(resolve_pull_request_base(Path::new(&parsed.root))?)
+    } else if parsed.changed {
         Some("HEAD".to_owned())
     } else {
         parsed.changed_base
@@ -502,6 +644,10 @@ fn validate_view_options(parsed: &ParsedArguments) -> Result<(), String> {
         ],
     )?;
     validate_exclusive_options(command, "config", &[("--files", parsed.files)])?;
+    validate_exclusive_options(command, "review", &[("--pr", parsed.pr)])?;
+    if parsed.pr && (parsed.changed || parsed.changed_base.is_some()) {
+        return Err("--pr cannot be combined with --changed or --changed-base".to_owned());
+    }
     if parsed.files && !parsed.targets.is_empty() {
         return Err("cb config --files does not accept a config action".to_owned());
     }
@@ -556,6 +702,74 @@ fn validate_analysis_options(
     Ok(())
 }
 
+fn resolve_pull_request_base(root: &Path) -> Result<String, String> {
+    for target in pull_request_base_candidates(root) {
+        if let Some(merge_base) = git_stdout(root, &["merge-base", "HEAD", &target]) {
+            return Ok(merge_base);
+        }
+    }
+    Err(
+        "could not resolve the pull-request base; fetch the target branch or use --changed-base <revision>"
+            .to_owned(),
+    )
+}
+
+fn pull_request_base_candidates(root: &Path) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Some(base) = env::var_os("GITHUB_BASE_REF").and_then(|value| value.into_string().ok()) {
+        add_base_ref_candidates(&mut candidates, &base);
+    }
+    if let Some(remote_head) = git_stdout(
+        root,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    ) {
+        add_candidate(&mut candidates, remote_head);
+    }
+    for fallback in ["origin/main", "origin/master", "main", "master"] {
+        add_candidate(&mut candidates, fallback.to_owned());
+    }
+    candidates
+}
+
+fn add_base_ref_candidates(candidates: &mut Vec<String>, base: &str) {
+    let base = base
+        .trim()
+        .strip_prefix("refs/heads/")
+        .unwrap_or(base.trim());
+    if base.starts_with("origin/") {
+        add_candidate(candidates, base.to_owned());
+    } else {
+        add_candidate(candidates, format!("origin/{base}"));
+        add_candidate(candidates, base.to_owned());
+    }
+}
+
+fn add_candidate(candidates: &mut Vec<String>, candidate: String) {
+    if !candidate.is_empty() && !candidate.starts_with('-') && !candidates.contains(&candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn git_stdout(root: &Path, arguments: &[&str]) -> Option<String> {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(arguments)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 fn report_format(value: &str) -> Result<ReportFormat, String> {
     match value {
         "text" => Ok(ReportFormat::Text),
@@ -566,5 +780,21 @@ fn report_format(value: &str) -> Result<ReportFormat, String> {
         "junit" => Ok(ReportFormat::Junit),
         "mermaid" => Ok(ReportFormat::Mermaid),
         _ => Err(format!("Unknown Code Buster report format: {value}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::usage;
+
+    #[test]
+    fn help_color_is_explicit_and_preserves_content() {
+        let plain = usage(false);
+        let colored = usage(true);
+
+        assert!(!plain.contains("\u{1b}["));
+        assert!(colored.contains("\u{1b}[1;36mCode Buster\u{1b}[0m"));
+        assert!(plain.contains("cb review --pr --advisory"));
+        assert!(colored.contains("cb review --pr --advisory"));
     }
 }

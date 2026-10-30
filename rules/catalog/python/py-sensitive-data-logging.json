@@ -1,0 +1,27 @@
+{
+  "id": "py-sensitive-data-logging",
+  "language": "python",
+  "group": "security",
+  "listingTitle": "Keep credentials out of logs",
+  "title": "Keep credentials out of logs",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "security",
+  "why": "Logs are broadly retained and accessible, so credentials and authentication material written there can become durable secrets exposure.",
+  "suggestion": "Remove the sensitive value or replace it with an explicit redacted representation.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "hotspot",
+  "taxonomy": ["security"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only common logger methods containing credential-shaped identifiers on the same logical line are reported.",
+    "Request-object logging is left to the FastAPI-specific request-data rule to avoid duplicate findings.",
+    "Custom logger wrappers and redaction helpers are not inferred."
+  ]
+}

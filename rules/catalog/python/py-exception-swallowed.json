@@ -1,0 +1,27 @@
+{
+  "id": "py-exception-swallowed",
+  "language": "python",
+  "group": "reliability",
+  "listingTitle": "Do not silently swallow exceptions",
+  "title": "Do not silently swallow exceptions",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "A handler that only passes or continues hides failures and lets execution proceed without recovery evidence.",
+  "suggestion": "Handle the expected failure, log or translate it at a boundary, or document an explicit suppression.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only bare, Exception, and BaseException handlers whose direct statements are pass or continue are reported.",
+    "Specific exception handlers are excluded because they commonly encode intentional fallback control flow.",
+    "A swallowed broad handler replaces bare-except and broad-except findings at the same location."
+  ]
+}

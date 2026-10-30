@@ -86,7 +86,7 @@ fn inspect_repository(
 }
 
 fn infer_frameworks(profiles: &BTreeSet<String>) -> BTreeSet<String> {
-    ["flutter", "react", "fastapi", "svelte", "pixijs"]
+    ["bevy", "flutter", "react", "fastapi", "svelte", "pixijs"]
         .into_iter()
         .filter(|framework| match *framework {
             "flutter" => profiles.contains("flutter") || profiles.contains("flutter-sdk"),
@@ -180,6 +180,7 @@ enum ProfileSource<'source> {
     Pubspec(&'source str),
     Package(&'source str),
     Python(&'source str),
+    Cargo(&'source str),
     DotNet,
 }
 
@@ -248,6 +249,7 @@ fn profile_source<'source>(path: &Path, source: &'source str) -> Option<ProfileS
         .unwrap_or("")
         .to_ascii_lowercase();
     match name.as_str() {
+        "cargo.toml" => Some(ProfileSource::Cargo(source)),
         "pubspec.yaml" => Some(ProfileSource::Pubspec(source)),
         "package.json" => Some(ProfileSource::Package(source)),
         "requirements.txt" | "pyproject.toml" | "poetry.lock" | "pdm.lock" => {
@@ -271,6 +273,11 @@ fn apply_profile_source(source: ProfileSource, profiles: &mut BTreeSet<String>) 
             profiles.insert(profile.to_owned());
         }
         ProfileSource::Package(source) => apply_package_profiles(source, profiles),
+        ProfileSource::Cargo(source) => {
+            if crate::rules::frameworks::bevy::manifest_uses_bevy(source) {
+                profiles.insert("bevy".to_owned());
+            }
+        }
         ProfileSource::Python(source) => {
             if FASTAPI.is_match(source) {
                 profiles.insert("fastapi".to_owned());
@@ -459,6 +466,9 @@ const TEST_IGNORES: &[&str] = &[
     "**/src/*Test/**",
     "**/src/*test/**",
     "**/testdata/**",
+    "**/resources/corpus/**",
+    "**/resources/inline/err/**",
+    "**/resources/inline/ok/**",
     "**/src/it/**",
     "**/src/testFixtures/**",
     "**/__snapshots__/**",
@@ -589,6 +599,42 @@ mod tests {
         assert_eq!(
             crate::languages::detect_versions(&inspection.metadata_files).get("rust"),
             Some(&"1.85".to_owned())
+        );
+    }
+
+    #[test]
+    fn infers_bevy_only_from_cargo_package_or_dependency_metadata() {
+        let bevy_root = tempfile::tempdir().expect("temporary Bevy repository must be created");
+        fs::write(
+            bevy_root.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"game\"]\n[workspace.dependencies]\nengine = { package = \"bevy\", version = \"0.20\" }\n",
+        )
+        .unwrap();
+        fs::create_dir_all(bevy_root.path().join("game")).unwrap();
+        fs::write(
+            bevy_root.path().join("game/Cargo.toml"),
+            "[package]\nname = \"game\"\n[dependencies]\nengine = { workspace = true }\n",
+        )
+        .unwrap();
+
+        let plain_root = tempfile::tempdir().expect("temporary Rust repository must be created");
+        fs::write(
+            plain_root.path().join("Cargo.toml"),
+            "[package]\nname = \"utility\"\n[dependencies]\nserde = \"1\"\n",
+        )
+        .unwrap();
+
+        assert!(
+            RepositoryDefaults::inspect(bevy_root.path(), true, true, true)
+                .defaults
+                .frameworks
+                .contains("bevy")
+        );
+        assert!(
+            !RepositoryDefaults::inspect(plain_root.path(), true, true, true)
+                .defaults
+                .frameworks
+                .contains("bevy")
         );
     }
 }

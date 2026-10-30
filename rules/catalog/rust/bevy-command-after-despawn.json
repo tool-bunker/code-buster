@@ -1,0 +1,26 @@
+{
+  "id": "bevy-command-after-despawn",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Stop commanding an entity after despawn",
+  "title": "Stop commanding an entity after despawn",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "Bevy applies Commands later in queue order, so a command targeting an entity after its queued despawn can fail with runtime error B0003.",
+  "suggestion": "Queue all required changes before despawn, or stop issuing commands for that entity once despawn has been requested.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability", "correctness"],
+  "requirements": ["sourceText", "functions", "manifest"],
+  "packs": ["bevy"],
+  "implementation": "src/rules/frameworks/bevy.rs",
+  "languages": ["rust"],
+  "frameworks": ["bevy"],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct Commands::entity calls using the same simple identifier or field path in one function are ordered.",
+    "Cross-system entity identity, aliases, command closures, and custom commands are not resolved."
+  ]
+}

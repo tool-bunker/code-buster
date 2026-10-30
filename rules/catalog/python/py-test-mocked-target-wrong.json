@@ -1,0 +1,26 @@
+{
+  "id": "py-test-mocked-target-wrong",
+  "language": "python",
+  "group": "correctness",
+  "listingTitle": "Patch symbols where consumers resolve them",
+  "title": "Patch symbols where consumers resolve them",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "correctness",
+  "why": "Patching the provider module does not replace a symbol already imported into the consumer, so the test can call the real dependency.",
+  "suggestion": "Patch the symbol in the module under test where Python looks it up.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["correctness", "testing"],
+  "requirements": ["sourceText", "projectSources"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only direct from-import relationships whose provider symbol is called by the consumer, direct consumer imports in tests, and unittest.mock.patch-style string targets are compared.",
+    "Aliases, re-exports, fixtures, decorators, and dynamically constructed patch targets are not inferred."
+  ]
+}

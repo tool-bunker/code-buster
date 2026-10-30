@@ -1,0 +1,26 @@
+{
+  "id": "bevy-conflicting-resource-access",
+  "language": "rust",
+  "group": "reliability",
+  "listingTitle": "Keep Bevy resource access compatible",
+  "title": "Keep Bevy resource access compatible",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "Requesting the same Bevy resource more than once when one access is mutable fails system parameter validation and panics at runtime.",
+  "suggestion": "Keep one ResMut or NonSendMut parameter and use it for both reading and writing, or place genuinely sequential conflicting parameters in a ParamSet.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability", "correctness"],
+  "requirements": ["sourceText", "functions", "manifest"],
+  "packs": ["bevy"],
+  "implementation": "src/rules/frameworks/bevy.rs",
+  "languages": ["rust"],
+  "frameworks": ["bevy"],
+  "languageVersions": [],
+  "limitations": [
+    "Direct Res, ResMut, NonSend, and NonSendMut parameters are compared by their written type; aliases and custom SystemParam wrappers are not resolved.",
+    "Extract parameters are treated as main-world access distinct from render-world parameters; conflicts caused by broad entity queries in versions where resources are components are not inferred."
+  ]
+}

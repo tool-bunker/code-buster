@@ -1,0 +1,26 @@
+{
+  "id": "py-sequence-rebuild-in-loop",
+  "language": "python",
+  "group": "performance",
+  "listingTitle": "Avoid rebuilding growing sequences in loops",
+  "title": "Avoid rebuilding growing sequences in loops",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "performance",
+  "why": "Rebuilding a growing list, tuple, or bytes value copies the accumulated prefix on each iteration and can turn linear construction into quadratic work.",
+  "suggestion": "Append mutable elements and convert once, collect chunks and join once, or otherwise build the final sequence without repeatedly copying its prefix.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["performance"],
+  "requirements": ["sourceText"],
+  "packs": ["python"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only self-assignment with + for proven list, tuple, or bytes variables, plus += for proven tuple or bytes variables, is reported.",
+    "The sequence must be declared outside the active loop; aliasing, reassignment, custom operators, and bounded loop cost are not inferred."
+  ]
+}

@@ -141,8 +141,12 @@ For a compact, repository-aware review signal without placing the whole
 codebase in the model's context:
 
 ```sh
-cb review --format json
+cb review --pr --format json
 ```
+
+`--pr` resolves the current branch's merge base from the CI target branch,
+`origin/HEAD`, or a conventional `main` or `master` branch. Use `--changed`
+instead to review staged, unstaged, and untracked work relative to `HEAD`.
 
 Code Buster finds potential issues; the developer or agent decides what matters
 and makes the fix.

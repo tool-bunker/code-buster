@@ -1,0 +1,26 @@
+{
+  "id": "css-focus-indicator-suppressed",
+  "language": "css",
+  "group": "accessibility",
+  "listingTitle": "Keep a visible keyboard focus indicator",
+  "title": "Keep a visible keyboard focus indicator",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "style",
+  "why": "Removing the focus outline without a visible replacement makes keyboard navigation difficult or impossible to follow.",
+  "suggestion": "Keep the user-agent outline or provide an immediate visible outline, shadow, border, or background in the corresponding focus state.",
+  "version": 3,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["accessibility"],
+  "requirements": ["sourceText"],
+  "packs": ["css", "ui", "svelte"],
+  "implementation": "src/languages/css/rules.rs",
+  "languages": ["css", "html"],
+  "frameworks": ["svelte"],
+  "languageVersions": [],
+  "limitations": [
+    "Focus selectors are normalized within one CSS or Svelte style block so a matching rule can provide an outline, shadow, border, or background; imported and runtime-generated styles are not resolved.",
+    "A :focus:not(:focus-visible) rule is treated as intentional pointer-focus suppression, while a:not([href]) is ignored because it is not keyboard-focusable without another attribute."
+  ]
+}

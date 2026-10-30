@@ -1,0 +1,26 @@
+{
+  "id": "py-unbounded-retry-loop",
+  "language": "python",
+  "group": "reliability",
+  "listingTitle": "Bound retry loops",
+  "title": "Bound retry loops",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "reliability",
+  "why": "An unconditional retry loop can consume resources forever and conceal a persistent dependency failure.",
+  "suggestion": "Add an attempt limit or deadline, backoff, and a terminating failure path.",
+  "version": 1,
+  "semanticMaturity": "token",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText"],
+  "packs": ["python", "fastapi"],
+  "implementation": "src/languages/python/rules.rs",
+  "languages": ["python"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only literal while True and while 1 loops containing try and an except handler that directly continues are reported; passive service loops that swallow an error are excluded.",
+    "A direct break, return, or raise in that handler, or a visible attempt, deadline, shutdown, stop, or cancellation guard with a terminating branch, is accepted; bounds hidden behind helper functions are not inferred."
+  ]
+}
