@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.13.0
+
 ### Added
 
 - Add conservative Python checks for unawaited local coroutines, swallowed exceptions, unclosed resources, control flow in `finally`, unsafe archive extraction, predictable security tokens, database work in loops, subprocesses without timeouts, unbounded retries, traceback-resetting raises, sensitive-data logging, and provider-side mock targets.
