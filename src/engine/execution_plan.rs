@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
-use crate::cli::PreviewOptions;
 use crate::config::Config;
 use crate::finding_controls;
+use crate::options::PreviewOptions;
 use crate::rule_catalog;
 
 pub struct ExecutionPlan<'a> {

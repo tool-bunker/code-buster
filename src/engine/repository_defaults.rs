@@ -328,11 +328,17 @@ fn is_repository_metadata_file(relative: &Path) -> bool {
         .unwrap_or_default();
     let lower = name.to_ascii_lowercase();
     [
-        "analysis_options.yaml",
+        ".java-version",
+        ".node-version",
+        ".nvmrc",
         ".pre-commit-config.yaml",
         ".pre-commit-config.yml",
+        ".python-version",
+        "analysis_options.yaml",
         "cargo.lock",
         "cargo.toml",
+        "feature-flags.json",
+        "feature_flags.json",
         "go.mod",
         "gradle.properties",
         "l10n.yaml",
@@ -343,9 +349,13 @@ fn is_repository_metadata_file(relative: &Path) -> bool {
         "pubspec.yaml",
         "pyproject.toml",
         "requirements.txt",
+        "rust-toolchain.toml",
         "makefile",
     ]
     .contains(&lower.as_str())
+        || lower == "codeowners"
+        || lower == "tsconfig.json"
+        || (lower.starts_with("tsconfig.") && lower.ends_with(".json"))
         || lower.ends_with(".sln")
         || lower.ends_with(".slnx")
         || lower.ends_with(".csproj")

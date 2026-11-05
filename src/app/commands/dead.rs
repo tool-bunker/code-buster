@@ -1,11 +1,11 @@
 use std::path::Path;
 
 use crate::analysis_cache::AnalysisCache;
-use crate::cli::PreviewOptions;
 use crate::dead_analysis;
 use crate::discovery::prepare;
 use crate::export_analysis;
 use crate::finding_controls;
+use crate::options::PreviewOptions;
 use crate::report::{FindingReport, render};
 use crate::sarif_ingestion;
 

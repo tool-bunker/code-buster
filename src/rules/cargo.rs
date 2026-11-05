@@ -210,10 +210,13 @@ impl<'a> CiPolicyEvidence<'a> {
         if self.first_rust_command.is_none() && CARGO_RUST_COMMAND.is_match(line) {
             self.first_rust_command = Some((path, line_index + 1));
         }
-        self.has_clippy |=
-            CARGO_CLIPPY_COMMAND.is_match(line) || MAKE_CLIPPY_COMMAND.is_match(line);
-        self.has_checked_format |=
-            CARGO_CHECKED_FORMAT.is_match(line) || DIRECT_RUSTFMT_CHECK.is_match(line);
+        let delegated_lints = DELEGATED_RUST_LINT_COMMAND.is_match(line);
+        self.has_clippy |= CARGO_CLIPPY_COMMAND.is_match(line)
+            || MAKE_CLIPPY_COMMAND.is_match(line)
+            || delegated_lints;
+        self.has_checked_format |= CARGO_CHECKED_FORMAT.is_match(line)
+            || DIRECT_RUSTFMT_CHECK.is_match(line)
+            || delegated_lints;
         self.has_audit |= CARGO_AUDIT_COMMAND.is_match(line) || AUDIT_ACTION.is_match(line);
         self.uses_pre_commit |= PRE_COMMIT_ACTION.is_match(line);
         if !self
@@ -504,6 +507,10 @@ static CARGO_CLIPPY_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
 });
 static MAKE_CLIPPY_COMMAND: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bmake\b[^\n#]*\bclippy(?:\b|[-_])").unwrap());
+static DELEGATED_RUST_LINT_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?ix)\bcargo\s+(?:\+\S+\s+)?(?:run\b[^;&|]*\s--\s+|xtask\s+)(?:lint|lints)\b")
+        .unwrap()
+});
 static PRE_COMMIT_ACTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)^\s*(?:-\s+)?uses\s*:\s*["']?pre-commit/action@"#).unwrap());
 static CARGO_CHECKED_FORMAT: LazyLock<Regex> = LazyLock::new(|| {
@@ -687,6 +694,21 @@ mod tests {
             direct_make.is_empty(),
             "unexpected findings: {direct_make:?}"
         );
+
+        for delegated in ["cargo run -p ci -- lints", "cargo xtask lint"] {
+            let workflow = format!("steps:\n  - run: cargo check\n  - run: {delegated}\n");
+            let findings = analyze_auxiliary([
+                (
+                    "Cargo.toml",
+                    "[package]\nname = \"app\"\nrust-version = \"1.85\"",
+                ),
+                (".github/workflows/ci.yml", workflow.as_str()),
+            ]);
+            assert!(
+                findings.is_empty(),
+                "unexpected findings for {delegated}: {findings:?}"
+            );
+        }
 
         let pre_commit = analyze_auxiliary([
             (

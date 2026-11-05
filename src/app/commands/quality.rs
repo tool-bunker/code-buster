@@ -4,8 +4,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::{Map, Number, Value, json};
 
-use crate::cli::{PreviewOptions, ReportFormat};
 use crate::findings::{Finding, Severity};
+use crate::options::{PreviewOptions, ReportFormat};
 use crate::report::{FindingReport, manifest};
 use crate::rule_catalog;
 use crate::summary_command;

@@ -36,17 +36,14 @@ fn production_imports_test_code(
         .collect::<BTreeSet<_>>();
     let mut findings = Vec::new();
     for source in graph.nodes() {
+        if excluded.contains(source) {
+            continue;
+        }
         for target in graph
             .classified_dependencies(source)
             .filter(|target| excluded.contains(target))
         {
-            if is_test_command_entrypoint(source)
-                || explicitly_exports_test_support(
-                    source,
-                    target,
-                    prepared.sources.get(source).map(String::as_str),
-                )
-            {
+            if is_intentional_test_dependency(prepared, source, target) {
                 continue;
             }
             let line = dependency_line(prepared.sources.get(source), target);
@@ -71,14 +68,156 @@ fn production_imports_test_code(
     findings
 }
 
+fn is_intentional_test_dependency(
+    prepared: &PreparedPreview,
+    source_path: &str,
+    target_path: &str,
+) -> bool {
+    let source = prepared.sources.get(source_path).map(String::as_str);
+    is_test_command_entrypoint(source_path)
+        || is_test_command_entrypoint(target_path)
+        || feature_gates_test_support(target_path, source)
+        || imports_test_support_only_from_test_apis(source_path, target_path, source)
+        || explicitly_exports_test_support(source_path, target_path, source)
+}
+
 fn is_test_command_entrypoint(source_path: &str) -> bool {
     let path = Path::new(source_path);
-    path.file_name().and_then(|name| name.to_str()) == Some("test.py")
-        && path
-            .parent()
-            .and_then(Path::file_name)
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| matches!(name, "cmd" | "command" | "commands"))
+    let stem = path.file_stem().and_then(|name| name.to_str());
+    stem.is_some_and(|stem| {
+        stem.split(['_', '-'])
+            .any(|part| matches!(part, "test" | "tests"))
+    }) && path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| matches!(name, "cmd" | "command" | "commands"))
+}
+
+fn feature_gates_test_support(target_path: &str, source: Option<&str>) -> bool {
+    let Some((source, stem)) = source.zip(
+        Path::new(target_path)
+            .file_stem()
+            .and_then(|value| value.to_str()),
+    ) else {
+        return false;
+    };
+    let lines = source.lines().collect::<Vec<_>>();
+    lines.iter().enumerate().any(|(index, line)| {
+        line.contains(stem)
+            && lines[..index]
+                .iter()
+                .rev()
+                .find(|previous| !previous.trim().is_empty())
+                .is_some_and(|previous| {
+                    let previous = previous.trim();
+                    previous.starts_with("#[cfg(")
+                        && (previous.contains("test") || previous.contains("feature"))
+                })
+    })
+}
+
+fn imports_test_support_only_from_test_apis(
+    source_path: &str,
+    target_path: &str,
+    source: Option<&str>,
+) -> bool {
+    let Some(source) = source else {
+        return false;
+    };
+    if Path::new(source_path)
+        .extension()
+        .and_then(|value| value.to_str())
+        != Some("py")
+    {
+        return false;
+    }
+    let Some(module) = Path::new(target_path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|module| matches!(*module, "testing" | "testutils"))
+    else {
+        return false;
+    };
+
+    let mut scope = PythonImportScope::default();
+    source.lines().all(|line| scope.observe(line, module)) && scope.saw_test_import
+}
+
+#[derive(Default)]
+struct PythonImportScope {
+    type_checking_indent: Option<usize>,
+    functions: Vec<(usize, bool)>,
+    saw_test_import: bool,
+}
+
+impl PythonImportScope {
+    fn observe(&mut self, line: &str, module: &str) -> bool {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return true;
+        }
+        let indent = line.len() - line.trim_start().len();
+        self.leave_scopes(indent);
+        if is_type_checking_guard(trimmed) {
+            self.type_checking_indent = Some(indent);
+            return true;
+        }
+        if let Some(name) = python_function_name(trimmed) {
+            self.functions.push((indent, name.contains("test")));
+            return true;
+        }
+        if !trimmed.contains("import") || !trimmed.contains(module) {
+            return true;
+        }
+        self.saw_test_import = true;
+        self.type_checking_indent.is_some() || self.functions.iter().any(|(_, test_api)| *test_api)
+    }
+
+    fn leave_scopes(&mut self, indent: usize) {
+        if self
+            .type_checking_indent
+            .is_some_and(|scope| indent <= scope)
+        {
+            self.type_checking_indent = None;
+        }
+        while self
+            .functions
+            .last()
+            .is_some_and(|(scope, _)| indent <= *scope)
+        {
+            self.functions.pop();
+        }
+    }
+}
+
+fn python_function_name(line: &str) -> Option<&str> {
+    line.strip_prefix("async def ")
+        .or_else(|| line.strip_prefix("def "))
+        .map(|declaration| {
+            declaration
+                .split_once('(')
+                .map_or(declaration, |(name, _)| name)
+                .trim()
+        })
+}
+
+fn is_type_checking_guard(line: &str) -> bool {
+    let code = line.split('#').next().unwrap_or(line).trim();
+    code.strip_prefix("if ")
+        .and_then(|condition| condition.strip_suffix(':'))
+        .map(str::trim)
+        .is_some_and(|condition| {
+            condition.split('.').all(|part| {
+                !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            }) && condition
+                .rsplit('.')
+                .next()
+                .is_some_and(|name| name == "TYPE_CHECKING")
+        })
 }
 
 fn explicitly_exports_test_support(
@@ -91,19 +230,28 @@ fn explicitly_exports_test_support(
     };
     let source_path = Path::new(source_path);
     let target_path = Path::new(target_path);
-    if source_path.file_name().and_then(|name| name.to_str()) != Some("__init__.py")
-        || target_path.file_name().and_then(|name| name.to_str()) != Some("__init__.py")
-        || source_path.parent() != target_path.parent().and_then(Path::parent)
-    {
+    if source_path.file_name().and_then(|name| name.to_str()) != Some("__init__.py") {
         return false;
     }
-    let Some(module) = target_path
-        .parent()
-        .and_then(Path::file_name)
+    let Some((module, target_package)) = target_path
+        .file_name()
         .and_then(|name| name.to_str())
+        .and_then(|name| {
+            if name == "__init__.py" {
+                Some((
+                    target_path.parent()?.file_name()?.to_str()?,
+                    target_path.parent()?.parent()?,
+                ))
+            } else {
+                Some((target_path.file_stem()?.to_str()?, target_path.parent()?))
+            }
+        })
     else {
         return false;
     };
+    if source_path.parent() != Some(target_package) {
+        return false;
+    }
     let imported = source.lines().map(str::trim).any(|line| {
         line.strip_prefix("from . import ").is_some_and(|names| {
             names
@@ -368,48 +516,97 @@ fn package_references(manifest: &str, source: &str, references: &mut Vec<Manifes
         return;
     };
     let base = manifest_parent(manifest);
+    package_bin_references(manifest, source, &base, &value, references);
+    package_workspace_references(manifest, source, &base, &value, references);
+}
+
+fn package_bin_references(
+    manifest: &str,
+    source: &str,
+    base: &Path,
+    value: &JsonValue,
+    references: &mut Vec<ManifestReference>,
+) {
     match value.get("bin") {
-        Some(JsonValue::String(path)) => push_reference(
+        Some(JsonValue::String(path)) => {
+            push_package_executable(manifest, source, base, value, path, references);
+        }
+        Some(JsonValue::Object(bins)) => {
+            for path in bins.values().filter_map(JsonValue::as_str) {
+                push_package_executable(manifest, source, base, value, path, references);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn push_package_executable(
+    manifest: &str,
+    source: &str,
+    base: &Path,
+    value: &JsonValue,
+    path: &str,
+    references: &mut Vec<ManifestReference>,
+) {
+    if !package_builds_generated_path(value, path) {
+        push_reference(
             references,
             manifest,
             source,
             "package executable",
             path,
             vec![base.join(path)],
-        ),
-        Some(JsonValue::Object(bins)) => {
-            for path in bins.values().filter_map(JsonValue::as_str) {
-                push_reference(
-                    references,
-                    manifest,
-                    source,
-                    "package executable",
-                    path,
-                    vec![base.join(path)],
-                );
-            }
-        }
-        _ => {}
+        );
     }
+}
+
+fn package_workspace_references(
+    manifest: &str,
+    source: &str,
+    base: &Path,
+    value: &JsonValue,
+    references: &mut Vec<ManifestReference>,
+) {
     let workspaces = value.get("workspaces").and_then(|workspaces| {
         workspaces
             .as_array()
             .or_else(|| workspaces.get("packages").and_then(JsonValue::as_array))
     });
-    if let Some(workspaces) = workspaces {
-        for workspace in workspaces.iter().filter_map(JsonValue::as_str) {
-            if !contains_glob(workspace) {
-                push_reference(
-                    references,
-                    manifest,
-                    source,
-                    "package workspace member",
-                    workspace,
-                    vec![base.join(workspace).join("package.json")],
-                );
-            }
-        }
+    for workspace in workspaces
+        .into_iter()
+        .flatten()
+        .filter_map(JsonValue::as_str)
+        .filter(|workspace| !contains_glob(workspace))
+    {
+        push_reference(
+            references,
+            manifest,
+            source,
+            "package workspace member",
+            workspace,
+            vec![base.join(workspace).join("package.json")],
+        );
     }
+}
+
+fn package_builds_generated_path(manifest: &JsonValue, path: &str) -> bool {
+    let output = path
+        .trim_start_matches("./")
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    if !matches!(output, "build" | "dist" | "lib" | "out" | "output") {
+        return false;
+    }
+    manifest
+        .get("scripts")
+        .and_then(JsonValue::as_object)
+        .is_some_and(|scripts| {
+            ["build", "prepack", "prepare"]
+                .into_iter()
+                .filter_map(|name| scripts.get(name).and_then(JsonValue::as_str))
+                .any(|script| script.contains(output))
+        })
 }
 
 fn python_references(manifest: &str, source: &str, references: &mut Vec<ManifestReference>) {
@@ -565,6 +762,25 @@ mod tests {
                 .iter()
                 .any(|message| message.contains("app.missing"))
         );
+    }
+
+    #[test]
+    fn accepts_generated_package_executables() {
+        let root = tempdir().expect("temporary repository");
+        let mut auxiliary = BTreeMap::from([(
+            "package.json".to_owned(),
+            r#"{
+                "bin": {"tool": "lib/bin/tool.mjs"},
+                "scripts": {
+                    "build": "bundle src/bin/tool.ts --outdir lib/bin",
+                    "prepack": "npm run build"
+                }
+            }"#
+            .to_owned(),
+        )]);
+        auxiliary.extend(manifest_existence_markers(root.path(), &auxiliary));
+
+        assert!(missing_manifest_paths(&auxiliary).is_empty());
     }
 
     #[test]

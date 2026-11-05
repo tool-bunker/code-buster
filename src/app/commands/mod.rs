@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use crate::cli::PreviewOptions;
 use crate::discovery::PreparedPreview;
 use crate::findings::Finding;
+use crate::options::PreviewOptions;
 use crate::report::{FindingReport, render};
 
 pub(crate) mod baseline;

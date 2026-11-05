@@ -3,9 +3,10 @@ use std::fs;
 
 use serde_json::{Map, Value, json};
 
-use crate::cli::{ConfigOptions, ReportFormat};
+use crate::cli::ConfigOptions;
 use crate::config::{Config, absolute_root, migrate, ordered_rule_groups, validate};
 use crate::languages;
+use crate::options::ReportFormat;
 use crate::repository_defaults::RepositoryDefaults;
 
 pub fn execute(options: &ConfigOptions) -> Result<(), String> {

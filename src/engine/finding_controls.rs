@@ -3,9 +3,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::cli::PreviewOptions;
 use crate::config::Config;
 use crate::findings::{Finding, Severity, read_baseline};
+use crate::options::PreviewOptions;
 
 pub struct ControlledFindings {
     pub active: Vec<Finding>,

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::cli::PreviewOptions;
+use crate::options::PreviewOptions;
 use crate::summary_command;
 
 pub enum FixOutcome {

@@ -7,9 +7,9 @@ use regex::Regex;
 use serde_json::json;
 
 use crate::analysis_cache::AnalysisCache;
-use crate::cli::{PreviewOptions, ReportFormat};
 use crate::dependency_graph::DependencyGraph;
 use crate::discovery::{PreparedPreview, prepare};
+use crate::options::{PreviewOptions, ReportFormat};
 
 pub enum GraphOutcome {
     Success,

@@ -18,6 +18,7 @@ pub(crate) mod oop;
 pub(crate) mod pattern;
 pub(crate) mod regex;
 pub(crate) mod repository_contracts;
+pub(crate) mod repository_policy;
 pub(crate) mod runtime_bootstrap;
 pub(crate) mod sql_inline;
 pub(crate) mod structure;

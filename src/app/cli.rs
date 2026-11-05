@@ -6,6 +6,8 @@ use std::process::Command as ProcessCommand;
 
 use clap::{ArgAction, Parser};
 
+use crate::options::{PreviewOptions, ReportFormat};
+
 const COMMANDS: &[(&str, &str)] = &[
     ("summary", "Analyze the repository and show its health."),
     ("review", "Review findings, changes, plans, or actions."),
@@ -23,7 +25,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("rules", "List rules or explain one rule."),
     ("baseline", "Create, update, prune, or inspect a baseline."),
     ("fix", "Preview or apply supported safe fixes."),
-    ("init", "Create a starter Code Buster configuration."),
+    ("init", "Create language-aware repository configuration."),
     ("doctor", "Diagnose setup and source discovery."),
     ("config", "Explain configuration or selected files."),
     ("update", "Update the installed Code Buster executable."),
@@ -42,6 +44,16 @@ pub fn usage(color: bool) -> String {
 
     write_section(&mut output, color, "Commands");
     write_rows(&mut output, color, COMMANDS);
+
+    write_section(&mut output, color, "Init profiles");
+    write_rows(
+        &mut output,
+        color,
+        &[("cb init", "Automatic detection with inactive examples.")],
+    );
+    for (label, description) in crate::config::starter_profile_help() {
+        write_row(&mut output, color, label, description);
+    }
 
     write_section(&mut output, color, "Change review");
     write_rows(
@@ -170,6 +182,7 @@ pub fn usage(color: bool) -> String {
          \x20 cb review --pr --advisory\n\
          \x20 cb review --changed\n\
          \x20 cb quality --complexity\n\
+         \x20 cb init rust\n\
          \x20 cb rules rust-unwrap\n",
     );
     output
@@ -186,17 +199,21 @@ fn write_section(output: &mut String, color: bool, title: &str) {
 }
 
 fn write_rows(output: &mut String, color: bool, rows: &[(&str, &str)]) {
-    const LABEL_WIDTH: usize = 29;
     for (label, description) in rows {
-        output.push_str("  ");
-        write_styled(output, color, "36", label);
-        output.extend(std::iter::repeat_n(
-            ' ',
-            LABEL_WIDTH.saturating_sub(label.chars().count()),
-        ));
-        write_styled(output, color, "2", description);
-        output.push('\n');
+        write_row(output, color, label, description);
     }
+}
+
+fn write_row(output: &mut String, color: bool, label: &str, description: &str) {
+    const LABEL_WIDTH: usize = 29;
+    output.push_str("  ");
+    write_styled(output, color, "36", label);
+    output.extend(std::iter::repeat_n(
+        ' ',
+        LABEL_WIDTH.saturating_sub(label.chars().count()),
+    ));
+    write_styled(output, color, "2", description);
+    output.push('\n');
 }
 
 fn write_styled(output: &mut String, color: bool, ansi: &str, value: &str) {
@@ -254,20 +271,10 @@ pub enum InspectView {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ReportFormat {
-    Text,
-    Json,
-    Ndjson,
-    Markdown,
-    Sarif,
-    Junit,
-    Mermaid,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InitOptions {
     pub root: PathBuf,
     pub target: Option<PathBuf>,
+    pub profile: Option<String>,
     pub force: bool,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -290,77 +297,6 @@ pub struct ConfigOptions {
     pub include_tests: bool,
     pub include_examples: bool,
     pub include_vendored: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PreviewOptions {
-    pub root: PathBuf,
-    pub language: Option<String>,
-    pub languages: Vec<String>,
-    pub format: ReportFormat,
-    pub top: i64,
-    pub includes: Vec<String>,
-    pub excludes: Vec<String>,
-    pub changed_base: Option<String>,
-    pub verbose: bool,
-    pub profile: bool,
-    pub include_all: bool,
-    pub include_tests: bool,
-    pub include_examples: bool,
-    pub include_vendored: bool,
-    pub only: String,
-    pub dry_run: bool,
-    pub changed_lines: bool,
-    pub force: bool,
-    pub ci: bool,
-    pub allow_empty: bool,
-    pub fail_on_issues: bool,
-    pub include_advisory: bool,
-    pub all_findings: bool,
-    pub inactive_rules: bool,
-    pub finding_group: String,
-    pub baseline: Option<PathBuf>,
-    pub output: Option<PathBuf>,
-    pub cache_enabled: bool,
-    pub cache_directory: Option<PathBuf>,
-    pub ingest_sarif: Vec<String>,
-}
-
-impl Default for PreviewOptions {
-    fn default() -> Self {
-        Self {
-            root: PathBuf::from("."),
-            language: None,
-            languages: Vec::new(),
-            format: ReportFormat::Text,
-            top: 0,
-            includes: Vec::new(),
-            excludes: Vec::new(),
-            changed_base: None,
-            verbose: false,
-            profile: false,
-            include_all: false,
-            include_tests: false,
-            include_examples: false,
-            include_vendored: false,
-            only: String::new(),
-            dry_run: false,
-            changed_lines: false,
-            ci: false,
-            force: false,
-            allow_empty: false,
-            fail_on_issues: false,
-            include_advisory: false,
-            all_findings: false,
-            inactive_rules: false,
-            finding_group: String::new(),
-            baseline: None,
-            output: None,
-            cache_enabled: true,
-            cache_directory: None,
-            ingest_sarif: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Parser)]
@@ -559,11 +495,11 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         )),
         Some("duplication") => Ok(Command::Duplication(options)),
         Some("doctor") => Ok(Command::Doctor(options)),
-        Some("init") => Ok(Command::Init(InitOptions {
-            root: options.root,
-            target: targets.into_iter().next().map(PathBuf::from),
-            force: options.force,
-        })),
+        Some("init") => Ok(Command::Init(init_options(
+            options.root,
+            targets,
+            options.force,
+        )?)),
         Some("config") if config_files => Ok(Command::ConfigFiles(options)),
         Some("config") => Ok(Command::Config(ConfigOptions {
             root: options.root,
@@ -582,6 +518,33 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         Some(value) => Err(format!("Unknown Code Buster command: {value}")),
         None => Ok(Command::Summary(options)),
     }
+}
+
+fn init_options(root: PathBuf, targets: Vec<String>, force: bool) -> Result<InitOptions, String> {
+    fn resolve(value: &str) -> Option<&'static str> {
+        crate::config::canonical_starter_profile(value)
+            .or_else(|| crate::languages::canonical_name(value))
+    }
+
+    let (profile, target) = match targets.as_slice() {
+        [] => (None, None),
+        [value] => match resolve(value) {
+            Some(profile) => (Some(profile.to_owned()), None),
+            None => (None, Some(PathBuf::from(value))),
+        },
+        [profile, target] => {
+            let profile =
+                resolve(profile).ok_or_else(|| "Usage: cb init [profile] [path]".to_owned())?;
+            (Some(profile.to_owned()), Some(PathBuf::from(target)))
+        }
+        _ => return Err("Usage: cb init [profile] [path]".to_owned()),
+    };
+    Ok(InitOptions {
+        root,
+        target,
+        profile,
+        force,
+    })
 }
 
 fn command_report_format(

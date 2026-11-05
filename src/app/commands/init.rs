@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::cli::InitOptions;
-use crate::config::STARTER_CONFIG;
+use crate::config::starter_config;
 
 pub enum InitOutcome {
     Created,
@@ -15,7 +15,7 @@ pub fn execute(options: &InitOptions) -> Result<InitOutcome, String> {
         eprintln!("config exists (use --force)");
         return Ok(InitOutcome::Exists);
     }
-    fs::write(&path, STARTER_CONFIG)
+    fs::write(&path, starter_config(options.profile.as_deref()))
         .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
     println!("created {}", path.display());
     Ok(InitOutcome::Created)

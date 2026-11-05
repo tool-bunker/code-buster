@@ -63,7 +63,7 @@ use languages::{
     typescript::rules as typescript_rules,
     wren::rules as wren_rules,
 };
-use model::{config, findings};
+use model::{config, findings, options};
 use reporting::{report, sarif_ingestion};
 use rules::{
     advanced_duplication, ai_security as ai_security_rules, cargo as cargo_rules,
@@ -76,7 +76,8 @@ use rules::{
     generated_code_risks, generic as generic_rules, github_actions as github_actions_rules,
     layout as layout_rules, object_soup as object_soup_rules, oop as oop_rules,
     pattern as pattern_rules, regex as regex_rules,
-    repository_contracts as repository_contract_rules, runtime_bootstrap as runtime_bootstrap_rule,
+    repository_contracts as repository_contract_rules,
+    repository_policy as repository_policy_rules, runtime_bootstrap as runtime_bootstrap_rule,
     sql_inline as sql_inline_rule, structure, trivial_wrappers, ui_consistency,
     yagni as yagni_rules, yagni_call_index, yagni_concentration,
 };
@@ -223,7 +224,7 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     }
 }
 
-fn review_exit(options: &cli::PreviewOptions, view: cli::ReviewView) -> ExitCode {
+fn review_exit(options: &options::PreviewOptions, view: cli::ReviewView) -> ExitCode {
     match view {
         cli::ReviewView::Findings => {
             summary_exit(summary_command::execute_report(options, "review"))
@@ -237,7 +238,7 @@ fn review_exit(options: &cli::PreviewOptions, view: cli::ReviewView) -> ExitCode
     }
 }
 
-fn quality_exit(options: &cli::PreviewOptions, view: cli::QualityView) -> ExitCode {
+fn quality_exit(options: &options::PreviewOptions, view: cli::QualityView) -> ExitCode {
     match view {
         cli::QualityView::Overview => match quality_command::execute_quality(options) {
             Ok(quality_command::QualityOutcome::Success) => ExitCode::SUCCESS,

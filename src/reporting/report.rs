@@ -5,10 +5,10 @@ use std::fmt::{Display, Write as _};
 use std::process::Command;
 
 use super::terminal;
-use crate::cli::ReportFormat;
 use crate::config::{Config, PatternRule};
 use crate::discovery::{AnalysisProfile, PreparedPreview, ProcessingDiagnostic, RulePackTiming};
 use crate::findings::{Finding, Severity, rule_suggestion, rule_why};
+use crate::options::ReportFormat;
 use crate::rule_catalog;
 
 pub struct FindingReport<'a> {

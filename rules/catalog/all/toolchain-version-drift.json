@@ -1,0 +1,27 @@
+{
+  "id": "toolchain-version-drift",
+  "language": "all",
+  "group": "reliability",
+  "listingTitle": "Align toolchain version constraints",
+  "title": "Align toolchain version constraints",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "A checked-in toolchain pin outside the root manifest's supported range makes local or CI verification disagree with the declared project contract.",
+  "suggestion": "Update the toolchain pin or the manifest requirement so the checked-in development and CI environments satisfy the declared range.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability", "configuration", "ci"],
+  "requirements": ["manifest", "ci"],
+  "packs": ["repository-policy"],
+  "implementation": "src/rules/repository_policy/toolchains.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Root Node.js engines are compared with .nvmrc, .node-version, and literal CI node-version pins; root requires-python is compared with .python-version and literal CI python-version pins, while CI workflows that explicitly reference a compatible nested Python project use that project's constraint.",
+    "Root Cargo rust-version is compared with rust-toolchain.toml and literal numeric CI toolchain pins; root Maven compiler release, source, or java.version is compared with .java-version and literal CI java-version pins.",
+    "Simple exact, comparison, caret, and tilde conjunctions are evaluated; partial pins such as Node.js 20 are treated as floating channels and abstain when a more precise requirement overlaps them. Disjunctions, dynamic matrices, named channels such as stable, prereleases, Gradle toolchains, and organization-level CI are excluded."
+  ]
+}

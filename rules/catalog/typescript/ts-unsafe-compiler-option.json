@@ -1,0 +1,26 @@
+{
+  "id": "ts-unsafe-compiler-option",
+  "language": "typescript",
+  "group": "reliability",
+  "listingTitle": "Keep TypeScript safety checks enabled",
+  "title": "Keep TypeScript safety checks enabled",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "Explicitly disabling strict typing, implicit-any checks, or strict null checks removes compiler guarantees and lets avoidable runtime failures reach review.",
+  "suggestion": "Enable the compiler option and resolve the resulting type errors, or document a narrowly scoped override instead of weakening the project configuration.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability", "configuration"],
+  "requirements": ["manifest"],
+  "packs": ["repository-policy"],
+  "implementation": "src/rules/repository_policy/typescript.rs",
+  "languages": ["typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only explicit false values for strict, noImplicitAny, and strictNullChecks inside compilerOptions are reported.",
+    "Inherited settings, project references, and equivalent command-line overrides are not resolved."
+  ]
+}

@@ -9,9 +9,9 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::cli::PreviewOptions;
 use crate::config::{Config, absolute_root};
 use crate::languages::{self, Language};
+use crate::options::PreviewOptions;
 use crate::repository_defaults::{
     RepositoryDefaults, RepositoryDirectoryCache, RepositoryDirectoryEntry, RepositoryInspection,
     RepositoryMetadataFile,
@@ -884,7 +884,8 @@ fn is_test_file_name(name: &str) -> bool {
     matches!(
         name,
         "conftest.py" | "pytest.py" | "testing.py" | "testutils.py"
-    ) || TEST_FILE_REGEX.is_match(name)
+    ) || TEST_SETUP_FILE_REGEX.is_match(name)
+        || TEST_FILE_REGEX.is_match(name)
 }
 
 fn is_generated_file_name(name: &str) -> bool {
@@ -1806,6 +1807,10 @@ static DIFF_HUNK: LazyLock<Regex> = LazyLock::new(|| {
 static TEST_FILE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:_tests?\.(?:dart|go|py|rs)|(?:^|_)tests?\.rs|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$").unwrap()
 });
+static TEST_SETUP_FILE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:(?:jest|vitest)\.setup|setup[-_.]?tests?)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$")
+        .unwrap()
+});
 static BACKUP_FILE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\.backup\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$").unwrap());
 static TEST_HELPER_REGEX: LazyLock<Regex> =
@@ -1922,6 +1927,9 @@ mod tests {
             "pandas/_testing/contexts.py",
             "pkgs/http_client_conformance_tests/lib/src/abort_server.dart",
             "lib/src/abort_tests.dart",
+            "vitest.setup.ts",
+            "jest.setup.js",
+            "setupTests.ts",
             "src/Features/CSharpTest/ParserTests.cs",
             "src/EditorFeatures/CSharpTest2/CompletionTests.cs",
             "src/Workspaces/CoreTestUtilities/TestHost.cs",

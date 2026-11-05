@@ -1,0 +1,26 @@
+{
+  "id": "feature-rollout-allocation-invalid",
+  "language": "all",
+  "group": "correctness",
+  "listingTitle": "Keep rollout percentages valid",
+  "title": "Keep rollout percentages valid",
+  "mvvm": false,
+  "defaultSeverity": "error",
+  "legacyGroup": "core",
+  "why": "A literal rollout percentage outside zero through one hundred, or mutually exclusive percentages totaling above one hundred, cannot represent a valid allocation.",
+  "suggestion": "Correct the literal percentages so each value is within range and mutually exclusive allocations total at most one hundred.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["correctness", "configuration"],
+  "requirements": ["manifest"],
+  "packs": ["repository-policy"],
+  "implementation": "src/rules/repository_policy/feature_flags.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only literal numeric percentage, allocationPercentage, and rolloutPercentage fields in recognized JSON feature registries are inspected.",
+    "Array totals are checked only when at least two object entries use explicit percentage fields; arbitrary weights and runtime targeting expressions are excluded."
+  ]
+}

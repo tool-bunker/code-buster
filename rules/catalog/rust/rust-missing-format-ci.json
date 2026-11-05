@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Without a checked formatting gate, style drift creates avoidable review noise and inconsistent generated patches.",
   "suggestion": "Run cargo fmt --all -- --check in a checked-in CI workflow.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,6 @@
   "languageVersions": [],
   "limitations": [
     "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
-    "Pre-commit hooks delegated to matching Makefile targets are resolved; reusable workflows, aliases, and other shell wrappers are not."
+    "Conventional cargo-run or xtask lint commands and pre-commit hooks delegated to matching Makefile targets are resolved; reusable workflows, aliases, and other shell wrappers are not."
   ]
 }

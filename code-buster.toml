@@ -1,3 +1,30 @@
 # Analyze the Rust implementation only. Built-in repository classification
 # already excludes integration tests and fixtures; .gitignore owns target/dist.
 languages = ["rust"]
+
+# Keep the crate root as a thin composition boundary. Implementation belongs
+# in named subsystems so new contributors have one obvious place for a change.
+[structure]
+source_roots = ["src"]
+max_root_files = 0
+allowed_root_files = ["lib.rs", "main.rs"]
+required_directories = [
+  "app",
+  "engine",
+  "graph",
+  "languages",
+  "model",
+  "reporting",
+  "rule_packs",
+  "rules",
+]
+
+# Start with the stable application/runtime/data boundary. Other subsystems are
+# intentionally excluded until their dependency direction is equally clear.
+[architecture]
+layers = ["app", "engine", "model"]
+allowed_dependencies = [
+  "app -> engine",
+  "app -> model",
+  "engine -> model",
+]

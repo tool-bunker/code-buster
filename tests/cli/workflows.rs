@@ -132,9 +132,9 @@ fn rules_with_an_id_reports_full_rule_metadata_and_stable_errors() {
 }
 
 #[test]
-fn update_dry_run_reinstalls_only_the_local_rust_checkout() {
+fn update_dry_run_reinstalls_the_local_checkout() {
     let expected = format!(
-        "Reinstall the local Code Buster Rust checkout with Cargo\n\
+        "Reinstall the local Code Buster checkout with Cargo\n\
          Would run: cargo install --path {} --force --locked\n",
         env!("CARGO_MANIFEST_DIR")
     );
@@ -150,6 +150,37 @@ fn update_dry_run_reinstalls_only_the_local_rust_checkout() {
             expected
         );
     }
+}
+
+#[test]
+fn update_dry_run_detects_a_homebrew_executable() {
+    let root = TempDirectory::new("cb-update-homebrew");
+    let executable_name = if cfg!(windows) { "cb.exe" } else { "cb" };
+    let executable = root
+        .path
+        .join("Cellar/code-buster/0.13.0/bin")
+        .join(executable_name);
+    fs::create_dir_all(
+        executable
+            .parent()
+            .expect("fixture executable must have a parent"),
+    )
+    .expect("Homebrew fixture directory must be created");
+    fs::copy(env!("CARGO_BIN_EXE_cb"), &executable)
+        .expect("cb fixture executable must be copied");
+
+    let output = Command::new(executable)
+        .args(["update", "--dry-run"])
+        .output()
+        .expect("copied cb must execute");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("stdout must be UTF-8"),
+        "Update Code Buster with Homebrew\n\
+         Would run: brew update\n\
+         Would run: brew upgrade code-buster\n"
+    );
 }
 
 #[test]

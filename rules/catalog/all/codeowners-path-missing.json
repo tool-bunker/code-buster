@@ -1,0 +1,27 @@
+{
+  "id": "codeowners-path-missing",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Resolve CODEOWNERS paths",
+  "title": "Resolve CODEOWNERS paths",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "A literal CODEOWNERS path that no longer exists cannot assign review ownership to the intended part of the repository.",
+  "suggestion": "Correct or remove the stale ownership entry, or restore the owned path.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability", "configuration"],
+  "requirements": ["manifest", "fileSystem"],
+  "packs": ["repository-policy"],
+  "implementation": "src/rules/repository_policy/codeowners.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only root, .github, and docs CODEOWNERS files are inspected.",
+    "Literal non-negated paths without glob or escape syntax are checked; slashless patterns use CODEOWNERS basename semantics, while owner validity is not inferred.",
+    "The rule establishes path existence, not whether branch protection requires the listed reviewers."
+  ]
+}

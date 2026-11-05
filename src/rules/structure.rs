@@ -21,7 +21,8 @@ pub fn analyze(files: &[SourceFile], config: &Config) -> Vec<Finding> {
 }
 
 fn structure_analysis_enabled(config: &Config) -> bool {
-    config.structure_max_top_level_files >= 0
+    !config.structure_source_roots.is_empty()
+        || config.structure_max_top_level_files >= 0
         || !config.structure_allowed_top_level.is_empty()
         || !config.structure_required_directories.is_empty()
 }
@@ -34,7 +35,7 @@ fn analyze_source_root(
 ) {
     let normalized_root = root.replace('\\', "/").trim_matches('/').to_owned();
     if !config.root.join(&normalized_root).is_dir() {
-        emit_missing_source_root(config, &normalized_root, findings);
+        emit_missing_source_root(&normalized_root, findings);
         return;
     }
 
@@ -44,10 +45,7 @@ fn analyze_source_root(
     emit_top_level_finding(config, &normalized_root, qualified, findings);
 }
 
-fn emit_missing_source_root(config: &Config, normalized_root: &str, findings: &mut Vec<Finding>) {
-    if config.structure_required_directories.is_empty() {
-        return;
-    }
+fn emit_missing_source_root(normalized_root: &str, findings: &mut Vec<Finding>) {
     findings.push(Finding::structure(
         "structure-missing-source-root",
         normalized_root.to_owned(),

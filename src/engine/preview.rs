@@ -1,9 +1,9 @@
 use serde::Serialize;
 
-use crate::cli::{PreviewOptions, ReportFormat};
 use crate::discovery::{
     GeneratedProvenance, PreparedPreview, ProcessingDiagnostic, SourceFile, prepare,
 };
+use crate::options::{PreviewOptions, ReportFormat};
 
 pub fn execute(options: &PreviewOptions) -> Result<(), String> {
     if !matches!(options.format, ReportFormat::Text | ReportFormat::Json) {

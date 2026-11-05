@@ -13,7 +13,11 @@ pub struct Language {
 
 impl Language {
     fn matches(self, value: &str) -> bool {
-        self.id == value || self.aliases.contains(&value)
+        self.id.eq_ignore_ascii_case(value)
+            || self
+                .aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(value))
     }
 
     pub fn owns_extension(self, extension: &str) -> bool {
@@ -124,6 +128,17 @@ pub const LANGUAGES: &[Language] = &[
     },
 ];
 
+fn resolve_language(value: &str) -> Option<Language> {
+    LANGUAGES
+        .iter()
+        .copied()
+        .find(|candidate| candidate.matches(value))
+}
+
+pub fn canonical_name(value: &str) -> Option<&'static str> {
+    resolve_language(value).map(|language| language.id)
+}
+
 // code-buster-ignore complex-function: language alias expansion and deduplication form one bounded selection routine.
 pub fn select(language: &str, languages: &[String]) -> Result<Vec<Language>, String> {
     let requested = if languages.is_empty() {
@@ -141,8 +156,9 @@ pub fn select(language: &str, languages: &[String]) -> Result<Vec<Language>, Str
 
     let mut selected = Vec::new();
     for requested_name in requested {
-        let normalized = requested_name.to_ascii_lowercase();
-        if normalized == "frontend" || normalized == "web" {
+        if requested_name.eq_ignore_ascii_case("frontend")
+            || requested_name.eq_ignore_ascii_case("web")
+        {
             for definition in FRONTEND_LANGUAGES.iter().copied() {
                 if !selected
                     .iter()
@@ -153,10 +169,7 @@ pub fn select(language: &str, languages: &[String]) -> Result<Vec<Language>, Str
             }
             continue;
         }
-        let definition = LANGUAGES
-            .iter()
-            .copied()
-            .find(|candidate| candidate.matches(&normalized))
+        let definition = resolve_language(&requested_name)
             .ok_or_else(|| format!("Unknown Code Buster language: {requested_name}"))?;
         if !selected
             .iter()

@@ -1,0 +1,27 @@
+{
+  "id": "feature-flag-expired",
+  "language": "all",
+  "group": "maintainability",
+  "listingTitle": "Remove expired feature flags",
+  "title": "Remove expired feature flags",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "A structured feature-flag registry contains a literal expiry date that has passed, leaving temporary branching and rollout behavior in production beyond its reviewed lifetime.",
+  "suggestion": "Remove the expired flag and its inactive branch, or extend the expiry through the project's normal review process.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability", "configuration"],
+  "requirements": ["manifest"],
+  "packs": ["repository-policy"],
+  "implementation": "src/rules/repository_policy/feature_flags.rs",
+  "languages": [],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only feature-flags.json and feature_flags.json registries with flags, features, or experiments objects or arrays are inspected.",
+    "Expiry values must use a literal YYYY-MM-DD date in expiry, expires, expiresAt, or expires_at.",
+    "Dynamic registries and provider-side flag metadata are not available to offline analysis."
+  ]
+}

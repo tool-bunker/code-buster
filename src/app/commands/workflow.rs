@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
-use crate::cli::PreviewOptions;
 use crate::findings::{Finding, Severity};
+use crate::options::PreviewOptions;
 use crate::rule_catalog;
 use crate::summary_command;
 

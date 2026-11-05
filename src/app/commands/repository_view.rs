@@ -7,10 +7,11 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::cli::{ReportFormat, RepositoryViewOptions};
+use crate::cli::RepositoryViewOptions;
 use crate::config::{Config, absolute_root};
 use crate::discovery::{classify_target, prepare};
 use crate::function_sources;
+use crate::options::ReportFormat;
 use crate::summary_command;
 
 pub enum RepositoryViewOutcome {

@@ -1,0 +1,27 @@
+{
+  "id": "ts-ci-missing-typecheck",
+  "language": "typescript",
+  "group": "reliability",
+  "listingTitle": "Run declared type checking in CI",
+  "title": "Run declared TypeScript type checking in CI",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "A project that declares a dedicated type-checking script but omits it from direct CI build, test, lint, or check commands can merge code that violates its TypeScript contract.",
+  "suggestion": "Invoke the declared type-checking script, or a direct equivalent such as tsc --noEmit, in checked-in CI.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability", "ci"],
+  "requirements": ["manifest", "ci"],
+  "packs": ["repository-policy"],
+  "implementation": "src/rules/repository_policy/typescript.rs",
+  "languages": ["typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "The root package.json and checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
+    "One level of package-script indirection is resolved, including common npm-run-all wrappers and explicit typecheck/type-check/ts-check task names; arbitrary shell wrappers, reusable workflows, and external CI are not inferred.",
+    "The rule abstains unless direct JavaScript build, test, lint, or check commands are present in CI."
+  ]
+}

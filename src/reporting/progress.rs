@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-use crate::cli::{PreviewOptions, ReportFormat};
+use crate::options::{PreviewOptions, ReportFormat};
 
 use super::terminal;
 

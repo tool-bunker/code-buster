@@ -10,15 +10,16 @@ use std::time::Instant;
 
 use crate::analysis_cache::{AnalysisCache, FindingCacheInputs};
 use crate::analysis_engine;
-use crate::cli::PreviewOptions;
 use crate::discovery::{AnalysisProfile, PreparedPreview, is_builtin_production_path, prepare};
 use crate::engine::execution_plan::ExecutionPlan;
 use crate::finding_controls;
 use crate::findings::Finding;
+use crate::options::PreviewOptions;
 use crate::report::{FindingReport, render};
 use crate::reporting::progress::AnalysisProgress;
 use crate::repository_contract_rules;
 use crate::repository_defaults::RepositoryMetadataFile;
+use crate::repository_policy_rules;
 use crate::rule_catalog;
 use crate::sarif_ingestion;
 use crate::source_analysis_context::SourceAnalysisContext;
@@ -69,6 +70,10 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
         &mut auxiliary,
     );
     auxiliary.extend(repository_contract_rules::manifest_existence_markers(
+        Path::new(&analysis_prepared.root),
+        &auxiliary,
+    ));
+    auxiliary.extend(repository_policy_rules::codeowners_existence_markers(
         Path::new(&analysis_prepared.root),
         &auxiliary,
     ));
@@ -278,26 +283,40 @@ fn is_auxiliary_metadata_file(relative: &str) -> bool {
         parent.as_os_str().is_empty()
             || is_builtin_production_path(&parent.to_string_lossy().replace('\\', "/"))
     });
-    if !production_parent {
+    let codeowners = matches!(
+        relative,
+        "CODEOWNERS" | ".github/CODEOWNERS" | "docs/CODEOWNERS"
+    );
+    if !production_parent && !codeowners {
         return false;
     }
     let name = path.file_name().and_then(|name| name.to_str());
     let named_auxiliary = name.is_some_and(|name| {
         [
+            ".java-version",
+            ".node-version",
+            ".nvmrc",
             ".pre-commit-config.yaml",
             ".pre-commit-config.yml",
+            ".python-version",
             "Cargo.lock",
             "Cargo.toml",
             "analysis_options.yaml",
+            "feature-flags.json",
+            "feature_flags.json",
             "l10n.yaml",
             "package.json",
+            "pom.xml",
             "pubspec.yaml",
             "pyproject.toml",
+            "rust-toolchain.toml",
             "Makefile",
         ]
         .contains(&name)
+            || name == "tsconfig.json"
+            || (name.starts_with("tsconfig.") && name.ends_with(".json"))
     });
-    named_auxiliary || is_ci_auxiliary_path(path)
+    codeowners || named_auxiliary || is_ci_auxiliary_path(path)
 }
 
 fn is_ci_auxiliary_path(relative: &Path) -> bool {

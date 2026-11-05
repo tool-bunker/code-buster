@@ -65,6 +65,12 @@ When Rust 1.88 or newer is installed, install the current crates.io release:
 cargo install code-buster --locked
 cb version
 ```
+Update a Homebrew, Cargo, native-installer, or local-source installation with
+the same command:
+
+```sh
+cb update
+```
 
 Then run Code Buster from a repository root:
 
@@ -76,6 +82,25 @@ Configuration is optional. Start with coverage in the summary, then use focused
 commands such as `review`, `duplication`, `graph`, `dead`, `inspect`, or
 `quality`. Focus further with `quality --hotspots`, `inspect --related PATH`,
 or `review --format plan`.
+
+Plain `cb init` keeps automatic detection and writes concise, commented examples
+for file selection, thresholds, structure, architecture, rule modes, and
+quality profiles. Those examples remain inactive until uncommented.
+
+For a new repository, create an explicit language policy:
+
+```sh
+cb init rust
+cb init bevy
+cb init python
+cb init typescript
+```
+
+Rust and Bevy receive a strict Cargo `src` boundary; Bevy-specific rules
+activate when `Cargo.toml` declares Bevy. Python, JavaScript, TypeScript, Dart,
+and Java receive their conventional source root without arbitrary file limits.
+Go and C# are pinned to their language rules without imposing a non-portable
+directory layout.
 
 Analysis caches live in the operating system's user-cache directory, not in the
 analyzed repository. Use `--no-cache` for one-off runs or `--cache-dir PATH`

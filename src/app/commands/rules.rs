@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
-use crate::cli::{PreviewOptions, ReportFormat};
 use crate::config::{Config, absolute_root};
+use crate::options::{PreviewOptions, ReportFormat};
 use crate::rule_catalog::{RULE_DESCRIPTORS, RuleDescriptor};
 
 #[derive(Serialize)]

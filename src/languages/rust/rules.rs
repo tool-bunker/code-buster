@@ -458,7 +458,11 @@ fn looks_like_hardcoded_secret(name: &str, literal: &str) -> bool {
     let Some(kind) = secret_name_kind(name) else {
         return false;
     };
-    if value.is_empty() || value.contains("://") || is_secret_placeholder(name, value) {
+    if value.is_empty()
+        || value.contains("://")
+        || is_symbolic_secret_label(value)
+        || is_secret_placeholder(name, value)
+    {
         return false;
     }
     match kind {
@@ -467,6 +471,16 @@ fn looks_like_hardcoded_secret(name: &str, literal: &str) -> bool {
         }
         SecretNameKind::Token => looks_like_token_secret(value),
     }
+}
+
+fn is_symbolic_secret_label(value: &str) -> bool {
+    (value.starts_with('$') && value.contains("::"))
+        || (value.len() > 4
+            && value.starts_with("__")
+            && value.ends_with("__")
+            && value[2..value.len() - 2]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'))
 }
 
 enum SecretNameKind {
@@ -1962,6 +1976,8 @@ fn connect() {
         let source = r####"const TOKEN_GROUP: &str = "md.comp.assist-chip";
 const CALLBACK_URL: &str = "https://example.test/token";
 const API_KEY: &str = "your_api_key";
+const SERDE_TOKEN: &str = "$serde_json::private::Number";
+const DUNDER_MODEL_PRIVATE_KEY: &str = "__pydantic_private__";
 const SAMPLE: &str = r#"const PASSWORD: &str = "actual-secret";"#;
 fn cancel() {
     let cancellation_token = "cancel-operation-token";

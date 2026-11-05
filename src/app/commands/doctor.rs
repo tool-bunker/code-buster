@@ -1,6 +1,6 @@
-use crate::cli::PreviewOptions;
 use crate::discovery::prepare;
 use crate::duplication;
+use crate::options::PreviewOptions;
 
 pub fn execute(options: &PreviewOptions) -> Result<(), String> {
     let prepared = prepare(options)?;

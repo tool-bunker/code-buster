@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- Add conservative repository-policy checks for explicitly weakened TypeScript compiler safety, declared type checking omitted from direct CI, expired feature flags, invalid rollout percentages, stale literal CODEOWNERS paths, incompatible private npm workspace dependency or TypeScript compiler majors, and Node.js, Python, Java, or Rust toolchain pins outside root manifest constraints.
+- Add language-aware `cb init` policies for standard source layouts, including a Bevy profile that keeps the Cargo source boundary and relies on manifest detection for Bevy-specific rules; plain `cb init` now includes inactive examples for the main configuration sections, and `cb --help` lists every available profile.
+
+### Fixed
+
+- Reduce corpus false positives by accepting intentional test-support entry points, generated package executables, literal JavaScript command-template bindings, symbolic Rust labels, and conventional delegated Rust lint commands.
+- Make `cb update` detect and update Homebrew, crates.io Cargo, verified native-installer, and local-source installations instead of only reinstalling the build-time source path.
+
+
 ## 0.13.0
 
 ### Added

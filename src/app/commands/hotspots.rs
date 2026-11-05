@@ -3,8 +3,8 @@ use std::process::Command;
 
 use serde::Serialize;
 
-use crate::cli::{PreviewOptions, ReportFormat};
 use crate::discovery::prepare;
+use crate::options::{PreviewOptions, ReportFormat};
 
 pub enum HotspotsOutcome {
     Success,

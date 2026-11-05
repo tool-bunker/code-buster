@@ -1231,3 +1231,72 @@ fn repository_views_preserve_usage_and_unreachable_exits() {
     );
 }
 
+
+#[test]
+fn repository_policy_rules_run_through_native_metadata_discovery() {
+    let root = TempDirectory::new("cb-repository-policy");
+    root.write(
+        "package.json",
+        br#"{
+  "private": true,
+  "engines": {"node": ">=20 <23"},
+  "scripts": {"typecheck": "tsc --noEmit", "test": "vitest"},
+  "workspaces": ["packages/a", "packages/b"]
+}"#,
+    );
+    root.write(
+        "tsconfig.json",
+        br#"{"compilerOptions":{"strict":false}}"#,
+    );
+    root.write(
+        ".github/workflows/ci.yml",
+        b"steps:\n  - run: npm test\n  - uses: actions/setup-node@v4\n    with:\n      node-version: 18\n",
+    );
+    root.write(".nvmrc", b"18.20.0\n");
+    root.write(
+        "pom.xml",
+        b"<properties><maven.compiler.release>17</maven.compiler.release></properties>\n",
+    );
+    root.write(".java-version", b"11\n");
+    root.write(
+        "feature-flags.json",
+        br#"{"flags":[{"name":"old-checkout","expiry":"2000-01-01","percentage":120}]}"#,
+    );
+    root.write(".github/CODEOWNERS", b"/missing/ @team\n");
+    root.write(
+        "packages/a/package.json",
+        br#"{"private":true,"dependencies":{"react":"^18.2.0"},"devDependencies":{"typescript":"^5.8.0"}}"#,
+    );
+    root.write(
+        "packages/b/package.json",
+        br#"{"private":true,"dependencies":{"react":"^19.0.0"},"devDependencies":{"typescript":"^6.0.0"}}"#,
+    );
+    root.write("src/index.ts", b"export const answer: number = 42;\n");
+
+    for rule in [
+        "ts-unsafe-compiler-option",
+        "ts-ci-missing-typecheck",
+        "feature-flag-expired",
+        "feature-rollout-allocation-invalid",
+        "codeowners-path-missing",
+        "npm-workspace-dependency-version-drift",
+        "toolchain-version-drift",
+    ] {
+        let output = run_summary(
+            &root.path,
+            &["--only", rule, "--advisory", "--format", "json"],
+        );
+        assert_eq!(output.status.code(), Some(0), "rule {rule}");
+        assert!(output.stderr.is_empty(), "rule {rule}");
+        let report: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("policy report must parse");
+        assert!(
+            report["findings"]
+                .as_array()
+                .expect("findings must be an array")
+                .iter()
+                .any(|finding| finding["code"] == rule),
+            "rule {rule}: {report:#}"
+        );
+    }
+}

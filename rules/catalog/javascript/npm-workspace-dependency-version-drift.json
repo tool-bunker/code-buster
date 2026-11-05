@@ -1,0 +1,27 @@
+{
+  "id": "npm-workspace-dependency-version-drift",
+  "language": "javascript",
+  "group": "maintainability",
+  "listingTitle": "Align npm workspace dependency versions",
+  "title": "Align npm workspace dependency versions",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "maintainability",
+  "why": "Private workspace packages using incompatible major requirements for the same registry dependency can install duplicate implementations and make repository-wide upgrades inconsistent.",
+  "suggestion": "Choose one reviewed compatible major requirement for private workspace packages unless the divergence is intentional.",
+  "version": 1,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["maintainability"],
+  "requirements": ["manifest", "declarations"],
+  "packs": ["repository-policy"],
+  "implementation": "src/rules/repository_policy/workspaces.rs",
+  "languages": ["javascript", "typescript"],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only literal workspace members and dependencies in member package.json files marked private are compared; TypeScript compiler requirements are also read from devDependencies.",
+    "Only direct exact, caret, or tilde registry requirements with different nonzero majors are reported.",
+    "Published packages, other development and peer dependencies, wildcard members, aliases, protocols, URLs, Git sources, and complex ranges are excluded."
+  ]
+}

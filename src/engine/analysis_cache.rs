@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::cli::PreviewOptions;
 use crate::dependency_graph::DependencyGraph;
 use crate::discovery::PreparedPreview;
 use crate::findings::{CodeFlowStep, Finding, Severity};
+use crate::options::PreviewOptions;
 use crate::report::cache_material;
 
 const CACHE_SCHEMA_VERSION: u64 = 3;

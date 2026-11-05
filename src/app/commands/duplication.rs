@@ -2,12 +2,12 @@ use std::path::Path;
 
 use crate::advanced_duplication;
 use crate::analysis_cache::AnalysisCache;
-use crate::cli::PreviewOptions;
 use crate::dart_model_duplication;
 use crate::discovery::prepare;
 use crate::duplication;
 use crate::finding_controls;
 use crate::function_sources;
+use crate::options::PreviewOptions;
 use crate::report::{FindingReport, render};
 use crate::sarif_ingestion;
 

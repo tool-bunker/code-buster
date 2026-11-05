@@ -2112,12 +2112,37 @@ fn summary_accepts_explicit_python_test_support_exports() {
         b"from . import testing\n\ndef run():\n    return testing.helper()\n",
     );
     root.write(
+        "package/app.py",
+        b"from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from .testing import Helper\nclass App:\n    def test_client(self):\n        from . import testing\n        return testing.helper()\n",
+    );
+    root.write(
         "package/commands/test.py",
         b"from package import testing\n\ndef run_tests():\n    return testing.helper()\n",
     );
     root.write(
-        "package/testing/__init__.py",
+        "package/testing.py",
         b"def helper():\n    return \"fixture\"\n",
+    );
+    root.write(
+        "vitest.setup.ts",
+        b"import { fixture } from './tests/fixture';\nvoid fixture;\n",
+    );
+    root.write(
+        "tests/fixture.ts",
+        b"export const fixture = 'fixture';\n",
+    );
+    root.write(
+        "src/lib.rs",
+        b"#[cfg(feature = \"__private\")]\nmod axum_test;\n",
+    );
+    root.write("src/axum_test.rs", b"pub fn support() {}\n");
+    root.write(
+        "tools/ci/src/commands/mod.rs",
+        b"mod test;\npub use test::run;\n",
+    );
+    root.write(
+        "tools/ci/src/commands/test.rs",
+        b"pub fn run() {}\n",
     );
 
     let output = run_summary(

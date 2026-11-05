@@ -518,6 +518,7 @@ fn child_process_shell_findings(path: &str, source: &str) -> Vec<Finding> {
             let risky = match api {
                 ChildProcessApi::Exec => arguments.first().is_some_and(|command| {
                     !is_static_command_expression(command)
+                        && !is_static_template_from_bindings(command, &static_commands)
                         && !static_commands.contains(command.trim())
                         && !is_allowlist_guarded_command(source, open, command)
                 }),
@@ -793,6 +794,35 @@ fn is_static_command_expression(source: &str) -> bool {
         start = plus + 1;
     }
     is_static_string_literal(source[start..].trim())
+}
+
+fn is_static_template_from_bindings(source: &str, static_bindings: &BTreeSet<String>) -> bool {
+    let source = unwrapped_static_expression(source);
+    if !source.starts_with('`') || !source.ends_with('`') {
+        return false;
+    }
+    let mut remainder = &source[1..source.len() - 1];
+    let mut found = false;
+    while let Some(start) = remainder.find("${") {
+        let expression = &remainder[start + 2..];
+        let Some(end) = expression.find('}') else {
+            return false;
+        };
+        let expression = expression[..end].trim();
+        if expression.is_empty()
+            || !expression.bytes().enumerate().all(|(index, byte)| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'_' | b'$')
+                    || (index == 0 && byte == b'_')
+            })
+            || !static_bindings.contains(expression)
+        {
+            return false;
+        }
+        found = true;
+        remainder = &remainder[start + 2 + end + 1..];
+    }
+    found
 }
 
 fn is_allowlist_guarded_command(source: &str, open: usize, command: &str) -> bool {
@@ -2742,8 +2772,11 @@ child.exec(command);\n"
                 "src/safe.ts".to_owned(),
                 "import { exec, execFile, spawn } from 'child_process';\n\
 const staticCommand = 'git status';\n\
+const OUTPUT_DIRECTORY = 'tmp/emfile-check';\n\
+const CONFIG_DIRECTORY = 'tests/fixtures/emfile';\n\
 exec('git ' + 'status');\n\
 exec(staticCommand);\n\
+exec(`node bin/eslint.js ${OUTPUT_DIRECTORY} -c ${CONFIG_DIRECTORY}/eslint.config.js --fix`);\n\
 execFile('git', ['show', revision]);\n\
 spawn(command, args);\n\
 spawn('git', ['show'], { shell: false });\n\

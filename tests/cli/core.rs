@@ -22,6 +22,7 @@ fn help_groups_commands_options_and_examples_without_redirected_color() {
     for section in [
         "Usage",
         "Commands",
+        "Init profiles",
         "Change review",
         "Scope",
         "Findings and output",
@@ -37,6 +38,19 @@ fn help_groups_commands_options_and_examples_without_redirected_color() {
     assert!(stdout.contains("--all-findings"));
     assert!(stdout.contains("--profile"));
     assert!(stdout.contains("--dry-run"));
+    for profile in [
+        "cb init rust",
+        "cb init bevy",
+        "cb init python",
+        "cb init javascript",
+        "cb init typescript",
+        "cb init dart",
+        "cb init java",
+        "cb init go",
+        "cb init csharp",
+    ] {
+        assert!(stdout.contains(profile), "{profile}");
+    }
     assert!(!stdout.contains("\u{1b}["));
     assert!(output.stderr.is_empty());
 }
@@ -1000,14 +1014,14 @@ fn init_creates_valid_starter_config_and_requires_force_to_replace_it() {
         format!("created {}\n", root.path.join("code-buster.toml").display())
     );
     assert!(created.stderr.is_empty());
-    let expected = "# Optional repository-specific overrides.\n\
-                    # Code Buster already detects languages, frameworks, generated files, and\n\
-                    # production source conventions when this file is absent.\n\
-                    languages = [\"auto\"]\n";
-    assert_eq!(
-        fs::read_to_string(root.path.join("code-buster.toml")).unwrap(),
-        expected
-    );
+    let configured = run_config(&root.path, &["--format", "json"]);
+    assert_eq!(configured.status.code(), Some(0));
+    let report: serde_json::Value =
+        serde_json::from_slice(&configured.stdout).expect("starter config must resolve");
+    assert_eq!(report["languages"], serde_json::json!(["auto"]));
+    assert_eq!(report["structure_source_roots"], serde_json::json!([]));
+    assert_eq!(report["architecture_layers"], serde_json::json!([]));
+    assert_eq!(report["quality_profile"], "standard");
 
     let exists = run(&["init", root_argument]);
     assert_eq!(exists.status.code(), Some(1));
@@ -1020,9 +1034,153 @@ fn init_creates_valid_starter_config_and_requires_force_to_replace_it() {
     root.write("code-buster.toml", b"invalid = true\n");
     let forced = run(&["init", root_argument, "--force"]);
     assert_eq!(forced.status.code(), Some(0));
+    let configured = run_config(&root.path, &["--format", "json"]);
+    assert_eq!(configured.status.code(), Some(0));
+    let report: serde_json::Value =
+        serde_json::from_slice(&configured.stdout).expect("replaced config must resolve");
+    assert_eq!(report["languages"], serde_json::json!(["auto"]));
+}
+
+#[test]
+fn init_rust_in_empty_directory_creates_a_conservative_source_policy() {
+    let root = TempDirectory::new("cbr-init-rust");
+    let created = Command::new(env!("CARGO_BIN_EXE_cb"))
+        .current_dir(&root.path)
+        .args(["init", "rust"])
+        .output()
+        .expect("cb init rust must execute");
+
+    assert_eq!(created.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8(created.stdout).expect("stdout must be UTF-8"),
+        "created ./code-buster.toml\n"
+    );
+    assert!(created.stderr.is_empty());
     assert_eq!(
         fs::read_to_string(root.path.join("code-buster.toml")).unwrap(),
-        expected
+        "# Rust repository policy.\n\
+         # Keep the crate root as a thin Cargo entry point and place implementation in modules.\n\
+         languages = [\"rust\"]\n\
+         \n\
+         [structure]\n\
+         source_roots = [\"src\"]\n\
+         max_root_files = 0\n\
+         allowed_root_files = [\"lib.rs\", \"main.rs\"]\n"
+    );
+
+    let missing_root = run_structure(&root.path, &["--allow-empty", "--format", "json"]);
+    assert_eq!(missing_root.status.code(), Some(0));
+    let report: serde_json::Value =
+        serde_json::from_slice(&missing_root.stdout).expect("structure report must parse");
+    assert_eq!(report["actionableFindingCount"], 1);
+    assert_eq!(
+        report["findings"][0]["code"],
+        "structure-missing-source-root"
+    );
+
+    root.write("src/main.rs", b"fn main() {}\n");
+    let valid = run_structure(&root.path, &["--format", "json"]);
+    assert_eq!(valid.status.code(), Some(0));
+    let report: serde_json::Value =
+        serde_json::from_slice(&valid.stdout).expect("structure report must parse");
+    assert_eq!(report["actionableFindingCount"], 0);
+    assert_eq!(report["findings"], serde_json::json!([]));
+}
+
+#[test]
+fn init_language_profiles_apply_only_portable_source_roots() {
+    for (requested, canonical, source_root) in [
+        ("python", "python", Some("src")),
+        ("js", "javascript", Some("src")),
+        ("ts", "typescript", Some("src")),
+        ("dart", "dart", Some("lib")),
+        ("java", "java", Some("src/main/java")),
+        ("go", "go", None),
+        ("cs", "csharp", None),
+    ] {
+        let root = TempDirectory::new(&format!("cbr-init-{canonical}"));
+        let root_argument = root.path.to_str().expect("temporary path must be UTF-8");
+        let created = run(&["init", requested, root_argument]);
+        assert_eq!(created.status.code(), Some(0), "{requested}");
+        assert!(created.stderr.is_empty(), "{requested}");
+
+        let configured = run_config(&root.path, &["--format", "json"]);
+        assert_eq!(configured.status.code(), Some(0), "{requested}");
+        let config: serde_json::Value =
+            serde_json::from_slice(&configured.stdout).expect("config report must parse");
+        assert_eq!(
+            config["languages"],
+            serde_json::json!([canonical]),
+            "{requested}"
+        );
+        assert_eq!(
+            config["structure_source_roots"],
+            source_root.map_or_else(|| serde_json::json!([]), |root| serde_json::json!([root])),
+            "{requested}"
+        );
+
+        let structure = run_structure(&root.path, &["--allow-empty", "--format", "json"]);
+        assert_eq!(structure.status.code(), Some(0), "{requested}");
+        let report: serde_json::Value =
+            serde_json::from_slice(&structure.stdout).expect("structure report must parse");
+        let expected = if source_root.is_some() { 1 } else { 0 };
+        assert_eq!(
+            report["actionableFindingCount"], expected,
+            "{requested}: {report}"
+        );
+    }
+}
+
+#[test]
+fn init_bevy_uses_rust_structure_and_manifest_gated_rules() {
+    let root = TempDirectory::new("cbr-init-bevy");
+    let root_argument = root.path.to_str().expect("temporary path must be UTF-8");
+    let created = run(&["init", "bevy", root_argument]);
+    assert_eq!(created.status.code(), Some(0));
+    assert!(created.stderr.is_empty());
+
+    let configured = run_config(&root.path, &["--format", "json"]);
+    assert_eq!(configured.status.code(), Some(0));
+    let config: serde_json::Value =
+        serde_json::from_slice(&configured.stdout).expect("config report must parse");
+    assert_eq!(config["languages"], serde_json::json!(["rust"]));
+    assert_eq!(
+        config["structure_source_roots"],
+        serde_json::json!(["src"])
+    );
+    assert_eq!(
+        config["structure_allowed_top_level"],
+        serde_json::json!(["lib.rs", "main.rs"])
+    );
+
+    root.write(
+        "Cargo.toml",
+        b"[package]\nname = \"game\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nbevy = \"0.16\"\n",
+    );
+    root.write(
+        "src/main.rs",
+        b"use bevy::prelude::*;\n\nfn movement(mut writer: Query<&mut Transform>, reader: Query<&Transform>) {}\n\nfn main() {}\n",
+    );
+
+    let explained = run_config(&root.path, &["explain", "--format", "json"]);
+    assert_eq!(explained.status.code(), Some(0));
+    let report: serde_json::Value =
+        serde_json::from_slice(&explained.stdout).expect("config explanation must parse");
+    assert_eq!(
+        report["detected_frameworks"],
+        serde_json::json!(["bevy"])
+    );
+
+    let analyzed = run_summary(&root.path, &["--all-findings", "--format", "json"]);
+    assert_eq!(analyzed.status.code(), Some(0));
+    let report: serde_json::Value =
+        serde_json::from_slice(&analyzed.stdout).expect("summary report must parse");
+    assert!(
+        report["findings"]
+            .as_array()
+            .expect("findings must be an array")
+            .iter()
+            .any(|finding| finding["code"] == "bevy-conflicting-query-access")
     );
 }
 

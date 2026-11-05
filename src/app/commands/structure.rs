@@ -2,9 +2,9 @@ use std::path::Path;
 
 use super::print_quality_report;
 use crate::analysis_cache::AnalysisCache;
-use crate::cli::PreviewOptions;
 use crate::discovery::prepare;
 use crate::finding_controls;
+use crate::options::PreviewOptions;
 use crate::sarif_ingestion;
 use crate::structure;
 

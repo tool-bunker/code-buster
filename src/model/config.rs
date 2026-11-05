@@ -5,10 +5,225 @@ use std::path::{Path, PathBuf};
 use regex::Regex;
 use toml::Value;
 
-pub const STARTER_CONFIG: &str = "# Optional repository-specific overrides.\n# Code Buster already detects languages, frameworks, generated files, and\n# production source conventions when this file is absent.\nlanguages = [\"auto\"]\n";
+pub const STARTER_CONFIG: &str = r#"# Optional repository-specific overrides.
+# Code Buster already detects languages, frameworks, generated files, and
+# production source conventions when this file is absent.
+languages = ["auto"]
 
-use crate::cli::PreviewOptions;
+# Everything below is inactive until you remove the leading `#`.
+
+# Select or exclude repository paths.
+# [files]
+# exclude = ["vendor/**", "generated/**"]
+# entry_points = ["src/main.rs"]
+
+# Tune broad analysis thresholds.
+# [analysis]
+# duplication_min_lines = 15
+# complexity_threshold = 10
+# cognitive_complexity_threshold = 15
+
+# Enforce a physical source layout.
+# [structure]
+# source_roots = ["src"]
+# max_root_files = 0
+# allowed_root_files = ["lib.rs", "main.rs"]
+# required_directories = ["domain", "infrastructure"]
+
+# Enforce dependency direction. Unlisted cross-layer edges are rejected.
+# [architecture]
+# layers = ["presentation", "application", "domain"]
+# allowed_dependencies = [
+#   "presentation -> application",
+#   "application -> domain",
+# ]
+
+# Promote advisory groups to actionable findings, or turn groups off.
+# [rules.groups]
+# performance = "report"
+# style = "off"
+
+# Select stricter built-in quality gates.
+# [quality]
+# profile = "strict"
+"#;
+
+const RUST_ROOT_FILES: &[&str] = &["lib.rs", "main.rs"];
+
+struct StarterProfile {
+    id: &'static str,
+    language: &'static str,
+    help_label: &'static str,
+    help: &'static str,
+    title: &'static str,
+    guidance: &'static str,
+    source_root: Option<&'static str>,
+    restrict_root_files: bool,
+    allowed_root_files: &'static [&'static str],
+}
+
+const STARTER_PROFILES: &[StarterProfile] = &[
+    StarterProfile {
+        id: "rust",
+        language: "rust",
+        help_label: "cb init rust",
+        help: "Strict Cargo src boundary.",
+        title: "Rust repository policy.",
+        guidance: "Keep the crate root as a thin Cargo entry point and place implementation in modules.",
+        source_root: Some("src"),
+        restrict_root_files: true,
+        allowed_root_files: RUST_ROOT_FILES,
+    },
+    StarterProfile {
+        id: "bevy",
+        language: "rust",
+        help_label: "cb init bevy",
+        help: "Rust boundary with manifest-gated Bevy rules.",
+        title: "Bevy repository policy.",
+        guidance: "Use Cargo's src boundary; Bevy rules activate when Cargo.toml declares Bevy.",
+        source_root: Some("src"),
+        restrict_root_files: true,
+        allowed_root_files: RUST_ROOT_FILES,
+    },
+    StarterProfile {
+        id: "python",
+        language: "python",
+        help_label: "cb init python",
+        help: "Modern Python src layout.",
+        title: "Python repository policy.",
+        guidance: "Use the modern src layout so imports resolve the installed package.",
+        source_root: Some("src"),
+        restrict_root_files: false,
+        allowed_root_files: &[],
+    },
+    StarterProfile {
+        id: "javascript",
+        language: "javascript",
+        help_label: "cb init javascript",
+        help: "JavaScript application source in src.",
+        title: "JavaScript repository policy.",
+        guidance: "Keep application source under src and tooling at the repository root.",
+        source_root: Some("src"),
+        restrict_root_files: false,
+        allowed_root_files: &[],
+    },
+    StarterProfile {
+        id: "typescript",
+        language: "typescript",
+        help_label: "cb init typescript",
+        help: "TypeScript application source in src.",
+        title: "TypeScript repository policy.",
+        guidance: "Keep application source under src and tooling at the repository root.",
+        source_root: Some("src"),
+        restrict_root_files: false,
+        allowed_root_files: &[],
+    },
+    StarterProfile {
+        id: "dart",
+        language: "dart",
+        help_label: "cb init dart",
+        help: "Dart public package source in lib.",
+        title: "Dart repository policy.",
+        guidance: "Keep public package source under Dart's conventional lib directory.",
+        source_root: Some("lib"),
+        restrict_root_files: false,
+        allowed_root_files: &[],
+    },
+    StarterProfile {
+        id: "java",
+        language: "java",
+        help_label: "cb init java",
+        help: "Maven and Gradle src/main/java layout.",
+        title: "Java repository policy.",
+        guidance: "Use the conventional Maven and Gradle production source root.",
+        source_root: Some("src/main/java"),
+        restrict_root_files: false,
+        allowed_root_files: &[],
+    },
+    StarterProfile {
+        id: "go",
+        language: "go",
+        help_label: "cb init go",
+        help: "Pin Go without imposing a directory layout.",
+        title: "Go repository policy.",
+        guidance: "Go package layout is project-specific, so no source root is imposed.",
+        source_root: None,
+        restrict_root_files: false,
+        allowed_root_files: &[],
+    },
+    StarterProfile {
+        id: "csharp",
+        language: "csharp",
+        help_label: "cb init csharp",
+        help: "Pin C# without imposing a directory layout.",
+        title: "C# repository policy.",
+        guidance: ".NET project layout is project-specific, so no source root is imposed.",
+        source_root: None,
+        restrict_root_files: false,
+        allowed_root_files: &[],
+    },
+];
+
+pub fn starter_profile_help() -> impl Iterator<Item = (&'static str, &'static str)> {
+    STARTER_PROFILES
+        .iter()
+        .map(|profile| (profile.help_label, profile.help))
+}
+
+pub fn canonical_starter_profile(value: &str) -> Option<&'static str> {
+    STARTER_PROFILES
+        .iter()
+        .find(|profile| profile.id.eq_ignore_ascii_case(value))
+        .map(|profile| profile.id)
+}
+
+pub fn starter_config(profile: Option<&str>) -> String {
+    let Some(profile) = profile else {
+        return STARTER_CONFIG.to_owned();
+    };
+    let Some(profile) = STARTER_PROFILES
+        .iter()
+        .find(|candidate| candidate.id == profile)
+    else {
+        let mut output = String::from("# Repository-specific Code Buster policy.\nlanguages = [\"");
+        output.push_str(profile);
+        output.push_str("\"]\n");
+        return output;
+    };
+
+    let mut output = String::with_capacity(384);
+    output.push_str("# ");
+    output.push_str(profile.title);
+    output.push_str("\n# ");
+    output.push_str(profile.guidance);
+    output.push_str("\nlanguages = [\"");
+    output.push_str(profile.language);
+    output.push_str("\"]\n");
+    if let Some(source_root) = profile.source_root {
+        output.push_str("\n[structure]\nsource_roots = [\"");
+        output.push_str(source_root);
+        output.push_str("\"]\n");
+    }
+    if profile.restrict_root_files {
+        output.push_str("max_root_files = 0\n");
+    }
+    if !profile.allowed_root_files.is_empty() {
+        output.push_str("allowed_root_files = [");
+        for (index, file) in profile.allowed_root_files.iter().enumerate() {
+            if index > 0 {
+                output.push_str(", ");
+            }
+            output.push('"');
+            output.push_str(file);
+            output.push('"');
+        }
+        output.push_str("]\n");
+    }
+    output
+}
+
 use crate::findings::Severity;
+use crate::options::PreviewOptions;
 
 pub type Table = toml::map::Map<String, Value>;
 #[derive(Clone, Debug)]
