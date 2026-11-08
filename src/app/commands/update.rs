@@ -12,6 +12,7 @@ const INSTALLER_URL: &str = "https://toolbunker.dev/codebuster/install";
 #[cfg(windows)]
 const WINDOWS_INSTALLER_URL: &str = "https://toolbunker.dev/codebuster/install.ps1";
 const INSTALL_MARKER: &str = "share/code-buster/install.toml";
+const NATIVE_EXECUTABLE_NAME: &str = if cfg!(windows) { "cb.exe" } else { "cb" };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UpdateOutcome {
@@ -218,10 +219,9 @@ fn native_install_prefix(executable: &Path, home: Option<&Path>) -> Option<PathB
     }
 
     let home = home?;
-    let executable_name = if cfg!(windows) { "cb.exe" } else { "cb" };
     paths_equal(
         executable,
-        &home.join(".local").join("bin").join(executable_name),
+        &home.join(".local").join("bin").join(NATIVE_EXECUTABLE_NAME),
     )
     .then(|| home.join(".local"))
 }
@@ -348,7 +348,7 @@ fn display_word(word: &OsStr) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{UpdateContext, UpdatePlan, plan};
+    use super::{NATIVE_EXECUTABLE_NAME, UpdateContext, UpdatePlan, plan};
     use std::fs;
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
@@ -413,13 +413,21 @@ mod tests {
         )
         .expect("native marker must be written");
         assert_eq!(
-            plan(&context(prefix.join("bin/cb"), root.path())),
+            plan(&context(
+                prefix.join("bin").join(NATIVE_EXECUTABLE_NAME),
+                root.path()
+            )),
             UpdatePlan::NativeInstaller {
                 prefix: prefix.clone()
             }
         );
 
-        let mut default_context = context(root.path().join("home/.local/bin/cb"), root.path());
+        let mut default_context = context(
+            root.path()
+                .join("home/.local/bin")
+                .join(NATIVE_EXECUTABLE_NAME),
+            root.path(),
+        );
         default_context.home = Some(root.path().join("home"));
         assert_eq!(
             plan(&default_context),
