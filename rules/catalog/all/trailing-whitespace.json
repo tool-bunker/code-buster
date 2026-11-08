@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A line has trailing whitespace.",
   "suggestion": "Trim trailing spaces before committing.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,6 +27,7 @@
   "languageVersions": [],
   "limitations": [
     "At most 50 deterministic file findings are retained per run.",
-    "Non-Dart source requires applicable EditorConfig or Prettier evidence."
+    "Non-Dart source requires applicable EditorConfig or Prettier evidence.",
+    "Rust test regions excluded from production analysis are compared against raw source so masking cannot create whitespace findings."
   ]
 }

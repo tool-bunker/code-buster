@@ -677,6 +677,7 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
                     "externals",
                     "third_party",
                     "thirdparty",
+                    "3rdparty",
                     "thirdparty_files",
                     "compiled",
                     "cargokit",
@@ -859,6 +860,7 @@ fn classify_path(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
         "externals",
         "third_party",
         "thirdparty",
+        "3rdparty",
         "thirdparty_files",
         "compiled",
         "cargokit",
@@ -2063,6 +2065,7 @@ mod tests {
             "src/pip/_vendor/urllib3/connection.py",
             "src/application/_vendored/compat.py",
             "src/ray/thirdparty/dlmalloc.c",
+            "src/3rdparty/fmt/base.h",
             "python/ray/_private/thirdparty/pynvml/pynvml.py",
             "python/ray/thirdparty_files/colorama.py",
         ] {

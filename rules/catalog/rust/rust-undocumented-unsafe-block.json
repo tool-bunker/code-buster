@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Unsafe blocks transfer memory, aliasing, and lifetime obligations from the compiler to maintainers.",
   "suggestion": "Add an attached SAFETY comment that states the invariants making the block sound.",
-  "version": 3,
+  "version": 5,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule verifies that a nonempty SAFETY rationale is attached, not that the rationale proves soundness.",
+    "The rule verifies that a nonempty SAFETY rationale, with or without a colon or uppercase spelling, is attached; it does not prove soundness.",
+    "A rationale may precede up to six lines of local `let` setup or attributes used by the unsafe expression.",
     "Macro-generated unsafe blocks are not visible in source text."
   ]
 }

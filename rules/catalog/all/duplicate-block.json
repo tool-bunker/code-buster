@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "The same normalized code block appears in more than one location.",
   "suggestion": "Extract shared logic or raise min_duplication_lines if the duplication is intentional.",
-  "version": 19,
+  "version": 20,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -38,6 +38,7 @@
     "Standalone Python triple-quoted documentation strings are excluded from code-duplication windows.",
     "Standalone scaffold template roots are compared independently because they cannot share runtime code.",
     "Localization implementations are compared independently because parallel translations cannot share runtime code.",
-    "Python function and annotation-only declarations are excluded from duplication windows; executable bodies remain comparable."
+    "Python function and annotation-only declarations are excluded from duplication windows; executable bodies remain comparable.",
+    "Mechanical shell-completion dispatch is excluded because repeated branches are derived from command schemas."
   ]
 }

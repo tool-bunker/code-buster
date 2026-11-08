@@ -11,5 +11,9 @@ pub(super) const PACK: RulePack = RulePack::main(
 );
 
 fn analyze(context: &RulePackContext<'_, '_, '_>) -> Result<RulePackOutput, String> {
-    Ok(RulePackOutput::findings(crate::layout_rules::analyze(context.source_context.sources(), &context.prepared.config)))
+    Ok(RulePackOutput::findings(crate::layout_rules::analyze(
+        context.source_context.sources(),
+        context.source_context.raw_sources(),
+        &context.prepared.config,
+    )))
 }

@@ -886,7 +886,7 @@ static NARRATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static COMMENT_RATIONALE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(?:because|otherwise|instead|when|unless|if|could|but|trade[- ]?off|in order to)\b",
+        r"(?i)\b(?:because|otherwise|instead|when|unless|if|could|but|trade[- ]?off|in order to|such that|so that|to ensure|specified in|see the (?:doc|documentation|comment|section|issue))\b",
     )
     .unwrap()
 });
@@ -1094,7 +1094,7 @@ mod tests {
         let sources = BTreeMap::from([
             (
                 "lib/source.dart".to_owned(),
-                "// First, we load the cache.\nloadCache();\n// Keep this order because the server signs canonical bytes.\nsignPayload();\n/// Next, we describe the public API.\nvoid api() {}\n// When paths are sorted during traversal,\n// then we can emit them immediately.\nwalk();\n// We could preserve every option,\n// but that would retain needless state.\n// Now we choose one.\nselect();".to_owned(),
+                "// First, we load the cache.\nloadCache();\n// Keep this order because the server signs canonical bytes.\nsignPayload();\n/// Next, we describe the public API.\nvoid api() {}\n// When paths are sorted during traversal,\n// then we can emit them immediately.\nwalk();\n// We could preserve every option,\n// but that would retain needless state.\n// Now we choose one.\nselect();\n// Now we prepend fills such that they remain below content.\nrender();\n// Now we run the simulation to ensure rowspans have enough height.\nsimulate();\n// Now we apply adjustment specified in the layout requirements.\nadjust();\n// Then we process groups. See the doc comment for the contract.\nprocess();".to_owned(),
             ),
             (
                 "test/source_test.dart".to_owned(),

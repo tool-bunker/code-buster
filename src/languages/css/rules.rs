@@ -235,11 +235,13 @@ fn compatible_duplicate_property(
     previous: &str,
     current: &str,
 ) -> bool {
-    state.previous_property.as_deref() == Some(property)
-        && (is_compatibility_value_fallback(property, previous, current)
-            || state.in_tailwind_utility
-                && property.starts_with("--")
-                && are_disjoint_tailwind_value_overloads(previous, current))
+    is_wide_gamut_color_fallback(previous, current)
+        || is_incomplete_multiline_gradient_fallback(property, previous, current)
+        || state.previous_property.as_deref() == Some(property)
+            && (is_compatibility_value_fallback(property, previous, current)
+                || state.in_tailwind_utility
+                    && property.starts_with("--")
+                    && are_disjoint_tailwind_value_overloads(previous, current))
 }
 
 fn analyze_motion(
@@ -988,6 +990,7 @@ fn is_compatibility_value_fallback(property: &str, previous: &str, current: &str
         && (is_standard_to_vendor_value_fallback(previous, current)
             || is_logical_text_align_fallback(property, previous, current)
             || is_equivalent_alpha_color_fallback(previous, current)
+            || is_solid_to_gradient_background_fallback(property, previous, current)
             || (["''", "\"\""].contains(&previous) && current == "none"))
 }
 
@@ -1025,6 +1028,27 @@ fn is_standard_to_vendor_value_fallback(previous: &str, current: &str) -> bool {
 
 fn has_vendor_compatibility_value(value: &str) -> bool {
     VENDOR_VALUE.is_match(value) || MICROSOFT_GRADIENT.is_match(value)
+}
+
+fn is_wide_gamut_color_fallback(previous: &str, current: &str) -> bool {
+    !previous.contains("color(display-p3") && current.contains("color(display-p3")
+}
+
+fn is_solid_to_gradient_background_fallback(property: &str, previous: &str, current: &str) -> bool {
+    property == "background"
+        && current.contains("gradient(")
+        && (previous.starts_with('#')
+            || ["rgb(", "rgba(", "hsl(", "hsla("]
+                .iter()
+                .any(|prefix| previous.starts_with(prefix)))
+}
+
+fn is_incomplete_multiline_gradient_fallback(
+    property: &str,
+    previous: &str,
+    current: &str,
+) -> bool {
+    property == "background" && previous == current && current.ends_with("gradient(")
 }
 
 fn is_equivalent_alpha_color_fallback(previous: &str, current: &str) -> bool {
@@ -1148,6 +1172,7 @@ const NON_MOTION_TRANSITION_PROPERTIES: &[&str] = &[
     "opacity",
     "outline-color",
     "text-decoration-color",
+    "text-decoration",
     "text-shadow",
 ];
 
@@ -1289,9 +1314,47 @@ mod tests {
     }
 
     #[test]
+    fn accepts_wide_gamut_and_gradient_fallbacks_but_reports_overrides() {
+        let source = r#".wide {
+  background: #ffcbc4;
+  background: color(display-p3 1 0.83 0.8);
+}
+.pattern {
+  background: repeating-linear-gradient(45deg, #c6feff 0, #c6feff 1em);
+  background-color: #ffd2ec;
+  background: repeating-linear-gradient(45deg, color(display-p3 0.82 0.99 1) 0, color(display-p3 0.82 0.99 1) 1em);
+  background-color: color(display-p3 1 0.83 0.92);
+}
+.multiline {
+  background: repeating-linear-gradient(
+    45deg, #c6feff 0, #c6feff 1em
+  );
+  background-color: #ffd2ec;
+  background: repeating-linear-gradient(
+    45deg, color(display-p3 0.82 0.99 1) 0, color(display-p3 0.82 0.99 1) 1em
+  );
+}
+.gradient {
+  background: rgb(124, 213, 255);
+  background: linear-gradient(83deg, red, blue);
+}
+.override {
+  display: block;
+  display: flex;
+}"#;
+        let duplicates = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "css-duplicate-property")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(duplicates, vec![26]);
+    }
+
+    #[test]
     fn ignores_cosmetic_transitions_but_reports_spatial_motion() {
         let source = r#".button {
-  transition: border-color 0.3s, box-shadow 0.3s;
+  transition: border-color 0.3s, box-shadow 0.3s, text-decoration 0.2s;
 }
 .panel {
   transition: transform 0.3s;

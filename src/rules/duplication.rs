@@ -133,7 +133,7 @@ fn record_source_duplicate_windows(
     occurrences: &mut DuplicateOccurrences,
     normalized_by_path: &mut NormalizedSources,
 ) {
-    if historical_sql(path) {
+    if historical_sql(path) || mechanical_shell_completion(path, source) {
         return;
     }
     let lines = normalized_lines(source, path);
@@ -175,6 +175,14 @@ fn duplicate_language_key(path: &str) -> String {
     } else {
         extension
     }
+}
+
+fn mechanical_shell_completion(path: &str, source: &str) -> bool {
+    path.split('/')
+        .any(|segment| matches!(segment, "completion" | "completions"))
+        && source.contains("COMPREPLY")
+        && source.contains("COMP_WORDS")
+        && source.contains("compgen")
 }
 
 fn duplicate_window_key(language_key: &str, scope: &str, lines: &[NormalizedLine]) -> String {
@@ -434,6 +442,9 @@ pub fn repeated_condition_findings(sources: &BTreeMap<String, String>) -> Vec<Fi
 fn index_repeated_conditions(sources: &BTreeMap<String, String>) -> ConditionIndex {
     let mut occurrences = BTreeMap::new();
     for (path, source) in sources {
+        if mechanical_shell_completion(path, source) {
+            continue;
+        }
         for (index, line) in source.split('\n').enumerate() {
             let Some((normalized, condition)) = qualified_condition(line.trim()) else {
                 continue;
@@ -1473,6 +1484,31 @@ shared documentation line three
             BTreeSet::from([6])
         );
     }
+    #[test]
+    fn ignores_mechanical_shell_completion_duplication() {
+        let source = r#"_tool() {
+    COMPREPLY=()
+    current="${COMP_WORDS[COMP_CWORD]}"
+    if [[ ${current} == -* || ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${options}" -- "${current}") )
+        return 0
+    fi
+    if [[ ${current} == -* || ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${options}" -- "${current}") )
+        return 0
+    fi
+    if [[ ${current} == -* || ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${options}" -- "${current}") )
+        return 0
+    fi
+}"#;
+        let sources =
+            BTreeMap::from([("extra/completions/tool.bash".to_owned(), source.to_owned())]);
+
+        assert!(exact_findings(&sources, 3).is_empty());
+        assert!(repeated_condition_findings(&sources).is_empty());
+    }
+
     #[test]
     fn repeated_conditions_ignore_lexical_scanner_mechanics() {
         let source = r#"fn scan_first(bytes: &[u8], mut index: usize) {

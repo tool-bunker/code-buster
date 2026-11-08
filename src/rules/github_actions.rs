@@ -174,7 +174,7 @@ fn indentation(line: &str) -> usize {
 }
 
 fn contains_untrusted_expression(value: &str, safe_inputs: &BTreeSet<String>) -> bool {
-    let value = SAFE_NUMERIC_EVENT_EXPRESSION.replace_all(value, "");
+    let value = SAFE_EVENT_EXPRESSION.replace_all(value, "");
     UNTRUSTED_EVENT_EXPRESSION.is_match(&value)
         || INPUT_EXPRESSION.captures_iter(&value).any(|capture| {
             capture
@@ -406,9 +406,11 @@ static UNTRUSTED_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$\{\{\s*(?:github\.event(?:\.|\[)|github\.head_ref\b)")
         .expect("GitHub Actions event expression regex must compile")
 });
-static SAFE_NUMERIC_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$\{\{\s*github\.event\.pull_request\.number\s*\}\}")
-        .expect("safe numeric GitHub event expression regex must compile")
+static SAFE_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\$\{\{\s*(?:github\.event\.pull_request\.number|github\.event\.workflow_run\.head_sha)\s*\}\}",
+    )
+    .expect("safe GitHub event expression regex must compile")
 });
 static INPUT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\$\{\{\s*inputs(?:\.([A-Za-z_][A-Za-z0-9_-]*)|\[\s*['"]([^'"]+)['"]\s*\])"#)
@@ -448,13 +450,14 @@ jobs:
     }
 
     #[test]
-    fn accepts_guaranteed_numeric_pull_request_numbers() {
+    fn accepts_guaranteed_numeric_and_hash_event_values() {
         let findings = analyze_auxiliary([(
             ".github/workflows/cleanup.yml",
             r#"jobs:
   cleanup:
     steps:
       - run: gh pr edit "${{ github.event.pull_request.number }}"
+      - run: gh api -f sha="${{ github.event.workflow_run.head_sha }}"
       - run: echo "${{ github.event.pull_request.title }}"
 "#,
         )]);
@@ -465,7 +468,7 @@ jobs:
                 .filter(|finding| finding.code == TEMPLATE_INJECTION)
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
-            [5]
+            [6]
         );
     }
     #[test]

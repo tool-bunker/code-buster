@@ -199,7 +199,9 @@ fn panic_macro_is_invariant(source: &str, call_offset: usize) -> bool {
 }
 
 fn recoverable_panic_is_invariant(code: &str, file: &RustFile<'_>, call_offset: usize) -> bool {
-    if local_panic_invariant(file, call_offset) {
+    if local_panic_invariant(file, call_offset)
+        || expect_call_is_proven_custom(code, file, call_offset)
+    {
         return true;
     }
     let statement_start = file.masked[..call_offset]
@@ -213,6 +215,93 @@ fn recoverable_panic_is_invariant(code: &str, file: &RustFile<'_>, call_offset: 
         return true;
     }
     regex_constructor_is_invariant(file.source, &file.masked, statement_start, call_offset)
+}
+
+fn expect_call_is_proven_custom(code: &str, file: &RustFile<'_>, call_offset: usize) -> bool {
+    if code != "rust-expect" {
+        return false;
+    }
+    if receiver_has_explicit_nonstandard_type(file.source, call_offset) {
+        return true;
+    }
+    let Some(open) = file.masked[call_offset..]
+        .find('(')
+        .map(|offset| call_offset + offset)
+    else {
+        return false;
+    };
+    let Some(close) = matching_delimiter(&file.masked, open, b'(', b')') else {
+        return false;
+    };
+    ASSOCIATED_VALUE_ARGUMENT.is_match(file.source[open + 1..close].trim())
+}
+
+fn receiver_has_explicit_nonstandard_type(source: &str, call_offset: usize) -> bool {
+    let prefix = &source[..call_offset];
+    let Some((receiver_start, receiver)) = receiver_before_call(prefix) else {
+        return false;
+    };
+    declared_receiver_type(prefix, receiver_start, receiver).is_some_and(|type_name| {
+        let leaf = type_name.rsplit("::").next().unwrap_or(type_name);
+        !matches!(leaf, "Option" | "Result")
+    })
+}
+
+fn receiver_before_call(prefix: &str) -> Option<(usize, &str)> {
+    let receiver_end = prefix.len();
+    let receiver_start = prefix
+        .as_bytes()
+        .iter()
+        .rposition(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_')
+        .map_or(0, |offset| offset + 1);
+    (receiver_start != receiver_end)
+        .then(|| (receiver_start, &prefix[receiver_start..receiver_end]))
+}
+
+fn declared_receiver_type<'a>(
+    prefix: &'a str,
+    receiver_start: usize,
+    receiver: &str,
+) -> Option<&'a str> {
+    for (offset, _) in prefix[..receiver_start].rmatch_indices(receiver) {
+        if offset > 0 {
+            let previous = prefix.as_bytes()[offset - 1];
+            if previous.is_ascii_alphanumeric() || previous == b'_' {
+                continue;
+            }
+        }
+        let after_receiver = &prefix[offset + receiver.len()..];
+        let Some(declaration) = after_receiver.trim_start().strip_prefix(':') else {
+            continue;
+        };
+        if let Some(type_name) = declared_type_name(declaration) {
+            return Some(type_name);
+        }
+    }
+    None
+}
+
+fn declared_type_name(mut declaration: &str) -> Option<&str> {
+    declaration = declaration.trim_start();
+    if let Some(borrowed) = declaration.strip_prefix('&') {
+        declaration = borrowed.trim_start();
+        if declaration.starts_with('\'') {
+            declaration = declaration
+                .find(char::is_whitespace)
+                .map_or("", |end| declaration[end..].trim_start());
+        }
+        declaration = declaration
+            .strip_prefix("mut ")
+            .unwrap_or(declaration)
+            .trim_start();
+    }
+    let type_end = declaration
+        .find(|character: char| {
+            !(character.is_ascii_alphanumeric() || character == '_' || character == ':')
+        })
+        .unwrap_or(declaration.len());
+    let type_name = &declaration[..type_end];
+    (!type_name.is_empty()).then_some(type_name)
 }
 
 fn local_panic_invariant(file: &RustFile<'_>, call_offset: usize) -> bool {
@@ -232,6 +321,7 @@ fn statement_documents_panic_invariant(
     expect_statement_documents_invariant(code, statement, &file.source[call_offset..])
         || string_format_write_is_invariant(file.source, statement_start, statement)
         || literal_parse_is_invariant(statement)
+        || static_infallible_construction_is_invariant(statement)
         || statement.contains(".checked_")
             && containing_function_documents_panic(file.source, call_offset)
 }
@@ -303,6 +393,10 @@ fn string_format_write_is_invariant(source: &str, statement_start: usize, statem
 
 fn literal_parse_is_invariant(statement: &str) -> bool {
     STATIC_LITERAL_PARSE.is_match(statement)
+}
+
+fn static_infallible_construction_is_invariant(statement: &str) -> bool {
+    STATIC_INFALLIBLE_CONSTRUCTION.is_match(statement)
 }
 
 fn containing_function_documents_panic(source: &str, call_offset: usize) -> bool {
@@ -865,6 +959,7 @@ fn matching_angle_bracket(source: &str, open: usize) -> Option<usize> {
 
 fn analyze_manual_send_sync(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
     let mut reported = BTreeSet::new();
+    let mut documented_pair = None::<(String, usize)>;
     for capture in MANUAL_SEND_SYNC.captures_iter(&file.masked) {
         let (Some(matched), Some(safety_trait), Some(type_name)) =
             (capture.get(0), capture.get(1), capture.get(2))
@@ -877,11 +972,18 @@ fn analyze_manual_send_sync(path: &str, file: &RustFile<'_>, findings: &mut Vec<
         let open = file.masked[matched.end()..]
             .find('{')
             .map_or(file.masked.len(), |offset| matched.end() + offset);
+        let close = file
+            .matching(open, b'{', b'}')
+            .map_or(open, |offset| offset + 1);
+        let type_name = type_name.as_str();
         if file.has_safety_rationale(matched.start(), open) {
+            documented_pair = Some((type_name.to_owned(), close));
             continue;
         }
-        let type_name = type_name.as_str();
-        if !reported.insert(type_name.to_owned()) {
+        let paired = documented_pair.take().is_some_and(|(documented, end)| {
+            documented == type_name && file.masked[end..matched.start()].trim().is_empty()
+        });
+        if paired || !reported.insert(type_name.to_owned()) {
             continue;
         }
         findings.push(finding(
@@ -1553,24 +1655,25 @@ impl<'a> RustFile<'a> {
             .take_while(|comment| comment.end <= line_start)
             .copied()
             .collect::<Vec<_>>();
-        if let Some(last) = preceding.last()
-            && self.source[last.end..line_start].trim().is_empty()
-        {
-            let mut first = preceding.len() - 1;
-            while first > 0
-                && self.source[preceding[first - 1].end..preceding[first].start]
-                    .trim()
-                    .is_empty()
-            {
-                first -= 1;
-            }
-            let rationale = preceding[first..]
-                .iter()
-                .map(|comment| &self.source[comment.start..comment.end])
-                .collect::<Vec<_>>()
-                .join("\n");
-            if SAFETY_COMMENT.is_match(&rationale) {
-                return true;
+        if let Some(last) = preceding.last() {
+            let gap = &self.masked[last.end..line_start];
+            if gap.trim().is_empty() || is_safety_setup_prelude(gap) {
+                let mut first = preceding.len() - 1;
+                while first > 0
+                    && self.source[preceding[first - 1].end..preceding[first].start]
+                        .trim()
+                        .is_empty()
+                {
+                    first -= 1;
+                }
+                let rationale = preceding[first..]
+                    .iter()
+                    .map(|comment| &self.source[comment.start..comment.end])
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if SAFETY_COMMENT.is_match(&rationale) {
+                    return true;
+                }
             }
         }
         self.comments
@@ -1583,6 +1686,27 @@ impl<'a> RustFile<'a> {
                 SAFETY_COMMENT.is_match(&self.source[comment.start..comment.end])
             })
     }
+}
+
+fn is_safety_setup_prelude(masked: &str) -> bool {
+    let mut in_let = false;
+    masked.lines().count() <= 6
+        && masked.lines().all(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                true
+            } else if in_let {
+                if line.contains(';') {
+                    in_let = false;
+                }
+                true
+            } else if line.starts_with("let ") {
+                in_let = !line.contains(';');
+                true
+            } else {
+                line.starts_with("#[") && line.ends_with(']')
+            }
+        })
 }
 
 pub(crate) fn function_lexical_facts(source: &str) -> (String, BTreeSet<usize>) {
@@ -1831,7 +1955,9 @@ static CRATE_ALLOW: LazyLock<Regex> =
 static ITEM_ALLOW: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"#\s*\[\s*allow\s*\(([^)]*)\)\s*\]").unwrap());
 static SAFETY_COMMENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bSAFETY\s*:\s*\S").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)\bSAFETY\b[ \t]*(?::[ \t]*)?\S").unwrap());
+static ASSOCIATED_VALUE_ARGUMENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Z][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+$").unwrap());
 static SECRET_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)\b(?:const|static|let)\s+(?:mut\s+)?([A-Za-z_]\w*)\s*(?::[^=\n;]+)?=").unwrap()
 });
@@ -1856,6 +1982,12 @@ static STATIC_LITERAL_PARSE: LazyLock<Regex> = LazyLock::new(|| {
         r####"(?s)(?:r#*"[^"]*"#*|"(?:\\.|[^"\\])*")\s*\.parse(?:\s*::\s*<[^>]+>)?\s*\(\s*\)\s*\.(?:unwrap|expect)\s*\("####,
     )
     .expect("static literal parse regex must compile")
+});
+static STATIC_INFALLIBLE_CONSTRUCTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"\b(?:NonZero(?:U|I)(?:8|16|32|64|128|size)::new\(\s*[1-9][0-9_]*(?:[iu](?:8|16|32|64|128|size))?\s*\)|(?:std::ffi::)?CString::new\(\s*""\s*\))\s*\.(?:unwrap|expect)\s*\("#,
+    )
+    .expect("statically infallible Rust construction regex must compile")
 });
 static RUST_FUNCTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bfn\s+[A-Za-z_]\w*[^(;{]*\(")
@@ -2173,9 +2305,19 @@ fn fixture() {
         let source = r#"fn boundaries() {
     // SAFETY: pointer is non-null and uniquely owned.
     unsafe { touch_raw(); }
+    // SAFETY pointer remains valid for this call.
+    unsafe { touch_raw_without_colon(); }
+    // Safety: setup derives both values from the same allocation.
+    let data = pointer.data();
+    let metadata = pointer.metadata();
+    unsafe { rebuild(data, metadata); }
+    // SAFETY: the transmuted field has an equivalent representation.
+    #[expect(clippy::missing_transmute_annotations)]
+    let callback = unsafe { std::mem::transmute(callback) };
     Command::new("sh").arg("script.sh");
 }
-// SAFETY: Handle contains a thread-safe operating-system token.
+// Safety: Handle contains a thread-safe operating-system token.
+unsafe impl Sync for Handle {}
 unsafe impl Send for Handle {}
 #[no_mangle]
 pub extern "C" fn guarded() -> i32 {
@@ -2238,6 +2380,47 @@ async fn refresh() {
                 "rust-unwrap:14",
             ]
         );
+    }
+
+    #[test]
+    fn excludes_expect_calls_that_are_not_option_or_result_methods() {
+        let source = r#"fn parse(
+    args: &mut Args,
+    parser: &mut Parser,
+    result: Option<u8>,
+    nested: Option<Result<u8, Error>>,
+) -> Result<(), Error> {
+    let value = args.expect("value")?;
+    parser.expect(SyntaxKind::Colon);
+    result.expect(message);
+    nested.expect("outer result")?;
+    Ok(())
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-expect")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(selected, vec![9, 10]);
+    }
+
+    #[test]
+    fn ignores_statically_infallible_constructors() {
+        let source = r#"fn constants(dynamic: u32, input: String) {
+    let one = NonZeroU32::new(1).unwrap();
+    let typed = NonZeroUsize::new(1024_usize).expect("positive literal");
+    let empty = CString::new("").unwrap();
+    let maybe = NonZeroU32::new(dynamic).unwrap();
+    let text = CString::new(input).unwrap();
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+            .map(|finding| format!("{}:{}", finding.code, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(selected, vec!["rust-unwrap:5", "rust-unwrap:6"]);
     }
 
     #[test]

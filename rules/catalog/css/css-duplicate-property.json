@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "This frontend construct can weaken accessibility, security, or maintainability.",
   "suggestion": "Use the safer accessible frontend pattern described by the rule.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Vendor, wide-gamut color, alpha-color, logical alignment, and solid-color-to-gradient compatibility fallbacks are excluded.",
+    "Repeated multiline gradient declarations are excluded when line-oriented parsing cannot compare their complete values."
+  ]
 }

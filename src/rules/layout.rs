@@ -17,10 +17,14 @@ const PRETTIER_FILES: &[&str] = &[
     "prettier.config.js",
 ];
 
-pub fn analyze(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Finding> {
+pub fn analyze(
+    sources: &BTreeMap<String, String>,
+    raw_sources: &BTreeMap<String, String>,
+    config: &Config,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
     findings.extend(tab_indentation(sources, config));
-    findings.extend(trailing_whitespace(sources, config));
+    findings.extend(trailing_whitespace(sources, raw_sources, config));
     findings.extend(long_lines(sources, config));
     findings
 }
@@ -68,7 +72,11 @@ fn tab_indentation(sources: &BTreeMap<String, String>, config: &Config) -> Vec<F
     findings
 }
 
-fn trailing_whitespace(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Finding> {
+fn trailing_whitespace(
+    sources: &BTreeMap<String, String>,
+    raw_sources: &BTreeMap<String, String>,
+    config: &Config,
+) -> Vec<Finding> {
     let root = policy_root(config);
     let mut policies = HashMap::new();
     let mut findings = Vec::new();
@@ -80,16 +88,20 @@ fn trailing_whitespace(sources: &BTreeMap<String, String>, config: &Config) -> V
         if !should_check_trailing_whitespace(path, &root, &mut policies) {
             continue;
         }
-        let lines = source.split('\n').collect::<Vec<_>>();
+        let raw_source = raw_sources.get(path).unwrap_or(source);
+        let raw_lines = raw_source.split('\n').collect::<Vec<_>>();
         let matches = if dart {
-            dart_trailing_whitespace_lines(&lines)
+            dart_trailing_whitespace_lines(&raw_lines)
         } else {
-            lines
-                .iter()
+            raw_source
+                .split('\n')
+                .zip(source.split('\n'))
                 .enumerate()
-                .filter_map(|(index, line)| {
-                    (!line.is_empty() && matches!(line.as_bytes().last(), Some(b' ' | b'\t')))
-                        .then_some(index + 1)
+                .filter_map(|(index, (raw_line, analyzed_line))| {
+                    (raw_line == analyzed_line
+                        && !raw_line.is_empty()
+                        && matches!(raw_line.as_bytes().last(), Some(b' ' | b'\t')))
+                    .then_some(index + 1)
                 })
                 .collect::<Vec<_>>()
         };
@@ -652,13 +664,11 @@ mod tests {
         let root = TempRoot::new();
         root.write(".prettierrc", r#"{"useTabs": false, "printWidth": 20}"#);
         let config = Config::defaults(root.path().to_path_buf());
-        let findings = analyze(
-            &sources(&[
-                ("source.dart", "\tvalue;  "),
-                ("src/main.js", "constResultValue = computeResultValue();"),
-            ]),
-            &config,
-        );
+        let analyzed_sources = sources(&[
+            ("source.dart", "\tvalue;  "),
+            ("src/main.js", "constResultValue = computeResultValue();"),
+        ]);
+        let findings = analyze(&analyzed_sources, &analyzed_sources, &config);
 
         assert_eq!(
             findings
@@ -809,20 +819,20 @@ mod tests {
         let root = TempRoot::new();
         let mut config = Config::defaults(root.path().to_path_buf());
         let source = sources(&[("src/main.cs", "class Main { }  ")]);
-        assert!(trailing_whitespace(&source, &config).is_empty());
+        assert!(trailing_whitespace(&source, &source, &config).is_empty());
 
         root.write(
             ".editorconfig",
             "[*]\ntrim_trailing_whitespace = true\n[*.cs]\ntrim_trailing_whitespace = false\n",
         );
-        assert!(trailing_whitespace(&source, &config).is_empty());
+        assert!(trailing_whitespace(&source, &source, &config).is_empty());
 
         root.write(
             "src/.editorconfig",
             "[*.cs]\ntrim_trailing_whitespace = true\n",
         );
         config.root = root.path().to_path_buf();
-        let findings = trailing_whitespace(&source, &config);
+        let findings = trailing_whitespace(&source, &source, &config);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].message, "line has trailing whitespace");
     }
@@ -890,13 +900,11 @@ mod tests {
     #[test]
     fn ignores_dart_trailing_whitespace_inside_triple_strings() {
         let config = Config::defaults(".".into());
-        let findings = trailing_whitespace(
-            &sources(&[(
-                "source.dart",
-                "final text = '''  \ninside text  \n''';  \nfinal value = 1;  ",
-            )]),
-            &config,
-        );
+        let analyzed_sources = sources(&[(
+            "source.dart",
+            "final text = '''  \ninside text  \n''';  \nfinal value = 1;  ",
+        )]);
+        let findings = trailing_whitespace(&analyzed_sources, &analyzed_sources, &config);
 
         assert_eq!(
             findings
@@ -904,6 +912,29 @@ mod tests {
                 .map(|finding| (finding.line, finding.message.as_str()))
                 .collect::<Vec<_>>(),
             vec![(4, "line has trailing whitespace")]
+        );
+    }
+
+    #[test]
+    fn ignores_whitespace_created_by_rust_test_masking() {
+        let config = Config::defaults(".".into());
+        let raw_sources = sources(&[(
+            "src/lib.rs",
+            "fn production() {  }\n#[cfg(test)]\nmod tests {\n    fn fixture() {}\n}\n",
+        )]);
+        let masked_sources = raw_sources
+            .iter()
+            .map(|(path, source)| {
+                (
+                    path.clone(),
+                    crate::generic_rules::mask_rust_test_regions(path, source),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        assert!(
+            trailing_whitespace(&masked_sources, &raw_sources, &config).is_empty(),
+            "masked test regions must not become trailing-whitespace findings"
         );
     }
 
@@ -918,7 +949,7 @@ mod tests {
             );
         }
         let tab_findings = tab_indentation(&many_sources, &config);
-        let trailing_findings = trailing_whitespace(&many_sources, &config);
+        let trailing_findings = trailing_whitespace(&many_sources, &many_sources, &config);
 
         assert_eq!(tab_findings.len(), 50);
         assert_eq!(trailing_findings.len(), 50);

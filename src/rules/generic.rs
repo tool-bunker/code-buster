@@ -90,6 +90,12 @@ fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, source: &str) {
         } else {
             code.as_str()
         };
+        if uses_cpp_digit_separators(path)
+            && CPP_GROUPED_DECIMAL.is_match(raw_lines[index])
+            && large_number_candidates(raw_lines[index]).next().is_none()
+        {
+            continue;
+        }
         if large_number_candidates(code_without_hash_comment).any(|candidate| {
             !excludes_large_number_candidate(
                 &language,
@@ -180,6 +186,18 @@ fn excludes_large_number_file(path: &str, source: &str) -> bool {
         || uses_unavailable_digit_grouping(path)
         || uses_html_text_syntax(path)
         || crate::languages::shell::is_shell_source(path, source)
+}
+
+fn uses_cpp_digit_separators(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension,
+                "C" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" | "ipp" | "mm"
+            )
+        })
 }
 
 struct LargeNumberLanguageExclusions<'a> {
@@ -591,6 +609,13 @@ fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
             let Some(collection) = COLLECTION.captures(&code) else {
                 continue;
             };
+            if uses_cpp_digit_separators(path)
+                && collection
+                    .get(0)
+                    .is_some_and(|value| value.as_str().starts_with('{'))
+            {
+                continue;
+            }
             if collection
                 .name("contents")
                 .unwrap()
@@ -977,6 +1002,8 @@ static ARGUMENT_LITERAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:^|[\[(,])\s*[rRuUbBfF]{0,2}(?:\"(?P<double>(?:\\.|[^\"\\])*)\"|'(?P<single>(?:\\.|[^'\\])*)')"#).unwrap()
 });
 static LARGE_NUMBER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d{7,}").unwrap());
+static CPP_GROUPED_DECIMAL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b\d{1,3}(?:'\d{3}){2,}\b").unwrap());
 static PROTOCOL_ENUM_VALUE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*[A-Z][A-Za-z0-9_]*\s*=\s*-?\d{7,}[uUlL]*\s*,?\s*$").unwrap());
 static URL: LazyLock<Regex> =

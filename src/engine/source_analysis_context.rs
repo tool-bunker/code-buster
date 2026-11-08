@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use crate::generic_rules::{mask_generic_rule_strings, mask_rust_test_regions};
 
 pub struct SourceAnalysisContext<'a> {
+    raw_sources: &'a BTreeMap<String, String>,
     sources: BTreeMap<String, String>,
     masked_source_lines: BTreeMap<String, Vec<String>>,
     base_sources: BTreeMap<String, String>,
@@ -45,6 +46,7 @@ impl<'a> SourceAnalysisContext<'a> {
         changed_base: bool,
         auxiliary_files: &'a BTreeMap<String, String>,
     ) -> Self {
+        let raw_sources = sources;
         let sources = sources
             .iter()
             .map(|(path, source)| (path.clone(), mask_rust_test_regions(path, source)))
@@ -61,6 +63,7 @@ impl<'a> SourceAnalysisContext<'a> {
             })
             .collect();
         Self {
+            raw_sources,
             sources,
             masked_source_lines,
             base_sources,
@@ -72,6 +75,10 @@ impl<'a> SourceAnalysisContext<'a> {
 
     pub fn sources(&self) -> &BTreeMap<String, String> {
         &self.sources
+    }
+
+    pub fn raw_sources(&self) -> &BTreeMap<String, String> {
+        self.raw_sources
     }
 
     pub fn masked_lines(&self, path: &str) -> &[String] {
@@ -122,6 +129,7 @@ fn after() {}\n";
             &empty_sources,
         );
         let analyzed = &context.sources()["src/lib.rs"];
+        assert_eq!(context.raw_sources()["src/lib.rs"], source);
 
         assert!(analyzed.contains("fn production() {}"));
         assert!(analyzed.contains("fn after() {}"));

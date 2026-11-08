@@ -145,6 +145,7 @@ fn normalize_same_value_operands<'a>(
         || tail.starts_with('[')
         || tail.starts_with("->")
         || tail.starts_with("::")
+        || tail.starts_with("as ")
         || continues_right_operand(tail)
     {
         return None;

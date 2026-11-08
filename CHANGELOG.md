@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.14.1
+
+### Fixed
+
+- Reduce corpus false positives by preserving raw source for whitespace checks around masked Rust test regions, accepting statically infallible positive `NonZero` and empty `CString` construction, recognizing attached `SAFETY` rationale comments with or without a colon, and excluding mechanical shell-completion dispatch from duplication advice.
+- Reduce C++ corpus noise by recognizing conventional `3rdparty` dependency directories, excluding braced C++ data initializers from large-inline-list advice, preserving apostrophe-grouped decimal literals, accepting guaranteed workflow-run commit hashes and placeholder names confined to tiny local spans, and grouping repeated macro-constant evidence per file.
+- Reduce Typst corpus noise by recognizing custom Rust `expect` calls, nearby unsafe setup rationales and paired `Send`/`Sync` contracts, casted comparisons, CSS wide-gamut and gradient fallbacks, cosmetic text-decoration transitions, and implementation comments that explain ordering or external specifications.
+
 ## 0.14.0
 
 ### Added

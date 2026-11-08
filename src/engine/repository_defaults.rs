@@ -315,6 +315,17 @@ fn metadata_directory_excluded(relative: &Path) -> bool {
             "build",
             "dist",
             "target",
+            "vendor",
+            "vendored",
+            "_vendor",
+            "_vendored",
+            "externals",
+            "third_party",
+            "thirdparty",
+            "3rdparty",
+            "thirdparty_files",
+            "compiled",
+            "cargokit",
         ]
         .iter()
         .any(|excluded| name == *excluded)
@@ -398,6 +409,7 @@ fn manifest_excluded(relative: &Path) -> bool {
                 "obj",
                 "vendor",
                 "third_party",
+                "3rdparty",
                 ".dart_tool",
             ]
             .contains(&name.to_ascii_lowercase().as_str())
@@ -558,6 +570,7 @@ const VENDOR_IGNORES: &[&str] = &[
     "**/vendor/**",
     "**/vendored/**",
     "**/third_party/**",
+    "**/3rdparty/**",
     "**/compiled/**",
     "**/cargokit/**",
 ];
@@ -571,8 +584,10 @@ mod tests {
         let root = tempfile::tempdir().expect("temporary repository must be created");
         let member = root.path().join("member");
         let dependency = root.path().join("node_modules/dependency");
+        let bundled_dependency = root.path().join("src/3rdparty/dependency");
         fs::create_dir_all(&member).unwrap();
         fs::create_dir_all(&dependency).unwrap();
+        fs::create_dir_all(&bundled_dependency).unwrap();
         fs::write(
             root.path().join("package.json"),
             r#"{"dependencies":{"react":"19.0.0"}}"#,
@@ -590,11 +605,17 @@ mod tests {
             r#"{"dependencies":{"svelte":"5.0.0"}}"#,
         )
         .unwrap();
+        fs::write(
+            bundled_dependency.join("package.json"),
+            r#"{"dependencies":{"pixi.js":"8.0.0"}}"#,
+        )
+        .unwrap();
 
         let inspection = RepositoryDefaults::inspect(root.path(), true, true, true);
 
         assert!(inspection.defaults.frameworks.contains("react"));
         assert!(!inspection.defaults.frameworks.contains("svelte"));
+        assert!(!inspection.defaults.frameworks.contains("pixijs"));
         assert_eq!(
             inspection
                 .metadata_files

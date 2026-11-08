@@ -9,7 +9,7 @@
   "legacyGroup": "design",
   "why": "A complex condition is repeated across multiple locations.",
   "suggestion": "Extract a named predicate or document the intentional repetition.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Repeated byte-scanner cursor conditions are treated as parser mechanics and excluded."
+    "Repeated byte-scanner cursor conditions are treated as parser mechanics and excluded.",
+    "Mechanical shell-completion dispatch is excluded because its repeated conditions are generated from command schemas."
   ]
 }

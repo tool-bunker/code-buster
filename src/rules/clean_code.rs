@@ -764,28 +764,39 @@ fn qualifies_placeholder_identifier(
     {
         return false;
     }
-    EXPOSED.is_match(candidate.declaration_line)
-        || placeholder_identifier_use_count(candidate, lines) >= 3
+    if EXPOSED.is_match(candidate.declaration_line)
+        || (candidate.scope_depth == 0
+            && candidate.declaration_line.trim_start() == candidate.declaration_line)
+    {
+        return true;
+    }
+    let (uses, last_use_line) = placeholder_identifier_usage(candidate, lines);
+    uses >= 3 && last_use_line.saturating_sub(candidate.line) >= 6
 }
 
-fn placeholder_identifier_use_count(
+fn placeholder_identifier_usage(
     candidate: &PlaceholderIdentifierCandidate<'_>,
     lines: &[String],
-) -> usize {
+) -> (usize, usize) {
     let identifier = Regex::new(&format!(r"\b{}\b", regex::escape(candidate.name))).unwrap();
     let mut depth = lines[..candidate.line - 1]
         .iter()
         .map(|line| brace_delta(line))
         .sum::<isize>();
     let mut uses = 0;
-    for line in &lines[candidate.line - 1..] {
-        uses += identifier.find_iter(line).count();
+    let mut last_use_line = candidate.line;
+    for (offset, line) in lines[candidate.line - 1..].iter().enumerate() {
+        let line_uses = identifier.find_iter(line).count();
+        if line_uses > 0 {
+            uses += line_uses;
+            last_use_line = candidate.line + offset;
+        }
         depth += brace_delta(line);
         if candidate.scope_depth > 0 && depth < candidate.scope_depth {
             break;
         }
     }
-    uses
+    (uses, last_use_line)
 }
 
 fn placeholder_identifier_finding(
@@ -2080,7 +2091,18 @@ fallback) run();",
     fn requires_placeholder_exposure_or_repeated_use() {
         let sources = sources(&[(
             "src/api.ts",
-            "/// pub struct Foo {}\n/** public class Bar {} */\nexport class Foo {}\nfunction small() { const obj = make(); }\nfunction use() { let dummy = make(); return dummy + dummy; }",
+            "/// pub struct Foo {}\n/** public class Bar {} */\nexport class Foo {}\n\
+function small() { let dummy = make(); return dummy + dummy; }\n\
+function broad() {\n\
+  let dummy = make();\n\
+  prepare();\n\
+  validate();\n\
+  transform();\n\
+  persist();\n\
+  notify();\n\
+  audit();\n\
+  return dummy + dummy;\n\
+}",
         )]);
         let context = unchanged(&sources);
         let findings = placeholder_identifiers(&context);

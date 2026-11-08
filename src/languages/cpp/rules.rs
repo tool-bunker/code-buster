@@ -310,15 +310,29 @@ fn macro_constants(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, source) in sources {
         let (candidates, conditional_macros) = collect_macro_candidates(source);
+        let mut first_line = None;
+        let mut related_files = Vec::new();
+        let mut count = 0;
         for candidate in candidates {
-            if is_macro_constant(&candidate, &conditional_macros) {
-                findings.push(finding(
-                    "cpp-macro-constant",
-                    path,
-                    candidate.line,
-                    "macro constant used",
-                ));
+            if !is_macro_constant(&candidate, &conditional_macros) {
+                continue;
             }
+            count += 1;
+            if first_line.is_none() {
+                first_line = Some(candidate.line);
+            } else {
+                related_files.push(format!("{path}:{}", candidate.line));
+            }
+        }
+        if let Some(line) = first_line {
+            let message = if count == 1 {
+                "macro constant used".to_owned()
+            } else {
+                format!("{count} macro constants used in this file")
+            };
+            let mut finding = finding("cpp-macro-constant", path, line, &message);
+            finding.related_files = related_files;
+            findings.push(finding);
         }
     }
     findings
@@ -1211,16 +1225,15 @@ const char* text = \"goto NULL malloc(\";\n\
 
         let findings = analyze(&context)
             .into_iter()
-            .map(|finding| (finding.code, finding.line))
+            .filter(|finding| finding.code == "cpp-macro-constant")
             .collect::<Vec<_>>();
 
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 5);
+        assert_eq!(findings[0].message, "3 macro constants used in this file");
         assert_eq!(
-            findings,
-            vec![
-                ("cpp-macro-constant".to_owned(), 5),
-                ("cpp-macro-constant".to_owned(), 6),
-                ("cpp-macro-constant".to_owned(), 8),
-            ]
+            findings[0].related_files,
+            ["constants.hpp:6", "constants.hpp:8"]
         );
     }
 

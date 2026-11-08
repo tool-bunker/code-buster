@@ -150,6 +150,9 @@ bool isnan(float sample) { return sample != sample; }
 if (unknown != unknown) return false;
 "#,
             ), (
+                "comparison.rs",
+                "if num == num as i64 as f64 { return true; }",
+            ), (
                 "comments.py",
                 "# Note: infinity <= infinity is true",
             )]),
@@ -233,6 +236,13 @@ if (unknown != unknown) return false;
                 (
                     "src/lib.rs",
                     "#[cfg(test)]\nmod tests {\n let values = [0,1,2,3,4,5,6,7,8,9,10,11,12];\n}",
+                ),
+                (
+                    "table.cpp",
+                    "static const int values[] = {0,1,2,3,4,5,6,7,8,9,10,11,12};\n\
+static const int rows[][13] = {\n\
+ {0,1,2,3,4,5,6,7,8,9,10,11,12},\n\
+};",
                 ),
             ]),
             &config(),
@@ -378,6 +388,28 @@ bool nested(bool ready) {
         );
     }
 
+
+    #[test]
+    fn accepts_cpp_apostrophe_grouped_decimals() {
+        let findings = analyze(
+            &sources(&[(
+                "amount.cpp",
+                "auto tera = 1'000'000'000'000;\n\
+auto rounded = Money(500'000'000'000) / Money(1'000'000'000);\n\
+auto raw = 10000000;",
+            )]),
+            &config(),
+        );
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![3]
+        );
+    }
 
     #[test]
     fn excludes_dense_protocol_enum_value_catalogs() {
