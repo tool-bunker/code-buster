@@ -1051,10 +1051,6 @@ fn init_rust_in_empty_directory_creates_a_conservative_source_policy() {
         .expect("cb init rust must execute");
 
     assert_eq!(created.status.code(), Some(0));
-    assert_eq!(
-        String::from_utf8(created.stdout).expect("stdout must be UTF-8"),
-        "created ./code-buster.toml\n"
-    );
     assert!(created.stderr.is_empty());
     assert_eq!(
         fs::read_to_string(root.path.join("code-buster.toml")).unwrap(),

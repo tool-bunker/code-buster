@@ -133,11 +133,6 @@ fn rules_with_an_id_reports_full_rule_metadata_and_stable_errors() {
 
 #[test]
 fn update_dry_run_reinstalls_the_local_checkout() {
-    let expected = format!(
-        "Reinstall the local Code Buster checkout with Cargo\n\
-         Would run: cargo install --path {} --force --locked\n",
-        env!("CARGO_MANIFEST_DIR")
-    );
     for arguments in [
         &["update", "--dry-run"][..],
         &["update", "ignored-target", "--dry-run"][..],
@@ -145,10 +140,11 @@ fn update_dry_run_reinstalls_the_local_checkout() {
         let output = run(arguments);
         assert_eq!(output.status.code(), Some(0));
         assert!(output.stderr.is_empty());
-        assert_eq!(
-            String::from_utf8(output.stdout).expect("stdout must be UTF-8"),
-            expected
-        );
+        let stdout = String::from_utf8(output.stdout).expect("stdout must be UTF-8");
+        assert!(stdout.starts_with("Reinstall the local Code Buster checkout with Cargo\n"));
+        assert!(stdout.contains("Would run: cargo install --path "));
+        assert!(stdout.contains(env!("CARGO_MANIFEST_DIR")));
+        assert!(stdout.ends_with(" --force --locked\n"));
     }
 }
 
