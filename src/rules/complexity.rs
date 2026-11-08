@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use super::is_localization_path;
 use crate::config::Config;
 use crate::findings::{Finding, Severity};
 use crate::function_sources::FunctionSource;
@@ -20,12 +21,13 @@ pub fn analyze(
     config: &Config,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
+    let mut localization_complexity = Vec::new();
     for function in functions {
         let metrics = measure(function);
         if metrics.cyclomatic as i64 > config.complexity_threshold
             || metrics.cognitive as i64 > config.cognitive_threshold
         {
-            findings.push(Finding {
+            let finding = Finding {
                 code: "complex-function".to_owned(),
                 severity: Severity::Warn,
                 path: function.path.clone(),
@@ -41,7 +43,12 @@ pub fn analyze(
                 related_files: Vec::new(),
                 snippet: String::new(),
                 code_flow: Vec::new(),
-            });
+            };
+            if is_localization_path(&function.path) {
+                localization_complexity.push(finding);
+            } else {
+                findings.push(finding);
+            }
         }
         if config.max_function_lines > 0 && metrics.length as i64 > config.max_function_lines {
             findings.push(Finding {
@@ -63,6 +70,21 @@ pub fn analyze(
             });
         }
     }
+    if let Some(mut representative) = localization_complexity.first().cloned() {
+        representative.related_files = localization_complexity
+            .iter()
+            .skip(1)
+            .map(|finding| format!("{}:{}", finding.path, finding.line))
+            .collect();
+        if localization_complexity.len() > 1 {
+            representative.message = format!(
+                "{}; {} localization implementations grouped",
+                representative.message,
+                localization_complexity.len()
+            );
+        }
+        findings.push(representative);
+    }
     findings.extend(file_findings(sources, config));
     findings
 }
@@ -73,8 +95,9 @@ fn measure(function: &FunctionSource) -> FunctionMetrics {
     let mut depth = 0isize;
     let mut lexical = LexicalState::default();
     let dart = function.path.ends_with(".dart");
+    let python = function.path.ends_with(".py");
     for line in function.source.split('\n') {
-        let code = strip_code(line, &mut lexical, dart);
+        let code = strip_code(line, &mut lexical, dart, python);
         let cyclomatic_signals = CYCLOMATIC_SIGNAL.find_iter(&code).count();
         let cognitive_controls = COGNITIVE_CONTROL.find_iter(&code).count();
         cyclomatic += cyclomatic_signals;
@@ -139,7 +162,7 @@ fn file_findings(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Fin
             .enumerate()
             .filter_map(|(index, line)| {
                 GOTO_STATEMENT
-                    .is_match(strip_code(line, &mut lexical, false).trim())
+                    .is_match(strip_code(line, &mut lexical, false, false).trim())
                     .then_some(index + 1)
             })
             .collect::<Vec<_>>();
@@ -184,6 +207,9 @@ enum LexicalMode {
         quote: u8,
         raw: bool,
     },
+    PythonMultiline {
+        quote: u8,
+    },
 }
 
 #[derive(Default)]
@@ -197,18 +223,20 @@ struct CodeStripper<'a> {
     output: String,
     index: usize,
     dart: bool,
-    dart_escaped: bool,
+    python: bool,
+    multiline_escaped: bool,
 }
 
 impl<'a> CodeStripper<'a> {
-    fn new(line: &'a str, state: &'a mut LexicalState, dart: bool) -> Self {
+    fn new(line: &'a str, state: &'a mut LexicalState, dart: bool, python: bool) -> Self {
         Self {
             bytes: line.as_bytes(),
             state,
             output: String::with_capacity(line.len()),
             index: 0,
             dart,
-            dart_escaped: false,
+            python,
+            multiline_escaped: false,
         }
     }
 
@@ -224,13 +252,14 @@ impl<'a> CodeStripper<'a> {
                 LexicalMode::DartMultiline { quote, raw } => {
                     self.scan_dart_multiline(quote, raw);
                 }
+                LexicalMode::PythonMultiline { quote } => self.scan_python_multiline(quote),
             }
         }
         self.output
     }
 
     fn scan_code(&mut self) -> bool {
-        if self.starts_with(b"//") {
+        if self.starts_with(b"//") || (self.python && self.starts_with(b"#")) {
             return false;
         }
         if self.starts_with(b"/*") {
@@ -260,24 +289,42 @@ impl<'a> CodeStripper<'a> {
 
     fn scan_dart_multiline(&mut self, quote: u8, raw: bool) {
         let delimiter = [quote, quote, quote];
-        if self.starts_with(&delimiter) && (raw || !self.dart_escaped) {
+        if self.starts_with(&delimiter) && (raw || !self.multiline_escaped) {
             self.state.mode = LexicalMode::Code;
             self.mask_bytes(3);
-            self.dart_escaped = false;
+            self.multiline_escaped = false;
             return;
         }
 
         let byte = self.bytes[self.index];
-        self.dart_escaped = !raw && byte == b'\\' && !self.dart_escaped;
+        self.multiline_escaped = !raw && byte == b'\\' && !self.multiline_escaped;
+        self.mask_bytes(1);
+    }
+
+    fn scan_python_multiline(&mut self, quote: u8) {
+        let delimiter = [quote, quote, quote];
+        if self.starts_with(&delimiter) && !self.multiline_escaped {
+            self.state.mode = LexicalMode::Code;
+            self.mask_bytes(3);
+            return;
+        }
+
+        self.multiline_escaped = self.bytes[self.index] == b'\\' && !self.multiline_escaped;
         self.mask_bytes(1);
     }
 
     fn scan_quoted_literal(&mut self, quote: u8) {
         let raw = self.dart && is_dart_raw_prefix(self.bytes, self.index);
+        if self.python && self.starts_with(&[quote, quote, quote]) {
+            self.state.mode = LexicalMode::PythonMultiline { quote };
+            self.mask_bytes(3);
+            self.multiline_escaped = false;
+            return;
+        }
         if self.dart && self.starts_with(&[quote, quote, quote]) {
             self.state.mode = LexicalMode::DartMultiline { quote, raw };
             self.mask_bytes(3);
-            self.dart_escaped = false;
+            self.multiline_escaped = false;
             return;
         }
 
@@ -302,8 +349,8 @@ impl<'a> CodeStripper<'a> {
     }
 }
 
-fn strip_code(line: &str, state: &mut LexicalState, dart: bool) -> String {
-    CodeStripper::new(line, state, dart).strip()
+fn strip_code(line: &str, state: &mut LexicalState, dart: bool, python: bool) -> String {
+    CodeStripper::new(line, state, dart, python).strip()
 }
 
 fn is_dart_raw_prefix(bytes: &[u8], index: usize) -> bool {
@@ -346,8 +393,11 @@ static GOTO_STATEMENT: LazyLock<Regex> = LazyLock::new(|| {
 
 #[cfg(test)]
 mod tests {
-    use super::{FunctionMetrics, measure};
+    use super::{FunctionMetrics, analyze, measure};
+    use crate::config::Config;
     use crate::function_sources::FunctionSource;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
 
     #[test]
     fn measures_nested_control_flow() {
@@ -408,6 +458,78 @@ mod tests {
                 cognitive: 3,
                 length: 1,
             }
+        );
+    }
+
+    #[test]
+    fn ignores_python_multiline_strings_and_comments() {
+        let function = FunctionSource {
+            path: "src/api.py".to_owned(),
+            name: "route".to_owned(),
+            line: 1,
+            end_line: 10,
+            contract_signature: false,
+            source: "def route(value):\n\
+    \"\"\"Explain if values are ready.\n\
+    For callers that use this function.\n\
+    while examples remain readable.\n\
+    \"\"\"\n\
+    details = '''case and catch are prose'''\n\
+    # if fallback and retry\n\
+    if value:\n\
+        return details\n\
+    return None"
+                .to_owned(),
+        };
+
+        assert_eq!(
+            measure(&function),
+            FunctionMetrics {
+                cyclomatic: 2,
+                cognitive: 1,
+                length: 10,
+            }
+        );
+    }
+
+    #[test]
+    fn groups_complex_localization_implementations_without_hiding_other_complexity() {
+        let complex_source = "fn render() {\n  if (first) { run(); }\n}";
+        let functions = [
+            ("src/logic.rs", "logic"),
+            ("locales/en.rs", "message"),
+            ("locales/sv.rs", "message"),
+        ]
+        .into_iter()
+        .map(|(path, name)| FunctionSource {
+            path: path.to_owned(),
+            name: name.to_owned(),
+            line: 1,
+            end_line: 3,
+            contract_signature: false,
+            source: complex_source.to_owned(),
+        })
+        .collect::<Vec<_>>();
+        let mut config = Config::defaults(PathBuf::from("."));
+        config.complexity_threshold = 1;
+        config.cognitive_threshold = 100;
+
+        let findings = analyze(&functions, &BTreeMap::new(), &config);
+        assert_eq!(findings.len(), 2);
+        let localization = findings
+            .iter()
+            .find(|finding| finding.path == "locales/en.rs")
+            .expect("localization complexity must remain visible");
+        assert_eq!(localization.related_files, ["locales/sv.rs:1"]);
+        assert!(
+            localization
+                .message
+                .contains("2 localization implementations")
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.path == "src/logic.rs")
         );
     }
 }

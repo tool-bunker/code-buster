@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "This frontend construct can weaken accessibility, security, or maintainability.",
   "suggestion": "Use the safer accessible frontend pattern described by the rule.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,5 +28,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Reports at most one representative fixed-pixel font declaration per file."
+  ]
 }

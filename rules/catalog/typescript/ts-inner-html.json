@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "This scripting construct can weaken correctness, security, or runtime performance.",
   "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,5 +28,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Static string expressions and template literals whose substitutions are default imports of static image assets are excluded."
+  ]
 }

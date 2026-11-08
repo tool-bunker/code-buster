@@ -304,7 +304,8 @@ fn item_kind(source: &str, start: usize) -> Option<ItemKind> {
                 return Some(ItemKind::Body);
             }
             "type" | "use" | "static" => return Some(ItemKind::Semicolon),
-            "macro_rules" | "macro" => return Some(ItemKind::Macro),
+            "macro_rules" => return Some(ItemKind::Macro),
+            "macro" => return Some(ItemKind::Body),
             "auto" => {
                 let (next, _) = word_at(source, cursor)?;
                 return (next == "trait").then_some(ItemKind::Body);
@@ -438,7 +439,11 @@ fn semicolon_item_end(source: &str, start: usize) -> Option<usize> {
 fn macro_item_end(source: &str, start: usize) -> Option<usize> {
     let bytes = source.as_bytes();
     let bang = bytes[start..].iter().position(|byte| *byte == b'!')? + start;
-    let open = skip_whitespace(bytes, bang + 1);
+    let mut open = skip_whitespace(bytes, bang + 1);
+    if !matches!(bytes.get(open), Some(b'(' | b'[' | b'{')) {
+        let (_, name_end) = word_at(source, open)?;
+        open = skip_whitespace(bytes, name_end);
+    }
     if !matches!(bytes.get(open), Some(b'(' | b'[' | b'{')) {
         return None;
     }
@@ -587,6 +592,13 @@ mod tests {
 
         assert_eq!(test_lines(source, source), set(1..=6));
         assert!(!test_lines(source, source).contains(&8));
+    }
+
+    #[test]
+    fn marks_test_only_macro_definitions_without_consuming_production_macros() {
+        let source = "#[cfg(test)]\nmacro_rules! fixture {\n    () => { panic!() };\n}\nmacro_rules! production {\n    () => { panic!() };\n}";
+
+        assert_eq!(test_lines(source, source), set(0..=3));
     }
 
     #[test]

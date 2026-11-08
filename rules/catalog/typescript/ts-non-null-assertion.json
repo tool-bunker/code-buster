@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "A non-null assertion suppresses TypeScript's null check and can move a mistaken invariant into a runtime failure.",
   "suggestion": "Narrow the value with a guard or encode the invariant in its type; reserve assertions for values guaranteed by construction.",
-  "version": 3,
+  "version": 5,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -28,6 +28,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Detects postfix non-null assertion syntax after masking comments, string literals, template literals, and regular-expression literals."
+    "Detects postfix non-null assertion syntax after masking comments, string literals, template literals, and regular-expression literals; repeated occurrences are grouped per file, and an applicable Biome noNonNullAssertion rule explicitly set to off suppresses the advisory."
   ]
 }

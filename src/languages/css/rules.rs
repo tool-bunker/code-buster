@@ -59,10 +59,17 @@ fn analyze_file(path: &str, original: &str, findings: &mut Vec<Finding>) {
         analyze_selector(path, line, line_number, &lines, index, &mut state, findings);
         analyze_important(path, &lower, line_number, findings);
         analyze_z_index(path, &lower, line_number, findings);
-        analyze_fixed_font(path, &lower, line_number, findings);
+        analyze_fixed_font(path, &lower, line_number, &mut state, findings);
         analyze_vendor_prefix(path, &lower, &lower_source, line_number, findings);
         analyze_duplicate_property(path, &lower, line_number, &mut state, findings);
-        analyze_motion(path, &lower, line_number, saw_reduced_motion, findings);
+        analyze_motion(
+            path,
+            &lower,
+            line_number,
+            saw_reduced_motion,
+            &mut state,
+            findings,
+        );
         if line.contains('}') {
             state.in_block = false;
             state.in_tailwind_utility = false;
@@ -76,6 +83,8 @@ struct CssBlockState {
     properties: BTreeMap<String, String>,
     previous_property: Option<String>,
     in_tailwind_utility: bool,
+    fixed_font_reported: bool,
+    motion_reported_in_block: bool,
 }
 
 fn analyze_selector(
@@ -93,6 +102,7 @@ fn analyze_selector(
     state.in_block = true;
     state.properties.clear();
     state.previous_property = None;
+    state.motion_reported_in_block = false;
     state.in_tailwind_utility = line.starts_with("@utility ");
     let selector = line.split('{').next().unwrap_or_default().trim();
     if selector.starts_with('@') {
@@ -148,14 +158,21 @@ fn analyze_z_index(path: &str, lower: &str, line_number: usize, findings: &mut V
     }
 }
 
-fn analyze_fixed_font(path: &str, lower: &str, line_number: usize, findings: &mut Vec<Finding>) {
-    if FIXED_FONT_PX.is_match(lower) {
+fn analyze_fixed_font(
+    path: &str,
+    lower: &str,
+    line_number: usize,
+    state: &mut CssBlockState,
+    findings: &mut Vec<Finding>,
+) {
+    if !state.fixed_font_reported && FIXED_FONT_PX.is_match(lower) {
         findings.push(finding(
             "css-fixed-font-px",
             path,
             line_number,
             "font size uses px",
         ));
+        state.fixed_font_reported = true;
     }
 }
 
@@ -230,9 +247,11 @@ fn analyze_motion(
     lower: &str,
     line_number: usize,
     saw_reduced_motion: bool,
+    state: &mut CssBlockState,
     findings: &mut Vec<Finding>,
 ) {
-    if has_motion_declaration(lower) && !saw_reduced_motion {
+    if has_motion_declaration(lower) && !saw_reduced_motion && !state.motion_reported_in_block {
+        state.motion_reported_in_block = true;
         findings.push(finding(
             "css-animation-no-reduced-motion",
             path,
@@ -1232,6 +1251,19 @@ mod tests {
     }
 
     #[test]
+    fn groups_fixed_pixel_font_evidence_per_file() {
+        let selected = findings(
+            ".title { font-size: 18px; }\n.subtitle { font-size: 14px; }\nbody { font-size: 1rem; }",
+        )
+        .into_iter()
+        .filter(|finding| finding.code == "css-fixed-font-px")
+        .collect::<Vec<_>>();
+
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].line, 1);
+    }
+
+    #[test]
     fn accepts_compatibility_accessibility_and_reset_contracts() {
         let source = r#"* {
   box-sizing: border-box;
@@ -1271,6 +1303,24 @@ mod tests {
 
         assert_eq!(motion.len(), 1);
         assert_eq!(motion[0].line, 5);
+    }
+
+    #[test]
+    fn groups_vendor_and_standard_motion_declarations_per_block() {
+        let source = r#".cursor {
+  -webkit-animation: blink 1s infinite;
+  animation: blink 1s infinite;
+}
+.panel {
+  transition: transform 0.3s;
+}"#;
+        let motion = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "css-animation-no-reduced-motion")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+
+        assert_eq!(motion, [2, 6]);
     }
 
     #[test]

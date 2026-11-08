@@ -756,6 +756,7 @@ fn feature_envy(project: &Project) -> Vec<Finding> {
                 .methods
                 .iter()
                 .filter(|method| !method.is_static)
+                .filter(|method| !RETURNED_OBJECT_PROJECTION.is_match(&method.body))
                 .filter_map(move |method| {
                     let accesses = aggregate_method_accesses(method);
                     qualify_feature_envy(owner, method, &accesses)

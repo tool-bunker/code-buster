@@ -13,6 +13,7 @@ pub(crate) mod odin;
 pub(crate) mod python;
 pub(crate) mod registry;
 pub(crate) mod rust;
+pub(crate) mod shell;
 pub(crate) mod sql;
 pub(crate) mod typescript;
 pub(crate) mod wren;

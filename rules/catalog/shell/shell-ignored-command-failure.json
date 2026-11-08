@@ -1,0 +1,35 @@
+{
+  "id": "shell-ignored-command-failure",
+  "language": "shell",
+  "group": "reliability",
+  "listingTitle": "Handle command failures explicitly",
+  "title": "Do not discard command failures unconditionally",
+  "mvvm": false,
+  "defaultSeverity": "info",
+  "legacyGroup": "nim-style",
+  "why": "Appending || true or || : hides every failure mode and can let later commands operate on missing or partial output.",
+  "suggestion": "Handle expected status codes explicitly, log the tolerated failure, or terminate when the command is required.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "reliability"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "shell"
+  ],
+  "implementation": "src/languages/shell/rules.rs",
+  "languages": [
+    "shell"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Only unconditional || true and || : forms are reported.",
+    "At most one representative advisory is reported per file.",
+    "The rule cannot infer whether a comment or external policy documents an intentional best-effort command."
+  ]
+}

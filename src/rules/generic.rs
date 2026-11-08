@@ -62,7 +62,7 @@ fn enabled(config: &Config, code: &str) -> bool {
 fn large_numbers(sources: &BTreeMap<String, String>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, source) in sources {
-        if excludes_large_number_file(path) {
+        if excludes_large_number_file(path, source) {
             continue;
         }
         append_large_numbers(&mut findings, path, source);
@@ -175,10 +175,11 @@ fn excludes_large_number_candidate(
         || language.excludes_candidate(code, candidate.literal)
 }
 
-fn excludes_large_number_file(path: &str) -> bool {
+fn excludes_large_number_file(path: &str, source: &str) -> bool {
     is_dependency_metadata(path)
         || uses_unavailable_digit_grouping(path)
         || uses_html_text_syntax(path)
+        || crate::languages::shell::is_shell_source(path, source)
 }
 
 struct LargeNumberLanguageExclusions<'a> {

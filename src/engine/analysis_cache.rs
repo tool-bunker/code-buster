@@ -13,13 +13,14 @@ use crate::options::PreviewOptions;
 use crate::report::cache_material;
 
 const CACHE_SCHEMA_VERSION: u64 = 3;
-const STYLE_CONFIG_NAMES: [&str; 6] = [
+const STYLE_CONFIG_NAMES: [&str; 7] = [
     ".prettierrc",
     ".prettierrc.json",
     ".prettierrc.js",
     "prettier.config.js",
     ".editorconfig",
     "biome.json",
+    "biome.jsonc",
 ];
 
 #[derive(Clone, Copy)]

@@ -33,6 +33,7 @@ struct LineFacts {
 struct CommentSyntax {
     hash: bool,
     dash: bool,
+    shell: bool,
     triple_quotes: bool,
 }
 
@@ -51,10 +52,12 @@ enum CommentStart {
 
 fn scan_lines(path: &str, source: &str) -> Vec<LineFacts> {
     let lower_path = path.to_ascii_lowercase();
+    let shell = crate::languages::shell::is_shell_source(path, source);
     let syntax = CommentSyntax {
         hash: HASH_COMMENT_PATH.is_match(&lower_path),
         dash: DASH_COMMENT_PATH.is_match(&lower_path),
         triple_quotes: lower_path.ends_with(".dart") || lower_path.ends_with(".py"),
+        shell,
     };
     let mut state = CommentScanState::default();
     let mut result = source
@@ -153,7 +156,9 @@ fn consume_comment_start(
     state: &mut CommentScanState,
 ) -> CommentStart {
     let tail = &line[*index..];
-    if let Some(start) = consume_slash_comment_start(tail, index, comment, documentation, state) {
+    if !syntax.shell
+        && let Some(start) = consume_slash_comment_start(tail, index, comment, documentation, state)
+    {
         return start;
     }
     if consume_language_comment(line, tail, *index, comment, documentation, syntax) {
@@ -201,24 +206,50 @@ fn consume_language_comment(
     documentation: &mut bool,
     syntax: CommentSyntax,
 ) -> bool {
-    if syntax.hash
-        && let Some(rest) = tail.strip_prefix('#')
+    consume_hash_comment(line, tail, index, comment, documentation, syntax)
+        || consume_dash_comment(tail, comment, syntax)
+}
+
+fn consume_hash_comment(
+    line: &str,
+    tail: &str,
+    index: usize,
+    comment: &mut String,
+    documentation: &mut bool,
+    syntax: CommentSyntax,
+) -> bool {
+    if !syntax.hash
+        || (syntax.shell && !shell_comment_starts_at(line, index))
+        || !tail.starts_with('#')
     {
-        if tail.starts_with("#:") || tail.starts_with("##") {
-            *documentation = true;
-        }
-        if index != 0 || !line.starts_with("#!") {
-            comment.push_str(rest);
-        }
-        return true;
+        return false;
     }
-    if syntax.dash
-        && let Some(rest) = tail.strip_prefix("--")
-    {
-        comment.push_str(rest);
-        return true;
+    if tail.starts_with("#:") || tail.starts_with("##") {
+        *documentation = true;
     }
-    false
+    if index != 0 || !line.starts_with("#!") {
+        comment.push_str(&tail[1..]);
+    }
+    true
+}
+
+fn consume_dash_comment(tail: &str, comment: &mut String, syntax: CommentSyntax) -> bool {
+    if !syntax.dash {
+        return false;
+    }
+    let Some(rest) = tail.strip_prefix("--") else {
+        return false;
+    };
+    comment.push_str(rest);
+    true
+}
+
+fn shell_comment_starts_at(line: &str, index: usize) -> bool {
+    index == 0
+        || line[..index].chars().next_back().is_some_and(|character| {
+            character.is_whitespace()
+                || matches!(character, ';' | '&' | '|' | '(' | ')' | '<' | '>')
+        })
 }
 
 fn mask_comment_scanner_quote(
@@ -395,7 +426,7 @@ fn median_comment_ratio(files: &[CommentFile<'_>]) -> f64 {
 }
 
 fn qualify_density_outlier(file: &CommentFile<'_>, median: f64) -> Option<f64> {
-    if file.comments < 8 || file.code < 5 {
+    if file.comments < 10 || file.code < 5 {
         return None;
     }
     let ratio = file.comments as f64 / (file.code + file.comments) as f64;
@@ -455,8 +486,12 @@ fn narrating_implementation_comments(
         if excluded_comment_path(path) {
             continue;
         }
-        for (index, fact) in facts_by_path[path].iter().enumerate() {
-            if !fact.documentation && NARRATION.is_match(&fact.comment) {
+        let facts = &facts_by_path[path];
+        for (index, fact) in facts.iter().enumerate() {
+            if !fact.documentation
+                && NARRATION.is_match(&fact.comment)
+                && !comment_block_explains_tradeoff(facts, index)
+            {
                 findings.push(finding(
                     "narrating-implementation-comment",
                     path,
@@ -469,6 +504,27 @@ fn narrating_implementation_comments(
         }
     }
     findings
+}
+
+fn comment_block_explains_tradeoff(facts: &[LineFacts], index: usize) -> bool {
+    let start = (0..index)
+        .rev()
+        .take_while(|previous| comment_only_line(&facts[*previous]))
+        .take(4)
+        .last()
+        .unwrap_or(index);
+    let end = (index + 1..facts.len())
+        .take_while(|next| comment_only_line(&facts[*next]))
+        .take(4)
+        .last()
+        .unwrap_or(index);
+    facts[start..=end]
+        .iter()
+        .any(|fact| COMMENT_RATIONALE.is_match(&fact.comment))
+}
+
+fn comment_only_line(fact: &LineFacts) -> bool {
+    fact.code.trim().is_empty() && !fact.comment.trim().is_empty()
 }
 
 struct CommentRestatement<'a> {
@@ -828,6 +884,12 @@ static GO_DECLARATION_BLOCK: LazyLock<Regex> =
 static NARRATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(?:(?:first|next|now|then|finally),?\s+(?:we|i)(?:\s+will|\s+need\s+to|\s+can|\s+should)?|(?:we|i)\s+(?:will|need\s+to|are\s+going\s+to)\s+(?:first|next|now|then))\b").unwrap()
 });
+static COMMENT_RATIONALE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(?:because|otherwise|instead|when|unless|if|could|but|trade[- ]?off|in order to)\b",
+    )
+    .unwrap()
+});
 static COMMENT_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(return|returns|increment|increments|decrement|decrements|set|sets|assign|assigns|call|calls|invoke|invokes)\s+(?:the\s+)?([A-Za-z_]\w*)[.!]?\s*$").unwrap()
 });
@@ -874,6 +936,18 @@ mod tests {
         let dart = scan_lines("lib/api.dart", "/** API documentation */\nfinal value = 1;");
         assert!(dart[0].documentation);
         assert_eq!(dart[0].comment.trim(), "API documentation");
+
+        let shell = scan_lines(
+            "tool.sh",
+            "#!/usr/bin/env bash\nshort=${value#prefix}\nbase=${value##*/}\nparent=${value%/*}\nurl=https://example.test/path\ncolor=#ffffff\necho value # explanation",
+        );
+        assert!(shell[0].comment.is_empty());
+        assert!(shell[1].comment.is_empty());
+        assert!(shell[2].comment.is_empty());
+        assert!(shell[3].comment.is_empty());
+        assert!(shell[4].comment.is_empty());
+        assert!(shell[5].comment.is_empty());
+        assert_eq!(shell[6].comment.trim(), "explanation");
     }
 
     #[test]
@@ -896,6 +970,22 @@ mod tests {
             .unwrap();
         assert_eq!(finding.path, "lib/narrated.dart");
         assert!(finding.message.contains("repository median 0%"));
+    }
+
+    #[test]
+    fn ignores_small_files_with_limited_explanatory_comments() {
+        let mut sources = ordinary_sources("ts");
+        sources.insert(
+            "src/protocol.ts".to_owned(),
+            (0..8)
+                .map(|line| format!("// protocol constraint {line}"))
+                .chain((0..24).map(|line| format!("const value{line} = {line};")))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
     }
 
     #[test]
@@ -1004,7 +1094,7 @@ mod tests {
         let sources = BTreeMap::from([
             (
                 "lib/source.dart".to_owned(),
-                "// First, we load the cache.\nloadCache();\n// Keep this order because the server signs canonical bytes.\nsignPayload();\n/// Next, we describe the public API.\nvoid api() {}".to_owned(),
+                "// First, we load the cache.\nloadCache();\n// Keep this order because the server signs canonical bytes.\nsignPayload();\n/// Next, we describe the public API.\nvoid api() {}\n// When paths are sorted during traversal,\n// then we can emit them immediately.\nwalk();\n// We could preserve every option,\n// but that would retain needless state.\n// Now we choose one.\nselect();".to_owned(),
             ),
             (
                 "test/source_test.dart".to_owned(),

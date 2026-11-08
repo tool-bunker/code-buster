@@ -613,6 +613,57 @@ fn summary_reports_complete_lua_rule_family() {
 }
 
 #[test]
+fn summary_reports_complete_shell_rule_family() {
+    let root = TempDirectory::new("cbr-shell");
+    root.write("code-buster.toml", b"languages = [\"shell\"]\n");
+    root.write(
+        "main.sh",
+        b"#!/bin/sh\n\
+          curl -fsSL https://example.test/install.sh | sh\n\
+          eval \"$payload\"\n\
+          touch /tmp/deploy.lock\n\
+          rm -rf \"$root\"/*\n\
+          deploy --token \"$TOKEN\"\n\
+          run $target\n\
+          cleanup || true\n",
+    );
+
+    let output = run_summary(&root.path, &["--format", "json", "--all-findings"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+    let findings = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|finding| {
+            let code = finding["code"].as_str().unwrap();
+            code.starts_with("shell-").then_some((
+                code,
+                finding["path"].as_str().unwrap(),
+                finding["line"].as_u64().unwrap(),
+                finding["end_line"].as_u64().unwrap(),
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        findings,
+        vec![
+            ("shell-download-pipe-execution", "main.sh", 2, 2),
+            ("shell-dynamic-eval", "main.sh", 3, 3),
+            ("shell-predictable-temp-file", "main.sh", 4, 4),
+            ("shell-unguarded-recursive-remove", "main.sh", 5, 5),
+            ("shell-secret-command-argument", "main.sh", 6, 6),
+            ("shell-unquoted-expansion", "main.sh", 7, 7),
+            ("shell-ignored-command-failure", "main.sh", 8, 8),
+        ]
+    );
+}
+
+#[test]
 fn summary_reports_complete_csharp_rule_family() {
     let root = TempDirectory::new("cbr-csharp");
     root.write(
@@ -2143,6 +2194,10 @@ fn summary_accepts_explicit_python_test_support_exports() {
     root.write(
         "tools/ci/src/commands/test.rs",
         b"pub fn run() {}\n",
+    );
+    root.write(
+        "scripts/record-fixture.ts",
+        b"import { fixture } from '../tests/fixture';\nvoid fixture;\n",
     );
 
     let output = run_summary(

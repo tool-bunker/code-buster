@@ -363,7 +363,7 @@ static NON_POSTGRES_PATH: LazyLock<Regex> = LazyLock::new(|| {
 static SQLITE_HEADER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?im)^\s*--[^\n]*\bsqlite\b").unwrap());
 static SQLITE_SYNTAX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bAUTOINCREMENT\b").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)\bAUTOINCREMENT\b|\bWITHOUT\s+ROWID\b").unwrap());
 static MYSQL_SYNTAX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\bENGINE\s*=\s*[A-Za-z]|\bCHARACTER\s+SET\s*=?\s*utf8mb4\b|`[^`\r\n]+`")
         .unwrap()
@@ -469,6 +469,11 @@ CREATE INDEX CONCURRENTLY idx_users ON users(name);\n\
             (
                 "sqlite/schema.sql".to_owned(),
                 "-- Application SQLite Schema\nCREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT);\nCREATE INDEX idx_messages ON messages(id);"
+                    .to_owned(),
+            ),
+            (
+                "cloudflare/schema.sql".to_owned(),
+                "CREATE TABLE receipts (id TEXT PRIMARY KEY) WITHOUT ROWID;\nCREATE INDEX receipts_id ON receipts(id);"
                     .to_owned(),
             ),
             (

@@ -174,6 +174,37 @@ interface Gateway {
         );
     }
 
+    #[test]
+    fn excludes_typescript_object_projection_methods_from_feature_envy() {
+        let sources = BTreeMap::from([(
+            "context.ts".to_owned(),
+            r#"
+class Parser {
+  private mode = "strict";
+  context(input: Input, existing?: Context) {
+    return (
+      existing || {
+      data: input.data,
+      path: input.path,
+      parent: input.parent,
+      source: input.source,
+      options: input.options,
+      mode: this.mode,
+      }
+    );
+  }
+}
+"#
+            .to_owned(),
+        )]);
+
+        assert!(
+            analyze(&sources)
+                .iter()
+                .all(|finding| finding.code != "oop-feature-envy")
+        );
+    }
+
     fn fixture() -> BTreeMap<String, String> {
         [
             (

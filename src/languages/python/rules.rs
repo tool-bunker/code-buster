@@ -58,11 +58,26 @@ fn analyze_source(
             &current,
             &monkey_patch_replacements,
             &policy.disabled,
+            &mut state,
             findings,
         );
         analyze_security(path, &lines, &sanitized, &current, policy, findings);
-        analyze_runtime(path, &lines, &current, &policy.disabled, findings);
-        analyze_performance(path, &lines, &state, &current, &policy.disabled, findings);
+        analyze_runtime(
+            path,
+            &lines,
+            &current,
+            &policy.disabled,
+            &mut state,
+            findings,
+        );
+        analyze_performance(
+            path,
+            &lines,
+            &mut state,
+            &current,
+            &policy.disabled,
+            findings,
+        );
         state.finish(&current);
         expression_continuations.push(current.in_expression_continuation);
         sanitized.push(current.stripped);
@@ -95,6 +110,10 @@ struct PythonScanState {
     variable_assignment_indents: BTreeMap<String, usize>,
     continued_string_quote: Option<char>,
     triple_quoted_string_delimiter: Option<String>,
+    runtime_assert_reported: bool,
+    subprocess_timeout_reported: bool,
+    eager_logging_reported: bool,
+    broad_exception_reported: bool,
 }
 
 impl PythonScanState {
@@ -494,6 +513,7 @@ fn analyze_language_constructs(
     current: &PythonLine<'_>,
     monkey_patch_replacements: &BTreeSet<String>,
     disabled: &BTreeSet<&'static str>,
+    state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
     let function = FUNCTION
@@ -510,10 +530,10 @@ fn analyze_language_constructs(
         findings,
     );
     report_mutable_default(path, current, function, disabled, findings);
-    report_exception_handler(path, lines, current, disabled, findings);
+    report_exception_handler(path, lines, current, disabled, state, findings);
     report_dynamic_execution(path, current, function, disabled, findings);
     report_shell_execution(path, current, disabled, findings);
-    report_runtime_assert(path, current, disabled, findings);
+    report_runtime_assert(path, current, disabled, state, findings);
 }
 
 fn report_function_name(
@@ -538,6 +558,8 @@ fn report_function_name(
     if is_com_interface_method(lines, current.index, current.indent)
         || has_override_decorator(lines, current.index, current.indent)
         || monkey_patch_replacements.contains(name)
+        || has_noqa_for(current.comment, "N802")
+        || has_pylint_disable(current.comment, &["invalid-name", "c0103"])
     {
         return;
     }
@@ -575,6 +597,7 @@ fn report_exception_handler(
     lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
+    state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
     let line = current.line();
@@ -600,21 +623,32 @@ fn report_exception_handler(
             "bare except catches all exceptions",
         );
     }
-    if catches_broad_exception
-        && !line.starts_with("except:")
-        && !broad_handler_immediately_raises(lines, current)
-        && !has_noqa_for(current.comment, "BLE001")
-        && !has_pylint_disable(current.comment, &["broad-except", "broad-exception-caught"])
+    if !catches_broad_exception
+        || reviewed_broad_exception_handler(lines, current, state.broad_exception_reported)
     {
-        add_finding(
-            disabled,
-            findings,
-            path,
-            "py-broad-except",
-            current.number(),
-            "broad exception handler",
-        );
+        return;
     }
+    add_finding(
+        disabled,
+        findings,
+        path,
+        "py-broad-except",
+        current.number(),
+        "broad exception handler",
+    );
+    state.broad_exception_reported = true;
+}
+
+fn reviewed_broad_exception_handler(
+    lines: &[&str],
+    current: &PythonLine<'_>,
+    already_reported: bool,
+) -> bool {
+    current.line().starts_with("except:")
+        || broad_handler_unconditionally_raises(lines, current)
+        || has_noqa_for(current.comment, "BLE001")
+        || has_pylint_disable(current.comment, &["broad-except", "broad-exception-caught"])
+        || already_reported
 }
 
 fn report_dynamic_execution(
@@ -665,9 +699,14 @@ fn report_runtime_assert(
     path: &str,
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
+    state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
-    if current.line().starts_with("assert ") && !is_test_path(path) {
+    if current.line().starts_with("assert ")
+        && !is_test_path(path)
+        && !state.runtime_assert_reported
+    {
+        state.runtime_assert_reported = true;
         add_finding(
             disabled,
             findings,
@@ -957,13 +996,14 @@ fn analyze_runtime(
     lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
+    state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
     report_open_without_encoding(path, lines, current, disabled, findings);
     report_printed_exception(path, lines, current, disabled, findings);
     report_async_blocking_call(path, current, disabled, findings);
     report_dangling_asyncio_task(path, current, disabled, findings);
-    report_subprocess_safety(path, lines, current, disabled, findings);
+    report_subprocess_safety(path, lines, current, disabled, state, findings);
 }
 
 fn report_dangling_asyncio_task(
@@ -993,6 +1033,7 @@ fn report_subprocess_safety(
     lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
+    state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
     if current.in_expression_continuation || !current.line().contains("subprocess.run(") {
@@ -1013,7 +1054,10 @@ fn report_subprocess_safety(
         );
         return;
     }
-    if !TIMEOUT_ARGUMENT.is_match(&call) || NONE_TIMEOUT_ARGUMENT.is_match(&call) {
+    if (!TIMEOUT_ARGUMENT.is_match(&call) || NONE_TIMEOUT_ARGUMENT.is_match(&call))
+        && !state.subprocess_timeout_reported
+    {
+        state.subprocess_timeout_reported = true;
         add_finding(
             disabled,
             findings,
@@ -1103,14 +1147,14 @@ fn report_async_blocking_call(
 fn analyze_performance(
     path: &str,
     lines: &[&str],
-    state: &PythonScanState,
+    state: &mut PythonScanState,
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
     report_eager_any_all(path, lines, current, disabled, findings);
     report_quadratic_list_flattening(path, lines, current, disabled, findings);
-    report_eager_logging_format(path, lines, current, disabled, findings);
+    report_eager_logging_format(path, lines, current, disabled, state, findings);
 
     if !current.in_loop {
         return;
@@ -1320,6 +1364,7 @@ fn report_eager_logging_format(
     lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
+    state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
     if !EAGER_LOGGING_CALL.is_match(&current.code) {
@@ -1333,7 +1378,8 @@ fn report_eager_logging_format(
     let eager = EAGER_FSTRING_ARGUMENT.is_match(argument)
         || STRING_FORMAT_ARGUMENT.is_match(argument)
         || (QUOTED_STRING.is_match(argument) && contains_top_level_plus(argument));
-    if eager {
+    if eager && !state.eager_logging_reported {
+        state.eager_logging_reported = true;
         add_finding(
             disabled,
             findings,
@@ -2580,12 +2626,33 @@ fn monkey_patch_replacements(lines: &[&str]) -> BTreeSet<String> {
     replacements
 }
 
-fn broad_handler_immediately_raises(lines: &[&str], current: &PythonLine<'_>) -> bool {
-    lines[current.index + 1..]
-        .iter()
-        .map(|raw| (leading_indent(raw), code_before_comment(raw).trim()))
-        .find(|(_, line)| !line.is_empty())
-        .is_some_and(|(indent, line)| indent > current.indent && is_raise_statement(line))
+fn broad_handler_unconditionally_raises(lines: &[&str], current: &PythonLine<'_>) -> bool {
+    if let Some(suite) = inline_suite(current.line()) {
+        return is_raise_statement(suite);
+    }
+    let mut body_indent = None;
+    for raw in lines.iter().skip(current.index + 1) {
+        let line = code_before_comment(raw).trim();
+        if line.is_empty() {
+            continue;
+        }
+        let indent = leading_indent(raw);
+        if indent <= current.indent {
+            break;
+        }
+        let direct_indent = *body_indent.get_or_insert(indent);
+        if is_early_exit_statement(line) {
+            return false;
+        }
+        if indent == direct_indent && is_raise_statement(line) {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_early_exit_statement(line: &str) -> bool {
+    line == "return" || line.starts_with("return ") || matches!(line, "break" | "continue")
 }
 
 fn is_raise_statement(line: &str) -> bool {
@@ -3378,6 +3445,23 @@ mod tests {
     }
 
     #[test]
+    fn groups_runtime_assertions_per_file() {
+        let sources = BTreeMap::from([(
+            "service.py".to_owned(),
+            "assert configured\nassert handler is not None\n".to_owned(),
+        )]);
+
+        assert_eq!(
+            analyze(&SourceAnalysisContext::unchanged(&sources))
+                .into_iter()
+                .filter(|finding| finding.code == "py-assert-runtime")
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            [("service.py".to_owned(), 1)]
+        );
+    }
+
+    #[test]
     fn accepts_package_facades_and_explicit_wildcard_suppressions() {
         let sources = BTreeMap::from([
             (
@@ -3488,6 +3572,30 @@ ignore = [\"E402\", \"E722\"]\n"
     }
 
     #[test]
+    fn honors_inline_function_naming_suppressions() {
+        let sources = BTreeMap::from([(
+            "api.py".to_owned(),
+            "def Path(  # noqa: N802\n\
+    value: str,\n\
+):\n\
+    return value\n\
+def Legacy():  # pylint: disable=invalid-name\n\
+    return None\n\
+def ReportMe():\n\
+    return None\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| finding.code == "py-function-naming")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![7]);
+    }
+
+    #[test]
     fn honors_inline_and_legacy_broad_exception_suppressions() {
         let inline_sources = BTreeMap::from([
             (
@@ -3532,6 +3640,38 @@ ignore = [\"E402\", \"E722\"]\n"
         );
     }
 
+    #[test]
+    fn groups_broad_exception_evidence_per_file() {
+        let sources = BTreeMap::from([(
+            "worker.py".to_owned(),
+            "try:\n    first()\nexcept Exception:\n    recover_first()\n\
+             try:\n    second()\nexcept BaseException:\n    recover_second()\n"
+                .to_owned(),
+        )]);
+
+        let findings = analyze(&SourceAnalysisContext::unchanged(&sources))
+            .into_iter()
+            .filter(|finding| finding.code == "py-broad-except")
+            .collect::<Vec<_>>();
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 3);
+    }
+
+    #[test]
+    fn accepts_broad_exception_observation_before_unconditional_rethrow() {
+        let sources = BTreeMap::from([(
+            "telemetry.py".to_owned(),
+            "try:\n    run()\nexcept Exception as error:\n    record(error)\n    mark_failed()\n    raise\n"
+                .to_owned(),
+        )]);
+
+        assert!(
+            analyze(&SourceAnalysisContext::unchanged(&sources))
+                .iter()
+                .all(|finding| finding.code != "py-broad-except")
+        );
+    }
     #[test]
     fn accepts_reviewed_security_and_exception_boundaries() {
         let sources = BTreeMap::from([(
@@ -3849,18 +3989,6 @@ def inefficient(values: list[int], groups, batches):
                     "py-logging-eager-format".to_owned(),
                     "efficiency.py".to_owned(),
                     19,
-                    "medium".to_owned(),
-                ),
-                (
-                    "py-logging-eager-format".to_owned(),
-                    "efficiency.py".to_owned(),
-                    20,
-                    "medium".to_owned(),
-                ),
-                (
-                    "py-logging-eager-format".to_owned(),
-                    "efficiency.py".to_owned(),
-                    21,
                     "medium".to_owned(),
                 ),
                 (
@@ -4191,8 +4319,6 @@ async def load(items):
                 ("py-sensitive-data-logging".to_owned(), 15),
                 ("py-sensitive-data-logging".to_owned(), 16),
                 ("py-subprocess-no-timeout".to_owned(), 21),
-                ("py-subprocess-no-timeout".to_owned(), 26),
-                ("py-subprocess-no-timeout".to_owned(), 27),
                 ("py-subprocess-run-unchecked".to_owned(), 25),
                 ("py-unsafe-archive-extract".to_owned(), 8),
                 ("py-unsafe-archive-extract".to_owned(), 12),

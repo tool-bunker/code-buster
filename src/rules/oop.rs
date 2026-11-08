@@ -821,6 +821,12 @@ static JAVA_GETTER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[a-z_]\w*\s*\.\s*get([A-Z]\w*)\s*\(\s*\)").unwrap());
 static TS_OBJECT_LITERAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)\breturn\s*\{([^{}]+)\}").unwrap());
+static RETURNED_OBJECT_PROJECTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?s)\breturn\s*\(?\s*(?:[A-Za-z_$]\w*\s*(?:\|\||\?\?)\s*)?\{[^{}]*\b[A-Za-z_$]\w*\s*\.",
+    )
+    .expect("returned object projection regex must compile")
+});
 static TS_OBJECT_PAIR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b([a-z_$][\w$]*)\s*:\s*([a-z_$][\w$]*)\.([a-z_$][\w$]*)").unwrap()
 });

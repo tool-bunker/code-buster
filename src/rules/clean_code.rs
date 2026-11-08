@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::LazyLock;
@@ -30,19 +31,26 @@ fn public_mutable_state(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
         .filter(|path| is_production_source(path))
     {
         let syntax = MutableStateSyntax::for_path(path);
+        let script_visibility = ScriptVisibility::from_lines(context.masked_lines(path), syntax);
         let mut scope = MutableStateScope::default();
         let mut java_cli_binding = false;
-        for (index, line) in context.masked_lines(path).iter().enumerate() {
-            scope.observe_class_declaration(line, syntax);
-            if let Some(name) = mutable_state_candidate(line, syntax, &scope)
+        let mut script_reactive_member = false;
+        let mut comment_masker = SlashCommentMasker::default();
+        for (index, raw_line) in context.masked_lines(path).iter().enumerate() {
+            let line = comment_masker.code(raw_line);
+            scope.observe_class_declaration(&line, syntax, &script_visibility);
+            if let Some(name) = mutable_state_candidate(&line, syntax, &scope)
                 && !java_cli_binding
+                && !script_reactive_member
                 && !is_excluded_mutable_state(name)
                 && scope.mark_current_type_reported()
             {
                 findings.push(public_mutable_state_finding(path, index + 1, name));
             }
-            java_cli_binding = next_java_cli_binding_state(line, java_cli_binding);
-            scope.advance(line);
+            java_cli_binding = next_java_cli_binding_state(&line, java_cli_binding);
+            script_reactive_member =
+                next_script_reactive_member_state(&line, script_reactive_member, syntax);
+            scope.advance(&line);
         }
     }
     findings
@@ -77,8 +85,12 @@ impl MutableStateSyntax {
 struct MutableTypeScope {
     depth: isize,
     awaiting_body: bool,
+    generic_header: bool,
     private_class: bool,
     intentionally_mutable_class: bool,
+    script_enum: bool,
+    error_contract: bool,
+    runtime_immutable: bool,
     externally_visible: bool,
     mutable_state_reported: bool,
 }
@@ -90,28 +102,128 @@ struct MutableStateScope {
     type_scopes: Vec<MutableTypeScope>,
 }
 
+#[derive(Default)]
+struct ScriptVisibility {
+    module: bool,
+    exported_types: BTreeSet<String>,
+    frozen_types: BTreeSet<String>,
+}
+
+impl ScriptVisibility {
+    fn from_lines(lines: &[String], syntax: MutableStateSyntax) -> Self {
+        if !matches!(syntax, MutableStateSyntax::Script) {
+            return Self::default();
+        }
+        let mut visibility = Self::default();
+        let mut comment_masker = SlashCommentMasker::default();
+        for raw_line in lines {
+            let line = comment_masker.code(raw_line);
+            let trimmed = line.trim_start();
+            visibility.module |= starts_keyword(trimmed, "import")
+                || starts_keyword(trimmed, "export")
+                || trimmed.contains("module.exports")
+                || trimmed.starts_with("exports.");
+            if let Some(names) = SCRIPT_NAMED_EXPORT
+                .captures(&line)
+                .and_then(|captures| captures.name("names"))
+            {
+                visibility.exported_types.extend(
+                    names
+                        .as_str()
+                        .split(',')
+                        .filter_map(|entry| entry.split_whitespace().next())
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_owned),
+                );
+            }
+            if let Some(name) = SCRIPT_COMMONJS_EXPORT
+                .captures(&line)
+                .and_then(|captures| captures.name("name"))
+            {
+                visibility.exported_types.insert(name.as_str().to_owned());
+            }
+        }
+        visibility.frozen_types = frozen_script_types(lines);
+        visibility
+    }
+}
+
+fn frozen_script_types(lines: &[String]) -> BTreeSet<String> {
+    let mut frozen = BTreeSet::new();
+    let mut scopes = Vec::<(String, isize)>::new();
+    let mut depth = 0;
+    let mut comment_masker = SlashCommentMasker::default();
+    for raw_line in lines {
+        let line = comment_masker.code(raw_line);
+        if let Some(declaration) = CLASS_DECLARATION.captures(&line)
+            && let Some(name) = declaration.name("name")
+        {
+            scopes.push((
+                name.as_str().to_owned(),
+                depth + count_byte(&line, b'{').max(1),
+            ));
+        }
+        if OBJECT_FREEZE_THIS.is_match(&line)
+            && let Some((name, _)) = scopes.last()
+        {
+            frozen.insert(name.clone());
+        }
+        depth += count_byte(&line, b'{') - count_byte(&line, b'}');
+        while scopes
+            .last()
+            .is_some_and(|(_, scope_depth)| depth < *scope_depth)
+        {
+            scopes.pop();
+        }
+    }
+    frozen
+}
+
 impl MutableStateScope {
-    fn observe_class_declaration(&mut self, line: &str, syntax: MutableStateSyntax) {
-        let Some(name) = CLASS_DECLARATION
-            .captures(line)
-            .and_then(|class| class.name("name"))
-        else {
+    fn observe_class_declaration(
+        &mut self,
+        line: &str,
+        syntax: MutableStateSyntax,
+        script_visibility: &ScriptVisibility,
+    ) {
+        let Some(declaration) = CLASS_DECLARATION.captures(line) else {
+            return;
+        };
+        let Some(name) = declaration.name("name") else {
             return;
         };
         let opening_braces = count_byte(line, b'{');
+        let generic_header = matches!(syntax, MutableStateSyntax::Script)
+            && count_byte(line, b'<') > count_byte(line, b'>');
         let parent_is_visible = self
             .type_scopes
             .last()
             .is_none_or(|scope| scope.externally_visible);
         self.type_scopes.push(MutableTypeScope {
             depth: self.depth + opening_braces.max(1),
-            awaiting_body: opening_braces == 0,
+            awaiting_body: opening_braces == 0 || generic_header,
+            generic_header,
             private_class: name.as_str().starts_with('_'),
             intentionally_mutable_class: intentionally_mutable_type(name.as_str()),
-            externally_visible: !matches!(
-                syntax,
-                MutableStateSyntax::CSharp | MutableStateSyntax::Java
-            ) || (parent_is_visible && contains_identifier(line, "public")),
+            error_contract: matches!(syntax, MutableStateSyntax::Script)
+                && (name.as_str().ends_with("Error") || script_error_contract_declaration(line)),
+            runtime_immutable: matches!(syntax, MutableStateSyntax::Script)
+                && script_visibility.frozen_types.contains(name.as_str()),
+            script_enum: matches!(syntax, MutableStateSyntax::Script)
+                && declaration
+                    .name("kind")
+                    .is_some_and(|kind| kind.as_str() == "enum"),
+            externally_visible: match syntax {
+                MutableStateSyntax::CSharp | MutableStateSyntax::Java => {
+                    parent_is_visible && contains_identifier(line, "public")
+                }
+                MutableStateSyntax::Script => {
+                    !script_visibility.module
+                        || contains_identifier(line, "export")
+                        || script_visibility.exported_types.contains(name.as_str())
+                }
+                MutableStateSyntax::Dart | MutableStateSyntax::ExplicitOnly => true,
+            },
             mutable_state_reported: false,
         });
     }
@@ -139,29 +251,53 @@ impl MutableStateScope {
             .is_some_and(|scope| scope.private_class)
     }
 
-    fn intentionally_mutable_class(&self) -> bool {
-        self.type_scopes
-            .last()
-            .is_some_and(|scope| scope.intentionally_mutable_class)
-    }
-
     fn externally_visible(&self) -> bool {
         self.type_scopes
             .last()
             .is_some_and(|scope| scope.externally_visible)
     }
 
+    fn is_error_contract_field(&self, name: &str) -> bool {
+        self.type_scopes
+            .last()
+            .is_some_and(|scope| scope.error_contract)
+            && matches!(name, "cause" | "code" | "message" | "name" | "stack")
+    }
+
+    fn suppresses_direct_member(&self) -> bool {
+        self.is_direct_member()
+            && self.type_scopes.last().is_some_and(|scope| {
+                scope.intentionally_mutable_class || scope.runtime_immutable || scope.script_enum
+            })
+    }
+
+    fn allows_explicit_member(&self, syntax: MutableStateSyntax) -> bool {
+        !matches!(
+            syntax,
+            MutableStateSyntax::Script | MutableStateSyntax::CSharp | MutableStateSyntax::Java
+        ) || (self.is_direct_member() && self.externally_visible())
+    }
+
     fn advance(&mut self, line: &str) {
         let opening_braces = count_byte(line, b'{');
+        let class_declaration = CLASS_DECLARATION.is_match(line);
+        let awaited_body_depth = self.type_scopes.last().and_then(|scope| {
+            scope.awaiting_body.then(|| {
+                awaited_script_class_body_depth(
+                    line,
+                    self.depth,
+                    self.parenthesis_depth,
+                    scope.generic_header,
+                    class_declaration,
+                )
+            })?
+        });
         self.depth += opening_braces - count_byte(line, b'}');
         self.parenthesis_depth += count_byte(line, b'(') - count_byte(line, b')');
-        if opening_braces > 0
-            && let Some(scope) = self
-                .type_scopes
-                .last_mut()
-                .filter(|scope| scope.awaiting_body)
+        if let Some(depth) = awaited_body_depth
+            && let Some(scope) = self.type_scopes.last_mut()
         {
-            scope.depth = self.depth;
+            scope.depth = depth;
             scope.awaiting_body = false;
         }
         while self
@@ -174,31 +310,114 @@ impl MutableStateScope {
     }
 }
 
+fn awaited_script_class_body_depth(
+    line: &str,
+    mut depth: isize,
+    mut parenthesis_depth: isize,
+    generic_header: bool,
+    class_declaration: bool,
+) -> Option<isize> {
+    if class_declaration {
+        return None;
+    }
+    let mut generic_closed = !generic_header;
+    for character in line.chars() {
+        match character {
+            '(' => parenthesis_depth += 1,
+            ')' => parenthesis_depth -= 1,
+            '>' if generic_header => generic_closed = true,
+            '{' if parenthesis_depth <= 0 && generic_closed => return Some(depth + 1),
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+#[derive(Default)]
+struct SlashCommentMasker {
+    block_depth: usize,
+}
+
+impl SlashCommentMasker {
+    fn code<'a>(&mut self, line: &'a str) -> Cow<'a, str> {
+        if self.block_depth == 0 && !line.contains("//") && !line.contains("/*") {
+            return Cow::Borrowed(line);
+        }
+        let bytes = line.as_bytes();
+        let mut output = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            if self.mask_next(bytes, &mut output, &mut index) {
+                break;
+            }
+        }
+        Cow::Owned(String::from_utf8(output).expect("masked source must remain UTF-8"))
+    }
+
+    fn mask_next(&mut self, bytes: &[u8], output: &mut Vec<u8>, index: &mut usize) -> bool {
+        if self.block_depth > 0 {
+            self.mask_block_byte(bytes, output, index);
+            return false;
+        }
+        if bytes[*index..].starts_with(b"//") {
+            output.resize(bytes.len(), b' ');
+            return true;
+        }
+        if bytes[*index..].starts_with(b"/*") {
+            self.block_depth = 1;
+            output.extend_from_slice(b"  ");
+            *index += 2;
+            return false;
+        }
+        output.push(bytes[*index]);
+        *index += 1;
+        false
+    }
+
+    fn mask_block_byte(&mut self, bytes: &[u8], output: &mut Vec<u8>, index: &mut usize) {
+        if bytes[*index..].starts_with(b"/*") {
+            self.block_depth += 1;
+            output.extend_from_slice(b"  ");
+            *index += 2;
+        } else if bytes[*index..].starts_with(b"*/") {
+            self.block_depth -= 1;
+            output.extend_from_slice(b"  ");
+            *index += 2;
+        } else {
+            output.push(b' ');
+            *index += 1;
+        }
+    }
+}
+
 fn mutable_state_candidate<'a>(
     line: &'a str,
     syntax: MutableStateSyntax,
     scope: &MutableStateScope,
 ) -> Option<&'a str> {
-    if scope.intentionally_mutable_class() && scope.is_direct_member() {
+    if scope.suppresses_direct_member() {
+        return None;
+    }
+    if let Some(name) = explicit_mutable_field(line)
+        && scope.is_error_contract_field(name)
+    {
         return None;
     }
     if let Some(name) = explicit_mutable_field(line) {
-        if matches!(
-            syntax,
-            MutableStateSyntax::CSharp | MutableStateSyntax::Java
-        ) && (!scope.is_direct_member() || !scope.externally_visible())
-        {
-            return None;
-        }
-        return Some(name);
+        return scope.allows_explicit_member(syntax).then_some(name);
     }
     if !scope.is_direct_member() {
         return None;
     }
     match syntax {
         MutableStateSyntax::Dart if !scope.private_class() => dart_mutable_field(line),
-        MutableStateSyntax::Script => script_mutable_field(line),
+        MutableStateSyntax::Script if scope.externally_visible() => {
+            script_mutable_field(line).filter(|name| !scope.is_error_contract_field(name))
+        }
         MutableStateSyntax::Dart
+        | MutableStateSyntax::Script
         | MutableStateSyntax::CSharp
         | MutableStateSyntax::Java
         | MutableStateSyntax::ExplicitOnly => None,
@@ -218,9 +437,35 @@ fn intentionally_mutable_type(name: &str) -> bool {
             .any(|suffix| name.ends_with(suffix))
 }
 
+fn script_error_contract_declaration(line: &str) -> bool {
+    line.split('{')
+        .next()
+        .unwrap_or(line)
+        .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .any(|contract| contract.ends_with("Error"))
+}
+
 fn next_java_cli_binding_state(line: &str, current: bool) -> bool {
     let trimmed = line.trim_start();
     if trimmed.starts_with("@Argument") || trimmed.starts_with("@Option") {
+        true
+    } else if trimmed.is_empty() || trimmed.starts_with('@') {
+        current
+    } else {
+        false
+    }
+}
+
+fn next_script_reactive_member_state(
+    line: &str,
+    current: bool,
+    syntax: MutableStateSyntax,
+) -> bool {
+    if !matches!(syntax, MutableStateSyntax::Script) {
+        return false;
+    }
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("@property") || trimmed.starts_with("@state") {
         true
     } else if trimmed.is_empty() || trimmed.starts_with('@') {
         current
@@ -286,10 +531,28 @@ fn script_mutable_field(line: &str) -> Option<&str> {
     {
         return None;
     }
+    if trimmed.ends_with(',') || SCRIPT_THIS_ALIAS.is_match(trimmed) {
+        return None;
+    }
     SCRIPT_FIELD
         .captures(line)
         .and_then(|captures| captures.name("name"))
         .map(|name| name.as_str())
+        .filter(|name| {
+            !matches!(
+                *name,
+                "break"
+                    | "continue"
+                    | "false"
+                    | "null"
+                    | "return"
+                    | "super"
+                    | "this"
+                    | "throw"
+                    | "true"
+                    | "undefined"
+            )
+        })
 }
 
 fn commented_out_code(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
@@ -917,10 +1180,13 @@ fn related_policy_paths(policy: &QualifiedPolicy<'_, '_>) -> Vec<String> {
 
 // code-buster-ignore complex-function: peer naming analysis requires one directory grouping and style-majority pass.
 fn inconsistent_peer_file_naming(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
-    let mut by_directory = BTreeMap::<String, Vec<String>>::new();
+    let mut by_directory_and_role = BTreeMap::<(String, &'static str), Vec<String>>::new();
     for path in context.sources().keys().filter(|path| is_source(path)) {
-        by_directory
-            .entry(posix_directory(path).to_owned())
+        by_directory_and_role
+            .entry((
+                posix_directory(path).to_owned(),
+                peer_naming_role(context, path),
+            ))
             .or_default()
             .push(path.clone());
     }
@@ -935,7 +1201,7 @@ fn inconsistent_peer_file_naming(context: &SourceAnalysisContext<'_>) -> Vec<Fin
         "module-info",
     ];
     let mut findings = Vec::new();
-    for peers in by_directory.values() {
+    for peers in by_directory_and_role.values() {
         if peers.len() < 6 {
             continue;
         }
@@ -954,6 +1220,9 @@ fn inconsistent_peer_file_naming(context: &SourceAnalysisContext<'_>) -> Vec<Fin
         }
         for (style, paths) in styles.iter().skip(1) {
             if !is_naming_outlier(style, paths, &styles[0].0, &role_names) {
+                continue;
+            }
+            if exported_symbol_matches_filename(context, &paths[0]) {
                 continue;
             }
             findings.push(finding(
@@ -981,6 +1250,9 @@ fn is_naming_outlier(
     if paths.len() != 1 || role_names.contains(&file_stem(&paths[0])) {
         return false;
     }
+    if style == "lowercase" && matches!(dominant_style, "camelCase" | "snake_case" | "kebab-case") {
+        return false;
+    }
     let stem = file_stem(&paths[0]);
     if dominant_style == "PascalCase"
         && stem.starts_with(|character: char| character.is_ascii_uppercase())
@@ -989,6 +1261,31 @@ fn is_naming_outlier(
         return false;
     }
     dominant_style != "lowercase" || !matches!(style, "snake_case" | "kebab-case")
+}
+
+fn exported_symbol_matches_filename(context: &SourceAnalysisContext<'_>, path: &str) -> bool {
+    let stem = file_stem(path);
+    context.masked_lines(path).iter().any(|line| {
+        EXPORTED_SCRIPT_DECLARATION
+            .captures(line)
+            .and_then(|captures| captures.name("name"))
+            .is_some_and(|name| name.as_str() == stem)
+    })
+}
+
+fn peer_naming_role(context: &SourceAnalysisContext<'_>, path: &str) -> &'static str {
+    let jsx_component = (path.ends_with(".tsx") || path.ends_with(".jsx"))
+        && file_stem(path)
+            .chars()
+            .next()
+            .is_some_and(char::is_uppercase);
+    if jsx_component {
+        "component"
+    } else if exported_symbol_matches_filename(context, path) {
+        "named-module"
+    } else {
+        "module"
+    }
 }
 
 fn changed_public_api_without_test(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
@@ -1085,29 +1382,18 @@ fn function_blocks(source: &str) -> Vec<FunctionBlock> {
             index += 1;
             continue;
         };
+        if declaration
+            .name("name")
+            .is_some_and(|name| is_control_flow_name(name.as_str()))
+        {
+            index += 1;
+            continue;
+        }
         if lines[index].contains("=>") {
             index += 1;
             continue;
         }
-        let mut depth = 0isize;
-        let mut seen_brace = false;
-        let mut body = String::new();
-        let mut end = index;
-        while end < lines.len() {
-            let line = &lines[end];
-            body.push_str(line);
-            body.push('\n');
-            let opens = count_byte(line, b'{');
-            let closes = count_byte(line, b'}');
-            if opens > 0 {
-                seen_brace = true;
-            }
-            depth += opens - closes;
-            if seen_brace && depth <= 0 {
-                break;
-            }
-            end += 1;
-        }
+        let (body, end, seen_brace) = collect_function_body(&lines, index);
         if seen_brace {
             result.push(FunctionBlock {
                 name: declaration.name("name").unwrap().as_str().to_owned(),
@@ -1119,6 +1405,34 @@ fn function_blocks(source: &str) -> Vec<FunctionBlock> {
         index = end + 1;
     }
     result
+}
+
+fn collect_function_body(lines: &[String], start: usize) -> (String, usize, bool) {
+    let mut depth = 0isize;
+    let mut seen_brace = false;
+    let mut body = String::new();
+    let mut end = start;
+    while end < lines.len() {
+        let line = &lines[end];
+        body.push_str(line);
+        body.push('\n');
+        let opens = count_byte(line, b'{');
+        let closes = count_byte(line, b'}');
+        seen_brace |= opens > 0;
+        depth += opens - closes;
+        if seen_brace && depth <= 0 {
+            break;
+        }
+        end += 1;
+    }
+    (body, end, seen_brace)
+}
+
+fn is_control_flow_name(name: &str) -> bool {
+    matches!(
+        name,
+        "if" | "for" | "foreach" | "while" | "switch" | "catch" | "try"
+    )
 }
 
 fn complexity(body: &str) -> usize {
@@ -1256,9 +1570,31 @@ fn finding(
     }
 }
 
+static SCRIPT_NAMED_EXPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*export\s*\{\s*(?P<names>[^}]*)\}")
+        .expect("script named export regex must compile")
+});
+static SCRIPT_COMMONJS_EXPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:module\.exports|exports\.[A-Za-z_$]\w*)\s*=\s*(?P<name>[A-Za-z_$]\w*)\b")
+        .expect("CommonJS type export regex must compile")
+});
+static EXPORTED_SCRIPT_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^\s*export\s+(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:class|const|enum|function|interface|let|namespace|type|var)\s+(?P<name>[A-Za-z_$]\w*)\b",
+    )
+    .expect("exported script declaration regex must compile")
+});
+static SCRIPT_THIS_ALIAS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[A-Za-z_$]\w*(?:\s*:\s*[^=;]+)?\s*=\s*this\.[A-Za-z_$]\w*\s*;\s*$")
+        .expect("script self alias regex must compile")
+});
+static OBJECT_FREEZE_THIS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bObject\s*\.\s*freeze\s*\(\s*this\s*\)")
+        .expect("Object.freeze(this) regex must compile")
+});
 static CLASS_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^\s*(?:(?:abstract|declare|default|export|file|final|internal|partial|private|protected|public|readonly|ref|sealed|static|strictfp|unsafe)\s+)*(?:class|enum|struct|record(?:\s+(?:class|struct))?)\s+(?P<name>[A-Za-z_$]\w*)",
+        r"^\s*(?:(?:abstract|declare|default|export|file|final|internal|partial|private|protected|public|readonly|ref|sealed|static|strictfp|unsafe)\s+)*(?P<kind>class|enum|struct|record(?:\s+(?:class|struct))?)\s+(?P<name>[A-Za-z_$]\w*)",
     )
     .unwrap()
 });
@@ -1317,7 +1653,7 @@ static BOUNDARIES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
         ("persistence", Regex::new(r"(?i)\b(?:(?:repository|database)\s*\.|(?:insert|update|delete|save|query|executeSql)\s*\()").unwrap()),
         ("network", Regex::new(r"(?i)\b(?:https?\s*\.|fetch\s*\(|request\s*\(|client\s*\.\s*(?:get|post|put|send)\s*\()").unwrap()),
         ("filesystem", Regex::new(r"(?i)\b(?:File|Directory)\s*\(|\b(?:readAs|writeAs|openSync|readFile|writeFile)\s*\(").unwrap()),
-        ("process", Regex::new(r"(?i)\b(?:Process\s*\.\s*(?:run|start)|exec|spawn|subprocess)\s*\(").unwrap()),
+        ("process", Regex::new(r"(?i)\bProcess\s*\.\s*(?:run|start)\s*\(|(?:^|[^\w$.])(?:exec|spawn|subprocess)\s*\(").unwrap()),
         ("telemetry", Regex::new(r"(?i)\b(?:analytics|telemetry|metrics|track|logger?)\s*\.").unwrap()),
         ("navigation", Regex::new(r"(?i)\b(?:Navigator\s*\.|(?:redirect|navigate)\s*\()").unwrap()),
     ]
@@ -1466,6 +1802,30 @@ mod tests {
     }
 
     #[test]
+    fn mixed_boundary_ignores_control_blocks_and_regex_exec_calls() {
+        let sources = sources(&[(
+            "src/plugin.ts",
+            "export async function main(source: string) {\n\
+  if (source.length > 0) {\n\
+    readFile(source);\n\
+    logger.warn(source);\n\
+    fetch(source);\n\
+  }\n\
+}\n\
+export function handler(source: string) {\n\
+  const matcher = /asset/g;\n\
+  matcher.exec(source);\n\
+  readFile(source);\n\
+  logger.warn(source);\n\
+  return source;\n\
+}",
+        )]);
+        let context = unchanged(&sources);
+
+        assert!(mixed_boundary_responsibilities(&context).is_empty());
+    }
+
+    #[test]
     fn accepts_hidden_final_and_constructor_state() {
         let sources = sources(&[
             (
@@ -1504,6 +1864,148 @@ mod tests {
                 "public mutable field `token` exposes writable state",
             ]
         );
+    }
+
+    #[test]
+    fn ignores_comment_delimiters_when_tracking_script_class_scope() {
+        let sources = sources(&[(
+            "src/factory.ts",
+            "abstract class Base {\n\
+  // Historical syntax: {)\n\
+}\n\
+const factory = <T extends typeof Base>(\n\
+  value: T,\n\
+  params: Options = {\n\
+    message: value.name,\n\
+  }\n\
+) => build(value, params);\n",
+        )]);
+        let context = unchanged(&sources);
+
+        assert!(public_mutable_state(&context).is_empty());
+    }
+
+    #[test]
+    fn reports_only_exported_script_state_and_excludes_behavior_aliases_and_enum_members() {
+        let sources = sources(&[(
+            "src/models.ts",
+            "import { dependency } from './dependency';\n\
+class InternalPath {\n\
+  parent: object;\n\
+}\n\
+export class PublicStatus {\n\
+  value: string = '';\n\
+}\n\
+export class MethodAliases {\n\
+  min = this.gte;\n\
+  gte() {}\n\
+}\n\
+export enum Kind {\n\
+  First = 'first',\n\
+  Second = 'second'\n\
+}\n",
+        )]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            public_mutable_state(&context)
+                .into_iter()
+                .map(|finding| finding.message)
+                .collect::<Vec<_>>(),
+            ["public mutable field `value` exposes writable state"]
+        );
+    }
+
+    #[test]
+    fn accepts_decorator_managed_reactive_script_state() {
+        let sources = sources(&[(
+            "src/component.ts",
+            "export class CounterElement extends HTMLElement {\n\
+  @property({ type: Number })\n\
+  count = 0\n\
+  @state()\n\
+  privateStatus = 'idle'\n\
+}\n",
+        )]);
+        let context = unchanged(&sources);
+
+        assert!(public_mutable_state(&context).is_empty());
+    }
+
+    #[test]
+    fn accepts_conventional_error_contract_fields_but_not_domain_state() {
+        let sources = sources(&[(
+            "src/errors.ts",
+            "export interface SerializedError {}\n\
+export class TaskAbortError implements SerializedError {\n\
+  name = 'TaskAbortError';\n\
+  message: string;\n\
+  code?: string;\n\
+}\n\
+export class Account {\n\
+  name = '';\n\
+}\n",
+        )]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            public_mutable_state(&context)
+                .into_iter()
+                .map(|finding| finding.message)
+                .collect::<Vec<_>>(),
+            ["public mutable field `name` exposes writable state"]
+        );
+    }
+
+    #[test]
+    fn accepts_frozen_script_instances_and_ignores_generic_type_arguments() {
+        let sources = sources(&[
+            (
+                "src/frozen.js",
+                "class FileContext {\n\
+  cwd;\n\
+  constructor() {\n\
+    Object.freeze(this);\n\
+  }\n\
+}\n\
+exports.FileContext = FileContext;\n",
+            ),
+            (
+                "src/source-code.ts",
+                "export class SourceCode implements TextSourceCode<{\n\
+  LangOptions: LanguageOptions;\n\
+  RootNode: Node;\n\
+}> {\n\
+  mutable: string;\n\
+}\n",
+            ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            public_mutable_state(&context)
+                .into_iter()
+                .map(|finding| finding.message)
+                .collect::<Vec<_>>(),
+            ["public mutable field `mutable` exposes writable state"]
+        );
+    }
+
+    #[test]
+    fn closes_factory_defined_script_classes_before_module_expressions() {
+        let sources = sources(&[(
+            "src/error.ts",
+            "export class CommandError extends Schema.TaggedError<CommandError>()(\n\
+  'CommandError',\n\
+  { message: Schema.String },\n\
+) {}\n\
+const platformName = (platform: string) => platform;\n\
+const predicate = () =>\n\
+  true;\n",
+        )]);
+        let context = unchanged(&sources);
+
+        assert!(public_mutable_state(&context).is_empty());
     }
 
     #[test]
@@ -1786,6 +2288,87 @@ fallback) run();",
         let context = unchanged(&sources);
 
         assert!(inconsistent_peer_file_naming(&context).is_empty());
+    }
+
+    #[test]
+    fn accepts_single_word_names_in_lowercase_naming_families() {
+        let sources = sources(&[
+            ("src/errorMap.ts", ""),
+            ("src/issueCode.ts", ""),
+            ("src/objectUtil.ts", ""),
+            ("src/parseInput.ts", ""),
+            ("src/typeAlias.ts", ""),
+            ("src/util.ts", ""),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(inconsistent_peer_file_naming(&context).is_empty());
+    }
+
+    #[test]
+    fn accepts_pascal_case_files_named_after_their_exported_symbol() {
+        let sources = sources(&[
+            ("src/errors/abortError.ts", ""),
+            ("src/errors/apiError.ts", ""),
+            ("src/errors/httpError.ts", ""),
+            ("src/errors/queryError.ts", ""),
+            ("src/errors/stateError.ts", ""),
+            (
+                "src/errors/HandledError.ts",
+                "export class HandledError extends Error {}",
+            ),
+            ("src/react/apiContext.tsx", ""),
+            ("src/react/buildHooks.tsx", ""),
+            ("src/react/createApi.tsx", ""),
+            ("src/react/moduleName.tsx", ""),
+            ("src/react/useQuery.tsx", ""),
+            (
+                "src/react/ApiProvider.tsx",
+                "export function ApiProvider() { return null; }",
+            ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(inconsistent_peer_file_naming(&context).is_empty());
+    }
+
+    #[test]
+    fn compares_peer_file_names_within_the_same_role() {
+        let sources = sources(&[
+            (
+                "src/services/AccountService.ts",
+                "export class AccountService {}",
+            ),
+            (
+                "src/services/CacheService.ts",
+                "export class CacheService {}",
+            ),
+            ("src/services/MailService.ts", "export class MailService {}"),
+            (
+                "src/services/OrderService.ts",
+                "export class OrderService {}",
+            ),
+            ("src/services/UserService.ts", "export class UserService {}"),
+            (
+                "src/services/chromiumLocalStorage.ts",
+                "export const storage = {};",
+            ),
+            ("src/utils/parseInput.ts", ""),
+            ("src/utils/readConfig.ts", ""),
+            ("src/utils/resolvePath.ts", ""),
+            ("src/utils/writeOutput.ts", ""),
+            ("src/utils/formatValue.ts", ""),
+            ("src/utils/cloud-drafts.ts", ""),
+        ]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            inconsistent_peer_file_naming(&context)
+                .into_iter()
+                .map(|finding| finding.path)
+                .collect::<Vec<_>>(),
+            ["src/utils/cloud-drafts.ts"]
+        );
     }
     #[test]
     fn changed_public_api_accepts_a_concept_related_changed_test() {

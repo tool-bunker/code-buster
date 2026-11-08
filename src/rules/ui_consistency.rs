@@ -291,7 +291,7 @@ fn css_token_drift_findings(grouped: GroupedCssTokens<'_>) -> Vec<Finding> {
                 return None;
             }
             let token = grouped.definitions.get(usage.scope)?.get(&usage.value)?;
-            if !css_token_matches_property(token.name, &usage.property) {
+            if !css_token_matches_property(token.name, &usage.value, &usage.property) {
                 return None;
             }
             Some(finding(
@@ -321,8 +321,104 @@ fn css_token_scope(path: &str) -> &str {
         .map_or("", |offset| &path[..offset])
 }
 
-fn css_token_matches_property(token: &str, property: &str) -> bool {
-    !token.to_ascii_lowercase().contains("radius") || property.contains("radius")
+fn css_token_matches_property(token: &str, value: &str, property: &str) -> bool {
+    let name = token.trim_start_matches("--").to_ascii_lowercase();
+    if is_css_color_value(value) {
+        return css_color_token_matches_property(&name, property);
+    }
+    if let Some(matches) = named_css_token_property_match(&name, property) {
+        return matches;
+    }
+    if ["space", "spacing", "gap", "margin", "padding", "inset"]
+        .iter()
+        .any(|concept| name.contains(concept))
+    {
+        return is_css_spacing_property(property);
+    }
+    ["width", "height", "size"]
+        .iter()
+        .any(|concept| name.contains(concept))
+        && is_css_dimension_property(property)
+}
+
+fn named_css_token_property_match(name: &str, property: &str) -> Option<bool> {
+    if name.contains("line-height") {
+        return Some(property == "line-height");
+    }
+    if name.contains("radius") {
+        return Some(property.contains("radius"));
+    }
+    if name.contains("font-size") || name.starts_with("text-") {
+        return Some(property == "font-size");
+    }
+    if name.contains("opacity") {
+        return Some(property == "opacity");
+    }
+    if name.contains("shadow") {
+        return Some(property.ends_with("shadow"));
+    }
+    if name.contains("contrast") {
+        return Some(matches!(property, "filter" | "backdrop-filter"));
+    }
+    None
+}
+
+fn is_css_color_value(value: &str) -> bool {
+    value.starts_with('#')
+        || [
+            "rgb(", "rgba(", "hsl(", "hsla(", "hwb(", "lab(", "lch(", "oklab(", "oklch(", "color(",
+        ]
+        .iter()
+        .any(|function| value.starts_with(function))
+}
+
+fn css_color_token_matches_property(name: &str, property: &str) -> bool {
+    if name.contains("background") || name.contains("surface") {
+        return property.starts_with("background");
+    }
+    if name.contains("border") {
+        return property.starts_with("border");
+    }
+    if name.contains("foreground") || name.starts_with("text-") {
+        return matches!(property, "color" | "fill" | "stroke");
+    }
+    is_css_color_property(property)
+}
+
+fn is_css_color_property(property: &str) -> bool {
+    property == "color"
+        || property == "fill"
+        || property == "stroke"
+        || property.starts_with("background")
+        || (property.starts_with("border") && property.ends_with("color"))
+        || property.ends_with("-color")
+}
+
+fn is_css_spacing_property(property: &str) -> bool {
+    property == "gap"
+        || property.ends_with("-gap")
+        || property.starts_with("margin")
+        || property.starts_with("padding")
+        || property.starts_with("inset")
+        || matches!(property, "top" | "right" | "bottom" | "left")
+}
+
+fn is_css_dimension_property(property: &str) -> bool {
+    matches!(
+        property,
+        "width"
+            | "min-width"
+            | "max-width"
+            | "height"
+            | "min-height"
+            | "max-height"
+            | "inline-size"
+            | "min-inline-size"
+            | "max-inline-size"
+            | "block-size"
+            | "min-block-size"
+            | "max-block-size"
+    )
 }
 
 fn css_blocks(sources: &BTreeMap<String, String>) -> Vec<CssBlock> {
@@ -1128,8 +1224,34 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 "`padding-right` repeats `0.75rem` instead of `--space-wide`",
-                "`border-radius` repeats `0.25rem` instead of `--space-narrow`",
                 "`padding-left` repeats `0.75rem` instead of `--space-wide`",
+            ]
+        );
+    }
+
+    #[test]
+    fn matches_css_tokens_only_to_their_semantic_property_family() {
+        let fixture = Fixture::new([
+            (
+                "tokens.css",
+                ":root { --text-2xs: 12px; --text-2xs--line-height: 16px; --appearance-contrast-base: 100%; --background: #000; }",
+            ),
+            (
+                "retro.css",
+                ".bad { left: 12px; gap: 12px; width: 16px; height: 100%; color: #000; }\n\
+                 .good { font-size: 12px; line-height: 16px; filter: contrast(100%); background: #000; }",
+            ),
+        ]);
+
+        assert_eq!(
+            css_design_token_drift(&fixture.context())
+                .into_iter()
+                .map(|finding| finding.message)
+                .collect::<Vec<_>>(),
+            [
+                "`font-size` repeats `12px` instead of `--text-2xs`",
+                "`line-height` repeats `16px` instead of `--text-2xs--line-height`",
+                "`background` repeats `#000` instead of `--background`",
             ]
         );
     }

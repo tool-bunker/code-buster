@@ -183,14 +183,23 @@ fn reportable_simple_match(
 }
 
 fn is_proven_panic_invariant(code: &str, file: &RustFile<'_>, call_offset: usize) -> bool {
-    if !matches!(code, "rust-unwrap" | "rust-expect") {
-        return false;
+    match code {
+        "rust-panic-macro" => panic_macro_is_invariant(file.source, call_offset),
+        "rust-unwrap" | "rust-expect" => recoverable_panic_is_invariant(code, file, call_offset),
+        _ => false,
     }
-    if file
-        .regex_contracts
-        .capture_access_is_invariant(file.source, &file.masked, call_offset)
-        || panic_guards::locally_proven_invariant(file.source, &file.masked, call_offset)
-    {
+}
+
+fn panic_macro_is_invariant(source: &str, call_offset: usize) -> bool {
+    let line_end = source[call_offset..]
+        .find('\n')
+        .map_or(source.len(), |offset| call_offset + offset);
+    PANIC_INVARIANT_MESSAGE.is_match(&source[call_offset..line_end])
+        || containing_function_documents_panic(source, call_offset)
+}
+
+fn recoverable_panic_is_invariant(code: &str, file: &RustFile<'_>, call_offset: usize) -> bool {
+    if local_panic_invariant(file, call_offset) {
         return true;
     }
     let statement_start = file.masked[..call_offset]
@@ -200,10 +209,121 @@ fn is_proven_panic_invariant(code: &str, file: &RustFile<'_>, call_offset: usize
         .find(';')
         .map_or(file.source.len(), |offset| call_offset + offset + 1);
     let statement = &file.source[statement_start..statement_end];
-    if expect_statement_documents_invariant(code, statement, &file.source[call_offset..]) {
+    if statement_documents_panic_invariant(code, file, call_offset, statement_start, statement) {
         return true;
     }
     regex_constructor_is_invariant(file.source, &file.masked, statement_start, call_offset)
+}
+
+fn local_panic_invariant(file: &RustFile<'_>, call_offset: usize) -> bool {
+    file.regex_contracts
+        .capture_access_is_invariant(file.source, &file.masked, call_offset)
+        || panic_guards::locally_proven_invariant(file.source, &file.masked, call_offset)
+        || preceding_comment_documents_invariant(file.source, call_offset)
+}
+
+fn statement_documents_panic_invariant(
+    code: &str,
+    file: &RustFile<'_>,
+    call_offset: usize,
+    statement_start: usize,
+    statement: &str,
+) -> bool {
+    expect_statement_documents_invariant(code, statement, &file.source[call_offset..])
+        || string_format_write_is_invariant(file.source, statement_start, statement)
+        || literal_parse_is_invariant(statement)
+        || statement.contains(".checked_")
+            && containing_function_documents_panic(file.source, call_offset)
+}
+
+fn preceding_comment_documents_invariant(source: &str, call_offset: usize) -> bool {
+    let line_start = source[..call_offset]
+        .rfind('\n')
+        .map_or(0, |offset| offset + 1);
+    let mut crossed_macro_declaration = false;
+    for line in source[..line_start].lines().rev().take(5) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with("//") {
+            if RUST_INVARIANT_COMMENT.is_match(trimmed) {
+                return true;
+            }
+            continue;
+        }
+        if !crossed_macro_declaration && trimmed.starts_with("macro_rules!") {
+            crossed_macro_declaration = true;
+            continue;
+        }
+        break;
+    }
+    false
+}
+
+fn string_format_write_is_invariant(source: &str, statement_start: usize, statement: &str) -> bool {
+    let write_open = statement
+        .rfind("write!(")
+        .map(|index| index + "write!(".len());
+    let writeln_open = statement
+        .rfind("writeln!(")
+        .map(|index| index + "writeln!(".len());
+    let Some(open) = write_open.into_iter().chain(writeln_open).max() else {
+        return false;
+    };
+    let target_end = statement[open..]
+        .find([',', ')'])
+        .map_or(statement.len(), |offset| open + offset);
+    let target = statement[open..target_end]
+        .trim()
+        .strip_prefix("&mut ")
+        .unwrap_or(statement[open..target_end].trim());
+    if target.is_empty()
+        || !target
+            .bytes()
+            .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
+    {
+        return false;
+    }
+    source[..statement_start]
+        .lines()
+        .rev()
+        .take(80)
+        .take_while(|line| !line.trim_start().starts_with("fn "))
+        .any(|line| {
+            let line = line.trim();
+            line.starts_with("let mut ")
+                && line["let mut ".len()..].starts_with(target)
+                && line[target.len() + "let mut ".len()..]
+                    .trim_start()
+                    .starts_with('=')
+                && (line.contains("String::new(") || line.contains("String::with_capacity("))
+        })
+}
+
+fn literal_parse_is_invariant(statement: &str) -> bool {
+    STATIC_LITERAL_PARSE.is_match(statement)
+}
+
+fn containing_function_documents_panic(source: &str, call_offset: usize) -> bool {
+    let mut lines = source[..call_offset].lines().rev();
+    if !lines.any(|line| RUST_FUNCTION_DECLARATION.is_match(line)) {
+        return false;
+    }
+    for line in lines.take(24) {
+        let trimmed = line.trim();
+        if trimmed.starts_with("///") {
+            if RUST_PANIC_DOCUMENTATION.is_match(trimmed) {
+                return true;
+            }
+            continue;
+        }
+        if trimmed.is_empty() || trimmed.starts_with("#[") {
+            continue;
+        }
+        break;
+    }
+    false
 }
 
 fn expect_statement_documents_invariant(code: &str, statement: &str, call: &str) -> bool {
@@ -1585,8 +1705,15 @@ fn rust_literal_kind(source: &[u8], start: usize) -> Option<RustLiteralKind> {
         });
     }
     if source.get(prefix) == Some(&b'"') {
-        return Some(RustLiteralKind::Quoted {
-            body_start: prefix + 1,
+        return Some(if raw_prefix {
+            RustLiteralKind::Raw {
+                body_start: prefix + 1,
+                hashes: 0,
+            }
+        } else {
+            RustLiteralKind::Quoted {
+                body_start: prefix + 1,
+            }
         });
     }
     (source.get(start) == Some(&b'\'')).then_some(RustLiteralKind::Character {
@@ -1713,6 +1840,30 @@ static EXPECT_INVARIANT_MESSAGE: LazyLock<Regex> = LazyLock::new(|| {
         r#"(?is)^\.expect\s*\(\s*(?:r#*)?"[^"\r\n]*(?:\b(?:always|never|invariant|impossible|guaranteed)\b|by construction|cannot fail|can't fail|static[- ]shape|writ(?:e|ing) to (?:a )?string)[^"\r\n]*""#,
     )
     .expect("expect invariant message regex must compile")
+});
+static RUST_INVARIANT_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(?:invariant|ok because|we know|guaranteed|cannot fail|can't fail|impossible|only write to `?string`?)\b",
+    )
+    .expect("Rust invariant comment regex must compile")
+});
+static PANIC_INVARIANT_MESSAGE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)\bpanic!\s*\([^;\n]*(?:\b(?:impossible|invariant|unreachable)\b|cannot happen|bug(?:\s+for)?\s*:)"#)
+        .expect("panic invariant message regex must compile")
+});
+static STATIC_LITERAL_PARSE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r####"(?s)(?:r#*"[^"]*"#*|"(?:\\.|[^"\\])*")\s*\.parse(?:\s*::\s*<[^>]+>)?\s*\(\s*\)\s*\.(?:unwrap|expect)\s*\("####,
+    )
+    .expect("static literal parse regex must compile")
+});
+static RUST_FUNCTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bfn\s+[A-Za-z_]\w*[^(;{]*\(")
+        .expect("Rust function declaration regex must compile")
+});
+static RUST_PANIC_DOCUMENTATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:#\s*panics\b|\bpanics?\s+if\b|\bwill panic\b)")
+        .expect("Rust panic documentation regex must compile")
 });
 static UNSAFE_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bunsafe\s*\{").unwrap());
 static STATIC_MUT: LazyLock<Regex> =
@@ -1927,6 +2078,28 @@ fn allowed() { value.expect("allowed"); }
     }
 
     #[test]
+    fn raw_strings_without_hashes_do_not_break_test_exclusion() {
+        let source = r####"fn production() {
+    let separator = r"\";
+    dynamic.unwrap();
+}
+#[cfg(test)]
+#[test]
+fn fixture() {
+    first.unwrap();
+    let separator = r"\";
+    second.unwrap();
+}
+"####;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-unwrap")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![3]);
+    }
+
+    #[test]
     fn distinguishes_mutable_static_items_from_static_lifetimes() {
         let selected = findings(
             "static mut GLOBAL: usize = 0;\nfn borrow(value: &'static mut usize) -> &'static mut usize { value }\n",
@@ -2065,6 +2238,69 @@ async fn refresh() {
                 "rust-unwrap:14",
             ]
         );
+    }
+
+    #[test]
+    fn ignores_documented_and_string_formatting_invariants() {
+        let source = r#"use std::fmt::Write;
+fn render(dynamic: Result<(), Error>) -> String {
+    let mut output = String::new();
+    writeln!(output, "header").unwrap();
+    // OK because `set` returning an error means the value already exists.
+    state.get_mut().unwrap();
+    dynamic.unwrap();
+    output
+}
+macro_rules! write {
+    // We only write to `String`.
+    ($($tt:tt)*) => { std::write!($($tt)*).unwrap(); }
+}
+fn impossible() {
+    panic!("BUG for NoError: an impossible error occurred");
+    panic!("external input was invalid");
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-unwrap" | "rust-expect" | "rust-panic-macro"
+                )
+            })
+            .map(|finding| format!("{}:{}", finding.code, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(selected, vec!["rust-unwrap:7", "rust-panic-macro:16"]);
+    }
+
+    #[test]
+    fn ignores_literal_parsing_and_documented_panic_contracts() {
+        let source = r#"fn defaults() {
+    let color: Color = "red".parse().unwrap();
+    let dynamic: Color = input.parse().unwrap();
+}
+/// # Panics
+///
+/// Panics if adding the amount would overflow.
+fn offset<T: AsRef<Path>>(value: usize, amount: usize) -> usize {
+    value.checked_add(amount).unwrap()
+}
+/// This will panic when the caller violates the root invariant.
+fn root_only() {
+    panic!("not a root");
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-unwrap" | "rust-expect" | "rust-panic-macro"
+                )
+            })
+            .map(|finding| format!("{}:{}", finding.code, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(selected, vec!["rust-unwrap:3"]);
     }
 
     #[test]

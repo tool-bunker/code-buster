@@ -461,7 +461,8 @@ fn editor_config_value_in_directory(
     for raw in source.lines() {
         let line = raw.trim();
         if line.starts_with('[') && line.ends_with(']') {
-            applies = editor_config_pattern_applies(&line[1..line.len() - 1], &extension);
+            applies =
+                editor_config_pattern_applies(&line[1..line.len() - 1], source_path, &extension);
             continue;
         }
         let Some((candidate_key, value)) = line.split_once('=') else {
@@ -474,15 +475,60 @@ fn editor_config_value_in_directory(
     selected
 }
 
-fn editor_config_pattern_applies(pattern: &str, extension: &str) -> bool {
+fn editor_config_pattern_applies(pattern: &str, source_path: &str, extension: &str) -> bool {
     let pattern = pattern.to_ascii_lowercase();
     if matches!(pattern.as_str(), "*" | "*.*") || pattern == format!("*.{extension}") {
         return true;
     }
-    pattern
+    if let Some(extensions) = pattern
         .strip_prefix("*.{")
         .and_then(|value| value.strip_suffix('}'))
-        .is_some_and(|extensions| extensions.split(',').any(|value| value == extension))
+    {
+        return extensions.split(',').any(|value| value == extension);
+    }
+    if let Some(alternatives) = pattern
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+    {
+        return alternatives
+            .split(',')
+            .any(|alternative| editor_config_glob_matches(alternative, source_path));
+    }
+    editor_config_glob_matches(&pattern, source_path)
+}
+
+fn editor_config_glob_matches(pattern: &str, source_path: &str) -> bool {
+    let target = if pattern.contains('/') {
+        source_path
+    } else {
+        source_path.rsplit('/').next().unwrap_or(source_path)
+    };
+    wildcard_matches(pattern.as_bytes(), target.as_bytes())
+}
+
+fn wildcard_matches(pattern: &[u8], target: &[u8]) -> bool {
+    let (mut pattern_index, mut target_index) = (0usize, 0usize);
+    let mut star = None;
+    while target_index < target.len() {
+        if pattern
+            .get(pattern_index)
+            .is_some_and(|byte| *byte == b'?' || *byte == target[target_index])
+        {
+            pattern_index += 1;
+            target_index += 1;
+        } else if pattern.get(pattern_index) == Some(&b'*') {
+            pattern_index += 1;
+            star = Some((pattern_index, target_index));
+        } else if let Some((after_star, matched)) = star {
+            let next = matched + 1;
+            star = Some((after_star, next));
+            pattern_index = after_star;
+            target_index = next;
+        } else {
+            return false;
+        }
+    }
+    pattern[pattern_index..].iter().all(|byte| *byte == b'*')
 }
 
 fn policy_root(config: &Config) -> PathBuf {
@@ -685,6 +731,34 @@ mod tests {
                 .map(|finding| (finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
             vec![("src/main.ts", 1)]
+        );
+    }
+
+    #[test]
+    fn honors_braced_editorconfig_path_and_extension_patterns() {
+        let root = TempRoot::new();
+        root.write(
+            ".editorconfig",
+            "[*]\nindent_style = space\n[{**.*sh,test/run,**.bats}]\nindent_style = tab\n",
+        );
+        let config = Config::defaults(root.path().to_path_buf());
+        let findings = tab_indentation(
+            &sources(&[
+                ("aliases/general.bash", "\talias ll='ls -la'"),
+                ("install.sh", "\tsetup"),
+                ("test/run", "\trun_tests"),
+                ("tests/tool.bats", "\t@test"),
+                ("src/main.ts", "\tconst value = 1;"),
+            ]),
+            &config,
+        );
+
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| finding.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["src/main.ts"]
         );
     }
 

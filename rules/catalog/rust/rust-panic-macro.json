@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A panic can abort useful work and cross an API boundary that should return an error.",
   "suggestion": "Return a Result or constrain the panic to a documented unreachable invariant.",
-  "version": 6,
+  "version": 8,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule uses masked source tokens and does not perform Rust type resolution."
+    "The rule uses masked source tokens and does not perform Rust type resolution.",
+    "Items marked as tests through `test` or `cfg(test)` attributes, explicit impossible-state messages, and functions with documented panic contracts are excluded."
   ]
 }

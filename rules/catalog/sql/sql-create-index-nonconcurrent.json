@@ -9,7 +9,7 @@
   "legacyGroup": "sql",
   "why": "This SQL construct can create correctness, safety, or performance risk.",
   "suggestion": "Use the safer SQL pattern described by the rule.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,6 @@
   "languageVersions": [],
   "limitations": [
     "Opt-in because transactional migration runners cannot use CONCURRENTLY.",
-    "Dialect inference recognizes explicit PostgreSQL paths and repeated sibling MySQL syntax."
+    "Dialect inference recognizes explicit PostgreSQL paths, repeated sibling MySQL syntax, and SQLite AUTOINCREMENT or WITHOUT ROWID syntax."
   ]
 }

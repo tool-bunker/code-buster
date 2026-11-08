@@ -263,6 +263,7 @@ fn select_explanation<'a>(
         ".prettierrc",
         ".prettierrc.json",
         "biome.json",
+        "biome.jsonc",
     ]
     .into_iter()
     .filter(|name| root.join(name).is_file())

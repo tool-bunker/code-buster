@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "One function coordinates several unrelated external boundaries, increasing coupling and change surface.",
   "suggestion": "Keep orchestration explicit, or move independently changing boundary work behind focused operations.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -25,5 +25,7 @@
   "languages": [],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Control-flow blocks are not treated as functions, and receiver method calls named `exec` are not treated as process execution unless the receiver identifies a process API."
+  ]
 }

@@ -1,0 +1,35 @@
+{
+  "id": "shell-unquoted-expansion",
+  "language": "shell",
+  "group": "correctness",
+  "listingTitle": "Quote shell expansions",
+  "title": "Quote shell parameter expansions used as command arguments",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "core",
+  "why": "An unquoted parameter expansion can split one value into multiple arguments and expand wildcard characters into filesystem paths.",
+  "suggestion": "Quote the expansion, or use an array when intentional argument splitting is required.",
+  "version": 2,
+  "semanticMaturity": "text",
+  "securityKind": "none",
+  "taxonomy": [
+    "correctness"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "shell"
+  ],
+  "implementation": "src/languages/shell/rules.rs",
+  "languages": [
+    "shell"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Assignment, quoted, conditional-test, arithmetic, and shell grammar contexts where word splitting does not apply are excluded.",
+    "At most one representative finding is reported per file and it is advisory by default.",
+    "Intentional splitting through legacy scalar variables cannot be distinguished from accidental splitting."
+  ]
+}

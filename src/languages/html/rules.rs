@@ -39,6 +39,7 @@ fn analyze_file(path: &str, source: &str, findings: &mut Vec<Finding>) {
             forms_without_method: forms_without_native_method(&markup),
             template_conditions: template_conditions(&lines),
             ids: BTreeMap::new(),
+            blank_target_reported: false,
             findings,
         };
         for (index, raw) in lines.iter().enumerate() {
@@ -59,6 +60,7 @@ struct HtmlLineAnalyzer<'a> {
     forms_without_method: BTreeSet<usize>,
     template_conditions: Vec<BTreeSet<String>>,
     ids: BTreeMap<String, Vec<BTreeSet<String>>>,
+    blank_target_reported: bool,
     findings: &'a mut Vec<Finding>,
 }
 
@@ -101,7 +103,8 @@ impl HtmlLineAnalyzer<'_> {
     }
 
     fn report_blank_target(&mut self, line: usize) {
-        if self.blank_targets.contains(&line) {
+        if self.blank_targets.contains(&line) && !self.blank_target_reported {
+            self.blank_target_reported = true;
             self.findings.push(finding(
                 "html-blank-no-rel",
                 self.path,
@@ -1009,6 +1012,26 @@ mod tests {
 </body>
 </html>"#;
         assert!(codes(source).is_empty());
+    }
+
+    #[test]
+    fn groups_blank_target_evidence_per_file() {
+        let source = r#"<html lang="en">
+<head><title>Links</title><meta name="viewport" content="width=device-width"></head>
+<body>
+  <a target="_blank">first</a>
+  <a target="_blank">second</a>
+</body></html>"#;
+        let findings = analyze(&BTreeMap::from([(
+            "index.html".to_owned(),
+            source.to_owned(),
+        )]))
+        .into_iter()
+        .filter(|finding| finding.code == "html-blank-no-rel")
+        .collect::<Vec<_>>();
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 4);
     }
 
     #[test]

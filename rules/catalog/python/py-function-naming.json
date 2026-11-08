@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "Unexpected mixed-case function names make Python APIs less predictable unless an inherited or framework protocol fixes the spelling.",
   "suggestion": "Use lower_snake_case for project-owned functions while preserving required external protocol names.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "HTTP handlers, test lifecycle hooks, AST-style visitor hooks, COM methods, monkey-patch replacements, and methods marked override are excluded.",
+    "HTTP handlers, test lifecycle hooks, AST-style visitor hooks, COM methods, monkey-patch replacements, methods marked override, and inline Ruff N802 or Pylint invalid-name suppressions are excluded.",
     "Other dynamically discovered framework callbacks may still require an explicit project lint policy."
   ]
 }

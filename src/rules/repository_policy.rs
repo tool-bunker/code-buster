@@ -28,6 +28,10 @@ pub(crate) fn codeowners_existence_markers(
     codeowners::existence_markers(root, auxiliary)
 }
 
+pub(crate) fn strip_jsonc_comments(source: &str) -> String {
+    typescript::strip_jsonc_comments(source)
+}
+
 fn finding(
     code: &str,
     path: &str,

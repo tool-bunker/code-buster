@@ -335,6 +335,8 @@ fn is_repository_metadata_file(relative: &Path) -> bool {
         ".pre-commit-config.yml",
         ".python-version",
         "analysis_options.yaml",
+        "biome.json",
+        "biome.jsonc",
         "cargo.lock",
         "cargo.toml",
         "feature-flags.json",

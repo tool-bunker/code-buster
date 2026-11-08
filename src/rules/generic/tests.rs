@@ -357,6 +357,27 @@ bool nested(bool ready) {
         );
     }
 
+    #[test]
+    fn excludes_shell_where_digit_separators_are_not_portable_syntax() {
+        let findings = analyze(
+            &sources(&[
+                ("install.sh", "timeout=10000000"),
+                ("bin/install", "#!/usr/bin/env bash\ntimeout=10000000"),
+                ("timeout.rs", "const TIMEOUT: u64 = 10000000;"),
+            ]),
+            &config(),
+        );
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| finding.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["timeout.rs"]
+        );
+    }
+
 
     #[test]
     fn excludes_dense_protocol_enum_value_catalogs() {

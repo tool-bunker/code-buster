@@ -218,7 +218,7 @@ fn ci_paths(auxiliary: &BTreeMap<String, String>) -> Vec<String> {
         .collect()
 }
 
-fn strip_jsonc_comments(source: &str) -> String {
+pub(super) fn strip_jsonc_comments(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut output = Vec::with_capacity(source.len());
     let mut index = 0;

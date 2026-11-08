@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Repeatedly extending an immutable string can copy a growing prefix and create avoidable temporary values.",
   "suggestion": "Collect fragments in an array and join once after the loop, or stream them directly to the consumer.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,6 @@
   "languageVersions": [],
   "limitations": [
     "Only += on variables with a string annotation or string-literal initializer is reported inside braced loops.",
-    "Engine rope optimizations, reassignment, bounded loops, and alternative string-like values are not inferred."
+    "Engine rope optimizations, reassignment, bounded loops, and alternative string-like values are not inferred; repeated occurrences are grouped per file."
   ]
 }

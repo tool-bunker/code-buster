@@ -1,0 +1,34 @@
+{
+  "id": "shell-download-pipe-execution",
+  "language": "shell",
+  "group": "security",
+  "listingTitle": "Review downloaded shell execution",
+  "title": "Do not pipe downloaded content directly to a shell",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "Executing a network response without inspecting or verifying it turns transport, hosting, and content compromise into immediate code execution.",
+  "suggestion": "Download to a file, verify its expected digest or signature, inspect it when appropriate, and then execute the verified file.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "shell"
+  ],
+  "implementation": "src/languages/shell/rules.rs",
+  "languages": [
+    "shell"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Detection covers curl and wget pipelines to common POSIX shell interpreters.",
+    "The rule does not establish whether the downloaded content is cryptographically trusted."
+  ]
+}

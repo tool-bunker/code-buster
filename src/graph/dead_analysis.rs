@@ -329,9 +329,12 @@ fn cycle_findings(graph: &DependencyGraph) -> Vec<Finding> {
         .filter_map(|component| {
             let cycle = representative_cycle(graph, &component)?;
             let path = cycle.first()?.clone();
-            let module_cycle = component
-                .iter()
-                .all(|path| matches!(extension(path), "dart" | "js" | "jsx" | "ts" | "tsx"));
+            let module_cycle = component.iter().all(|path| {
+                matches!(
+                    extension(path),
+                    "dart" | "js" | "jsx" | "py" | "pyw" | "ts" | "tsx"
+                )
+            });
             let represented = cycle.iter().cloned().collect::<BTreeSet<_>>();
             let related_files = component
                 .iter()
@@ -1204,5 +1207,26 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(path.as_str(), "circular dependency: orphan.js -> orphan.js")]
         );
+    }
+
+    #[test]
+    fn treats_python_import_cycles_as_runtime_dependent_module_advice() {
+        let edges = BTreeMap::from([
+            (
+                "package/__init__.py".to_owned(),
+                BTreeSet::from(["package/service.py".to_owned()]),
+            ),
+            (
+                "package/service.py".to_owned(),
+                BTreeSet::from(["package/__init__.py".to_owned()]),
+            ),
+        ]);
+        let graph = DependencyGraph::from_edges(edges.clone(), edges.clone(), edges);
+
+        let findings = cycle_findings(&graph);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warn);
+        assert_eq!(findings[0].confidence, "medium");
     }
 }

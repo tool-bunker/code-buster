@@ -480,16 +480,11 @@ impl Discovery {
     }
 
     fn language_for_path(&self, path: &Path, extension: &str) -> Option<Language> {
-        let shebang_language = extension.is_empty().then(|| {
-            self.selected
-                .iter()
-                .copied()
-                .find(|language| language.id == "lua")
-                .filter(|_| has_lua_shebang(path))
-        });
-        shebang_language
-            .flatten()
-            .or_else(|| languages::by_extension(&self.selected, extension))
+        let shebang_language = extension
+            .is_empty()
+            .then(|| language_from_shebang(path, &self.selected))
+            .flatten();
+        shebang_language.or_else(|| languages::by_extension(&self.selected, extension))
     }
 
     fn record_unrecognized_extension(&mut self, extension: &str) {
@@ -687,7 +682,11 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
                     "cargokit",
                 ]
                 .iter()
-                .any(|candidate| segments.contains(candidate)) =>
+                .any(|candidate| {
+                    segments
+                        .iter()
+                        .any(|segment| segment.eq_ignore_ascii_case(candidate))
+                }) =>
         {
             SourceRole::Production
         }
@@ -839,8 +838,7 @@ fn classify_path(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
     let segments = normalized.split('/').collect::<Vec<_>>();
     let name = segments.last().copied().unwrap_or_default();
 
-    if CAMEL_CASE_TEST_SEGMENT.is_match(relative)
-        || is_classified_test(&normalized, name, &segments, policy)
+    if is_camel_case_test_path(relative) || is_classified_test(&normalized, name, &segments, policy)
     {
         return SourceRole::Test;
     }
@@ -880,6 +878,31 @@ pub(crate) fn is_builtin_production_path(relative: &str) -> bool {
     classify_path(relative, &RepositoryPolicy::default()) == SourceRole::Production
 }
 
+fn is_camel_case_test_path(relative: &str) -> bool {
+    let (directories, name) = relative
+        .rsplit_once(['/', '\\'])
+        .map_or(("", relative), |(directories, name)| (directories, name));
+    if directories.split(['/', '\\']).any(has_camel_case_test_name) {
+        return true;
+    }
+    let extension = name.rsplit_once('.').map_or("", |(_, extension)| extension);
+    matches!(
+        extension,
+        "cs" | "java" | "kt" | "kts" | "fs" | "fsx" | "swift"
+    ) && has_camel_case_test_name(name)
+}
+
+fn has_camel_case_test_name(segment: &str) -> bool {
+    let base = segment.split(['.', '_', '-']).next().unwrap_or_default();
+    base.rsplit_once("Test").is_some_and(|(prefix, suffix)| {
+        !prefix.is_empty()
+            && (suffix.is_empty()
+                || suffix == "s"
+                || suffix == "Utilities"
+                || suffix.bytes().all(|byte| byte.is_ascii_digit()))
+    })
+}
+
 fn is_test_file_name(name: &str) -> bool {
     matches!(
         name,
@@ -908,6 +931,7 @@ const TEST_PATH_SEGMENTS: &[&str] = &[
     "testing_utils",
     "testassets",
     "testenv",
+    "testkit",
     "test_assets",
     "integration_test",
     "integration_tests",
@@ -1547,36 +1571,25 @@ fn extension_matches(extension: &str, candidates: &[&str]) -> bool {
         .any(|candidate| extension.eq_ignore_ascii_case(candidate))
 }
 
-fn has_lua_shebang(path: &Path) -> bool {
-    let Ok(mut file) = File::open(path) else {
-        return false;
-    };
+fn language_from_shebang(path: &Path, selected: &[Language]) -> Option<Language> {
+    let interpreter = shebang_interpreter(path)?;
+    selected.iter().copied().find(|language| match language.id {
+        "lua" => LUA_COMMAND_REGEX.is_match(&interpreter),
+        "shell" => crate::languages::shell::is_shell_interpreter(&interpreter),
+        _ => false,
+    })
+}
+
+fn shebang_interpreter(path: &Path) -> Option<String> {
+    let mut file = File::open(path).ok()?;
     let mut bytes = [0_u8; 256];
-    let Ok(length) = file.read(&mut bytes) else {
-        return false;
-    };
+    let length = file.read(&mut bytes).ok()?;
     if length == 0 || bytes[..length].contains(&0) {
-        return false;
+        return None;
     }
     let first_line = String::from_utf8_lossy(&bytes[..length]);
-    let first_line = first_line.lines().next().unwrap_or_default();
-    let Some(captures) = LUA_SHEBANG_REGEX.captures(first_line) else {
-        return false;
-    };
-    let mut interpreter = captures.get(1).map_or("", |value| value.as_str());
-    if interpreter.rsplit('/').next() == Some("env") {
-        let arguments = captures
-            .get(2)
-            .map_or("", |value| value.as_str())
-            .split_whitespace()
-            .collect::<Vec<_>>();
-        let command_index = usize::from(arguments.first() == Some(&"-S"));
-        let Some(command) = arguments.get(command_index) else {
-            return false;
-        };
-        interpreter = command;
-    }
-    LUA_COMMAND_REGEX.is_match(interpreter.rsplit('/').next().unwrap_or_default())
+    crate::languages::shell::interpreter_from_shebang(first_line.lines().next().unwrap_or_default())
+        .map(str::to_owned)
 }
 
 const GENERATED_FILE_SUFFIXES: &[&str] = &[
@@ -1805,7 +1818,7 @@ static DIFF_HUNK: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Git diff hunk regex must compile")
 });
 static TEST_FILE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:_tests?\.(?:dart|go|py|rs)|(?:^|_)tests?\.rs|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$").unwrap()
+    Regex::new(r"(?:_tests?\.(?:dart|go|py|rs)|(?:^|_)tests?\.rs|_spec\.rb|\.(?:test|spec)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|[._-](?:fixture|testkit)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)|tests?\.java|\.snap)$").unwrap()
 });
 static TEST_SETUP_FILE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:(?:jest|vitest)\.setup|setup[-_.]?tests?)\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$")
@@ -1818,11 +1831,6 @@ static TEST_HELPER_REGEX: LazyLock<Regex> =
 static SRC_TEST_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:^|/)src/(?:test(?:fixtures)?|[^/]+[-_]test(?:fixtures)?)(?:/|$)").unwrap()
 });
-static CAMEL_CASE_TEST_SEGMENT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|[/\\])[^/\\]*Test(?:s|Utilities|\d+)?(?:[._-][^/\\]*)?(?:[/\\]|$)").unwrap()
-});
-static LUA_SHEBANG_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^#!\s*(\S+)(?:\s+(.*))?$").unwrap());
 static LUA_COMMAND_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:lua(?:5\.[1-4])?|luajit(?:2\.\d+)?|resty)$").unwrap());
 static BACKUP_WEB_REGEX: LazyLock<Regex> =
@@ -1846,7 +1854,38 @@ static GENERATED_COMMENT_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 #[cfg(test)]
 mod tests {
-    use super::{RepositoryPolicy, SourceRole, classify_path, is_generated_header};
+    use std::fs;
+
+    use super::{
+        RepositoryPolicy, SourceRole, classify_file_role, classify_path, is_generated_header,
+        language_from_shebang,
+    };
+    use crate::languages;
+
+    #[test]
+    fn detects_extensionless_shell_and_lua_shebang_languages() {
+        let root = tempfile::tempdir().expect("temporary repository must be created");
+        let shell_path = root.path().join("release");
+        let lua_path = root.path().join("plugin");
+        let python_path = root.path().join("script");
+        fs::write(&shell_path, "#!/usr/bin/env -S bash -e\n").expect("shell fixture");
+        fs::write(&lua_path, "#!/usr/bin/env lua5.4\n").expect("Lua fixture");
+        fs::write(&python_path, "#!/usr/bin/env python3\n").expect("Python fixture");
+
+        let selected = languages::select("auto", &[]).expect("language registry");
+        assert_eq!(
+            language_from_shebang(&shell_path, &selected).map(|language| language.id),
+            Some("shell")
+        );
+        assert_eq!(
+            language_from_shebang(&lua_path, &selected).map(|language| language.id),
+            Some("lua")
+        );
+        assert_eq!(
+            language_from_shebang(&python_path, &selected).map(|language| language.id),
+            None
+        );
+    }
 
     #[test]
     fn recognizes_simple_and_compound_generated_headers() {
@@ -1934,6 +1973,9 @@ mod tests {
             "src/EditorFeatures/CSharpTest2/CompletionTests.cs",
             "src/Workspaces/CoreTestUtilities/TestHost.cs",
             "src/Scripting/CSharpTest.Desktop/SessionTests.cs",
+            "src/orchestration/OpenCode.fixture.ts",
+            "src/orchestration/OpenCode.testkit.ts",
+            "src/testkit/ProviderReplay.ts",
             "crates/ty_python_semantic/resources/corpus/cyclic_symbol.py",
             "crates/ruff_python_parser/resources/inline/err/invalid.py",
             "crates/ruff_python_parser/resources/inline/ok/valid.py",
@@ -1953,6 +1995,13 @@ mod tests {
         );
         assert_eq!(
             classify_path("src/Contest/Score.cs", &RepositoryPolicy::default()),
+            SourceRole::Production
+        );
+        assert_eq!(
+            classify_path(
+                "src/components/MicrophoneTest.tsx",
+                &RepositoryPolicy::default()
+            ),
             SourceRole::Production
         );
     }
@@ -2023,6 +2072,17 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn preserves_case_insensitive_vendored_directory_classification() {
+        assert_eq!(
+            classify_file_role(
+                "apps/mobile/Vendor/framework/Headers/library.h",
+                &RepositoryPolicy::default()
+            ),
+            SourceRole::Vendored
+        );
     }
 
     #[test]

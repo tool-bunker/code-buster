@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Awaiting each iteration serializes independent work and can make total latency grow with the item count.",
   "suggestion": "Use Promise.all with an explicit concurrency limit when iterations are independent; keep sequential awaits when ordering or backpressure is required.",
-  "version": 3,
+  "version": 6,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,7 @@
   "languageVersions": [],
   "limitations": [
     "Only lines beginning with await inside braced loops are reported.",
-    "Data dependencies, rate limits, ordering requirements, and deliberate sequential backpressure are not inferred."
+    "Explicit wait, backoff, delay, pause, sleep, and Promise-based setTimeout calls are excluded.",
+    "Other data dependencies, rate limits, ordering requirements, and deliberate sequential backpressure are not inferred. Repeated evidence is grouped once per file."
   ]
 }

@@ -1,219 +1,107 @@
 <div align="center">
-  <img src="assets/branding/code-buster.png" width="720" alt="Code Buster pixel-art analysis machine">
+  <img src="assets/branding/code-buster.svg" width="240" alt="Code Buster app icon">
   <h1>Code Buster</h1>
+  <p>Repository-aware static analysis for AI-assisted development.</p>
   <p>
-    Repository-aware static analysis for AI-assisted development
-    <br>
-    <br>
     <a href="https://toolbunker.dev/codebuster/">Overview</a>
     ·
-    <a href="https://toolbunker.dev/codebuster/docs/getting-started/installation">Installation</a>
+    <a href="https://toolbunker.dev/codebuster/docs/getting-started/installation">Install</a>
     ·
-    <a href="https://toolbunker.dev/codebuster/docs/">Documentation</a>
+    <a href="https://toolbunker.dev/codebuster/docs/">Docs</a>
     ·
-    <a href="CONTRIBUTING.md">Contributing</a>
+    <a href="CONTRIBUTING.md">Contribute</a>
   </p>
 </div>
 
-## Keep your AI agent grounded
-
-Code Buster gives AI coding agents a deterministic, offline feedback loop they
-can run while working. Context overload and hallucinations remain practical
-constraints, so Code Buster examines individual files and relationships across
-a repository to surface issues that prompts can miss.
-
-It does not upload source code, call an AI provider, consume model tokens, or
-make semantic changes on its own. The executable is `cb`; optional repository
-configuration lives in `code-buster.toml`.
-
-- 18 recognized source languages
-- 480+ registered rules
-- 7 report formats
-- 0 required cloud services
-
-## See it in action
+Code Buster gives developers and coding agents deterministic feedback about a
+repository. It runs locally, does not upload source code, and does not call an
+AI provider.
 
 <p align="center">
-  <img src="assets/media/code-buster-demo.gif" width="900" alt="Code Buster CLI analyzing a repository">
+  <img src="assets/media/code-buster-demo.gif" width="900" alt="Code Buster analyzing a repository">
 </p>
 
-## Quickstart
+## Install
 
-Install the native Apple Silicon macOS build with Homebrew:
+On Apple Silicon macOS:
 
 ```sh
 brew install tool-bunker/tap/code-buster
-cb version
 ```
 
-Install a native Apple Silicon macOS or x86-64 Linux build with the verified
-installer:
-
-```sh
-curl -fsSL https://toolbunker.dev/codebuster/install | sh
-```
-
-On x86-64 Windows PowerShell:
-
-```powershell
-irm https://toolbunker.dev/codebuster/install.ps1 | iex
-```
-
-When Rust 1.88 or newer is installed, install the current crates.io release:
+With Rust 1.88 or newer:
 
 ```sh
 cargo install code-buster --locked
-cb version
 ```
-Update a Homebrew, Cargo, native-installer, or local-source installation with
-the same command:
+
+The [installation guide](https://toolbunker.dev/codebuster/docs/getting-started/installation)
+also covers native macOS, Linux, and Windows installers.
+
+## Run
+
+From a repository root:
 
 ```sh
+cb
+```
+
+Useful focused commands:
+
+```sh
+cb review --pr
+cb quality --structure
+cb duplication
+cb graph
 cb update
 ```
 
-Then run Code Buster from a repository root:
+Configuration is optional. Run `cb init` for a commented starter configuration,
+or choose an opinionated profile such as `cb init rust`, `cb init bevy`,
+`cb init python`, or `cb init typescript`.
 
-```sh
-cb summary
-```
+## What it finds
 
-Configuration is optional. Start with coverage in the summary, then use focused
-commands such as `review`, `duplication`, `graph`, `dead`, `inspect`, or
-`quality`. Focus further with `quality --hotspots`, `inspect --related PATH`,
-or `review --format plan`.
+Code Buster combines file-level rules with repository-wide analysis:
 
-Plain `cb init` keeps automatic detection and writes concise, commented examples
-for file selection, thresholds, structure, architecture, rule modes, and
-quality profiles. Those examples remain inactive until uncommented.
+- dependency cycles and architecture violations;
+- production dependencies on test code;
+- duplicated and unreachable code;
+- complexity growth and maintenance hotspots;
+- correctness, security, accessibility, and performance risks;
+- repository structure and framework drift.
 
-For a new repository, create an explicit language policy:
-
-```sh
-cb init rust
-cb init bevy
-cb init python
-cb init typescript
-```
-
-Rust and Bevy receive a strict Cargo `src` boundary; Bevy-specific rules
-activate when `Cargo.toml` declares Bevy. Python, JavaScript, TypeScript, Dart,
-and Java receive their conventional source root without arbitrary file limits.
-Go and C# are pinned to their language rules without imposing a non-portable
-directory layout.
-
-Analysis caches live in the operating system's user-cache directory, not in the
-analyzed repository. Use `--no-cache` for one-off runs or `--cache-dir PATH`
-when a CI job or local workflow needs an explicit cache location.
-Focused commands and `--only RULE` execute only the required analysis families.
-Use `cb summary --profile` for an automatically uncached, slowest-first terminal
-profile of rule packs, shared analysis, and independently measurable rule
-checks. Add `--format json` for structured microsecond measurements.
-`--verbose` JSON manifests continue to include pipeline and rule-family
-durations for performance diagnosis.
-
-See the [installation guide](https://toolbunker.dev/codebuster/docs/getting-started/installation)
-and [quickstart](https://toolbunker.dev/codebuster/docs/getting-started/quickstart)
-for every supported path.
-
-## What Code Buster finds
-
-Code Buster combines file-level rules with repository-wide analysis. It reports:
-
-- dependency cycles, architecture-policy violations, and production dependencies on test-only code;
-- duplicated blocks, near-duplicate functions, and repeated patterns;
-- unreachable production files and declarations;
-- missing literal local package, workspace, target, executable, and script-entry references;
-- complexity growth, hotspots, and maintainability risks;
-- correctness, reliability, security, accessibility, performance, and style findings;
-- repository structure, source classification, framework, and design-system drift.
-
-Findings can include a stable rule ID, severity, confidence, location,
-rationale, remediation guidance, related files, and fingerprint. A finding is
-evidence for review, not proof that the code is wrong.
+Findings include evidence and remediation guidance. They are review signals,
+not proof that code is wrong.
 
 ## Where it fits
 
-Code Buster is a static-analysis CLI. It complements rather than replaces a
-language compiler, type checker, formatter, linter, test suite, or specialist
-security scanner. Those tools usually have deeper knowledge of their own
-language or domain and should remain part of the project's verification.
+Code Buster complements compilers, type checkers, linters, tests, formatters,
+and specialist security scanners. Use it for the repository-level and
+cross-file context those tools often do not cover.
 
-Code Buster's intended role is one local interface for repository-level and
-cross-file evidence across supported languages: dependency structure,
-architecture policy, reachability, duplication, change-review signals, and a
-broad catalog of language and framework checks. Coverage and precision vary by
-language and rule; unsupported or partial analysis is reported rather than
-treated as proof that the repository is clean.
+It supports Rust, JavaScript, TypeScript, Python, Dart, Java, C#, C and C++,
+Go, Shell, and other languages. See the
+[language matrix](https://toolbunker.dev/codebuster/docs/reference/languages)
+for current coverage.
 
-Good prompts, project instructions, and focused context should guide an agent
-before it edits. Code Buster adds deterministic checks before, during, or after
-the change because instructions do not guarantee that either AI-generated or
-human-written code matches the rest of the repository.
+Code Buster remains pre-1.0. Evaluate its findings and integrations before
+using it as a blocking production quality gate.
 
-## Use it with an AI coding agent
+## Documentation
 
-Make Code Buster part of the agent's working loop rather than waiting for a
-final review:
+- [Quickstart](https://toolbunker.dev/codebuster/docs/getting-started/quickstart)
+- [Commands](https://toolbunker.dev/codebuster/docs/reference/commands)
+- [Configuration](https://toolbunker.dev/codebuster/docs/guides/configuration)
+- [Reports](https://toolbunker.dev/codebuster/docs/reference/reports)
+- [Integrations](https://toolbunker.dev/codebuster/docs/guides/integrations)
 
-1. Let the agent implement a focused change.
-2. Run the narrowest relevant Code Buster command.
-3. Have the agent evaluate relevant findings and iterate.
-4. Review the resulting diff, run the project's tests, and exercise the changed
-   behavior.
-
-For a compact, repository-aware review signal without placing the whole
-codebase in the model's context:
-
-```sh
-cb review --pr --format json
-```
-
-`--pr` resolves the current branch's merge base from the CI target branch,
-`origin/HEAD`, or a conventional `main` or `master` branch. Use `--changed`
-instead to review staged, unstaged, and untracked work relative to `HEAD`.
-
-Code Buster finds potential issues; the developer or agent decides what matters
-and makes the fix.
-
-## Language and framework support
-
-Code Buster recognizes C and C++, Objective-C, C#, Dart, Rust, Mojo, Odin, Nim,
-Python, JavaScript, TypeScript, Go, HTML, CSS, Java, Wren, SQL, and Lua/Luau.
-Analysis depth and real-world validation vary by language. Flutter, React,
-Svelte, PixiJS, and FastAPI are detected as framework profiles rather than
-separate source languages.
-
-See the current [language support matrix](https://toolbunker.dev/codebuster/docs/reference/languages).
-
-## Reports and integrations
-
-Available formats are text, JSON, NDJSON, Markdown, SARIF 2.1.0, Mermaid, and
-JUnit XML. The repository also includes starting integrations for GitHub
-Actions, Gradle, Maven, VS Code, and pre-commit.
-
-See the [command reference](https://toolbunker.dev/codebuster/docs/reference/commands),
-[report reference](https://toolbunker.dev/codebuster/docs/reference/reports), and
-[integration guide](https://toolbunker.dev/codebuster/docs/guides/integrations).
-
-## Current status
-
-Code Buster remains pre-1.0 and under active development. The `cb` command
-uses `code-buster.toml` configuration and performs deterministic offline
-analysis with text and machine-readable report formats. Do not yet rely on it
-as a blocking production quality gate; evaluate CI and report integrations
-with explicit policy and preserved coverage.
-
-## Development and contributing
-
-Build Code Buster from source:
+## Development
 
 ```sh
 cargo build --release --locked
 ./target/release/cb version
 ```
 
-Open pull requests against `main`. Keep branches short-lived; `main` is the
-single long-lived branch and must remain releasable. Read
-[CONTRIBUTING.md](CONTRIBUTING.md) for the complete contribution, verification,
-and release contract.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for project structure, verification,
+and release instructions.

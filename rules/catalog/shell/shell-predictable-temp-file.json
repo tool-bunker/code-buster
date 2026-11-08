@@ -1,0 +1,34 @@
+{
+  "id": "shell-predictable-temp-file",
+  "language": "shell",
+  "group": "security",
+  "listingTitle": "Create temporary files atomically",
+  "title": "Avoid predictable temporary-file creation",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "security",
+  "why": "Creating a known path in a shared temporary directory can follow an attacker-controlled link or overwrite another process's file.",
+  "suggestion": "Use mktemp without -u, retain the created path, set restrictive permissions, and remove it with a trap.",
+  "version": 1,
+  "semanticMaturity": "text",
+  "securityKind": "hotspot",
+  "taxonomy": [
+    "security"
+  ],
+  "requirements": [
+    "sourceText"
+  ],
+  "packs": [
+    "shell"
+  ],
+  "implementation": "src/languages/shell/rules.rs",
+  "languages": [
+    "shell"
+  ],
+  "frameworks": [],
+  "languageVersions": [],
+  "limitations": [
+    "Detection covers mktemp dry-run mode and direct creation or redirection to static /tmp paths.",
+    "Platform-specific temporary directories outside /tmp are not inferred."
+  ]
+}

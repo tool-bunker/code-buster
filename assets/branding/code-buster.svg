@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 334 334" version="1.1" xmlns="http://www.w3.org/2000/svg" role="img">
+    <title>Code Buster</title>
+    <defs>
+        <linearGradient id="app-icon-background" x1="42" y1="24" x2="294" y2="312" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#111812"/>
+            <stop offset="1" stop-color="#050806"/>
+        </linearGradient>
+        <radialGradient id="symbol-gradient" cx="38%" cy="30%" r="78%">
+            <stop stop-color="#78e89a"/>
+            <stop offset=".34" stop-color="#b8f7ca"/>
+            <stop offset=".58" stop-color="#fffdf8"/>
+            <stop offset=".8" stop-color="#ffb4e8"/>
+            <stop offset="1" stop-color="#ff5f9f"/>
+        </radialGradient>
+        <linearGradient id="app-icon-border" x1="28" y1="24" x2="306" y2="312" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#78e89a"/>
+            <stop offset=".5" stop-color="#fffdf8"/>
+            <stop offset="1" stop-color="#ff8ad8"/>
+        </linearGradient>
+    </defs>
+    <rect x="3" y="3" width="328" height="328" rx="68" fill="url(#app-icon-background)"/>
+    <rect x="4.75" y="4.75" width="324.5" height="324.5" rx="66.25" fill="none" stroke="url(#app-icon-border)" stroke-opacity=".46" stroke-width="3.5"/>
+    <g transform="matrix(.656,0,0,.656,-295.48,-50.46)" fill="url(#symbol-gradient)">
+        <path d="M705,199L647,214L647,180L705,165L763,180L763,214L705,199ZM705,498L647,468L647,433L705,463L763,433L763,468L705,498ZM633,184L633,218L603,225L603,293C601.252,318.184 584,325 584,325C605.025,335.33 603,360 603,360L603,412L633,427L633,461L572,430L572,361C572,340.692 551,339 551,339L551,310C572.994,308.701 572,293 572,293L572,199L633,184ZM777,184L838,199L838,293C838,293 837.006,308.701 859,310L859,339C859,339 838,340.692 838,361L838,430L777,461L777,427L807,412L807,360C807,360 804.975,335.33 826,325C826,325 808.748,318.184 807,293L807,225L777,218L777,184ZM633,306L686,306L686,250L723,250L723,279L686,342L633,342L633,306ZM776,342L723,342L723,398L686,398L686,369L723,306L776,306L776,342ZM660,356L676,356L646,409L628,409L660,356ZM764,240L780,240L750,293L732,293L764,240ZM767.209,401.352L757.255,385.569L747.575,400.913L740.316,395.798L751.205,380.729L734.926,375.835L737.621,367.365L753.9,373.47L753.35,354.661L762.204,354.661L761.654,373.8L777.768,367.75L780.408,376.33L763.799,381.224L774.413,396.073L767.209,401.352Z"/>
+    </g>
+</svg>

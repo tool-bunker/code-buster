@@ -299,6 +299,8 @@ fn is_auxiliary_metadata_file(relative: &str) -> bool {
             ".pre-commit-config.yaml",
             ".pre-commit-config.yml",
             ".python-version",
+            "biome.json",
+            "biome.jsonc",
             "Cargo.lock",
             "Cargo.toml",
             "analysis_options.yaml",
@@ -396,6 +398,11 @@ mod tests {
         fs::write(root.path().join("Cargo.lock"), "version = 4").unwrap();
         fs::write(root.path().join("Makefile"), "lint:\n\tcargo clippy").unwrap();
         fs::write(root.path().join(".pre-commit-config.yaml"), "repos: []").unwrap();
+        fs::write(
+            root.path().join("biome.jsonc"),
+            "{\"linter\":{\"rules\":{}}}",
+        )
+        .unwrap();
         fs::write(root.path().join(".gitlab-ci.yml"), "test: cargo test").unwrap();
         fs::write(
             root.path().join("azure-pipelines.yml"),
@@ -430,6 +437,7 @@ mod tests {
                 "Jenkinsfile",
                 "Makefile",
                 "azure-pipelines.yml",
+                "biome.jsonc",
                 "member/Cargo.lock",
                 "member/Cargo.toml",
                 "member/analysis_options.yaml",

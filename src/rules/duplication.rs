@@ -5,9 +5,10 @@ use std::sync::LazyLock;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 
-use super::standalone_template_scope;
+use super::{is_localization_path, standalone_template_scope};
 use crate::findings::{Finding, Severity};
 use crate::rust_rules::function_lexical_facts;
+use crate::trivial_wrappers::mask_comments_and_strings;
 
 const MAX_GROUPS: usize = 50;
 const MAX_OCCURRENCES_PER_GROUP: usize = 32;
@@ -84,7 +85,10 @@ fn exact_duplicates(
             .iter()
             .map(|line| line.text.as_str())
             .collect::<Vec<_>>();
-        if mostly_literal_data(&maximal_lines) || mostly_case_labels(&maximal_lines) {
+        if mostly_literal_data(&maximal_lines)
+            || mostly_case_labels(&maximal_lines)
+            || rust_trait_delegation(&maximal_lines)
+        {
             continue;
         }
         groups += 1;
@@ -135,7 +139,11 @@ fn record_source_duplicate_windows(
     let lines = normalized_lines(source, path);
     if lines.len() >= window {
         let language_key = duplicate_language_key(path);
-        let scope = standalone_template_scope(path);
+        let scope = if is_localization_path(path) {
+            path
+        } else {
+            standalone_template_scope(path)
+        };
         for start in 0..=lines.len() - window {
             let key = duplicate_window_key(&language_key, scope, &lines[start..start + window]);
             let insertion_order = occurrences.len();
@@ -613,6 +621,7 @@ enum LineTreatment {
 struct NormalizationExclusions<'a> {
     source_path: &'a str,
     dart_forwarding: &'a BTreeSet<usize>,
+    python_declarations: &'a BTreeSet<usize>,
     rust_tests: Option<&'a BTreeSet<usize>>,
     rust_masked_lines: Option<&'a [&'a str]>,
 }
@@ -623,6 +632,12 @@ impl NormalizationExclusions<'_> {
         if self.dart_forwarding.contains(&number) {
             return LineTreatment::Unique(format!(
                 "__code_buster_dart_forwarding_constructor__{}:{number}",
+                self.source_path
+            ));
+        }
+        if self.python_declarations.contains(&number) {
+            return LineTreatment::Unique(format!(
+                "__code_buster_python_declaration__{}:{number}",
                 self.source_path
             ));
         }
@@ -738,6 +753,7 @@ fn without_block_comments(mut line: String, in_block_comment: &mut bool) -> Opti
 fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
     let raw_lines: Vec<&str> = source.split('\n').collect();
     let dart_forwarding = dart_forwarding_constructor_lines(&raw_lines, source_path);
+    let python_declarations = python_declaration_lines(source, source_path);
     let rust_facts = source_path
         .ends_with(".rs")
         .then(|| function_lexical_facts(source));
@@ -747,6 +763,7 @@ fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
     let exclusions = NormalizationExclusions {
         source_path,
         dart_forwarding: &dart_forwarding,
+        python_declarations: &python_declarations,
         rust_tests: rust_facts.as_ref().map(|(_, tests)| tests),
         rust_masked_lines: rust_masked_lines.as_deref(),
     };
@@ -789,6 +806,51 @@ fn normalize_line(line: &str) -> String {
     }
 }
 
+fn python_declaration_lines(source: &str, source_path: &str) -> BTreeSet<usize> {
+    if !matches!(
+        Path::new(source_path)
+            .extension()
+            .and_then(|value| value.to_str()),
+        Some("py" | "pyw")
+    ) {
+        return BTreeSet::new();
+    }
+    let masked = mask_comments_and_strings(source);
+    let lines = masked.split('\n').collect::<Vec<_>>();
+    let mut signatures = BTreeSet::new();
+    let mut index = 0;
+    while index < lines.len() {
+        if !PYTHON_FUNCTION_DECLARATION.is_match(lines[index]) {
+            index += 1;
+            continue;
+        }
+        let mut depth = python_signature_depth(lines[index], 0);
+        signatures.insert(index + 1);
+        while depth > 0 && index + 1 < lines.len() {
+            index += 1;
+            signatures.insert(index + 1);
+            depth = python_signature_depth(lines[index], depth);
+        }
+        index += 1;
+    }
+    for (index, line) in lines.iter().enumerate() {
+        if PYTHON_ANNOTATION_DECLARATION.is_match(line) {
+            signatures.insert(index + 1);
+        }
+    }
+    signatures
+}
+
+fn python_signature_depth(line: &str, mut depth: usize) -> usize {
+    for byte in line.bytes() {
+        match byte {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth
+}
 fn dart_forwarding_constructor_lines(lines: &[&str], source_path: &str) -> BTreeSet<usize> {
     if !source_path.to_ascii_lowercase().ends_with(".dart") {
         return BTreeSet::new();
@@ -1046,7 +1108,10 @@ fn mostly_literal_data(lines: &[&str]) -> bool {
     let literal_lines = lines
         .iter()
         .filter(|line| {
-            LITERAL_LINE.is_match(line) || SQL_TUPLE.is_match(line) || SQL_INSERT.is_match(line)
+            LITERAL_LINE.is_match(line)
+                || SQL_TUPLE.is_match(line)
+                || SQL_INSERT.is_match(line)
+                || !line.chars().any(char::is_alphanumeric)
         })
         .count();
     literal_lines * 5 >= lines.len() * 4
@@ -1060,6 +1125,14 @@ fn mostly_case_labels(lines: &[&str]) -> bool {
             .count()
             * 5
             >= lines.len() * 4
+}
+
+fn rust_trait_delegation(lines: &[&str]) -> bool {
+    lines
+        .iter()
+        .filter(|line| line.contains("(**self)."))
+        .count()
+        >= 3
 }
 
 fn historical_sql(source_path: &str) -> bool {
@@ -1129,12 +1202,20 @@ static CASE_LABEL: LazyLock<Regex> = LazyLock::new(|| {
 static GO_BUILD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*//go:build\s+(!?)([A-Za-z_]\w*)\s*$").expect("Go build regex must compile")
 });
+static PYTHON_FUNCTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[ \t]*(?:async[ \t]+)?def[ \t]+[A-Za-z_]\w*[ \t]*(?:\[[^]]+\])?[ \t]*\(")
+        .expect("Python function declaration regex must compile")
+});
+static PYTHON_ANNOTATION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[ \t]+[A-Za-z_]\w*[ \t]*:[ \t]*[^=\s].*$")
+        .expect("Python annotation declaration regex must compile")
+});
 
 #[cfg(test)]
 mod tests {
     use super::{
         dart_forwarding_constructor_lines, earliest, exact_findings, exact_group_count,
-        repeated_condition_findings,
+        mostly_literal_data, repeated_condition_findings,
     };
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -1178,6 +1259,48 @@ mod tests {
     }
 
     #[test]
+    fn excludes_python_declarations_but_preserves_duplicated_bodies() {
+        let signature = "    first: int,\n    second: str,\n    third: float,\n    fourth: bool,\n";
+        let distinct = BTreeMap::from([
+            (
+                "alpha.py".to_owned(),
+                format!("def alpha(\n{signature}):\n    return first\n"),
+            ),
+            (
+                "beta.py".to_owned(),
+                format!("def beta(\n{signature}):\n    return second\n"),
+            ),
+        ]);
+        assert!(exact_findings(&distinct, 3).is_empty());
+
+        let declarations = "    name: str\n    email: str\n    role: str\n    active: bool\n";
+        let declared_shapes = BTreeMap::from([
+            (
+                "protocol.py".to_owned(),
+                format!("class UserContract(Protocol):\n{declarations}"),
+            ),
+            (
+                "model.py".to_owned(),
+                format!("class User:\n{declarations}"),
+            ),
+        ]);
+        assert!(exact_findings(&declared_shapes, 3).is_empty());
+
+        let body = "    prepared = normalize(first)\n    checked = validate(prepared)\n    saved = persist(checked)\n    return saved\n";
+        let duplicated = BTreeMap::from([
+            (
+                "alpha.py".to_owned(),
+                format!("def alpha(\n{signature}):\n{body}"),
+            ),
+            (
+                "beta.py".to_owned(),
+                format!("def beta(\n{signature}):\n{body}"),
+            ),
+        ]);
+        assert_eq!(exact_findings(&duplicated, 3).len(), 1);
+    }
+
+    #[test]
     fn keeps_standalone_scaffold_templates_in_separate_duplicate_domains() {
         let block = "one();\ntwo();\nthree();\nfour();\n";
         let sources = BTreeMap::from([
@@ -1192,6 +1315,51 @@ mod tests {
         ]);
 
         assert_eq!(exact_group_count(&sources, 3), 0);
+    }
+
+    #[test]
+    fn compares_localization_implementations_independently() {
+        let block = "match issue.kind {\n  Missing => message(\"missing\"),\n  Invalid => message(\"invalid\"),\n}\n";
+        let sources = BTreeMap::from([
+            ("src/locales/en.rs".to_owned(), block.to_owned()),
+            ("src/locales/sv.rs".to_owned(), block.to_owned()),
+        ]);
+
+        assert_eq!(exact_group_count(&sources, 3), 0);
+        let ordinary = BTreeMap::from([
+            ("src/en.rs".to_owned(), block.to_owned()),
+            ("src/sv.rs".to_owned(), block.to_owned()),
+        ]);
+        assert_eq!(exact_group_count(&ordinary, 3), 1);
+    }
+
+    #[test]
+    fn ignores_rust_trait_delegation_boilerplate() {
+        let forwarded = "fn matched(&mut self, value: usize) {\n    (**self).matched(value)\n}\nfn context(&mut self, value: usize) {\n    (**self).context(value)\n}\nfn finish(&mut self) {\n    (**self).finish()\n}\n";
+        let sources = BTreeMap::from([
+            (
+                "borrowed.rs".to_owned(),
+                format!("impl<T: Sink> Sink for &mut T {{\n{forwarded}}}\n"),
+            ),
+            (
+                "boxed.rs".to_owned(),
+                format!("impl<T: Sink> Sink for Box<T> {{\n{forwarded}}}\n"),
+            ),
+        ]);
+
+        assert!(exact_findings(&sources, 3).is_empty());
+    }
+
+    #[test]
+    fn ignores_repeated_non_alphanumeric_art_data() {
+        let block = "@\n@\n@\n@\n@\n@\n@\n@\n@\n@\n";
+        let sources = BTreeMap::from([
+            ("first-banner.sh".to_owned(), block.to_owned()),
+            ("second-banner.sh".to_owned(), block.to_owned()),
+        ]);
+
+        assert!(mostly_literal_data(&["@"; 10]));
+        assert!(exact_findings(&sources, 10).is_empty());
     }
 
     #[test]

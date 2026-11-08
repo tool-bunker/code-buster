@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A function exceeds configured complexity thresholds.",
   "suggestion": "Split or simplify the function, or document a local suppression when one cohesive parser or traversal must retain shared state.",
-  "version": 9,
+  "version": 11,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,8 @@
   "limitations": [
     "JavaScript and TypeScript extraction covers named declarations, methods, and block-bodied variable arrow functions.",
     "Anonymous callbacks and expression-bodied arrow functions are not measured.",
-    "Cyclomatic complexity counts each logical operator, while cognitive complexity counts a consecutive chain of the same logical operator once."
+    "Cyclomatic complexity counts each logical operator, while cognitive complexity counts a consecutive chain of the same logical operator once.",
+    "Complex localization implementations are grouped into one repository finding with related locations.",
+    "Python comments and single-line or triple-quoted string contents are excluded from complexity signals."
   ]
 }

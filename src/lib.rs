@@ -59,6 +59,7 @@ use languages::{
     nim::rules as nim_rules,
     python::rules as python_rules,
     rust::rules as rust_rules,
+    shell::rules as shell_rules,
     sql::rules as sql_rules,
     typescript::rules as typescript_rules,
     wren::rules as wren_rules,

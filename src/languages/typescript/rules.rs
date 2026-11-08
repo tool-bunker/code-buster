@@ -1,25 +1,101 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
+use serde_json::Value;
 
 use crate::findings::{Finding, Severity};
 use crate::languages::functions::mask_javascript_strings_and_comments;
 use crate::languages::strip_quoted_literals as strip_literals;
+use crate::repository_policy_rules::strip_jsonc_comments;
 use crate::rule_catalog;
 use crate::source_analysis_context::SourceAnalysisContext;
 
 pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
+    let script_entrypoints = package_script_entrypoints(context);
+    let biome_policies = biome_policies(context);
     let mut findings = Vec::new();
     for (path, source) in context
         .sources()
         .iter()
         .filter(|(path, _)| is_javascript(path))
     {
+        let style_policy = style_policy_for_path(path, &biome_policies);
+        let command_line = script_entrypoints.contains(path);
         findings.extend(node_fs_constant_imports(path, source));
-        findings.extend(source_findings(path, source));
+        findings.extend(source_findings(path, source, style_policy, command_line));
     }
-    findings
+    coalesce_repeated_findings(findings)
+}
+
+fn coalesce_repeated_findings(findings: Vec<Finding>) -> Vec<Finding> {
+    let mut result: Vec<Finding> = Vec::with_capacity(findings.len());
+    let mut groups = BTreeMap::<(String, String), usize>::new();
+    for finding in findings {
+        let Some(group) = repeated_finding_group(&finding) else {
+            result.push(finding);
+            continue;
+        };
+        let key = (finding.code.clone(), group);
+        if let Some(index) = groups.get(&key).copied() {
+            result[index]
+                .related_files
+                .push(format!("{}:{}", finding.path, finding.line));
+            continue;
+        }
+        groups.insert(key, result.len());
+        result.push(finding);
+    }
+    for finding in result
+        .iter_mut()
+        .filter(|finding| !finding.related_files.is_empty())
+    {
+        let count = finding.related_files.len() + 1;
+        finding.message = match finding.code.as_str() {
+            "js-string-concat-in-loop" => {
+                format!("{count} immutable string concatenations occur inside loops")
+            }
+            "ts-any" => format!("{count} explicit any types used"),
+            "ts-console" => format!("{count} console calls left in code"),
+            "ts-non-null-assertion" => format!("{count} non-null assertions used"),
+            "ts-await-in-loop" => format!("{count} awaits occur inside loops"),
+            _ => continue,
+        };
+    }
+    result
+}
+
+fn repeated_finding_group(finding: &Finding) -> Option<String> {
+    match finding.code.as_str() {
+        "ts-console" => Some(console_group_key(&finding.path).to_owned()),
+        "js-string-concat-in-loop" | "ts-any" | "ts-await-in-loop" | "ts-non-null-assertion" => {
+            Some(finding.path.clone())
+        }
+        _ => None,
+    }
+}
+
+fn console_group_key(path: &str) -> &str {
+    path.rsplit_once('.')
+        .filter(|(_, extension)| {
+            matches!(
+                *extension,
+                "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts"
+            )
+        })
+        .map_or(path, |(stem, _)| stem)
+}
+
+#[derive(Clone, Copy, Default)]
+struct TypeScriptStylePolicy {
+    suppress_explicit_any: bool,
+    suppress_non_null_assertion: bool,
+}
+
+struct BiomePolicy {
+    directory: String,
+    explicit_any_off: Option<bool>,
+    non_null_assertion_off: Option<bool>,
 }
 
 struct SourceLine<'a> {
@@ -37,6 +113,7 @@ struct SourceLine<'a> {
     inside_loop: bool,
     tooling: bool,
     command_line: bool,
+    console_suppressed: bool,
     typescript: bool,
     inside_async: bool,
 }
@@ -128,9 +205,14 @@ impl SourceLine<'_> {
     }
 }
 
-fn source_findings(path: &str, source: &str) -> Vec<Finding> {
+fn source_findings(
+    path: &str,
+    source: &str,
+    style_policy: TypeScriptStylePolicy,
+    package_script_entrypoint: bool,
+) -> Vec<Finding> {
     let tooling = is_tooling_source(path);
-    let command_line = is_node_command_line(source);
+    let command_line = package_script_entrypoint || is_node_command_line(source);
     let typescript = is_typescript(path);
     let raw_lines = source.split('\n').collect::<Vec<_>>();
     let uncommented_source = without_comments(source);
@@ -141,6 +223,7 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
     let sink_lines = sink_source.split('\n').collect::<Vec<_>>();
     let syntax_source = mask_javascript_strings_and_comments(source);
     let syntax_lines = syntax_source.split('\n').collect::<Vec<_>>();
+    let console_suppressions = eslint_no_console_suppressions(source, &raw_lines);
     let (inside_loop, inside_async) = scopes_by_line(&code_lines);
     let performance = PerformanceFacts::from_source(&uncommented_source, &inside_loop);
     let mut findings = Vec::new();
@@ -183,9 +266,10 @@ fn source_findings(path: &str, source: &str) -> Vec<Finding> {
             inside_async: inside_async[index],
             tooling,
             command_line,
+            console_suppressed: console_suppressions[index],
             typescript,
         };
-        analyze_style(&line, &mut findings);
+        analyze_style(&line, style_policy, &mut findings);
         analyze_execution_sinks(&line, &mut findings);
         analyze_async_usage(&line, &mut findings);
         analyze_hardcoded_secret(&line, &mut findings);
@@ -852,11 +936,18 @@ fn line_number(source: &str, offset: usize) -> usize {
         + 1
 }
 
-fn analyze_style(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
-    if line.typescript && uses_explicit_any(line.syntax_line) {
+fn analyze_style(
+    line: &SourceLine<'_>,
+    policy: TypeScriptStylePolicy,
+    findings: &mut Vec<Finding>,
+) {
+    if line.typescript && !policy.suppress_explicit_any && uses_explicit_any(line.syntax_line) {
         line.add(findings, "ts-any", "explicit any type used");
     }
-    if line.typescript && uses_non_null_assertion(line.syntax_line) {
+    if line.typescript
+        && !policy.suppress_non_null_assertion
+        && uses_non_null_assertion(line.syntax_line)
+    {
         line.add(findings, "ts-non-null-assertion", "non-null assertion used");
     }
     if leaves_console_logging(line) {
@@ -878,7 +969,47 @@ fn uses_non_null_assertion(line: &str) -> bool {
 fn leaves_console_logging(line: &SourceLine<'_>) -> bool {
     !line.tooling
         && !line.command_line
+        && !line.console_suppressed
         && (line.line.contains("console.log(") || line.line.contains("console.debug("))
+}
+
+fn eslint_no_console_suppressions(source: &str, lines: &[&str]) -> Vec<bool> {
+    let mut suppressed = vec![ESLINT_NO_CONSOLE_OFF.is_match(source); lines.len()];
+    if suppressed.first().copied().unwrap_or(false) {
+        return suppressed;
+    }
+    let mut disabled = false;
+    for (index, line) in lines.iter().enumerate() {
+        apply_eslint_console_directive(line, index, &mut suppressed, &mut disabled);
+    }
+    suppressed
+}
+
+fn apply_eslint_console_directive(
+    line: &str,
+    index: usize,
+    suppressed: &mut [bool],
+    disabled: &mut bool,
+) {
+    let no_console = line.contains("no-console");
+    if no_console && line.contains("eslint-enable") {
+        *disabled = false;
+        return;
+    }
+    suppressed[index] |= *disabled;
+    if !no_console {
+        return;
+    }
+    if line.contains("eslint-disable-next-line") {
+        if let Some(next) = suppressed.get_mut(index + 1) {
+            *next = true;
+        }
+    } else if line.contains("eslint-disable-line") {
+        suppressed[index] = true;
+    } else if line.contains("eslint-disable") {
+        *disabled = true;
+        suppressed[index] = true;
+    }
 }
 
 fn analyze_execution_sinks(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
@@ -935,9 +1066,17 @@ fn analyze_async_usage(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
             "promise-returning call is not awaited or returned",
         );
     }
-    if line.line.starts_with("await ") && line.inside_loop {
+    if is_reportable_loop_await(line) {
         line.add(findings, "ts-await-in-loop", "await inside loop");
     }
+}
+
+fn is_reportable_loop_await(line: &SourceLine<'_>) -> bool {
+    line.line.starts_with("await ") && line.inside_loop && !is_intentional_loop_wait(line.line)
+}
+
+fn is_intentional_loop_wait(line: &str) -> bool {
+    line.contains("setTimeout(") || INTENTIONAL_WAIT_CALL.is_match(line)
 }
 
 fn analyze_hardcoded_secret(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
@@ -974,7 +1113,7 @@ fn analyze_json_parsing(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
         && line.line.contains("JSON.parse(")
         && !EMBEDDED_JSON_PARSE.is_match(line.line)
         && !JSON_ROUND_TRIP.is_match(line.line)
-        && !is_parse_of_immediately_stringified_value(line.code_lines, line.index)
+        && !is_parse_of_stringified_variable(line.code_lines, line.index)
         && !is_inside_handled_try(line.code_lines, line.index)
         && !SAFE_JSON_NAME.is_match(line.line)
     {
@@ -1147,6 +1286,130 @@ fn finding(
         related_files: Vec::new(),
         snippet: String::new(),
         code_flow: Vec::new(),
+    }
+}
+fn package_script_entrypoints(context: &SourceAnalysisContext<'_>) -> BTreeSet<String> {
+    let mut entrypoints = BTreeSet::new();
+    for (manifest_path, source) in context.auxiliary_files() {
+        add_package_script_entrypoints(&mut entrypoints, manifest_path, source);
+    }
+    entrypoints
+}
+
+fn add_package_script_entrypoints(
+    entrypoints: &mut BTreeSet<String>,
+    manifest_path: &str,
+    source: &str,
+) {
+    if manifest_path.starts_with("@base/")
+        || manifest_path.rsplit('/').next() != Some("package.json")
+    {
+        return;
+    }
+    let Ok(document) = serde_json::from_str::<Value>(source) else {
+        return;
+    };
+    let Some(scripts) = document.get("scripts").and_then(Value::as_object) else {
+        return;
+    };
+    let directory = manifest_path
+        .rsplit_once('/')
+        .map_or("", |(directory, _)| directory);
+    for command in scripts.values().filter_map(Value::as_str) {
+        entrypoints.extend(
+            command
+                .split_whitespace()
+                .filter_map(|token| script_entrypoint(token, directory)),
+        );
+    }
+}
+
+fn script_entrypoint(token: &str, directory: &str) -> Option<String> {
+    let trimmed = token.trim_matches(|character: char| {
+        matches!(
+            character,
+            '\'' | '"' | '`' | '(' | ')' | ',' | ';' | '&' | '|'
+        )
+    });
+    let candidate = trimmed.strip_prefix("./").unwrap_or(trimmed);
+    if candidate.starts_with('-') {
+        return None;
+    }
+    if candidate
+        .chars()
+        .any(|character| matches!(character, '*' | '{' | '}' | '='))
+    {
+        return None;
+    }
+    if candidate.split('/').any(|segment| segment == "..") {
+        return None;
+    }
+    if !is_javascript(candidate) {
+        return None;
+    }
+    Some(if directory.is_empty() {
+        candidate.to_owned()
+    } else {
+        format!("{directory}/{candidate}")
+    })
+}
+fn biome_policies(context: &SourceAnalysisContext<'_>) -> Vec<BiomePolicy> {
+    let mut policies = context
+        .auxiliary_files()
+        .iter()
+        .filter(|(path, _)| {
+            !path.starts_with("@base/")
+                && matches!(path.rsplit('/').next(), Some("biome.json" | "biome.jsonc"))
+        })
+        .filter_map(|(path, source)| {
+            let document = serde_json::from_str::<Value>(&strip_jsonc_comments(source)).ok()?;
+            Some(BiomePolicy {
+                directory: path
+                    .rsplit_once('/')
+                    .map_or_else(String::new, |(directory, _)| directory.to_owned()),
+                explicit_any_off: biome_rule_off(&document, "suspicious", "noExplicitAny"),
+                non_null_assertion_off: biome_rule_off(&document, "style", "noNonNullAssertion"),
+            })
+        })
+        .collect::<Vec<_>>();
+    policies.sort_unstable_by_key(|policy| std::cmp::Reverse(policy.directory.len()));
+    policies
+}
+
+fn biome_rule_off(document: &Value, group: &str, rule: &str) -> Option<bool> {
+    let value = document
+        .get("linter")?
+        .get("rules")?
+        .get(group)?
+        .get(rule)?;
+    if let Some(level) = value.as_str() {
+        return Some(level.eq_ignore_ascii_case("off"));
+    }
+    if let Some(enabled) = value.as_bool() {
+        return Some(!enabled);
+    }
+    value
+        .get("level")
+        .and_then(Value::as_str)
+        .map(|level| level.eq_ignore_ascii_case("off"))
+}
+
+fn style_policy_for_path(path: &str, policies: &[BiomePolicy]) -> TypeScriptStylePolicy {
+    let matching = || {
+        policies.iter().filter(|policy| {
+            policy.directory.is_empty()
+                || path
+                    .strip_prefix(&policy.directory)
+                    .is_some_and(|tail| tail.starts_with('/') && tail.len() > 1)
+        })
+    };
+    TypeScriptStylePolicy {
+        suppress_explicit_any: matching()
+            .find_map(|policy| policy.explicit_any_off)
+            .unwrap_or(false),
+        suppress_non_null_assertion: matching()
+            .find_map(|policy| policy.non_null_assertion_off)
+            .unwrap_or(false),
     }
 }
 
@@ -1503,7 +1766,7 @@ fn matching_delimiter(source: &str, open: usize, opening: u8, closing: u8) -> Op
     None
 }
 
-fn is_parse_of_immediately_stringified_value(lines: &[&str], index: usize) -> bool {
+fn is_parse_of_stringified_variable(lines: &[&str], index: usize) -> bool {
     let Some(line) = lines.get(index) else {
         return false;
     };
@@ -1517,16 +1780,21 @@ fn is_parse_of_immediately_stringified_value(lines: &[&str], index: usize) -> bo
         return false;
     };
     let Ok(pattern) = Regex::new(&format!(
-        r"(?:^|[;{{])\s*{target}\s*=\s*JSON\.stringify\s*\("
+        r"(?:^|[;{{}}])\s*(?:(?:const|let|var)\s+)?{target}\s*=\s*"
     )) else {
         return false;
     };
-    lines[..index]
-        .iter()
-        .rev()
-        .map(|line| line.trim())
-        .find(|line| !line.is_empty())
-        .is_some_and(|line| pattern.is_match(line))
+    for line in lines[..index].iter().rev() {
+        let line = line.trim();
+        if let Some(assignment) = pattern.find(line) {
+            let value = line[assignment.end()..].trim_start();
+            return value.starts_with("JSON.stringify(");
+        }
+        if line.contains("function ") || line.contains("=>") {
+            break;
+        }
+    }
+    false
 }
 
 fn has_string_timer_execution(lines: &[&str], code_line: &str, index: usize) -> bool {
@@ -1757,7 +2025,21 @@ fn has_unsafe_inner_html_sink(raw_lines: &[&str], code_lines: &[&str], index: us
         return false;
     };
     let right_hand_side = inner_html_right_hand_side(raw_lines, index, assignment.end());
+    let imported_bindings = imported_asset_bindings_before(raw_lines, index);
     !is_static_inner_html_expression(&right_hand_side)
+        && !is_static_template_from_bindings(&right_hand_side, &imported_bindings)
+}
+
+fn imported_asset_bindings_before(lines: &[&str], index: usize) -> BTreeSet<String> {
+    lines[..index]
+        .iter()
+        .filter_map(|line| {
+            STATIC_ASSET_IMPORT_BINDING
+                .captures(line)
+                .and_then(|capture| capture.get(1))
+                .map(|binding| binding.as_str().to_owned())
+        })
+        .collect()
 }
 
 struct InnerHtmlExpression {
@@ -2407,6 +2689,10 @@ static SYNC_FUNCTION_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*function(?:\s*\*)?\s+[A-Za-z_$][\w$]*\s*\(").unwrap());
 static NON_NULL_ASSERTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[A-Za-z0-9_$)\]}]!\s*(?:\.|\)|;|,|\])").unwrap());
+static ESLINT_NO_CONSOLE_OFF: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\beslint\s+no-console\s*:\s*(?:"off"|'off'|off|0)"#)
+        .expect("ESLint no-console policy regex must compile")
+});
 static DIRECT_EVAL_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:^|[^\w$?.])eval\s*\(").unwrap());
 static GLOBAL_EVAL_CALL: LazyLock<Regex> =
@@ -2423,6 +2709,10 @@ static STARTS_PROMISE_CALL: LazyLock<Regex> =
 static FUNCTION_BIND_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.bind\s*\(").unwrap());
 static HANDLED_PROMISE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:await|return|void)\b|\.(?:then|catch|subscribe)\s*\(").unwrap()
+});
+static INTENTIONAL_WAIT_CALL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^await\s+(?:[A-Za-z_$][\w$]*\s*\.\s*)*(?:_?wait|backoff|delay|pause|sleep)\s*\(")
+        .unwrap()
 });
 static TIMER_CALL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:(?:window|globalThis)\s*\.\s*)?(?:setTimeout|setInterval)\s*\(").unwrap()
@@ -2451,6 +2741,12 @@ static STATIC_PRIMITIVE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static STATIC_STRING_TERNARY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^[A-Za-z_$][\w$.\[\]]*\s*\?\s*(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$]|\$(?:[^\{]|$))*`)\s*:\s*(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$]|\$(?:[^\{]|$))*`)$"#).unwrap()
+});
+static STATIC_ASSET_IMPORT_BINDING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+["'][^"']+\.(?:avif|gif|ico|jpe?g|png|svg|webp)(?:\?[^"']*)?["']"#,
+    )
+    .expect("static asset import binding regex must compile")
 });
 static TRUSTED_HTML: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:create_trusted_html|createTrustedHTML|[A-Za-z_$][\w$.\[\]]*\.createHTML)\s*\(([\s\S]*)\)$").unwrap()
@@ -2547,7 +2843,7 @@ static AS_ALIAS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+as\s+").unwr
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze, is_parse_of_immediately_stringified_value, is_static_string_literal,
+        analyze, is_parse_of_stringified_variable, is_static_string_literal,
         without_string_literal_text,
     };
     use crate::source_analysis_context::SourceAnalysisContext;
@@ -2666,6 +2962,101 @@ try { JSON.parse(payload); } catch (error) { recover(error); }\n"
     }
 
     #[test]
+    fn accepts_parse_of_a_locally_stringified_variable_after_intervening_statements() {
+        let sources = BTreeMap::from([(
+            "src/clone.ts".to_owned(),
+            "const serialized = JSON.stringify(value);\n\
+if (serialized.length > 0) {\n\
+  JSON.parse(serialized);\n\
+}\n\
+let reassigned = JSON.stringify(value);\n\
+reassigned = payload;\n\
+JSON.parse(reassigned);\n\
+const outer = JSON.stringify(value);\n\
+function decode(outer: string) {\n\
+  return JSON.parse(outer);\n\
+}\n"
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| finding.code == "ts-json-parse-unsafe")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![7, 10]);
+    }
+
+    #[test]
+    fn accepts_intentional_waits_inside_loops() {
+        let sources = BTreeMap::from([(
+            "src/retry.ts".to_owned(),
+            "for (const attempt of attempts) {\n\
+  await sleep(100);\n\
+  await this._wait(delay);\n\
+  await new Promise((resolve) => setTimeout(resolve, delay));\n\
+  await options.backoff(attempt);\n\
+  await process(attempt);\n\
+}\n"
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| finding.code == "ts-await-in-loop")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![6]);
+    }
+
+    #[test]
+    fn groups_repeated_style_and_loop_evidence_by_file() {
+        let sources = BTreeMap::from([
+            (
+                "src/model.ts".to_owned(),
+                "let first: any;\nlet second: any;\nfirst!.save();\nsecond!.save();\n".to_owned(),
+            ),
+            (
+                "src/format.ts".to_owned(),
+                "let output = '';\nfor (const value of values) {\n\
+  output += value;\n\
+  output += ',';\n\
+}\n"
+                .to_owned(),
+            ),
+            (
+                "src/process.ts".to_owned(),
+                "for (const value of values) {\n  await persist(value);\n  await notify(value);\n}\n"
+                    .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context);
+
+        let grouped = |code| {
+            findings
+                .iter()
+                .find(|finding| finding.code == code)
+                .expect("grouped finding must remain visible")
+        };
+        assert_eq!(grouped("ts-any").message, "2 explicit any types used");
+        assert_eq!(grouped("ts-any").related_files.len(), 1);
+        assert_eq!(
+            grouped("ts-non-null-assertion").message,
+            "2 non-null assertions used"
+        );
+        assert_eq!(
+            grouped("js-string-concat-in-loop").message,
+            "2 immutable string concatenations occur inside loops"
+        );
+        assert_eq!(
+            grouped("ts-await-in-loop").message,
+            "2 awaits occur inside loops"
+        );
+    }
+    #[test]
     fn limits_typescript_syntax_rules_and_ignores_regex_literals() {
         let sources = BTreeMap::from([
             (
@@ -2705,6 +3096,142 @@ const definite = value!.name;\n"
     }
 
     #[test]
+    fn honors_nearest_biome_style_rule_policy() {
+        let sources = BTreeMap::from([
+            (
+                "src/permissive.ts".to_owned(),
+                "const value: any = load();\nconst definite = value!.name;\nconsole.log(value);\n"
+                    .to_owned(),
+            ),
+            (
+                "packages/strict/src/strict.ts".to_owned(),
+                "const value: any = load();\nconst definite = value!.name;\n".to_owned(),
+            ),
+        ]);
+        let auxiliary = BTreeMap::from([
+            (
+                "biome.jsonc".to_owned(),
+                r#"{
+                  // The project intentionally permits these TypeScript constructs.
+                  "linter": {
+                    "rules": {
+                      "suspicious": { "noExplicitAny": "off" },
+                      "style": { "noNonNullAssertion": { "level": "off" } }
+                    }
+                  }
+                }"#
+                .to_owned(),
+            ),
+            (
+                "packages/strict/biome.json".to_owned(),
+                r#"{
+                  "linter": {
+                    "rules": {
+                      "suspicious": { "noExplicitAny": "error" },
+                      "style": { "noNonNullAssertion": true }
+                    }
+                  }
+                }"#
+                .to_owned(),
+            ),
+        ]);
+        let base = BTreeMap::new();
+        let changed = BTreeSet::new();
+        let context =
+            SourceAnalysisContext::with_auxiliary(&sources, &base, &changed, false, &auxiliary);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| matches!(
+                    finding.code.as_str(),
+                    "ts-any" | "ts-non-null-assertion" | "ts-console"
+                ))
+                .map(|finding| (finding.code, finding.path))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "ts-any".to_owned(),
+                    "packages/strict/src/strict.ts".to_owned()
+                ),
+                (
+                    "ts-non-null-assertion".to_owned(),
+                    "packages/strict/src/strict.ts".to_owned()
+                ),
+                ("ts-console".to_owned(), "src/permissive.ts".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_biome_policy_fails_closed() {
+        let sources = BTreeMap::from([(
+            "src/rules.ts".to_owned(),
+            "const value: any = load();\nconst definite = value!.name;\n".to_owned(),
+        )]);
+        let auxiliary = BTreeMap::from([(
+            "biome.jsonc".to_owned(),
+            "{\"linter\":{\"rules\":".to_owned(),
+        )]);
+        let base = BTreeMap::new();
+        let changed = BTreeSet::new();
+        let context =
+            SourceAnalysisContext::with_auxiliary(&sources, &base, &changed, false, &auxiliary);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| matches!(
+                    finding.code.as_str(),
+                    "ts-any" | "ts-non-null-assertion"
+                ))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn treats_package_script_entrypoints_as_command_line_programs() {
+        let sources = BTreeMap::from([
+            (
+                "runner.ts".to_owned(),
+                "console.log('root command output');".to_owned(),
+            ),
+            (
+                "packages/tool/run.mts".to_owned(),
+                "console.log('package command output');".to_owned(),
+            ),
+            (
+                "src/server.ts".to_owned(),
+                "console.log('accidental server output');".to_owned(),
+            ),
+        ]);
+        let auxiliary = BTreeMap::from([
+            (
+                "package.json".to_owned(),
+                r#"{"scripts":{"run":"node runner.ts"}}"#.to_owned(),
+            ),
+            (
+                "packages/tool/package.json".to_owned(),
+                r#"{"scripts":{"run":"tool ./run.mts"}}"#.to_owned(),
+            ),
+        ]);
+        let base = BTreeMap::new();
+        let changed = BTreeSet::new();
+        let context =
+            SourceAnalysisContext::with_auxiliary(&sources, &base, &changed, false, &auxiliary);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-console")
+                .map(|finding| finding.path)
+                .collect::<Vec<_>>(),
+            ["src/server.ts"]
+        );
+    }
+
+    #[test]
     fn string_masking_preserves_nested_template_expressions() {
         let source = "const hidden = \"eval(secret)\";\n\
 const nested = `ignored ${eval(input) + `inner ${danger}`} tail`;\n";
@@ -2737,6 +3264,29 @@ enabled ? render(user) : '<i>no</i>';\n"
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
             [3]
+        );
+    }
+
+    #[test]
+    fn accepts_static_html_templates_interpolating_imported_bindings() {
+        let sources = BTreeMap::from([(
+            "src/render.ts".to_owned(),
+            "import logo from './logo.svg'\n\
+import icon from './icon.svg'\n\
+import userInput from './runtime.js'\n\
+safe.innerHTML = `<img src=\"${logo}\"><img src=\"${icon}\">`;\n\
+unsafe.innerHTML = `<p>${userInput}</p>`;\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-inner-html")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [5]
         );
     }
 
@@ -3188,6 +3738,81 @@ function once(queue: string[]) {
     }
 
     #[test]
+    fn groups_console_calls_within_peer_module_variants() {
+        let sources = BTreeMap::from([
+            (
+                "src/index.ts".to_owned(),
+                "console.log('one');\nconsole.log('two');".to_owned(),
+            ),
+            (
+                "src/index.mts".to_owned(),
+                "console.log('three');".to_owned(),
+            ),
+            (
+                "src/service.ts".to_owned(),
+                "console.log('separate');".to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context)
+            .into_iter()
+            .filter(|finding| finding.code == "ts-console")
+            .collect::<Vec<_>>();
+
+        assert_eq!(findings.len(), 2);
+        let grouped = findings
+            .iter()
+            .find(|finding| finding.path.starts_with("src/index."))
+            .expect("peer module console calls must stay visible");
+        assert_eq!(grouped.related_files.len(), 2);
+        assert_eq!(grouped.message, "3 console calls left in code");
+    }
+
+    #[test]
+    fn honors_reviewed_eslint_console_suppressions() {
+        let sources = BTreeMap::from([
+            (
+                "src/debug.js".to_owned(),
+                "/* eslint-disable no-console -- diagnostic section */\n\
+console.log('reviewed');\n\
+/* eslint-enable no-console */\n\
+console.log('unexpected');\n"
+                    .to_owned(),
+            ),
+            (
+                "src/logging.js".to_owned(),
+                "/* eslint no-console: \"off\" -- logging adapter */\nconsole.log(value);\n"
+                    .to_owned(),
+            ),
+            (
+                "src/timing.js".to_owned(),
+                "console.log(table); // eslint-disable-line no-console -- diagnostic output\n"
+                    .to_owned(),
+            ),
+            (
+                "src/service.js".to_owned(),
+                "// eslint-disable-next-line no-console -- reviewed startup output\n\
+console.log('started');\n\
+console.log('unexpected');\n"
+                    .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-console")
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("src/debug.js".to_owned(), 4),
+                ("src/service.js".to_owned(), 3),
+            ]
+        );
+    }
+
+    #[test]
     fn malformed_source_and_capture_candidates_fail_closed() {
         let sources = BTreeMap::from([(
             "src/malformed.ts".to_owned(),
@@ -3205,8 +3830,8 @@ JSON.parse();\n"
                 "js-node-fs-constant-import" | "ts-hardcoded-secret" | "ts-json-parse-unsafe"
             )
         }));
-        assert!(!is_parse_of_immediately_stringified_value(&[], 0));
-        assert!(!is_parse_of_immediately_stringified_value(
+        assert!(!is_parse_of_stringified_variable(&[], 0));
+        assert!(!is_parse_of_stringified_variable(
             &["JSON.parse(payload)"],
             1
         ));

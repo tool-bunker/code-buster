@@ -174,8 +174,9 @@ fn indentation(line: &str) -> usize {
 }
 
 fn contains_untrusted_expression(value: &str, safe_inputs: &BTreeSet<String>) -> bool {
-    UNTRUSTED_EVENT_EXPRESSION.is_match(value)
-        || INPUT_EXPRESSION.captures_iter(value).any(|capture| {
+    let value = SAFE_NUMERIC_EVENT_EXPRESSION.replace_all(value, "");
+    UNTRUSTED_EVENT_EXPRESSION.is_match(&value)
+        || INPUT_EXPRESSION.captures_iter(&value).any(|capture| {
             capture
                 .get(1)
                 .or_else(|| capture.get(2))
@@ -405,6 +406,10 @@ static UNTRUSTED_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$\{\{\s*(?:github\.event(?:\.|\[)|github\.head_ref\b)")
         .expect("GitHub Actions event expression regex must compile")
 });
+static SAFE_NUMERIC_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\$\{\{\s*github\.event\.pull_request\.number\s*\}\}")
+        .expect("safe numeric GitHub event expression regex must compile")
+});
 static INPUT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\$\{\{\s*inputs(?:\.([A-Za-z_][A-Za-z0-9_-]*)|\[\s*['"]([^'"]+)['"]\s*\])"#)
         .expect("GitHub Actions input expression regex must compile")
@@ -442,6 +447,27 @@ jobs:
         );
     }
 
+    #[test]
+    fn accepts_guaranteed_numeric_pull_request_numbers() {
+        let findings = analyze_auxiliary([(
+            ".github/workflows/cleanup.yml",
+            r#"jobs:
+  cleanup:
+    steps:
+      - run: gh pr edit "${{ github.event.pull_request.number }}"
+      - run: echo "${{ github.event.pull_request.title }}"
+"#,
+        )]);
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == TEMPLATE_INJECTION)
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [5]
+        );
+    }
     #[test]
     fn accepts_environment_indirection_and_trusted_expressions() {
         let findings = analyze_auxiliary([(

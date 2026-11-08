@@ -20,7 +20,7 @@ pub(super) fn locally_proven_invariant(source: &str, masked: &str, call_offset: 
     cursor_guarded(masked, &access)
         || containment_position_guarded(source, masked, &access)
         || split_iterator_next(masked, &access)
-        || first_len_guarded(masked, &access)
+        || option_access_short_circuit_guarded(source, masked, &access)
         || access_guarded(source, masked, &access)
 }
 
@@ -312,11 +312,13 @@ fn split_iterator_next(masked: &str, access: &Call<'_>) -> bool {
             .is_some_and(|iterator| matches!(iterator.method, "split" | "rsplit"))
 }
 
-fn first_len_guarded(masked: &str, access: &Call<'_>) -> bool {
-    access.method == "first"
+fn option_access_short_circuit_guarded(source: &str, masked: &str, access: &Call<'_>) -> bool {
+    matches!(access.method, "first" | "last")
         && access.argument(masked).trim().is_empty()
-        && simple_receiver(masked, access.dot)
-            .is_some_and(|receiver| len_short_circuit_guarded(masked, receiver))
+        && simple_receiver(masked, access.dot).is_some_and(|receiver| {
+            len_short_circuit_guarded(masked, receiver)
+                || non_empty_short_circuit_guarded(source, masked, receiver)
+        })
 }
 
 fn access_guarded(source: &str, masked: &str, access: &Call<'_>) -> bool {
@@ -417,10 +419,57 @@ fn option_guarded(source: &str, masked: &str, unwrap_dot: usize) -> bool {
     if contains_receiver(&masked[block_open + 1..receiver.start], receiver.text()) {
         return false;
     }
-    guard_call(source, masked, condition, false, receiver.text(), "is_some").is_some()
+    guard_call_conjunct(source, masked, condition, receiver.text(), "is_some").is_some_and(
+        |guard_end| !contains_receiver(&masked[guard_end..condition.1], receiver.text()),
+    )
+}
+
+fn guard_call_conjunct(
+    source: &str,
+    masked: &str,
+    condition: (usize, usize),
+    receiver: &str,
+    method: &str,
+) -> Option<usize> {
+    let condition = strip_parentheses(masked, condition);
+    let bytes = masked.as_bytes();
+    let mut depth = 0usize;
+    let mut conjunct_start = condition.0;
+    let mut guarded_end = None;
+    let mut index = condition.0;
+    while index < condition.1 {
+        match conjunct_operator(bytes, index, &mut depth) {
+            Some(b'|') => return None,
+            Some(b'&') => {
+                let conjunct = trim_range(masked, conjunct_start, index);
+                if guard_call(source, masked, conjunct, false, receiver, method).is_some() {
+                    guarded_end = Some(index);
+                }
+                conjunct_start = index + 2;
+                index += 2;
+            }
+            _ => index += 1,
+        }
+    }
+    let conjunct = trim_range(masked, conjunct_start, condition.1);
+    if guard_call(source, masked, conjunct, false, receiver, method).is_some() {
+        guarded_end = Some(condition.1);
+    }
+    guarded_end
+}
+
+fn non_empty_short_circuit_guarded(source: &str, masked: &str, receiver: Receiver<'_>) -> bool {
+    short_circuit_guard(masked, receiver).is_some_and(|guard| {
+        guard_call(source, masked, guard, true, receiver.text(), "is_empty").is_some()
+    })
 }
 
 fn len_short_circuit_guarded(masked: &str, receiver: Receiver<'_>) -> bool {
+    short_circuit_guard(masked, receiver)
+        .is_some_and(|guard| exact_len_one_guard(masked, guard, receiver.text()))
+}
+
+fn short_circuit_guard(masked: &str, receiver: Receiver<'_>) -> Option<(usize, usize)> {
     let prefix = &masked[..receiver.start];
     let boundary = prefix.rfind([';', '{', '}']).map_or(0, |index| index + 1);
     let (start, end) = trim_range(masked, boundary, receiver.start);
@@ -430,17 +479,14 @@ fn len_short_circuit_guarded(masked: &str, receiver: Receiver<'_>) -> bool {
             .get(start + 2)
             .is_some_and(is_ident_continue)
     {
-        return false;
+        return None;
     }
     let (guard_start, guard_end) = trim_range(masked, start + 2, end);
-    let Some(and_start) = guard_end.checked_sub(2) else {
-        return false;
-    };
+    let and_start = guard_end.checked_sub(2)?;
     if &masked[and_start..guard_end] != "&&" {
-        return false;
+        return None;
     }
-    let guard = trim_range(masked, guard_start, and_start);
-    exact_len_one_guard(masked, guard, receiver.text())
+    Some(trim_range(masked, guard_start, and_start))
 }
 
 fn exact_len_one_guard(masked: &str, mut guard: (usize, usize), receiver: &str) -> bool {
@@ -906,11 +952,17 @@ mod tests {
     fn proves_option_len_and_cursor_guards() {
         assert!(proven("if value.is_some() { value.unwrap(); }"));
         assert!(proven(
+            "if self.value.is_some() && ready() { self.value.unwrap(); }"
+        ));
+        assert!(proven(
             "if value.is_some() { value.as_ref().expect(\"guarded\"); }"
         ));
         assert!(proven("if value.is_some() { value.as_deref().unwrap(); }"));
         assert!(proven(
             "if items.len() == 1 && items.first().unwrap() == &expected {}"
+        ));
+        assert!(proven(
+            "if !items.is_empty() && items.last().unwrap() == &expected {}"
         ));
         assert!(proven(
             "if cursor < text.len() { text[cursor..].chars().next().unwrap(); }"

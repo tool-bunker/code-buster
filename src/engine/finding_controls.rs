@@ -207,6 +207,8 @@ pub(crate) fn mode_for_code<'a>(code: &str, config: &'a Config, group: &str) -> 
             | "py-subprocess-no-timeout"
             | "py-unbounded-retry-loop"
             | "py-unsafe-archive-extract"
+            | "shell-ignored-command-failure"
+            | "shell-unquoted-expansion"
     ) {
         return "count";
     }
@@ -277,6 +279,25 @@ mod tests {
             .insert("py-subprocess-no-timeout".to_owned(), "report".to_owned());
         assert_eq!(
             mode_for_code("py-subprocess-no-timeout", &config, "reliability"),
+            "report"
+        );
+    }
+
+    #[test]
+    fn keeps_conventional_shell_advice_out_of_actionable_findings_by_default() {
+        let mut config = Config::defaults(std::path::PathBuf::new());
+        for code in ["shell-ignored-command-failure", "shell-unquoted-expansion"] {
+            let group = crate::rule_catalog::descriptor(code)
+                .expect("Shell rule must be registered")
+                .group;
+            assert_eq!(mode_for_code(code, &config, group), "count", "{code}");
+        }
+
+        config
+            .rule_modes
+            .insert("shell-unquoted-expansion".to_owned(), "report".to_owned());
+        assert_eq!(
+            mode_for_code("shell-unquoted-expansion", &config, "correctness"),
             "report"
         );
     }

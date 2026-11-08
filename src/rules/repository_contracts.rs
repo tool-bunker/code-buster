@@ -74,11 +74,20 @@ fn is_intentional_test_dependency(
     target_path: &str,
 ) -> bool {
     let source = prepared.sources.get(source_path).map(String::as_str);
-    is_test_command_entrypoint(source_path)
+    is_tooling_source_path(source_path)
+        || is_test_command_entrypoint(source_path)
         || is_test_command_entrypoint(target_path)
         || feature_gates_test_support(target_path, source)
         || imports_test_support_only_from_test_apis(source_path, target_path, source)
         || explicitly_exports_test_support(source_path, target_path, source)
+}
+fn is_tooling_source_path(source_path: &str) -> bool {
+    Path::new(source_path).components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|segment| matches!(segment, "scripts" | "tools"))
+    })
 }
 
 fn is_test_command_entrypoint(source_path: &str) -> bool {
@@ -598,15 +607,29 @@ fn package_builds_generated_path(manifest: &JsonValue, path: &str) -> bool {
     if !matches!(output, "build" | "dist" | "lib" | "out" | "output") {
         return false;
     }
-    manifest
-        .get("scripts")
-        .and_then(JsonValue::as_object)
-        .is_some_and(|scripts| {
-            ["build", "prepack", "prepare"]
-                .into_iter()
-                .filter_map(|name| scripts.get(name).and_then(JsonValue::as_str))
-                .any(|script| script.contains(output))
+    let Some(scripts) = manifest.get("scripts").and_then(JsonValue::as_object) else {
+        return false;
+    };
+    let build_hook = ["build", "prepack", "prepare"]
+        .into_iter()
+        .filter_map(|name| scripts.get(name).and_then(JsonValue::as_str))
+        .any(|script| script.contains(output));
+    let packaged_output = manifest
+        .get("files")
+        .and_then(JsonValue::as_array)
+        .is_some_and(|files| {
+            files.iter().filter_map(JsonValue::as_str).any(|path| {
+                path.trim_start_matches("./")
+                    .trim_end_matches('/')
+                    .eq(output)
+            })
         })
+        && scripts.keys().any(|name| {
+            name == "build"
+                || name.starts_with("build:")
+                || matches!(name.as_str(), "prepack" | "prepare")
+        });
+    build_hook || packaged_output
 }
 
 fn python_references(manifest: &str, source: &str, references: &mut Vec<ManifestReference>) {
@@ -775,6 +798,23 @@ mod tests {
                     "build": "bundle src/bin/tool.ts --outdir lib/bin",
                     "prepack": "npm run build"
                 }
+            }"#
+            .to_owned(),
+        )]);
+        auxiliary.extend(manifest_existence_markers(root.path(), &auxiliary));
+
+        assert!(missing_manifest_paths(&auxiliary).is_empty());
+    }
+
+    #[test]
+    fn accepts_packaged_generated_output_from_named_build_scripts() {
+        let root = tempdir().expect("temporary repository");
+        let mut auxiliary = BTreeMap::from([(
+            "package.json".to_owned(),
+            r#"{
+                "bin": {"tool": "./dist/bin.mjs"},
+                "files": ["dist"],
+                "scripts": {"build:bundle": "vp pack"}
             }"#
             .to_owned(),
         )]);

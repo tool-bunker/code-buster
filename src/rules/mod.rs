@@ -39,3 +39,11 @@ pub(super) fn standalone_template_scope(path: &str) -> &str {
     }
     ""
 }
+
+pub(crate) fn is_localization_path(path: &str) -> bool {
+    path.split('/').any(|segment| {
+        ["i18n", "l10n", "locale", "locales"]
+            .iter()
+            .any(|candidate| segment.eq_ignore_ascii_case(candidate))
+    })
+}

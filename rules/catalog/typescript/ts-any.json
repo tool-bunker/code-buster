@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "The any type disables static checking for the value and can spread unchecked assumptions through callers.",
   "suggestion": "Use a concrete type or unknown with an explicit narrowing check.",
-  "version": 3,
+  "version": 5,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -28,6 +28,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Detects explicit any annotations, assertions, and generic syntax after masking comments and literals."
+    "Detects explicit any annotations, assertions, and generic syntax after masking comments and literals; repeated occurrences are grouped per file, and an applicable Biome noExplicitAny rule explicitly set to off suppresses the advisory."
   ]
 }

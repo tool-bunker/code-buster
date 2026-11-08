@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "Catching Exception or BaseException can hide programming defects and make unrelated failures look recoverable.",
   "suggestion": "Catch the expected exception types, or explicitly suppress BLE001 when a boundary must contain unknown failures.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,7 @@
   "languageVersions": [],
   "limitations": [
     "Explicit Ruff BLE001 noqa directives, inline Pylint disables, and configured Pylint broad-exception suppressions are honored.",
-    "Handlers whose first executable statement rethrows or translates the exception are treated as explicit exception boundaries."
+    "Handlers that unconditionally rethrow or translate the exception are treated as explicit exception boundaries.",
+    "At most one representative broad-exception finding is reported per file."
   ]
 }

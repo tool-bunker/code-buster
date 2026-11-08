@@ -2,15 +2,28 @@
 
 ## Unreleased
 
+## 0.14.0
+
 ### Added
 
 - Add conservative repository-policy checks for explicitly weakened TypeScript compiler safety, declared type checking omitted from direct CI, expired feature flags, invalid rollout percentages, stale literal CODEOWNERS paths, incompatible private npm workspace dependency or TypeScript compiler majors, and Node.js, Python, Java, or Rust toolchain pins outside root manifest constraints.
 - Add language-aware `cb init` policies for standard source layouts, including a Bevy profile that keeps the Cargo source boundary and relies on manifest detection for Bevy-specific rules; plain `cb init` now includes inactive examples for the main configuration sections, and `cb --help` lists every available profile.
+- Add first-class shell analysis for `.sh`, Bash, Zsh, Ksh, and extensionless POSIX-shell shebangs, with focused checks for downloaded-code execution, dynamic `eval`, dangerous recursive removal, predictable temporary files, secret process arguments, unquoted expansion, and discarded command failures.
 
 ### Fixed
 
+- Reduce Shell corpus noise by preserving multiline quote state, excluding conditional, arithmetic, password-prompt, account-lock, redirection, static single-quoted `eval`, and quoted command-substitution contexts, distinguishing Shell parameter-removal, path, and URL syntax from comments, keeping conventional expansion and best-effort-command advice non-actionable by default, honoring braced EditorConfig path policies, and omitting inapplicable numeric-grouping or visual-data duplication advice.
 - Reduce corpus false positives by accepting intentional test-support entry points, generated package executables, literal JavaScript command-template bindings, symbolic Rust labels, and conventional delegated Rust lint commands.
+- Reduce corpus false positives by excluding `cfg(test)` macro definitions from Rust production findings, honoring inline Python function-naming suppressions, recognizing locally stringified JSON values across intervening statements, accepting explicit delay waits in JavaScript/TypeScript loops, and treating single-word lowercase filenames as valid members of lowercase naming families.
 - Make `cb update` detect and update Homebrew, crates.io Cargo, verified native-installer, and local-source installations instead of only reinstalling the build-time source path.
+- Reduce TypeScript corpus noise by honoring nearest Biome rule opt-outs, recognizing package-script entry points, grouping repeated console calls and localization complexity, comparing localization duplication independently, and excluding internal script types, direct behavior aliases, enum members, comment-corrupted class scopes, and object-projection methods from unrelated advisories.
+- Further reduce TypeScript advisory noise by grouping repeated `any`, non-null assertion, and loop-concatenation evidence per file, accepting explicit backoff waits, matching PascalCase files to their exported declarations, and excluding conventional writable Error metadata from public-state advice.
+- Honor reviewed ESLint `no-console` suppressions, exclude runtime-frozen script instances from writable-state advice, and stop interpreting generic type arguments in TypeScript class declarations as public fields.
+- Improve large TypeScript monorepo precision by recognizing fixture and testkit sources, case-insensitive vendored directories, separating peer naming by file role, grouping loop-await evidence, preserving factory-defined class scope, accepting generated package outputs and tooling fixture imports, matching CSS tokens by semantic property family, and excluding guaranteed numeric pull-request identifiers plus SQLite `WITHOUT ROWID` migrations from unrelated findings.
+- Reduce Rust advisory noise by parsing zero-hash raw strings correctly, preserving test-scope exclusion, recognizing guarded Option and collection access, infallible String formatting, literal parsing, documented panic contracts and impossible-state panics, and excluding trait-forwarding duplication plus multi-line rationale comments.
+- Reduce Vite corpus noise by grouping fixed-pixel font evidence per file, requiring substantive comment volume before density advice, excluding control-flow blocks and regular-expression execution from mixed-boundary inference, recognizing decorator-managed reactive state, and accepting static HTML templates that interpolate imported image assets.
+- Reduce FastAPI corpus noise by excluding Python comments and multiline strings from complexity signals and grouping repeated runtime assertions, unbounded subprocess calls, and eager logging-format evidence per file.
+- Further reduce FastAPI corpus noise by excluding Python function and annotation-only declarations from duplication windows, grouping repeated broad-exception, blank-target, and vendor-prefixed motion evidence, recognizing observe-and-rethrow exception boundaries, and treating Python import cycles as runtime-dependent warnings.
 
 
 ## 0.13.0

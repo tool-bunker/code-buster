@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Publicly writable state lets callers bypass invariants and couples them to representation details.",
   "suggestion": "Make the field private and expose behavior or a deliberately constrained immutable view.",
-  "version": 10,
+  "version": 15,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -26,7 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Types explicitly named Mutable followed by a domain type name and configuration models ending in Config, Configuration, Options, or Settings are treated as intentionally mutable containers.",
-    "At most one representative finding is reported per type. Java fields bound by args4j `@Argument` or `@Option` annotations are excluded. Class, enum, record, and struct declarations must begin a source statement; declaration prose, C# expression-bodied properties, events, and operator declarations, plus Dart operator declarations, are excluded. Java and C# fields are reported only when every enclosing type is public."
+    "Types explicitly named Mutable followed by a domain type name and configuration models ending in Config, Configuration, Options, or Settings are treated as intentionally mutable containers. JavaScript and TypeScript fields decorated with `@property` or `@state` are treated as framework-managed reactive state.",
+    "At most one representative finding is reported per type. Java fields bound by args4j `@Argument` or `@Option` annotations are excluded. Class, enum, record, and struct declarations must begin a source statement; declaration prose, C# expression-bodied properties, events, and operator declarations, plus Dart operator declarations, are excluded. Java and C# fields are reported only when every enclosing type is public. JavaScript and TypeScript modules require directly exported or simple named/CommonJS-exported types. Direct `this` aliases, comma-terminated enum members, reserved expression words, conventional Error contract metadata fields, and instances frozen with `Object.freeze(this)` are excluded. Generic type arguments and factory-call arguments in script class declarations are not treated as class fields. Comment syntax is removed before class-scope tracking."
   ]
 }

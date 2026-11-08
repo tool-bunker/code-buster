@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Step-by-step narration duplicates control flow rather than explaining a constraint or design decision.",
   "suggestion": "Delete the narration or replace it with the non-obvious reason the implementation is necessary.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -26,7 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only explicit first-person sequencing phrases are reported.",
+    "Only explicit first-person sequencing phrases are reported, and contiguous comment blocks that explain a condition or trade-off are excluded.",
     "Documentation comments and test sources are excluded."
   ]
 }

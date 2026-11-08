@@ -122,6 +122,11 @@ pub const LANGUAGES: &[Language] = &[
         extensions: &[".sql"],
     },
     Language {
+        id: "shell",
+        aliases: &["sh", "bash", "zsh", "ksh"],
+        extensions: &[".sh", ".bash", ".zsh", ".ksh"],
+    },
+    Language {
         id: "lua",
         aliases: &["luau"],
         extensions: &[".lua", ".luau"],

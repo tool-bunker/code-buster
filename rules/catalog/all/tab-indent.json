@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A line contains a tab character.",
   "suggestion": "Replace indentation tabs with spaces.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,7 +28,7 @@
   "limitations": [
     "At most 50 deterministic file findings are retained per run.",
     "Dart tabs inside string values are not indentation findings.",
-    "EditorConfig section ordering and extension overrides are honored.",
+    "EditorConfig section ordering, braced path alternatives, and extension overrides are honored.",
     "Other languages require formatter or editor evidence that spaces are enforced."
   ]
 }

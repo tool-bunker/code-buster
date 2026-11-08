@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "Movement and scaling effects can trigger vestibular symptoms when a user has requested reduced motion.",
   "suggestion": "Disable or replace spatial animations and transitions inside a prefers-reduced-motion media query.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,7 @@
   "languageVersions": [],
   "limitations": [
     "A reduced-motion media query anywhere in the file is treated as the file-level guard.",
-    "Cosmetic color, shadow, and opacity transitions are not reported."
+    "Cosmetic color, shadow, and opacity transitions are not reported.",
+    "Vendor-prefixed and standard motion declarations in one CSS block produce one finding."
   ]
 }
