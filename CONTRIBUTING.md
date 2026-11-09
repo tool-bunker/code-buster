@@ -221,6 +221,11 @@ version, lockfile, pinned integration install command, and changelog heading tog
 ./tool/prepare-release.sh 0.10.0
 ```
 
+Before pushing, repeat verification with the toolchain pinned in
+`.github/workflows/release.yml`, currently Rust 1.88.0. Use `cargo +1.88.0`
+for the Clippy, test, build, and package commands above; a clean run on a newer
+local toolchain does not guarantee that the release toolchain accepts the code.
+
 The script requires Python 3 and is idempotent for an already-prepared version.
 It does not create a tag, push commits, or publish a release. Run the
 verification commands above, commit the prepared sources, and dispatch the

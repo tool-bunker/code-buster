@@ -695,9 +695,9 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
     match role {
         SourceRole::Example if !is_example_path(&segments) => SourceRole::Production,
         SourceRole::Vendored
-            if !VERSIONED_VENDOR_ASSET.is_match(name)
-                && !(policy.bundled_toolchain && is_bundled_toolchain_path(&segments))
-                && ![
+            if !(VERSIONED_VENDOR_ASSET.is_match(name)
+                || (policy.bundled_toolchain && is_bundled_toolchain_path(&segments))
+                || [
                     "vendor",
                     "vendored",
                     "_vendor",
@@ -724,7 +724,7 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
                     segments
                         .iter()
                         .any(|segment| segment.eq_ignore_ascii_case(candidate))
-                }) =>
+                })) =>
         {
             SourceRole::Production
         }
