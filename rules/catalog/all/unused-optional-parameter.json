@@ -9,7 +9,7 @@
   "legacyGroup": "yagni",
   "why": "An optional parameter that every caller omits adds API surface and a dormant behavior path without current variation.",
   "suggestion": "Use the default behavior directly and remove the parameter until a concrete caller needs variation.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -35,6 +35,6 @@
   "limitations": [
     "Reports used optional parameters on private C# methods and underscore-prefixed Dart, JavaScript, TypeScript, or Python functions with at least three visible call sites and a project-unique name.",
     "Requires complete evidence that no visible caller supplies the parameter and leaves invoked callback-like parameters to unused-customization-hook.",
-    "Reflective calls, method tear-offs, overload ownership, forwarded parameters, and framework-discovered private hooks are not resolved."
+    "Python calls containing *args or **kwargs prevent a complete omission claim and are excluded; reflective calls, method tear-offs, overload ownership, forwarded parameters, and framework-discovered private hooks are not resolved."
   ]
 }

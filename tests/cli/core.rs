@@ -411,6 +411,67 @@ fn summary_cache_tracks_auxiliary_and_style_inputs() {
 }
 
 #[test]
+fn summary_cache_tracks_sourcehut_format_tasks() {
+    let root = TempDirectory::new("cb-sourcehut-cache-root");
+    let cache = TempDirectory::new("cb-sourcehut-cache-directory");
+    root.write("src/lib.rs", b"pub fn value() -> u32 { 42 }\n");
+    root.write(
+        "Cargo.toml",
+        b"[package]\nname = \"demo\"\nversion = \"0.1.0\"\nrust-version = \"1.85\"\n",
+    );
+    root.write(
+        ".github/workflows/ci.yml",
+        b"steps:\n  - run: cargo test --locked\n",
+    );
+    let cache_path = cache.path.to_str().expect("cache path must be UTF-8");
+    let arguments = [
+        "--format",
+        "json",
+        "--verbose",
+        "--cache-dir",
+        cache_path,
+        "--only",
+        "rust-missing-format-ci",
+        "--all-findings",
+    ];
+    let run = || {
+        let output = run_summary(&root.path, &arguments);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stderr.is_empty());
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .expect("summary must emit JSON")
+    };
+
+    let missing = run();
+    assert_eq!(missing["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(missing["findings"][0]["code"], "rust-missing-format-ci");
+    assert_eq!(missing["findings"][0]["path"], ".github/workflows/ci.yml");
+    assert_eq!(missing["findings"][0]["line"], 2);
+    assert_eq!(run()["manifest"]["cache"]["findingsHit"], true);
+
+    root.write(
+        ".builds/linux.yml",
+        b"tasks:\n  - rustfmt: |\n      cargo +nightly fmt -- --check\n",
+    );
+    let checked = run();
+    assert!(checked["findings"].as_array().unwrap().is_empty());
+    assert_eq!(
+        checked["manifest"]["cache"],
+        serde_json::json!({"graphHit": true, "findingsHit": false})
+    );
+    assert_eq!(run()["manifest"]["cache"]["findingsHit"], true);
+
+    root.write(
+        ".builds/linux.yml",
+        b"environment:\n  FORMAT: cargo fmt -- --check\ntasks:\n  - rustfmt: |\n      echo 'cargo fmt -- --check'\n",
+    );
+    let described_only = run();
+    assert_eq!(described_only["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(described_only["findings"][0]["code"], "rust-missing-format-ci");
+    assert_eq!(described_only["manifest"]["cache"]["findingsHit"], false);
+}
+
+#[test]
 fn summary_cache_reuses_findings_with_malformed_source_diagnostics() {
     let root = TempDirectory::new("cbr-summary-cache-malformed-root");
     let cache = TempDirectory::new("cbr-summary-cache-malformed-directory");

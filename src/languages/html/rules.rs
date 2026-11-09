@@ -21,22 +21,23 @@ fn is_markup_path(path: &str) -> bool {
 
 fn analyze_file(path: &str, source: &str, findings: &mut Vec<Finding>) {
     let markup = mask_html_comments(source);
-    let semantic_markup = mask_html_raw_text(&markup);
+    let active_markup = mask_escaped_markup(&markup);
+    let semantic_markup = mask_html_raw_text(&active_markup);
     let is_svelte = path.to_ascii_lowercase().ends_with(".svelte");
     analyze_media_accessibility(path, &semantic_markup, is_svelte, findings);
     let lines = source.split('\n').collect::<Vec<_>>();
-    let masked_lines = markup.split('\n').collect::<Vec<_>>();
-    let input_label_lines = inputs_without_label(&markup);
+    let masked_lines = active_markup.split('\n').collect::<Vec<_>>();
+    let input_label_lines = inputs_without_label(&active_markup);
 
     {
         let mut analyzer = HtmlLineAnalyzer {
             path,
             is_svelte,
-            inline_scripts: executable_inline_script_lines(&markup),
-            blank_targets: blank_targets_without_rel(&markup),
-            images_without_alt: start_tags_without_attribute(&markup, &IMG_TAG, &HAS_ALT),
+            inline_scripts: executable_inline_script_lines(&active_markup),
+            blank_targets: blank_targets_without_rel(&active_markup),
+            images_without_alt: start_tags_without_attribute(&active_markup, &IMG_TAG, &HAS_ALT),
             inputs_without_label: input_label_lines,
-            forms_without_method: forms_without_native_method(&markup),
+            forms_without_method: forms_without_native_method(&active_markup),
             template_conditions: template_conditions(&lines),
             ids: BTreeMap::new(),
             blank_target_reported: false,
@@ -47,7 +48,7 @@ fn analyze_file(path: &str, source: &str, findings: &mut Vec<Finding>) {
         }
     }
 
-    report_document_findings(path, source, &markup, findings);
+    report_document_findings(path, source, &active_markup, findings);
 }
 
 struct HtmlLineAnalyzer<'a> {
@@ -183,13 +184,22 @@ impl HtmlLineAnalyzer<'_> {
 fn report_document_findings(path: &str, source: &str, markup: &str, findings: &mut Vec<Finding>) {
     let document = markup.to_ascii_lowercase();
     let is_document = HTML_START.is_match(markup);
+    let is_javadoc_package = path
+        .rsplit(['/', '\\'])
+        .next()
+        .is_some_and(|name| name.eq_ignore_ascii_case("package.html"));
+    if !is_document || is_javadoc_package {
+        return;
+    }
     let has_templated_head = has_markup_template_in_head(source);
     let has_templated_title = has_templated_head || has_jekyll_seo_tag_in_head(source);
     let has_lang = HTML_WITH_LANG.is_match(markup);
     let has_viewport = has_start_tag_with_attribute_value(markup, &META_TAG, "name", "viewport");
+    let is_redirect =
+        has_start_tag_with_attribute_value(markup, &META_TAG, "http-equiv", "refresh");
     let has_title = TITLE_CONTENT.is_match(&document);
 
-    if is_document && !has_lang {
+    if !has_lang {
         findings.push(finding(
             "html-missing-lang",
             path,
@@ -197,7 +207,7 @@ fn report_document_findings(path: &str, source: &str, markup: &str, findings: &m
             "html document missing lang",
         ));
     }
-    if is_document && !has_viewport && !has_templated_head {
+    if !has_viewport && !has_templated_head && !is_redirect {
         findings.push(finding(
             "html-missing-viewport",
             path,
@@ -205,7 +215,7 @@ fn report_document_findings(path: &str, source: &str, markup: &str, findings: &m
             "missing viewport meta",
         ));
     }
-    if is_document && !has_title && !has_templated_title {
+    if !has_title && !has_templated_title {
         findings.push(finding(
             "html-missing-title",
             path,
@@ -225,6 +235,18 @@ fn mask_html_comments(source: &str) -> String {
         }
     }
     String::from_utf8(bytes).expect("masked HTML must remain UTF-8")
+}
+
+fn mask_escaped_markup(source: &str) -> String {
+    let mut bytes = source.as_bytes().to_vec();
+    for escaped in ESCAPED_MARKUP.find_iter(source) {
+        for byte in &mut bytes[escaped.start()..escaped.end()] {
+            if *byte != b'\n' {
+                *byte = b' ';
+            }
+        }
+    }
+    String::from_utf8(bytes).expect("masked escaped markup must remain UTF-8")
 }
 fn mask_html_raw_text(source: &str) -> String {
     let mut bytes = source.as_bytes().to_vec();
@@ -928,6 +950,8 @@ static JEKYLL_SEO: LazyLock<Regex> =
 static RAW_TEXT_ELEMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?is)<(?:script|style)\b[^>]*>(.*?)</(?:script|style)\s*>").unwrap()
 });
+static ESCAPED_MARKUP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:&lt;|&#0*60;|&#x0*3c;)[^\n>]*(?:>|&gt;)").unwrap());
 static AUTOPLAY_ATTRIBUTE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(?:^|\s)autoplay(?:\s|=|/?>)").unwrap());
 static MUTED_ATTRIBUTE: LazyLock<Regex> =
@@ -1069,6 +1093,18 @@ mod tests {
     }
 
     #[test]
+    fn ignores_escaped_markup_examples_when_tracking_ids() {
+        let source = r#"<html lang="en">
+<head><title>Examples</title><meta name="viewport" content="width=device-width"></head>
+<body>
+<pre>&lt;style id="sample"></pre>
+<pre>&lt;style id="sample"></pre>
+</body></html>"#;
+
+        assert!(!codes(source).contains("html-duplicate-id"));
+    }
+
+    #[test]
     fn reports_unmuted_autoplay_and_unlabelled_graphics() {
         let source = r#"<video
   autoplay
@@ -1167,5 +1203,23 @@ mod tests {
                 "html-missing-viewport".to_owned(),
             ])
         );
+    }
+    #[test]
+    fn skips_javadoc_package_metadata_and_redirect_viewports() {
+        let package = analyze(&BTreeMap::from([(
+            "src/api/package.html".to_owned(),
+            "<html><head></head><body>Package documentation</body></html>".to_owned(),
+        )]));
+        assert!(package.into_iter().all(|finding| {
+            !matches!(
+                finding.code.as_str(),
+                "html-missing-lang" | "html-missing-title" | "html-missing-viewport"
+            )
+        }));
+
+        let redirect = r#"<html lang="en"><head>
+<meta http-equiv="refresh" content="0;url=api/index.html">
+<title>Redirect</title></head><body></body></html>"#;
+        assert!(!codes(redirect).contains("html-missing-viewport"));
     }
 }

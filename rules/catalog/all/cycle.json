@@ -1,15 +1,15 @@
 {
   "id": "cycle",
   "language": "all",
-  "group": "correctness",
+  "group": "maintainability",
   "listingTitle": "Break cycle",
   "title": "Break cycle",
   "mvvm": false,
-  "defaultSeverity": "error",
+  "defaultSeverity": "warn",
   "legacyGroup": "core",
   "why": "A circular dependency exists in the module graph.",
   "suggestion": "Extract shared code into a third module or invert one dependency.",
-  "version": 7,
+  "version": 8,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [

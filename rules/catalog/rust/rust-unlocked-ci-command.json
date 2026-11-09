@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "A CI command that permits dependency re-resolution can build code different from the reviewed lockfile.",
   "suggestion": "Pass --locked or --frozen to direct Cargo build, check, test, and Clippy commands.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -29,7 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only direct commands in supported checked-in CI files are inspected.",
-    "Commands hidden behind scripts, reusable workflows, aliases, or nonstandard shell wrappers are not resolved."
+    "Only direct commands in checked-in GitHub Actions, GitLab CI, Azure Pipelines, Jenkins, and SourceHut manifests are inspected; SourceHut paths are limited to root .build.yml and direct .builds/*.yml or .builds/*.yaml files.",
+    "Commands hidden behind scripts, reusable workflows, aliases, or nonstandard shell wrappers are not resolved.",
+    "SourceHut evidence comes only from direct commands in tasks script scalars, not task names, packages, environment values, comments, or descriptions; YAML aliases and shell expansion or multiline command reconstruction are not resolved."
   ]
 }

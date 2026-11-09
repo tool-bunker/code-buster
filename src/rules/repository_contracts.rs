@@ -86,7 +86,7 @@ fn is_tooling_source_path(source_path: &str) -> bool {
         component
             .as_os_str()
             .to_str()
-            .is_some_and(|segment| matches!(segment, "scripts" | "tools"))
+            .is_some_and(|segment| matches!(segment, "devscripts" | "scripts" | "tools"))
     })
 }
 

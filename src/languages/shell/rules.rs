@@ -133,7 +133,7 @@ fn report_general_findings(
 ) {
     if !dangerous_rm
         && !state.unquoted_expansion_reported
-        && command_argument_region(code).is_some_and(contains_unquoted_named_expansion)
+        && command_argument_region(code).is_some_and(contains_unquoted_parameter_expansion)
     {
         findings.push(finding(
             "shell-unquoted-expansion",
@@ -389,7 +389,7 @@ fn dangerous_recursive_remove(command: &str, outside_quotes: &str) -> bool {
         let arguments = &command[masked_arguments.start()..masked_arguments.end()];
         has_rm_flag(arguments, 'r')
             && has_rm_flag(arguments, 'f')
-            && (contains_unquoted_named_expansion(arguments)
+            && (contains_unquoted_parameter_expansion(arguments)
                 || variable_followed_by_glob(arguments))
     })
 }
@@ -509,13 +509,13 @@ fn is_standalone_assignment(command: &str) -> bool {
     )
 }
 
-enum NamedExpansion {
+enum ParameterExpansion {
     Absent,
     Safe(usize),
     Risk,
 }
 
-fn contains_unquoted_named_expansion(line: &str) -> bool {
+fn contains_unquoted_parameter_expansion(line: &str) -> bool {
     let bytes = line.as_bytes();
     let mut index = 0usize;
     let mut quote = None;
@@ -537,32 +537,32 @@ fn contains_unquoted_named_expansion(line: &str) -> bool {
             index = end;
             continue;
         }
-        match classify_named_expansion(bytes, index) {
-            NamedExpansion::Risk => return true,
-            NamedExpansion::Safe(end) => {
+        match classify_parameter_expansion(bytes, index) {
+            ParameterExpansion::Risk => return true,
+            ParameterExpansion::Safe(end) => {
                 index = end;
                 continue;
             }
-            NamedExpansion::Absent => {}
+            ParameterExpansion::Absent => {}
         }
         index += 1;
     }
     false
 }
 
-fn classify_named_expansion(bytes: &[u8], index: usize) -> NamedExpansion {
+fn classify_parameter_expansion(bytes: &[u8], index: usize) -> ParameterExpansion {
     if bytes.get(index) != Some(&b'$') {
-        return NamedExpansion::Absent;
+        return ParameterExpansion::Absent;
     }
-    let Some(end) = named_expansion_end(bytes, index + 1) else {
-        return NamedExpansion::Absent;
+    let Some(end) = unquoted_parameter_end(bytes, index + 1) else {
+        return ParameterExpansion::Absent;
     };
     if expansion_is_in_assignment_word(bytes, index)
         || expansion_is_redirection_operand(bytes, index)
     {
-        NamedExpansion::Safe(end)
+        ParameterExpansion::Safe(end)
     } else {
-        NamedExpansion::Risk
+        ParameterExpansion::Risk
     }
 }
 
@@ -704,10 +704,16 @@ fn is_shell_token_boundary(byte: u8) -> bool {
     byte.is_ascii_whitespace() || matches!(byte, b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>')
 }
 
-fn named_expansion_end(bytes: &[u8], start: usize) -> Option<usize> {
+fn unquoted_parameter_end(bytes: &[u8], start: usize) -> Option<usize> {
     let first = *bytes.get(start)?;
+    if matches!(first, b'@' | b'*') {
+        return Some(start + 1);
+    }
     if first == b'{' {
         let name_start = start + 1;
+        if matches!(bytes.get(name_start), Some(b'@' | b'*')) {
+            return (bytes.get(name_start + 1) == Some(&b'}')).then_some(name_start + 2);
+        }
         if !is_identifier_start(*bytes.get(name_start)?) {
             return None;
         }
@@ -808,8 +814,125 @@ static NON_SPLITTING_CONTEXT: LazyLock<Regex> = LazyLock::new(|| {
 
 #[cfg(test)]
 mod tests {
-    use super::{analyze, command_argument_region, contains_unquoted_named_expansion};
+    use super::{analyze, command_argument_region, contains_unquoted_parameter_expansion};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn reports_unquoted_forwarding_and_named_arguments_once_per_file() {
+        for expansion in [
+            "$@",
+            "$*",
+            "${@}",
+            "${*}",
+            "$value",
+            "${value}",
+            "option=$@",
+        ] {
+            let sources = BTreeMap::from([(
+                "forward.sh".to_owned(),
+                format!("#!/bin/sh\nrun \"$@\" \"${{*}}\"\nrun {expansion}\nrun $later\n"),
+            )]);
+
+            let findings = analyze(&sources);
+
+            assert_eq!(findings.len(), 1, "{expansion}");
+            let finding = &findings[0];
+            assert_eq!(finding.code, "shell-unquoted-expansion", "{expansion}");
+            assert_eq!(finding.path, "forward.sh");
+            assert_eq!(finding.line, 3, "{expansion}");
+            assert_eq!(finding.confidence, "medium");
+            assert!(finding.related_files.is_empty());
+        }
+    }
+
+    #[test]
+    fn accepts_quoted_and_non_splitting_forwarding_contexts() {
+        for safe in [
+            r#"run "$@" "$*" "${@}" "${*}""#,
+            r#"run '$@' '$*' '${@}' '${*}'"#,
+            r"run \$@ \$* \${@} \${*}",
+            "value=$@",
+            "value=$*",
+            "value=${@}",
+            "value=${*}",
+            r#"PREFIX=$@ run "$@""#,
+            r#"PREFIX=${*} run "${@}""#,
+            "export value=$@",
+            "[[ $* == pattern ]]",
+            "[[ $@ == pattern &&\n   ${*} == pattern ]]",
+            "(( count = ${*} ))",
+            "value=$(( ${*} ))",
+            "case $* in pattern) echo matched ;; esac",
+            "# run $@ $* ${@} ${*}",
+            "cat <<'SCRIPT'\nrun $@ $* ${@} ${*}\nSCRIPT",
+            "printf '%s\\n' 'literal\n$@ ${*}\ntext'",
+        ] {
+            let sources =
+                BTreeMap::from([("safe.sh".to_owned(), format!("#!/bin/bash\n{safe}\n"))]);
+
+            assert!(analyze(&sources).is_empty(), "{safe}");
+        }
+    }
+
+    #[test]
+    fn does_not_invent_forwarding_evidence_from_malformed_parameters() {
+        for malformed in ["$", "${", "${}", "${@", "${*", "${@oops}", "${*oops}"] {
+            let sources =
+                BTreeMap::from([("malformed.sh".to_owned(), format!("run {malformed}\n"))]);
+
+            assert!(analyze(&sources).is_empty(), "{malformed}");
+        }
+    }
+
+    #[test]
+    fn reports_unquoted_forwarding_in_recursive_removal_as_security_evidence() {
+        for expansion in ["$@", "$*", "${@}", "${*}"] {
+            let sources =
+                BTreeMap::from([("remove.sh".to_owned(), format!("rm -rf {expansion}\n"))]);
+
+            let findings = analyze(&sources);
+
+            assert_eq!(findings.len(), 1, "{expansion}");
+            assert_eq!(findings[0].code, "shell-unguarded-recursive-remove");
+            assert_eq!(findings[0].path, "remove.sh");
+            assert_eq!(findings[0].line, 1);
+            assert_eq!(findings[0].confidence, "high");
+            assert!(findings[0].related_files.is_empty());
+        }
+        let sources = BTreeMap::from([(
+            "remove.sh".to_owned(),
+            "rm -rf \"$@\" \"${*}\"\n".to_owned(),
+        )]);
+        assert!(analyze(&sources).is_empty());
+    }
+
+    #[test]
+    fn keeps_numeric_uncertainty_but_prefers_earlier_forwarding_evidence() {
+        let sources = BTreeMap::from([
+            (
+                "color.sh".to_owned(),
+                "rainbowColor() {\n    let h=$1/43\n    if [ $h -eq 0 ]; then\n        echo red\n    fi\n}\n"
+                    .to_owned(),
+            ),
+            (
+                "profile.sh".to_owned(),
+                "installed=0\nif command -v profiler; then\n    installed=1\nfi\nrun $@\nif [ $installed == 1 ]; then\n    echo installed\nfi\n"
+                    .to_owned(),
+            ),
+        ]);
+
+        let findings = analyze(&sources);
+
+        assert_eq!(findings.len(), 2);
+        assert_eq!(findings[0].code, "shell-unquoted-expansion");
+        assert_eq!(findings[0].path, "color.sh");
+        assert_eq!(findings[0].line, 3);
+        assert_eq!(findings[0].confidence, "medium");
+        assert_eq!(findings[1].code, "shell-unquoted-expansion");
+        assert_eq!(findings[1].path, "profile.sh");
+        assert_eq!(findings[1].line, 5);
+        assert_eq!(findings[1].confidence, "medium");
+    }
 
     #[test]
     fn reports_high_confidence_shell_risks() {
@@ -951,10 +1074,10 @@ fi
             "\"${record##*/\"$package\"-}\"",
             "cat <$path",
         ] {
-            assert!(!contains_unquoted_named_expansion(safe), "{safe}");
+            assert!(!contains_unquoted_parameter_expansion(safe), "{safe}");
         }
-        assert!(contains_unquoted_named_expansion("run $value"));
-        assert!(contains_unquoted_named_expansion("run option=$value"));
+        assert!(contains_unquoted_parameter_expansion("run $value"));
+        assert!(contains_unquoted_parameter_expansion("run option=$value"));
         for assignment in [
             "SWAPSIZE=$((1024 * ${SWAPSIZE_KB:-0}))",
             "LAUNCH_COMMAND=\"${2:-\"uwsm-app -- $WINDOW_PATTERN\"}\"",

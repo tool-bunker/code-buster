@@ -9,7 +9,7 @@
   "legacyGroup": "sql",
   "why": "This SQL construct can create correctness, safety, or performance risk.",
   "suggestion": "Use the safer SQL pattern described by the rule.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -27,6 +27,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Commented-out source is excluded."
+    "Commented-out source is excluded; Java is handled by its dedicated database-aware rule."
   ]
 }

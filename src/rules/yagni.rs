@@ -484,6 +484,14 @@ fn unused_parameters(index: &YagniCallIndex<'_>, kind: OptionalParameterKind) ->
         let Some(calls) = complete_calls(index, target, function) else {
             continue;
         };
+        if source_language(&function.path) == Some("python")
+            && calls
+                .iter()
+                .flat_map(|call| &call.arguments)
+                .any(|argument| argument.trim_start().starts_with('*'))
+        {
+            continue;
+        }
         for parameter in optional_parameters(function)
             .into_iter()
             .filter(|parameter| kind.includes(parameter))
@@ -1097,6 +1105,48 @@ void use_all() {
             assert!(findings.contains("unused-customization-hook"), "{path}");
             assert!(findings.contains("unused-optional-parameter"), "{path}");
         }
+    }
+
+    #[test]
+    fn abstains_when_python_callers_unpack_unknown_arguments() {
+        for expansion in ["*args", "**kwargs", "*args, **kwargs"] {
+            let source = format!(
+                r#"def _save(value, customize=None, validate=True):
+    return customize(value) if customize and validate else value
+def first():
+    return _save(1)
+def second():
+    return _save(2)
+def forwarded(*args, **kwargs):
+    return _save({expansion})
+"#
+            );
+            let findings = codes("options.py", &source);
+            assert!(
+                !findings.contains("unused-optional-parameter"),
+                "{expansion}"
+            );
+            assert!(
+                !findings.contains("unused-customization-hook"),
+                "{expansion}"
+            );
+        }
+        let findings = codes(
+            "options.py",
+            r#"def _save(value, customize=None, validate=True):
+    return customize(value) if customize and validate else value
+def first():
+    return _save(1)
+def second():
+    return _save(2)
+def third():
+    return _save(3)
+# _save(**kwargs)
+example = '_save(*args)'
+"#,
+        );
+        assert!(findings.contains("unused-optional-parameter"));
+        assert!(findings.contains("unused-customization-hook"));
     }
 
     #[test]

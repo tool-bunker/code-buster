@@ -9,7 +9,7 @@
   "legacyGroup": "reliability",
   "why": "An unconditional retry loop can consume resources forever and conceal a persistent dependency failure.",
   "suggestion": "Add an attempt limit or deadline, backoff, and a terminating failure path.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["reliability"],
@@ -21,6 +21,8 @@
   "languageVersions": [],
   "limitations": [
     "Only literal while True and while 1 loops containing try and an except handler that directly continues are reported; passive service loops that swallow an error are excluded.",
-    "A direct break, return, or raise in that handler, or a visible attempt, deadline, shutdown, stop, or cancellation guard with a terminating branch, is accepted; bounds hidden behind helper functions are not inferred."
+    "A direct break, return, or raise in that handler, or a visible attempt, deadline, shutdown, stop, or cancellation guard with a terminating branch, is accepted; bounds hidden behind helper functions are not inferred.",
+    "Fresh built-in input immediately preceding a try is accepted when its only operation parses that value and retries SyntaxError, or ValueError from int, float, or complex conversion. Unrelated prompts, extra work, broad exception retries, and other input shapes are not inferred.",
+    "A successful return does not bound exceptional retries. Future-result timeout polling is not automatically exempt: a completed future can re-raise a worker TimeoutError indefinitely."
   ]
 }

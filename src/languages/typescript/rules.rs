@@ -2025,18 +2025,23 @@ fn has_unsafe_inner_html_sink(raw_lines: &[&str], code_lines: &[&str], index: us
         return false;
     };
     let right_hand_side = inner_html_right_hand_side(raw_lines, index, assignment.end());
-    let imported_bindings = imported_asset_bindings_before(raw_lines, index);
+    let static_bindings = static_inner_html_bindings_before(raw_lines, index);
     !is_static_inner_html_expression(&right_hand_side)
-        && !is_static_template_from_bindings(&right_hand_side, &imported_bindings)
+        && !is_static_template_from_bindings(&right_hand_side, &static_bindings)
 }
 
-fn imported_asset_bindings_before(lines: &[&str], index: usize) -> BTreeSet<String> {
+fn static_inner_html_bindings_before(lines: &[&str], index: usize) -> BTreeSet<String> {
     lines[..index]
         .iter()
         .filter_map(|line| {
             STATIC_ASSET_IMPORT_BINDING
                 .captures(line)
                 .and_then(|capture| capture.get(1))
+                .or_else(|| {
+                    STATIC_CONST_STRING_BINDING
+                        .captures(line)
+                        .and_then(|capture| capture.get(1))
+                })
                 .map(|binding| binding.as_str().to_owned())
         })
         .collect()
@@ -2748,6 +2753,12 @@ static STATIC_ASSET_IMPORT_BINDING: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("static asset import binding regex must compile")
 });
+static STATIC_CONST_STRING_BINDING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"^\s*const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\$]|\$(?:[^\{]|$))*`)\s*;?\s*$"#,
+    )
+    .expect("static const string binding regex must compile")
+});
 static TRUSTED_HTML: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:create_trusted_html|createTrustedHTML|[A-Za-z_$][\w$.\[\]]*\.createHTML)\s*\(([\s\S]*)\)$").unwrap()
 });
@@ -3287,6 +3298,28 @@ unsafe.innerHTML = `<p>${userInput}</p>`;\n"
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
             [5]
+        );
+    }
+
+    #[test]
+    fn accepts_static_html_templates_interpolating_local_string_constants() {
+        let sources = BTreeMap::from([(
+            "src/render.ts".to_owned(),
+            "const label = 'Theme';\n\
+             const icon = \"theme.svg\";\n\
+             safe.innerHTML = `<button title=\"${label}\"><img src=\"${icon}\"></button>`;\n\
+             unsafe.innerHTML = `<p>${userInput}</p>`;\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-inner-html")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [4]
         );
     }
 

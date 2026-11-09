@@ -669,16 +669,25 @@ impl NormalizationExclusions<'_> {
 
 struct NormalizationPolicy {
     hash_comments: bool,
+    html_comments: bool,
     lua_comments: bool,
     python: bool,
 }
 
 impl NormalizationPolicy {
-    fn for_path(source_path: &str) -> Self {
+    fn for_source(source_path: &str, source: &str) -> Self {
         let lowercase_path = source_path.to_ascii_lowercase();
         let python = lowercase_path.ends_with(".py") || lowercase_path.ends_with(".pyw");
+        let shell = ["sh", "bash", "zsh", "ksh"]
+            .iter()
+            .any(|extension| lowercase_path.ends_with(&format!(".{extension}")))
+            || source
+                .lines()
+                .next()
+                .is_some_and(|line| is_shell_shebang(line.trim_start()));
         Self {
-            hash_comments: python,
+            hash_comments: python || shell,
+            html_comments: lowercase_path.ends_with(".html") || lowercase_path.ends_with(".htm"),
             lua_comments: lowercase_path.ends_with(".lua") || lowercase_path.ends_with(".luau"),
             python,
         }
@@ -701,6 +710,9 @@ impl NormalizationPolicy {
         if self.lua_comments {
             line = without_lua_long_comments(&line, &mut comment_state.lua_end);
         }
+        if self.html_comments {
+            line = without_html_comments(line, &mut comment_state.in_html_comment)?;
+        }
         line = without_block_comments(line, &mut comment_state.in_block_comment)?;
         let normalized = normalize_line(&line);
         (!normalized.is_empty()).then_some(normalized)
@@ -711,6 +723,7 @@ impl NormalizationPolicy {
 struct CommentNormalizationState {
     lua_end: Option<String>,
     in_block_comment: bool,
+    in_html_comment: bool,
     python_triple_quote: Option<&'static str>,
 }
 
@@ -761,6 +774,32 @@ fn without_block_comments(mut line: String, in_block_comment: &mut bool) -> Opti
     Some(line)
 }
 
+fn without_html_comments(mut line: String, in_comment: &mut bool) -> Option<String> {
+    if *in_comment {
+        let end = line.find("-->")?;
+        line = line[end + 3..].to_owned();
+        *in_comment = false;
+    }
+    while let Some(start) = line.find("<!--") {
+        if let Some(relative_end) = line[start + 4..].find("-->") {
+            let end = start + 4 + relative_end;
+            line.replace_range(start..end + 3, " ");
+        } else {
+            line.truncate(start);
+            *in_comment = true;
+            break;
+        }
+    }
+    Some(line)
+}
+
+fn is_shell_shebang(line: &str) -> bool {
+    line.starts_with("#!")
+        && ["sh", "bash", "zsh", "ksh"]
+            .iter()
+            .any(|shell| line.split(['/', ' ', '\t']).any(|part| part == *shell))
+}
+
 fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
     let raw_lines: Vec<&str> = source.split('\n').collect();
     let dart_forwarding = dart_forwarding_constructor_lines(&raw_lines, source_path);
@@ -778,7 +817,7 @@ fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
         rust_tests: rust_facts.as_ref().map(|(_, tests)| tests),
         rust_masked_lines: rust_masked_lines.as_deref(),
     };
-    let policy = NormalizationPolicy::for_path(source_path);
+    let policy = NormalizationPolicy::for_source(source_path, source);
     let mut comment_state = CommentNormalizationState::default();
     let mut result = Vec::new();
     for (index, raw_line) in raw_lines.iter().enumerate() {
@@ -1243,6 +1282,37 @@ mod tests {
             ("b.rs".to_owned(), block.to_owned()),
         ]);
         assert_eq!(exact_group_count(&sources, 3), 1);
+    }
+
+    #[test]
+    fn ignores_shell_and_html_comment_headers() {
+        let shell_license =
+            "#!/bin/sh\n# shared license one\n# shared license two\n# shared license three\n";
+        let shell_sources = BTreeMap::from([
+            (
+                "first".to_owned(),
+                format!("{shell_license}first_command\n"),
+            ),
+            (
+                "second".to_owned(),
+                format!("{shell_license}second_command\n"),
+            ),
+        ]);
+        assert!(exact_findings(&shell_sources, 3).is_empty());
+
+        let html_license =
+            "<!--\nshared license one\nshared license two\nshared license three\n-->\n";
+        let html_sources = BTreeMap::from([
+            (
+                "first.html".to_owned(),
+                format!("{html_license}<main>first</main>\n"),
+            ),
+            (
+                "second.html".to_owned(),
+                format!("{html_license}<main>second</main>\n"),
+            ),
+        ]);
+        assert!(exact_findings(&html_sources, 3).is_empty());
     }
 
     #[test]

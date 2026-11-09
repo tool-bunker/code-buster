@@ -8,8 +8,8 @@
   "defaultSeverity": "warn",
   "legacyGroup": "core",
   "why": "An unquoted parameter expansion can split one value into multiple arguments and expand wildcard characters into filesystem paths.",
-  "suggestion": "Quote the expansion, or use an array when intentional argument splitting is required.",
-  "version": 2,
+  "suggestion": "Quote scalar expansions, forward positional arguments with \"$@\", or use an array when intentional argument splitting is required.",
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -28,8 +28,10 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Assignment, quoted, conditional-test, arithmetic, and shell grammar contexts where word splitting does not apply are excluded.",
+    "Assignment, quoted, double-bracket conditional-test, arithmetic, and shell grammar contexts where word splitting does not apply are excluded.",
+    "Named parameters and the exact forwarding forms $@, $*, ${@}, and ${*} are recognized; individual positional parameters such as $1 and operators on special parameters are not resolved.",
     "At most one representative finding is reported per file and it is advisory by default.",
+    "Variable values, arithmetic assignment success, and earlier validation are not resolved, so numeric-looking parameters are not assumed safe.",
     "Intentional splitting through legacy scalar variables cannot be distinguished from accidental splitting."
   ]
 }

@@ -211,7 +211,7 @@ fn summary_reports_complete_cpp_rule_family() {
             int converted = (int)value;\n\
             void* memory = malloc(16);\n\
             strcpy((char*)memory, input);\n\
-            memset(memory, 0, 16);\n\
+            memset(&value, 0, sizeof(value));\n\
             auto random = rand();\n\
             auto immutable = const_cast<int*>(source);\n\
             auto raw = reinterpret_cast<char*>(memory);\n\
@@ -268,6 +268,147 @@ fn summary_reports_complete_cpp_rule_family() {
         ]
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>()
+    );
+}
+
+#[test]
+fn summary_groups_cpp_contextual_reviews_without_losing_source_lines() {
+    let root = TempDirectory::new("cbr-cpp-contextual-reviews");
+    root.write(
+        "code-buster.toml",
+        b"languages = [\"cpp\"]\n[rules]\nenabled_groups = [\"nim-style\"]\n",
+    );
+    root.write(
+        "main.cpp",
+        b"void append(std::vector<std::uint8_t>& output) { output.push_back(1); }\n\
+          void fill(const Input& input, Output& output);\n\
+          void change(int const& input, int& output);\n\
+          auto* integer = reinterpret_cast<int*>(0x1000);\n\
+          auto function = reinterpret_cast<void (*)()>(0x1000);\n\
+          alignas(std::uint32_t) unsigned char bytes[8]{}; auto* misaligned = reinterpret_cast<std::uint32_t*>(bytes + 1); *misaligned = 1;\n\
+          auto* unknown = reinterpret_cast<char*>(0x1000);\n\
+          auto* byte_view = reinterpret_cast<const char*>(binary.data() + offset);\n\
+          const int immutable = 1; *const_cast<int*>(&immutable) = 2;\n\
+          auto* other = const_cast<int*>(constant); auto* more = const_cast<int*>(constant);\n\
+          auto* multiline = reinterpret_cast\n\
+          <int*>(address);\n\
+          auto* cv = const_cast\n\
+          <volatile int*>(constant);\n",
+    );
+    root.write(
+        "side.hpp",
+        b"void fill(Output& output);\n\
+          auto* integer = reinterpret_cast<int*>(address);\n\
+          *const_cast<int*>(constant) = 2;\n",
+    );
+
+    let output = run_summary(&root.path, &["--format", "json", "--all-findings"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+    let reviews = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding["code"].as_str(),
+                Some("cpp-non-const-ref-param" | "cpp-const-cast" | "cpp-reinterpret-cast")
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(reviews.len(), 6);
+    for (rule, line, related) in [
+        (
+            "cpp-non-const-ref-param",
+            1,
+            vec!["main.cpp:2", "main.cpp:3"],
+        ),
+        (
+            "cpp-reinterpret-cast",
+            4,
+            vec![
+                "main.cpp:5",
+                "main.cpp:6",
+                "main.cpp:7",
+                "main.cpp:8",
+                "main.cpp:11",
+            ],
+        ),
+        ("cpp-const-cast", 9, vec!["main.cpp:10", "main.cpp:13"]),
+    ] {
+        let review = reviews
+            .iter()
+            .find(|finding| finding["code"] == rule && finding["path"] == "main.cpp")
+            .expect("each rule must retain its own per-file review");
+        assert_eq!(review["line"], line);
+        assert_eq!(review["confidence"], "medium");
+        assert_eq!(review["related_files"], serde_json::json!(related));
+        assert!(
+            review["message"]
+                .as_str()
+                .unwrap()
+                .contains(&(related.len() + 1).to_string())
+        );
+    }
+    for (rule, line) in [
+        ("cpp-non-const-ref-param", 1),
+        ("cpp-reinterpret-cast", 2),
+        ("cpp-const-cast", 3),
+    ] {
+        let review = reviews
+            .iter()
+            .find(|finding| finding["code"] == rule && finding["path"] == "side.hpp")
+            .expect("different files must not be combined");
+        assert_eq!(review["line"], line);
+        assert_eq!(review["related_files"], serde_json::json!([]));
+    }
+}
+
+#[test]
+fn summary_ignores_cpp_non_code_and_const_reference_declarations() {
+    let root = TempDirectory::new("cbr-cpp-contextual-boundaries");
+    root.write(
+        "code-buster.toml",
+        b"languages = [\"cpp\"]\n[rules]\nenabled_groups = [\"nim-style\"]\n",
+    );
+    root.write(
+        "main.cpp",
+        br###"void readonly(const int& value, int const& other, int* const& pointer);
+void move(int&& value);
+void (*callback)(Item& output);
+int bits = (left & right);
+const char* text = "reinterpret_cast<int*>(address); const_cast<int*>(value)";
+const char* raw = R"cpp(
+" reinterpret_cast<int*>(address);
+void fake(int& value);
+const_cast<int*>(value);
+)cpp";
+/* reinterpret_cast<int*>(address);
+void fake(int& value);
+const_cast<int*>(value); */
+// continued comment \
+reinterpret_cast<int*>(address); const_cast<int*>(value);
+"###,
+    );
+
+    let output = run_summary(&root.path, &["--format", "json", "--all-findings"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+    assert!(
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|finding| !matches!(
+                finding["code"].as_str(),
+                Some("cpp-non-const-ref-param" | "cpp-const-cast" | "cpp-reinterpret-cast")
+            ))
     );
 }
 
@@ -417,10 +558,10 @@ fn summary_reports_complete_java_rule_family() {
     );
     root.write(
         "Main.java",
-        b"class Main {\n\
+        b"class Main { Connection connection;\n\
           void run(int a, int b, int c, int d, int e, int f, int g, int h) {\n\
           String password = \"real-secret-value\";\n\
-          ObjectInputStream input = open();\n\
+          ObjectInputStream input = new ObjectInputStream(stream);\n\
           FileInputStream file = new FileInputStream(path);\n\
           String text = \"\";\n\
           for (String value : values) { text += value; }\n\
@@ -2198,6 +2339,10 @@ fn summary_accepts_explicit_python_test_support_exports() {
     root.write(
         "scripts/record-fixture.ts",
         b"import { fixture } from '../tests/fixture';\nvoid fixture;\n",
+    );
+    root.write(
+        "devscripts/check-fixture.py",
+        b"from test.helper import fixture\nprint(fixture())\n",
     );
 
     let output = run_summary(

@@ -206,26 +206,49 @@ struct CiPolicyEvidence<'a> {
 
 impl<'a> CiPolicyEvidence<'a> {
     fn observe(&mut self, path: &'a str, line_index: usize, raw_line: &str) {
-        let line = ci_line_without_comment(raw_line);
-        if self.first_rust_command.is_none() && CARGO_RUST_COMMAND.is_match(line) {
+        let direct = is_sourcehut_path(path);
+        let line = if direct {
+            raw_line
+        } else {
+            ci_line_without_comment(raw_line)
+        };
+        self.observe_command_policies(path, line_index, line, direct);
+        self.observe_lock_policy(path, line_index, line, direct);
+        if !direct {
+            self.has_audit |= AUDIT_ACTION.is_match(line);
+            self.uses_pre_commit |= PRE_COMMIT_ACTION.is_match(line);
+        }
+    }
+
+    fn observe_command_policies(
+        &mut self,
+        path: &'a str,
+        line_index: usize,
+        line: &str,
+        direct: bool,
+    ) {
+        let matches_command = |pattern: &Regex| ci_command_matches(pattern, line, direct);
+        if self.first_rust_command.is_none() && matches_command(&CARGO_RUST_COMMAND) {
             self.first_rust_command = Some((path, line_index + 1));
         }
-        let delegated_lints = DELEGATED_RUST_LINT_COMMAND.is_match(line);
-        self.has_clippy |= CARGO_CLIPPY_COMMAND.is_match(line)
-            || MAKE_CLIPPY_COMMAND.is_match(line)
+        let delegated_lints = matches_command(&DELEGATED_RUST_LINT_COMMAND);
+        self.has_clippy |= matches_command(&CARGO_CLIPPY_COMMAND)
+            || matches_command(&MAKE_CLIPPY_COMMAND)
             || delegated_lints;
-        self.has_checked_format |= CARGO_CHECKED_FORMAT.is_match(line)
-            || DIRECT_RUSTFMT_CHECK.is_match(line)
+        self.has_checked_format |= matches_command(&CARGO_CHECKED_FORMAT)
+            || matches_command(&DIRECT_RUSTFMT_CHECK)
             || delegated_lints;
-        self.has_audit |= CARGO_AUDIT_COMMAND.is_match(line) || AUDIT_ACTION.is_match(line);
-        self.uses_pre_commit |= PRE_COMMIT_ACTION.is_match(line);
+        self.has_audit |= matches_command(&CARGO_AUDIT_COMMAND);
+    }
+
+    fn observe_lock_policy(&mut self, path: &'a str, line_index: usize, line: &str, direct: bool) {
         if !self
             .unlocked_commands
             .iter()
             .any(|(reported_path, _)| *reported_path == path)
-            && CARGO_LOCKFILE_COMMAND
-                .find_iter(line)
-                .any(|command| !CARGO_LOCK_FLAG.is_match(command.as_str()))
+            && CARGO_LOCKFILE_COMMAND.find_iter(line).any(|command| {
+                (!direct || command.start() == 0) && !CARGO_LOCK_FLAG.is_match(command.as_str())
+            })
         {
             self.unlocked_commands.push((path, line_index + 1));
         }
@@ -239,6 +262,12 @@ impl<'a> CiPolicyEvidence<'a> {
     }
 }
 
+fn ci_command_matches(pattern: &Regex, line: &str, direct: bool) -> bool {
+    pattern
+        .find(line)
+        .is_some_and(|command| !direct || command.start() == 0)
+}
+
 fn ci_policy_evidence<'context>(
     context: &'context SourceAnalysisContext<'_>,
 ) -> CiPolicyEvidence<'context> {
@@ -248,9 +277,9 @@ fn ci_policy_evidence<'context>(
         .iter()
         .filter(|(path, _)| is_ci_path(path))
     {
-        for (line_index, raw_line) in source.lines().enumerate() {
-            evidence.observe(path, line_index, raw_line);
-        }
+        for_each_ci_command_line(path, source, |line_index, line, _| {
+            evidence.observe(path, line_index, line);
+        });
     }
     if evidence.uses_pre_commit {
         let targets = pre_commit_make_targets(context);
@@ -330,9 +359,159 @@ pub(super) fn is_ci_path(path: &str) -> bool {
     matches!(
         path,
         ".gitlab-ci.yml" | "azure-pipelines.yml" | "Jenkinsfile"
-    ) || path.strip_prefix(".github/workflows/").is_some_and(|name| {
-        !name.contains('/') && (name.ends_with(".yml") || name.ends_with(".yaml"))
-    })
+    ) || is_sourcehut_path(path)
+        || path.strip_prefix(".github/workflows/").is_some_and(|name| {
+            !name.contains('/') && (name.ends_with(".yml") || name.ends_with(".yaml"))
+        })
+}
+
+fn is_sourcehut_path(path: &str) -> bool {
+    path == ".build.yml"
+        || path.strip_prefix(".builds/").is_some_and(|name| {
+            !name.contains('/') && (name.ends_with(".yml") || name.ends_with(".yaml"))
+        })
+}
+
+pub(super) fn for_each_ci_command_line(
+    path: &str,
+    source: &str,
+    mut observe: impl FnMut(usize, &str, bool),
+) {
+    if !is_sourcehut_path(path) {
+        for (index, line) in source.lines().enumerate() {
+            observe(index, line, false);
+        }
+        return;
+    }
+    let mut in_tasks = false;
+    let mut task_indent = None;
+    for (index, raw_line) in source.lines().enumerate() {
+        if let Some(script) = sourcehut_task_script(raw_line, &mut in_tasks, &mut task_indent) {
+            observe_sourcehut_commands(script, |command, changed_directory| {
+                observe(index, command, changed_directory);
+            });
+        }
+    }
+}
+
+fn sourcehut_task_script<'a>(
+    raw_line: &'a str,
+    in_tasks: &mut bool,
+    task_indent: &mut Option<usize>,
+) -> Option<&'a str> {
+    let trimmed = raw_line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let indent = raw_line.len() - raw_line.trim_start().len();
+    if indent == 0 && !trimmed.starts_with("- ") {
+        *in_tasks = ci_line_without_comment(trimmed).trim_end() == "tasks:";
+        *task_indent = None;
+        return None;
+    }
+    if !*in_tasks {
+        return None;
+    }
+    if task_indent.is_some_and(|task_indent| indent > task_indent) {
+        return Some(raw_line);
+    }
+    *task_indent = None;
+    let (_, value) = trimmed.strip_prefix("- ")?.split_once(':')?;
+    let value = ci_line_without_comment(value).trim();
+    if is_sourcehut_script_block(value) {
+        *task_indent = Some(indent);
+        None
+    } else {
+        Some(sourcehut_script_scalar(value))
+    }
+}
+
+fn is_sourcehut_script_block(value: &str) -> bool {
+    value.starts_with(['|', '>'])
+        && value[1..]
+            .chars()
+            .all(|character| matches!(character, '+' | '-' | '1'..='9'))
+}
+
+fn sourcehut_script_scalar(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .or_else(|| {
+            value
+                .strip_prefix('\'')
+                .and_then(|value| value.strip_suffix('\''))
+        })
+        .unwrap_or(value)
+}
+
+fn observe_sourcehut_commands(line: &str, mut observe: impl FnMut(&str, bool)) {
+    let mut changed_directory = false;
+    for_each_shell_segment(line, |segment| {
+        let segment = segment.trim();
+        changed_directory |= segment
+            .strip_prefix("cd")
+            .is_some_and(|suffix| suffix.starts_with(char::is_whitespace));
+        if let Some(command) = sourcehut_policy_command(segment) {
+            observe(command, changed_directory);
+        }
+    });
+}
+
+fn sourcehut_policy_command(segment: &str) -> Option<&str> {
+    let command = SOURCEHUT_SHELL_PREFIX
+        .find(segment)
+        .map_or(segment, |prefix| &segment[prefix.end()..]);
+    matches!(
+        command.split_ascii_whitespace().next(),
+        Some("cargo" | "make" | "rustfmt")
+    )
+    .then_some(command)
+}
+
+fn for_each_shell_segment(line: &str, mut observe: impl FnMut(&str)) {
+    let mut quote = None;
+    let mut escaped = false;
+    let mut start = 0;
+    for (index, character) in line.char_indices() {
+        if consume_shell_literal(character, &mut quote, &mut escaped) {
+            continue;
+        }
+        match character {
+            '#' => {
+                observe(&line[start..index]);
+                return;
+            }
+            ';' | '&' | '|' => {
+                observe(&line[start..index]);
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    observe(&line[start..]);
+}
+
+fn consume_shell_literal(character: char, quote: &mut Option<char>, escaped: &mut bool) -> bool {
+    if *escaped {
+        *escaped = false;
+        return true;
+    }
+    if character == '\\' && *quote != Some('\'') {
+        *escaped = true;
+        return true;
+    }
+    if let Some(delimiter) = *quote {
+        if character == delimiter {
+            *quote = None;
+        }
+        return true;
+    }
+    if matches!(character, '\'' | '"') {
+        *quote = Some(character);
+        return true;
+    }
+    false
 }
 
 pub(super) fn ci_line_without_comment(line: &str) -> &str {
@@ -492,6 +671,10 @@ static WILDCARD_DEPENDENCY_LINE: LazyLock<Regex> = LazyLock::new(|| {
         r#"(?m)^\s*([A-Za-z0-9_-]+)\s*=\s*(?:"\*"|'\*'|\{[^\n}]*\bversion\s*=\s*["']\*["'][^\n}]*\})"#,
     )
     .unwrap()
+});
+static SOURCEHUT_SHELL_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?x)^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+)*(?:if\s+!?\s*)?"#)
+        .unwrap()
 });
 static CARGO_RUST_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -928,6 +1111,159 @@ mod tests {
         )]);
 
         assert!(findings.is_empty(), "unexpected findings: {findings:?}");
+    }
+
+    #[test]
+    fn reports_missing_policies_for_supported_sourcehut_manifests() {
+        for path in [".build.yml", ".builds/linux.yml", ".builds/freebsd.yaml"] {
+            let findings = analyze_auxiliary([
+                ("Cargo.toml", "[dependencies]"),
+                ("Cargo.lock", "version = 4"),
+                (path, "tasks:\n  - test: |\n      cargo test"),
+            ]);
+
+            assert_eq!(
+                findings
+                    .iter()
+                    .map(|finding| (
+                        finding.code.as_str(),
+                        finding.path.as_str(),
+                        finding.line,
+                        finding.confidence.as_str(),
+                    ))
+                    .collect::<Vec<_>>(),
+                vec![
+                    ("rust-missing-clippy-ci", path, 3, "high"),
+                    ("rust-missing-format-ci", path, 3, "high"),
+                    ("rust-missing-dependency-audit", path, 3, "high"),
+                    ("rust-unlocked-ci-command", path, 3, "high"),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn sourcehut_format_task_satisfies_shared_policy_without_hiding_unlocked_commands() {
+        let findings = analyze_auxiliary([
+            ("Cargo.toml", "[dependencies]"),
+            ("Cargo.lock", "version = 4"),
+            (
+                ".github/workflows/ci.yml",
+                "steps:\n  - run: cargo test --locked\n  - run: cargo clippy --locked",
+            ),
+            (
+                ".builds/linux.yml",
+                "tasks:\n  - rustfmt: |\n      cd project\n      cargo +nightly fmt -- --check\n  - test: |\n      cargo test\n      cargo clippy --all-targets",
+            ),
+            (
+                ".builds/freebsd.yml",
+                "tasks:\n  - test: |\n      cargo test\n      cargo test --all-targets",
+            ),
+        ]);
+
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("rust-missing-dependency-audit", ".builds/freebsd.yml", 3),
+                ("rust-unlocked-ci-command", ".builds/freebsd.yml", 3),
+                ("rust-unlocked-ci-command", ".builds/linux.yml", 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_sourcehut_task_scripts_with_lock_and_audit_policies() {
+        for audit in ["cargo audit", "cargo +nightly audit", "cargo deny check"] {
+            let manifest = format!(
+                "tasks:\n  - test: |\n      RUSTFLAGS=\"-D warnings\" cargo test --frozen\n  - lint: cargo clippy --locked\n  - format: 'cargo +nightly fmt -- --check'\n  - audit: >-\n      {audit}\n"
+            );
+            let findings = analyze_auxiliary([
+                ("Cargo.toml", "[dependencies]"),
+                ("Cargo.lock", "version = 4"),
+                (".build.yml", manifest.as_str()),
+            ]);
+
+            assert!(
+                findings.is_empty(),
+                "unexpected findings for {audit}: {findings:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sourcehut_descriptions_and_shell_strings_do_not_supply_policy_evidence() {
+        let manifest = r#"image: alpine
+packages:
+  - cargo audit
+environment:
+  FORMAT: "cargo fmt -- --check"
+  LINT: "cargo xtask lint"
+description: |
+  cargo clippy
+  cargo audit
+tasks:
+  # cargo fmt -- --check && cargo audit
+  - cargo clippy: |
+      echo "cargo xtask lint; cargo fmt -- --check; cargo audit"
+      cargo test --locked -- "description; cargo audit"
+  - cargo audit: echo "make clippy-full"
+  - cargo fmt -- --check: echo "cargo clippy"
+"#;
+        let findings = analyze_auxiliary([
+            ("Cargo.toml", "[dependencies]"),
+            ("Cargo.lock", "version = 4"),
+            (".builds/ci.yml", manifest),
+        ]);
+
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("rust-missing-clippy-ci", 14),
+                ("rust-missing-format-ci", 14),
+                ("rust-missing-dependency-audit", 14),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_sourcehut_descriptions_without_executable_rust_tasks() {
+        let findings = analyze_auxiliary([
+            ("Cargo.toml", "[dependencies]"),
+            ("Cargo.lock", "version = 4"),
+            (
+                ".build.yml",
+                "packages:\n  - cargo test\nenvironment:\n  COMMAND: cargo test\ntasks:\n  - cargo test: |\n      # cargo test\n      echo 'cargo test'\n",
+            ),
+        ]);
+        assert!(findings.is_empty(), "unexpected findings: {findings:?}");
+    }
+
+    #[test]
+    fn ignores_non_ci_and_nested_sourcehut_lookalikes() {
+        for path in [
+            ".build.yaml",
+            ".builds/nested/ci.yml",
+            "member/.build.yml",
+            "fixtures/.build.yml",
+            "fixtures/.builds/ci.yaml",
+            ".builds/ci.txt",
+        ] {
+            let findings = analyze_auxiliary([
+                ("Cargo.toml", "[dependencies]"),
+                ("Cargo.lock", "version = 4"),
+                (path, "tasks:\n  - test: |\n      cargo test"),
+            ]);
+            assert!(
+                findings.is_empty(),
+                "unexpected findings for {path}: {findings:?}"
+            );
+        }
     }
 
     fn analyze_project<const A: usize, const S: usize>(

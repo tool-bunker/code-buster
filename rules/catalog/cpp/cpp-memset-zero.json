@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This construct weakens C++ type, lifetime, or interface safety.",
-  "suggestion": "Use the safer typed C++ alternative described by the rule.",
-  "version": 1,
+  "why": "Zeroing a complete object's representation bypasses typed initialization and may not produce a valid value for its C++ type.",
+  "suggestion": "Consider typed initialization or assignment when the object's semantics permit it; do not replace intentional byte-level buffer clearing with value initialization.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,9 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Requires memset, std::memset, or ::memset with an address-of simple object identifier, literal 0, and sizeof of the identical identifier; multiline calls are supported.",
+    "Does not report runtime pointer ranges, indexed or member expressions, pointer offsets, arbitrary byte counts, or nonmatching sizeof targets.",
+    "Lexically masks comments and ordinary, continued, and raw string literals; does not resolve macros, overloads, object types, initialization lifetimes, or representation equivalence."
+  ]
 }

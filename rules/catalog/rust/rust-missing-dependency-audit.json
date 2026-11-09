@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "A committed Cargo lockfile can retain dependencies with published security advisories unless CI checks it against an advisory database.",
   "suggestion": "Run cargo audit or cargo deny check in CI, or add the RustSec audit-check or cargo-deny action.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,8 +28,9 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
+    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, Jenkins, and SourceHut manifests are inspected; SourceHut paths are limited to root .build.yml and direct .builds/*.yml or .builds/*.yaml files.",
     "Commands hidden behind repository scripts, reusable workflows, aliases, or nonstandard shell wrappers are not resolved.",
-    "The rule recognizes audit configuration but does not validate advisory database freshness or enforcement settings."
+    "The rule recognizes audit configuration but does not validate advisory database freshness or enforcement settings.",
+    "SourceHut evidence comes only from direct commands in tasks script scalars, not task names, packages, environment values, comments, or descriptions; YAML aliases and shell expansion or multiline command reconstruction are not resolved."
   ]
 }

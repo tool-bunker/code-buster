@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A dominant boundary loses policy ownership when callers access its implementations directly.",
   "suggestion": "Route direct access through the established boundary.",
-  "version": 4,
+  "version": 6,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -28,14 +28,13 @@
   "languages": [
     "dart",
     "csharp",
-    "java",
     "javascript",
     "typescript"
   ],
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Requires three external boundary users and dominant use over direct implementation access.",
+    "Requires three external boundary users and dominant use over direct product construction; Java factories are excluded until package-qualified product identity can be resolved.",
     "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
   ]
 }

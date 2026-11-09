@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A function exceeds configured complexity thresholds.",
   "suggestion": "Split or simplify the function, or document a local suppression when one cohesive parser or traversal must retain shared state.",
-  "version": 11,
+  "version": 12,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -31,6 +31,11 @@
     "Anonymous callbacks and expression-bodied arrow functions are not measured.",
     "Cyclomatic complexity counts each logical operator, while cognitive complexity counts a consecutive chain of the same logical operator once.",
     "Complex localization implementations are grouped into one repository finding with related locations.",
-    "Python comments and single-line or triple-quoted string contents are excluded from complexity signals."
+    "Python comments and single-line or triple-quoted string contents are excluded from complexity signals.",
+    "Rust complexity measurement excludes nested named callable bodies and local impl declarations from their enclosing function without changing extracted sources or locations.",
+    "Recognized empty Rust closure delimiters are not boolean OR operators; executable branches inside closures and ordinary runtime macros remain part of their enclosing function.",
+    "Rust quote-crate quote! token templates are excluded when a direct qualified call or an explicit direct/grouped import establishes the macro binding; simple imported aliases are supported and local macro_rules shadowing is retained conservatively.",
+    "Unresolved or re-exported quote aliases, wildcard imports, quote_spanned! and other macros are retained; macro expansion and full Rust name resolution are not performed.",
+    "Rust callable boundaries are lexical; inline declarations not recognized by extraction may not be separated. Cognitive nesting remains a brace-depth approximation that includes ordinary scopes, match arms and closures."
   ]
 }

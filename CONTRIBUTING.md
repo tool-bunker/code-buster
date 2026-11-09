@@ -130,6 +130,14 @@ Prefer parsed or semantic evidence when text matching cannot distinguish safe an
 
 The detector ignores only invariants it can establish from source structure: literal regexes, formatted regexes whose dynamic arguments all use `regex::escape`, regex capture group zero, generated catalog lookups, catalog severity parsing, and UTF-8 reconstruction whose message documents the byte-preserving invariant. Dynamic regexes, optional or unchecked capture groups, and runtime `Option` or `Result` values remain reportable.
 
+Local flow proofs also accept matching, uninvalidated `Option` guards (including
+`else if`), first-character access after an exact character-count check, and fresh
+case-mapping iterators from locally established `char` values. `CString::new`
+accepts NUL-free literals and unambiguous root `const &str` literals; dynamic
+values, ambiguous names, and unsupported literal escapes remain reportable.
+These checks do not resolve arbitrary Rust types or infer safety from an
+unconditional public module merely being named `test`.
+
 ### Rust repository-policy rules
 
 Rust repositories with checked-in CI should run `cargo fmt --all -- --check`
@@ -137,6 +145,11 @@ or an equivalent direct `rustfmt --check`, and Clippy alongside their normal
 Cargo build or test command. Code Buster accepts toolchain-qualified commands such as
 `cargo +stable clippy`; it does not require the version-sensitive `pedantic`,
 `nursery`, or beta lint sets.
+
+SourceHut manifests at `.build.yml` and direct `.builds/*.yml` or
+`.builds/*.yaml` paths participate in the same repository-policy checks.
+Only executable task script scalars contribute command evidence; package lists,
+environment values, task names, comments, and descriptive command examples do not.
 
 Repositories with a committed `Cargo.lock` should audit resolved dependencies
 in CI and pass `--locked` or `--frozen` to direct build, check, test, and Clippy

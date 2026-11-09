@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "security",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 2,
+  "why": "MD5 and SHA-1 do not provide modern collision resistance. Their presence is a security-review hotspot, not proof of a vulnerability: a digest may identify non-security data or implement an externally fixed protocol.",
+  "suggestion": "Determine what the digest protects. Use an appropriate modern primitive for security designs you control. For proven non-security hashing, usedforsecurity=False documents intent without changing digest bytes. For provider-mandated protocols, review and document the constraint rather than replacing the algorithm unilaterally or mislabeling security use as non-security.",
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,5 +28,9 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Textual detection recognizes hashlib.md5, hashlib.sha1, and new calls naming MD5 or SHA-1; new receiver identities and imported aliases are not resolved.",
+    "The rule does not establish cryptographic purpose, exploitability, protocol ownership, or whether a digest reaches a security-sensitive sink.",
+    "Explicit usedforsecurity=False intent is accepted. Filenames, caches, extractor code, HTTP requests, and fixed provider protocols are not blanket exemptions because those shapes can also protect security boundaries."
+  ]
 }

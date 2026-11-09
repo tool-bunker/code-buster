@@ -45,9 +45,10 @@ fn qualifies_as_cpp_declaration(line: &str) -> bool {
 }
 
 fn cpp_declaration_candidate(declaration: &str) -> (bool, Option<String>) {
+    let declaration = mask_cpp_declaration_attributes(declaration);
     let Some(declaration) = CPP_OBJECTIVE_C_METHOD
-        .captures(declaration)
-        .or_else(|| CPP_FUNCTION.captures(declaration))
+        .captures(&declaration)
+        .or_else(|| CPP_FUNCTION.captures(&declaration))
     else {
         return (false, None);
     };
@@ -57,6 +58,27 @@ fn cpp_declaration_candidate(declaration: &str) -> (bool, Option<String>) {
         name.filter(|name| !CPP_CONTROL_NAME.is_match(name))
             .map(str::to_owned),
     )
+}
+
+fn mask_cpp_declaration_attributes(declaration: &str) -> String {
+    let mut masked = declaration.as_bytes().to_vec();
+    let mut cursor = 0;
+    while let Some(relative_start) = declaration[cursor..].find("__attribute__") {
+        let start = cursor + relative_start;
+        let Some(open) = declaration[start..].find('(').map(|offset| start + offset) else {
+            break;
+        };
+        let Some(close) = matching_delimiter(declaration, open, b'(', b')') else {
+            break;
+        };
+        for byte in &mut masked[start..=close] {
+            if !matches!(*byte, b'\n' | b'\r') {
+                *byte = b' ';
+            }
+        }
+        cursor = close + 1;
+    }
+    String::from_utf8(masked).expect("C++ attribute masking preserves UTF-8")
 }
 
 fn is_cpp_signature_start(line: &str) -> bool {

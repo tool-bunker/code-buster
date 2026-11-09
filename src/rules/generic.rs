@@ -200,6 +200,18 @@ fn uses_cpp_digit_separators(path: &str) -> bool {
         })
 }
 
+fn uses_c_family_braced_collections(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension,
+                "c" | "C" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" | "ipp" | "m" | "mm"
+            )
+        })
+}
+
 struct LargeNumberLanguageExclusions<'a> {
     path: &'a str,
     python: bool,
@@ -586,6 +598,15 @@ fn uses_html_text_syntax(path: &str) -> bool {
 fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, source) in sources {
+        if (uses_c_family_braced_collections(path)
+            && !path.ends_with(".m")
+            && !path.ends_with(".mm"))
+            || Path::new(path)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
+        {
+            continue;
+        }
         let lines = source.split('\n').collect::<Vec<_>>();
         if lines
             .iter()
@@ -609,11 +630,14 @@ fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
             let Some(collection) = COLLECTION.captures(&code) else {
                 continue;
             };
-            if uses_cpp_digit_separators(path)
+            if uses_c_family_braced_collections(path)
                 && collection
                     .get(0)
                     .is_some_and(|value| value.as_str().starts_with('{'))
             {
+                continue;
+            }
+            if is_java_constant_collection(path, &lines, index) {
                 continue;
             }
             if collection
@@ -635,6 +659,25 @@ fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
         }
     }
     findings
+}
+
+fn is_java_constant_collection(path: &str, lines: &[&str], line_index: usize) -> bool {
+    if !path.ends_with(".java") {
+        return false;
+    }
+    let mut context = String::new();
+    for (offset, line) in lines[..=line_index].iter().rev().take(512).enumerate() {
+        let code = line.split_once("//").map_or(*line, |(code, _)| code);
+        context.insert_str(0, code);
+        context.insert(0, ' ');
+        if JAVA_CONSTANT_COLLECTION.is_match(&context) {
+            return true;
+        }
+        if offset > 0 && code.contains(';') {
+            return false;
+        }
+    }
+    false
 }
 
 pub(crate) fn mask_rust_test_regions(path: &str, source: &str) -> String {
@@ -665,19 +708,7 @@ fn needless_bool_branches(sources: &BTreeMap<String, String>) -> Vec<Finding> {
             if !TRUE_BRANCH.is_match(&strip_generic_strings(line)) {
                 continue;
             }
-            let mut matching_false = false;
-            for next in lines.iter().skip(index + 1).take(4) {
-                let raw = next.trim();
-                if raw.is_empty() {
-                    continue;
-                }
-                if CONDITIONAL_BOOLEAN_RETURN.is_match(raw) {
-                    break;
-                }
-                matching_false = FALSE_RETURN.is_match(&strip_generic_strings(raw));
-                break;
-            }
-            if matching_false {
+            if followed_by_false_return(&lines, index) {
                 findings.push(finding(
                     "needless-bool-branch",
                     path,
@@ -689,6 +720,18 @@ fn needless_bool_branches(sources: &BTreeMap<String, String>) -> Vec<Finding> {
         }
     }
     findings
+}
+
+fn followed_by_false_return(lines: &[&str], line_index: usize) -> bool {
+    for next in lines.iter().skip(line_index + 1).take(4) {
+        let raw = next.trim();
+        if raw.is_empty() {
+            continue;
+        }
+        return !CONDITIONAL_BOOLEAN_RETURN.is_match(raw)
+            && FALSE_RETURN.is_match(&strip_generic_strings(raw));
+    }
+    false
 }
 
 fn strip_generic_strings(line: &str) -> Cow<'_, str> {
@@ -989,7 +1032,7 @@ static LEADING_CAST: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:\(\s*(?:(?:const|volatile|signed|unsigned|struct)\s+)*[A-Za-z_]\w*(?:\s*[*&]\s*)*\)\s*)+$").unwrap()
 });
 static NAN_CONTEXT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(?:isnan|nan)\b").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)(?:\bnan\b|(?:isnan|isfinite)\b)").unwrap());
 static FOLLOWING_NAN_GUARD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(?:unexpected\s+nan|nan\s+cannot\s+equal)\b").unwrap());
 static NO_SELF_COMPARE: LazyLock<Regex> =
@@ -1027,6 +1070,12 @@ static GENERATED_HEADER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bcode generated\b.*\bdo not edit\b").unwrap());
 static COLLECTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\[{](?P<contents>[^\]}]+)[\]}]").unwrap());
+static JAVA_CONSTANT_COLLECTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\bstatic\s+final\s+[A-Za-z_$][\w$]*(?:\s*<[^;=]+>)?\s*(?:(?:\[\s*\]\s*)+[A-Za-z_$][\w$]*|[A-Za-z_$][\w$]*(?:\s*\[\s*\])+)\s*=\s*(?:new\s+[A-Za-z_$][\w$]*(?:\s*<[^;=]+>)?(?:\s*\[\s*\])+\s*)?\{",
+    )
+    .unwrap()
+});
 static TRUE_BRANCH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*if\s*\([^)]*\)\s*(?:return\s+true|\{\s*return\s+true)").unwrap()
 });

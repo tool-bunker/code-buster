@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.14.2
+
+### Fixed
+
+- Reduce OpenJDK-scale corpus noise by excluding bundled native dependencies, Java serialization hooks, lexical token labels, non-secret compound key identifiers, database-free query DSLs, documentation examples, observed futures and independently retained submitted `FutureTask` handles, static `innerHTML` templates backed by immutable local strings, static final array data, paired NaN comparisons, and unresolved cross-package factory product identities.
+- Exclude escaped HTML examples and Javadoc package fragments from document checks, recognize redirect pages and transferred Java resources, classify bundled Highlight.js and Pandoc-generated documents outside production analysis, leave idiomatic C cleanup gotos out of the actionable C# goto rule, keep intent-dependent empty Java catches and architectural dependency cycles advisory by default, compare localized Java resources and native headers only with matching peers, and omit Shell/HTML license comments from duplication windows.
+- Recognize complete embedded C/C++ toolchain library layouts as vendored source and exclude intentional `isfinite` self-comparison idioms.
+- Reduce Python corpus noise by masking embedded class-level test fixtures, treating `devscripts` as tooling for test-support imports, accepting SQL identifiers selected exclusively from literal choices, and allowing reviewed bare exception handlers that perform cleanup before an unconditional rethrow.
+- Reduce QEMU-scale C/C++ corpus noise by excluding leading GNU GPL and LGPL license blocks from comment-density analysis and resolving GNU-attributed function declarations to their actual symbol names.
+- Reduce yt-dlp advisory false positives by distinguishing dictionary and key-value lookups from ORM model retrieval in loop-query checks, and requiring standard-library logging provenance before recommending deferred debug or info message formatting.
+- Distinguish fresh interactive Python input-validation retries from autonomous failure retries, retain potentially nonterminating future-timeout polling advice, and clarify weak-hash hotspots so non-security identifiers and fixed provider protocols are not presented as automatically replaceable cryptography.
+- Reduce AnyPS5 corpus false positives by distinguishing runtime byte-range clearing from matching whole-object C++ zeroing, excluding C++ lambda captures and CSS blocks from inline-collection advice, and accepting complete expressions for trusted base-repository default-branch metadata in GitHub Actions without accepting mixed or pull-request-head expressions.
+- Recognize Python descriptor-backed attribute names, abstain from optional-parameter and callback omission claims when callers unpack unknown arguments, exclude standalone `test_*.py` files from production scope unless requested, and stop treating whitespace in ordinary subprocess argument values as malformed executable names.
+- Group C++ cast and mutable-reference review advice by rule and file while retaining every distinct evidence line; handle per-parameter constness, nested template qualifiers, pointer constness, multiline signatures, and raw-string or continued-comment boundaries more precisely.
+- Reduce Rust panic false positives for dominating `else if` Option guards, guarded character iteration, nonempty `char` case mappings, and unambiguous NUL-free `CString` literals or root string constants, including multiline method chains; preserve findings for invalidated guards and unresolved inputs.
+- Recognize checked-in SourceHut task scripts for Cargo formatting, lint, audit, lockfile, and workspace CI policy checks, without treating descriptive YAML text as executed commands; include these manifests in metadata discovery and cache invalidation.
+- Measure nested Rust functions and visitor methods independently, exclude proven `quote!` token templates from runtime complexity, and distinguish empty closure delimiters from boolean OR without discarding executable closure branches.
+- Recognize unquoted shell argument forwarding through `$@`, `$*`, `${@}`, and `${*}`, including recursive-removal risks, while preserving quoting and nonsplitting-context exclusions and per-file advisory grouping.
+- Recognize standalone, same-scope Rust `is_none()` early-return guards before `unwrap` and `expect`, including borrowed access and exact shadow-binding initializers, while retaining warnings for mutated, non-dominating, and unresolved values.
+- Exclude structured leading shell environment and usage contracts from comment-density advice without excluding unstructured narration or comments after the first command.
+
+
 ## 0.14.1
 
 ### Fixed

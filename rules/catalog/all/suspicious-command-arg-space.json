@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "warn",
   "legacyGroup": "suspicious",
-  "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
-  "suggestion": "Clarify the intent or replace the suspicious construct.",
-  "version": 2,
+  "why": "An executable string containing a whole command may be passed as one executable name rather than a program plus separate arguments.",
+  "suggestion": "Keep the executable and its arguments separate, or confirm that the executable path itself intentionally contains spaces. Spaces in later argument values are valid.",
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Whole command strings passed to Python subprocess calls with shell=True are excluded because spaces delimit shell arguments; py-subprocess-shell reports that separate risk."
+    "Only a directly written executable string or first literal argv entry is examined; later argument values, including labels, scripts, and filenames, may legitimately contain whitespace.",
+    "Whole command strings passed to Python subprocess calls with shell=True and expressions using split() are excluded. Dynamic executable expressions and executable-path intent are not inferred."
   ]
 }

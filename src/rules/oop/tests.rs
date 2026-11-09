@@ -62,6 +62,38 @@ class Two { public void Run(int region, string tenant, bool active) { } }
 
         assert!(analyze(&sources).is_empty());
     }
+
+    #[test]
+    fn factory_bypass_abstains_when_java_type_identity_is_unresolved() {
+        let sources = BTreeMap::from([
+            (
+                "WidgetFactory.java".to_owned(),
+                "class WidgetFactory { Widget make() { return new Widget(); } }".to_owned(),
+            ),
+            (
+                "UserA.java".to_owned(),
+                "class UserA { WidgetFactory factory; }".to_owned(),
+            ),
+            (
+                "UserB.java".to_owned(),
+                "class UserB { WidgetFactory factory; }".to_owned(),
+            ),
+            (
+                "UserC.java".to_owned(),
+                "class UserC { WidgetFactory factory; }".to_owned(),
+            ),
+            (
+                "ProductReference.java".to_owned(),
+                "class ProductReference { Widget widget = new Widget(); }".to_owned(),
+            ),
+        ]);
+
+        assert!(
+            analyze(&sources)
+                .iter()
+                .all(|finding| finding.code != "oop-factory-bypass")
+        );
+    }
     #[test]
     fn includes_top_level_typescript_functions_in_data_clumps() {
         let sources = BTreeMap::from([

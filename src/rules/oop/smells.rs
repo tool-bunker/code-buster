@@ -1060,7 +1060,10 @@ fn boundary_candidates(project: &Project) -> impl Iterator<Item = BoundaryCandid
         project
             .classes
             .iter()
-            .filter(move |class| class.name.ends_with(policy.role))
+            .filter(move |class| {
+                class.name.ends_with(policy.role)
+                    && !(policy.role == "Factory" && class.path.ends_with(".java"))
+            })
             .filter_map(move |boundary| {
                 let source = project.sources.get(&boundary.path)?;
                 let covered = covered_boundary_types(boundary, policy.role, source);
@@ -1121,10 +1124,19 @@ fn dominant_boundary_bypasses<'a>(
         if boundary_pattern.is_match(source) {
             uses.insert(path.as_str());
         }
-        let direct = covered_patterns
-            .iter()
-            .filter(|pattern| pattern.is_match(source))
-            .count();
+        let direct = if candidate.policy.role == "Factory" {
+            NEW_NAMED
+                .captures_iter(source)
+                .filter(|capture| candidate.covered.contains(&capture[1]))
+                .map(|capture| capture[1].to_owned())
+                .collect::<BTreeSet<_>>()
+                .len()
+        } else {
+            covered_patterns
+                .iter()
+                .filter(|pattern| pattern.is_match(source))
+                .count()
+        };
         if direct >= candidate.policy.direct_threshold {
             bypasses.push(path.as_str());
         }

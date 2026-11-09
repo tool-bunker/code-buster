@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "Unexpected mixed-case function names make Python APIs less predictable unless an inherited or framework protocol fixes the spelling.",
-  "suggestion": "Use lower_snake_case for project-owned functions while preserving required external protocol names.",
-  "version": 6,
+  "why": "Unexpected mixed-case function names make Python APIs less predictable unless an inherited or framework protocol fixes the spelling or a descriptor exposes an attribute rather than an ordinary function.",
+  "suggestion": "Use lower_snake_case for project-owned functions while preserving descriptor-backed attribute names and required external protocol names.",
+  "version": 7,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,8 @@
   "languageVersions": [],
   "limitations": [
     "HTTP handlers, test lifecycle hooks, AST-style visitor hooks, COM methods, monkey-patch replacements, methods marked override, and inline Ruff N802 or Pylint invalid-name suppressions are excluded.",
+    "Attached property, classproperty, and cached_property decorators are recognized by terminal identifier, including qualified and configured multiline forms. Getter, setter, and deleter decorators are excluded only when the referenced attribute name matches the definition.",
+    "Decorator bindings are not resolved: custom aliases and dynamically constructed descriptors may still report, while unrelated custom decorators reusing a recognized descriptor name may be treated as descriptors.",
     "Other dynamically discovered framework callbacks may still require an explicit project lint policy."
   ]
 }

@@ -327,15 +327,17 @@ fn is_ci_auxiliary_path(relative: &Path) -> bool {
         && file_name.is_some_and(|name| {
             matches!(
                 name,
-                ".gitlab-ci.yml" | "azure-pipelines.yml" | "Jenkinsfile"
+                ".build.yml" | ".gitlab-ci.yml" | "azure-pipelines.yml" | "Jenkinsfile"
             )
         });
-    let github_workflow = relative.parent() == Some(Path::new(".github/workflows"))
-        && relative
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| matches!(extension, "yml" | "yaml"));
-    root_ci || github_workflow
+    let yaml_manifest = matches!(
+        relative.parent(),
+        Some(parent) if parent == Path::new(".github/workflows") || parent == Path::new(".builds")
+    ) && relative
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension, "yml" | "yaml"));
+    root_ci || yaml_manifest
 }
 
 fn collect_flutter_asset_existence(
@@ -394,6 +396,25 @@ mod tests {
         fs::create_dir_all(&member).unwrap();
         fs::create_dir_all(&workflows).unwrap();
         fs::create_dir_all(root.path().join(".github/other")).unwrap();
+        fs::create_dir_all(root.path().join(".builds/nested")).unwrap();
+        fs::create_dir_all(root.path().join("fixtures/.builds")).unwrap();
+        for path in [
+            ".build.yml",
+            ".builds/linux.yml",
+            ".builds/freebsd.yaml",
+            ".build.yaml",
+            ".builds/notes.txt",
+            ".builds/nested/ci.yml",
+            "fixtures/.build.yml",
+            "fixtures/.builds/ci.yml",
+            "member/.build.yml",
+        ] {
+            fs::write(
+                root.path().join(path),
+                "tasks:\n  - test: |\n      cargo test",
+            )
+            .unwrap();
+        }
         fs::write(root.path().join("package.json"), "{}").unwrap();
         fs::write(root.path().join("Cargo.lock"), "version = 4").unwrap();
         fs::write(root.path().join("Makefile"), "lint:\n\tcargo clippy").unwrap();
@@ -429,6 +450,9 @@ mod tests {
         assert_eq!(
             files.keys().map(String::as_str).collect::<Vec<_>>(),
             vec![
+                ".build.yml",
+                ".builds/freebsd.yaml",
+                ".builds/linux.yml",
                 ".github/workflows/audit.yaml",
                 ".github/workflows/ci.yml",
                 ".gitlab-ci.yml",

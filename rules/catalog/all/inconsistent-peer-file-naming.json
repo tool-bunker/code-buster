@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A lone naming-style outlier makes related files harder to scan and discover.",
   "suggestion": "Rename the file to the dominant convention used by its peers.",
-  "version": 7,
+  "version": 8,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Peers are compared within the same directory and broad file role so components, named type modules, and utility modules do not establish conventions for one another. Conventional role and metadata files, PascalCase compound partial-file names, single-word lowercase names in lowercase naming families, and PascalCase script files matching a directly exported declaration are excluded."
+    "Peers are compared within the same directory and broad file role so components, named type modules, utility modules, native headers, native implementation files, and localized Java resources do not establish conventions for one another. Conventional role and metadata files, PascalCase compound partial-file names, single-word lowercase names in lowercase naming families, and PascalCase script files matching a directly exported declaration are excluded."
   ]
 }

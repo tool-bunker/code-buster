@@ -406,9 +406,11 @@ static UNTRUSTED_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$\{\{\s*(?:github\.event(?:\.|\[)|github\.head_ref\b)")
         .expect("GitHub Actions event expression regex must compile")
 });
+// Only complete expressions qualify: repository.default_branch belongs to the
+// trusted base repository, unlike pull_request.head.repo or mixed expressions.
 static SAFE_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"\$\{\{\s*(?:github\.event\.pull_request\.number|github\.event\.workflow_run\.head_sha)\s*\}\}",
+        r"\$\{\{\s*(?:github\.event\.pull_request\.number|github\.event\.workflow_run\.head_sha|github\.event\.repository\.default_branch)\s*\}\}",
     )
     .expect("safe GitHub event expression regex must compile")
 });
@@ -471,6 +473,51 @@ jobs:
             [6]
         );
     }
+
+    #[test]
+    fn accepts_only_complete_base_repository_default_branch_expressions() {
+        let path = ".github/workflows/labels.yml";
+        let findings = analyze_auxiliary([(
+            path,
+            r#"jobs:
+  labels:
+    steps:
+      - run: git fetch origin ${{ github.event.repository.default_branch }}
+      - run: |
+          git diff origin/${{github.event.repository.default_branch}} --name-only
+      - run: echo "${{ github.event.pull_request.head.repo.default_branch }}"
+      - run: echo "${{ github.event.repository.default_branch_suffix }}"
+      - run: echo "${{ github.event.repository.default_branch.name }}"
+      - run: echo "${{ github.event.repository.default_branch || github.event.pull_request.title }}"
+      - run: echo "${{ github.event.repository.default_branch }} ${{ github.event.pull_request.body }}"
+      - run: echo "${{ github.event.repository.default_branch }} ${{ github.head_ref }}"
+      - run: echo "${{ github.event.repository.default_branch }} ${{ github.event.pull_request.title }}"
+      - run: echo "${{ github.event.repository.default_branch }} ${{ github.event.repository.name }}"
+      - run: echo "${{ github.event.repository.default_branch + 'suffix' }}"
+      - run: |
+          echo "${{ github.event.repository.default_branch }}"
+          echo "${{ github.event.pull_request.body }}"
+"#,
+        )]);
+
+        let injections = findings
+            .iter()
+            .filter(|finding| finding.code == TEMPLATE_INJECTION)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            injections
+                .iter()
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [7, 8, 9, 10, 11, 12, 13, 14, 15, 18]
+        );
+        for finding in injections {
+            assert_eq!(finding.path, path);
+            assert_eq!(finding.confidence, "high");
+            assert!(finding.related_files.is_empty());
+        }
+    }
+
     #[test]
     fn accepts_environment_indirection_and_trusted_expressions() {
         let findings = analyze_auxiliary([(

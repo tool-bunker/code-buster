@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "An empty, split, or unexpectedly broad path expansion in rm -rf can remove data outside the intended target.",
   "suggestion": "Validate the target, require a non-empty expansion such as ${dir:?}, quote it, and avoid appending globs to unguarded variables.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -29,7 +29,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Detection requires recursive and force flags plus an unquoted expansion or an unguarded variable followed by a glob; quoted command substitutions are excluded.",
+    "Detection requires recursive and force flags plus an unquoted named parameter, an exact $@, $*, ${@}, or ${*} forwarding expansion, or an unguarded variable followed by a glob; quoted command substitutions are excluded.",
     "Validation performed in earlier commands is not resolved."
   ]
 }

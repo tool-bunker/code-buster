@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "This Java construct can weaken correctness, observability, or security.",
   "suggestion": "Use the safer Java API or pattern described by the rule.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only direct ObjectInputStream construction is reported; serialization hook signatures and type references are excluded."
+  ]
 }

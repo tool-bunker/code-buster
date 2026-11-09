@@ -413,10 +413,21 @@ impl Discovery {
         if name.to_ascii_lowercase().ends_with(".framework") {
             return DirectoryAction::Count("generated");
         }
+        let role = classify_file_role(relative, &self.policy);
+        if self.production.is_empty()
+            && excludes_source_role(
+                role,
+                self.config.include_all,
+                self.config.include_tests,
+                self.config.include_examples,
+                self.config.include_vendored,
+            )
+        {
+            return DirectoryAction::Count(coverage_reason(role));
+        }
         if self.production.is_empty()
             && matches_prefixes(&relative_with_slash(relative), &self.ignores)
         {
-            let role = classify_path(relative, &self.policy);
             return DirectoryAction::Count(coverage_reason(role));
         }
         if is_git_ignored(&relative_with_slash(relative), true, git_rules) {
@@ -464,6 +475,10 @@ impl Discovery {
 
         let bytes = fs::read(path)
             .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        if self.should_exclude_bundled_vendor(forced_production, &bytes) {
+            self.record("vendored");
+            return Ok(());
+        }
         let generated = GeneratedEvidence::from_bytes(relative, extension, &bytes);
         if self.should_exclude_generated(relative, git_rules, forced_production, false, generated) {
             self.record_generated(relative, false, generated);
@@ -493,6 +508,18 @@ impl Discovery {
         } else if looks_binary(extension) {
             self.record("binary");
         }
+    }
+
+    fn should_exclude_bundled_vendor(&self, forced_production: bool, bytes: &[u8]) -> bool {
+        !forced_production
+            && excludes_source_role(
+                SourceRole::Vendored,
+                self.config.include_all,
+                self.config.include_tests,
+                self.config.include_examples,
+                self.config.include_vendored,
+            )
+            && has_bundled_vendor_header(bytes)
     }
 
     fn should_exclude_generated(
@@ -669,6 +696,7 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
         SourceRole::Example if !is_example_path(&segments) => SourceRole::Production,
         SourceRole::Vendored
             if !VERSIONED_VENDOR_ASSET.is_match(name)
+                && !(policy.bundled_toolchain && is_bundled_toolchain_path(&segments))
                 && ![
                     "vendor",
                     "vendored",
@@ -681,6 +709,15 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
                     "thirdparty_files",
                     "compiled",
                     "cargokit",
+                    "libfreetype",
+                    "libharfbuzz",
+                    "libpipewire",
+                    "upstream",
+                    "zlib",
+                    "libjavajpeg",
+                    "liblcms",
+                    "libpng",
+                    "giflib",
                 ]
                 .iter()
                 .any(|candidate| {
@@ -698,6 +735,15 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
         }
         _ => role,
     }
+}
+
+fn has_bundled_vendor_header(bytes: &[u8]) -> bool {
+    let prefix = &bytes[..bytes.len().min(1024)];
+    std::str::from_utf8(prefix).is_ok_and(|header| {
+        header.contains("Highlight.js v")
+            && header.contains("Josh Goebel")
+            && header.contains("License:")
+    })
 }
 
 fn excludes_source_role(
@@ -821,12 +867,17 @@ fn coverage_reason(role: SourceRole) -> &'static str {
 
 #[derive(Default)]
 struct RepositoryPolicy {
+    bundled_toolchain: bool,
     postgresql: bool,
 }
 
 impl RepositoryPolicy {
     fn infer(root: &Path) -> Self {
         Self {
+            bundled_toolchain: root.join("src").is_dir()
+                && ["lib/libc", "lib/libcxx", "lib/libcxxabi", "lib/include"]
+                    .iter()
+                    .all(|path| root.join(path).is_dir()),
             postgresql: root.join("configure.ac").is_file()
                 && root.join("src/backend").is_dir()
                 && root.join("contrib").is_dir(),
@@ -864,16 +915,37 @@ fn classify_path(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
         "thirdparty_files",
         "compiled",
         "cargokit",
+        "libfreetype",
+        "libharfbuzz",
+        "libpipewire",
+        "upstream",
+        "zlib",
+        "libjavajpeg",
+        "liblcms",
+        "libpng",
+        "giflib",
     ]
     .iter()
     .any(|candidate| segments.contains(candidate))
     {
         return SourceRole::Vendored;
     }
+    if policy.bundled_toolchain && is_bundled_toolchain_path(&segments) {
+        return SourceRole::Vendored;
+    }
     if is_generated_directory(&segments) {
         return SourceRole::Generated;
     }
     SourceRole::Production
+}
+
+fn is_bundled_toolchain_path(segments: &[&str]) -> bool {
+    segments.len() >= 2
+        && segments[0] == "lib"
+        && matches!(
+            segments[1],
+            "include" | "libc" | "libcxx" | "libcxxabi" | "libtsan" | "libunwind"
+        )
 }
 
 pub(crate) fn is_builtin_production_path(relative: &str) -> bool {
@@ -909,7 +981,8 @@ fn is_test_file_name(name: &str) -> bool {
     matches!(
         name,
         "conftest.py" | "pytest.py" | "testing.py" | "testutils.py"
-    ) || TEST_SETUP_FILE_REGEX.is_match(name)
+    ) || (name.starts_with("test_") && name.ends_with(".py"))
+        || TEST_SETUP_FILE_REGEX.is_match(name)
         || TEST_FILE_REGEX.is_match(name)
 }
 
@@ -1660,6 +1733,7 @@ fn has_generated_header_bytes(bytes: &[u8]) -> bool {
 
 fn is_generated_header(header: &str) -> bool {
     GENERATED_HEADER_REGEX.is_match(header)
+        || PANDOC_GENERATOR_REGEX.is_match(header)
         || has_generated_comment_header(header)
         || GENERATED_HEADER_MARKERS
             .iter()
@@ -1847,6 +1921,12 @@ static VERSIONED_VENDOR_ASSET: LazyLock<Regex> = LazyLock::new(|| {
 static GENERATED_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(?://|/\*)\s*(?:generated (?:code )?with\b|note:\s*this is generated code\b|do not change[,;:]?\s+this code is generated\b)").unwrap()
 });
+static PANDOC_GENERATOR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?mi)^[ \t]*<meta[ \t]+name=["']generator["'][ \t]+content=["']pandoc(?:["' \t/>])"#,
+    )
+    .unwrap()
+});
 static GENERATED_COMMENT_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?mi)^[ \t]*(?://|#)[ \t]*(?:<auto-generated(?:[ \t]*/)?[ \t]*>|auto generated by\b|[^\n]*\bgenerated file\b[^\n]*\bdo not manually edit\b)",
@@ -1859,8 +1939,8 @@ mod tests {
     use std::fs;
 
     use super::{
-        RepositoryPolicy, SourceRole, classify_file_role, classify_path, is_generated_header,
-        language_from_shebang,
+        RepositoryPolicy, SourceRole, classify_file_role, classify_path, has_bundled_vendor_header,
+        is_generated_header, language_from_shebang,
     };
     use crate::languages;
 
@@ -1918,6 +1998,9 @@ mod tests {
             "// this file is an amalgamation of multiple different files.\n\
              // you probably shouldn't edit it directly."
         ));
+        assert!(is_generated_header(
+            "<!doctype html>\n<meta name=\"generator\" content=\"pandoc\" />"
+        ));
         assert!(!is_generated_header(
             "// automatically generated documentation"
         ));
@@ -1941,6 +2024,48 @@ mod tests {
     }
 
     #[test]
+    fn classifies_embedded_toolchain_libraries_only_with_complete_layout_evidence() {
+        let root = tempfile::tempdir().expect("temporary repository must be created");
+        fs::create_dir_all(root.path().join("src")).expect("source directory");
+        fs::create_dir_all(root.path().join("lib/libc")).expect("libc directory");
+        let incomplete = RepositoryPolicy::infer(root.path());
+        assert_eq!(
+            classify_path("lib/include/project.h", &incomplete),
+            SourceRole::Production
+        );
+
+        for path in ["lib/libcxx", "lib/libcxxabi", "lib/include"] {
+            fs::create_dir_all(root.path().join(path)).expect("toolchain directory");
+        }
+        let bundled = RepositoryPolicy::infer(root.path());
+        for path in [
+            "lib/include",
+            "lib/include/arm_cmse.h",
+            "lib/libc",
+            "lib/libc/musl/src/math/sin.c",
+            "lib/libcxx/src/vector.cpp",
+            "lib/libcxxabi/src/cxa_exception.cpp",
+            "lib/libtsan/tsan_rtl.cpp",
+            "lib/libunwind/src/UnwindLevel1.c",
+        ] {
+            assert_eq!(
+                classify_path(path, &bundled),
+                SourceRole::Vendored,
+                "{path}"
+            );
+            assert_eq!(
+                classify_file_role(path, &bundled),
+                SourceRole::Vendored,
+                "{path}"
+            );
+        }
+        assert_eq!(
+            classify_path("lib/std/array_list.zig", &bundled),
+            SourceRole::Production
+        );
+    }
+
+    #[test]
     fn classifies_built_documentation_as_generated() {
         for path in [
             "doc/html/kubernetes.client.api.html",
@@ -1959,6 +2084,9 @@ mod tests {
         for path in [
             "devel-common/src/tests_common/pytest_plugin.py",
             "conftest.py",
+            "test_worker.py",
+            "tools/hw-oracle/test_hw_oracle.py",
+            "src/feature/test_parser.py",
             "numpy/ma/testutils.py",
             "django/contrib/staticfiles/testing.py",
             "packages/pytest-home-assistant/pytest_homeassistant/plugins.py",
@@ -1999,6 +2127,13 @@ mod tests {
             classify_path("src/Contest/Score.cs", &RepositoryPolicy::default()),
             SourceRole::Production
         );
+        for path in ["src/testament.py", "src/latest.py", "src/test_service.rs"] {
+            assert_eq!(
+                classify_path(path, &RepositoryPolicy::default()),
+                SourceRole::Production,
+                "{path}"
+            );
+        }
         assert_eq!(
             classify_path(
                 "src/components/MicrophoneTest.tsx",
@@ -2068,6 +2203,15 @@ mod tests {
             "src/3rdparty/fmt/base.h",
             "python/ray/_private/thirdparty/pynvml/pynvml.py",
             "python/ray/thirdparty_files/colorama.py",
+            "src/native/libfreetype/src/base/ftinit.c",
+            "src/native/libharfbuzz/hb-buffer.cc",
+            "src/native/libpipewire/include/spa/utils/defs.h",
+            "native/dependency/upstream/src/runtime.c",
+            "native/zlib/trees.c",
+            "native/libjavajpeg/jquant1.c",
+            "native/liblcms/cmsxform.c",
+            "native/libpng/png.c",
+            "native/giflib/dgif_lib.c",
         ] {
             assert_eq!(
                 classify_path(path, &RepositoryPolicy::default()),
@@ -2075,6 +2219,16 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn recognizes_bundled_library_headers() {
+        assert!(has_bundled_vendor_header(
+            b"/*!\n Highlight.js v11.11.1\n (c) Josh Goebel\n License: BSD-3-Clause\n */"
+        ));
+        assert!(!has_bundled_vendor_header(
+            b"// Project syntax highlighting implementation"
+        ));
     }
 
     #[test]

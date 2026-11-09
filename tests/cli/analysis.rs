@@ -437,16 +437,14 @@ cleanup:
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
     let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✗ Code Buster quality — 3 actionable findings\n"));
-    assert!(stdout.contains("  Actionable  3"));
+    assert!(stdout.starts_with("✗ Code Buster quality — 2 actionable findings\n"));
+    assert!(stdout.contains("  Actionable  2"));
     assert!(stdout.contains("  Advisory    1"));
-    assert!(stdout.contains("Languages\n  cpp              1 file     2 findings"));
+    assert!(stdout.contains("Languages\n  cpp              1 file     1 finding"));
     assert!(stdout.contains(
         "  WARN  complex-function\n        src/logic.rs:1\n        logic\n        Cyclomatic  5  ·  Cognitive  7"
     ));
-    assert!(stdout.contains(
-        "  WARN  goto-statement\n        src/jump.c:3\n        use of goto makes control flow hard to review and analyze"
-    ));
+    assert!(!stdout.contains("goto-statement"));
 
     let json = run_complexity(&root.path, &["--format", "json"]);
     assert_eq!(json.status.code(), Some(0));
@@ -454,7 +452,7 @@ cleanup:
     let report: serde_json::Value =
         serde_json::from_slice(&json.stdout).expect("complexity JSON must parse");
     assert_eq!(report["command"], "quality");
-    assert_eq!(report["actionableFindingCount"], 3);
+    assert_eq!(report["actionableFindingCount"], 2);
     assert_eq!(report["advisorySummary"]["groups"]["maintainability"], 1);
     assert_eq!(
         report["findings"]
@@ -463,12 +461,7 @@ cleanup:
             .iter()
             .map(|finding| finding["code"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        [
-            "long-function",
-            "complex-function",
-            "long-function",
-            "goto-statement"
-        ]
+        ["long-function", "complex-function", "long-function"]
     );
     assert_eq!(
         report["findings"][1]["why"],
@@ -486,7 +479,7 @@ cleanup:
             .iter()
             .map(|rule| rule["id"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["long-function", "complex-function", "goto-statement"]
+        ["long-function", "complex-function"]
     );
 
     let failing = run_complexity(&root.path, &["--fail-on-issues"]);

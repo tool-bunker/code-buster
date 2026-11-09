@@ -1,5 +1,15 @@
 //! Conservative local proofs for panic-prone Rust method calls.
 
+use std::sync::LazyLock;
+
+use regex::Regex;
+
+static CONST_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bconst\s+([A-Za-z_]\w*)\s*:").unwrap());
+static USE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\buse\s+[^;]+;").unwrap());
+static MODULE_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bmod\s+[A-Za-z_]\w*\s*\{").unwrap());
+
 pub(super) fn locally_proven_invariant(source: &str, masked: &str, call_offset: usize) -> bool {
     if source.len() != masked.len() || call_offset > masked.len() {
         return false;
@@ -9,7 +19,9 @@ pub(super) fn locally_proven_invariant(source: &str, masked: &str, call_offset: 
         return false;
     };
 
-    if option_guarded(source, masked, unwrap_dot) {
+    if option_guarded(source, masked, unwrap_dot)
+        || cstring_literal_construction(source, masked, unwrap_dot)
+    {
         return true;
     }
 
@@ -17,9 +29,8 @@ pub(super) fn locally_proven_invariant(source: &str, masked: &str, call_offset: 
         return false;
     };
 
-    cursor_guarded(masked, &access)
+    iterator_next_is_invariant(masked, &access)
         || containment_position_guarded(source, masked, &access)
-        || split_iterator_next(masked, &access)
         || option_access_short_circuit_guarded(source, masked, &access)
         || access_guarded(source, masked, &access)
 }
@@ -305,9 +316,229 @@ fn expression_identifiers_occur(haystack: &str, expression: &str) -> bool {
     false
 }
 
+fn cstring_literal_construction(source: &str, masked: &str, unwrap_dot: usize) -> bool {
+    let bytes = masked.as_bytes();
+    let Some(close) = previous_nonspace(bytes, unwrap_dot).filter(|at| bytes[*at] == b')') else {
+        return false;
+    };
+    let Some(open) = matching_open(bytes, close, b'(', b')') else {
+        return false;
+    };
+    let Some(end) = previous_nonspace(bytes, open).map(|at| at + 1) else {
+        return false;
+    };
+    let start = masked[..end]
+        .rfind(|ch: char| ch != ':' && ch != '_' && !ch.is_ascii_alphanumeric())
+        .map_or(0, |at| at + 1);
+    if !matches!(
+        &masked[start..end],
+        "CString::new" | "std::ffi::CString::new"
+    ) {
+        return false;
+    }
+    let argument = trim_range(source, open + 1, close);
+    let text = &source[argument.0..argument.1];
+    if text.starts_with('"') || text.starts_with("r\"") || text.starts_with("r#") {
+        return decode_literal(text).is_some_and(|value| !value.contains('\0'));
+    }
+    if text.is_empty() || !text.bytes().all(|byte| is_ident_continue(&byte)) {
+        return false;
+    }
+    root_str_constant(source, masked, text, start)
+        .and_then(decode_literal)
+        .is_some_and(|value| !value.contains('\0'))
+}
+
+fn root_str_constant<'a>(
+    source: &'a str,
+    masked: &str,
+    name: &str,
+    call_start: usize,
+) -> Option<&'a str> {
+    // Restrict resolution to an unambiguous root constant. Nested modules do not
+    // inherit root names, and local imports can shadow them.
+    if USE_DECLARATION
+        .find_iter(masked)
+        .any(|item| item.as_str().contains('*') || contains_receiver(item.as_str(), name))
+        || MODULE_DECLARATION.find_iter(masked).any(|item| {
+            let open = item.end() - 1;
+            open < call_start
+                && matching_close(masked.as_bytes(), open, b'{', b'}')
+                    .is_some_and(|close| call_start < close)
+        })
+    {
+        return None;
+    }
+    let mut declarations = CONST_DECLARATION
+        .captures_iter(masked)
+        .filter(|item| &item[1] == name);
+    let declaration = declarations.next()?;
+    if declarations.next().is_some() {
+        return None;
+    }
+    let whole = declaration.get(0)?;
+    if enclosing_block(masked, whole.start()).is_some() {
+        return None;
+    }
+    let end = whole.end() + masked[whole.end()..].find(';')?;
+    let equal = whole.end() + masked[whole.end()..end].find('=')?;
+    if !masked[whole.end()..equal]
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .eq(b"&str".iter().copied())
+    {
+        return None;
+    }
+    let initializer = trim_range(source, equal + 1, end);
+    Some(&source[initializer.0..initializer.1])
+}
+
+fn receiver_reused(prefix: &str, receiver: &str) -> bool {
+    let mut fields = receiver.split('.').map(str::trim);
+    let Some(root) = fields.next() else {
+        return true;
+    };
+    prefix.match_indices(root).any(|(at, _)| {
+        let before = &prefix[..at];
+        let mut remaining = &prefix[at + root.len()..];
+        if !identifier_is_bounded(before, remaining) {
+            return false;
+        }
+        for field in fields.clone() {
+            remaining = remaining.trim_start();
+            let Some(after_dot) = remaining.strip_prefix('.') else {
+                return true;
+            };
+            remaining = after_dot.trim_start();
+            let end = remaining.bytes().take_while(is_ident_continue).count();
+            if end == 0 {
+                return true;
+            }
+            let actual = &remaining[..end];
+            remaining = &remaining[end..];
+            if actual != field {
+                // Sibling fields are independent, but a method on a shared parent
+                // could replace the guarded field.
+                return remaining.trim_start().starts_with(['(', ':']);
+            }
+        }
+        true
+    })
+}
+
+fn iterator_next_is_invariant(masked: &str, next: &Call<'_>) -> bool {
+    cursor_guarded(masked, next)
+        || chars_count_guarded(masked, next)
+        || char_case_iterator_next(masked, next)
+        || split_iterator_next(masked, next)
+}
+
+fn chars_count_guarded(masked: &str, next: &Call<'_>) -> bool {
+    let Some(chars) = next_chars_call(masked, next) else {
+        return false;
+    };
+    let Some((receiver, condition)) = guarded_receiver(masked, &chars) else {
+        return false;
+    };
+    let Some(left) = one_comparison_left(masked, condition) else {
+        return false;
+    };
+    let Some(count) = call_before(masked, left.1) else {
+        return false;
+    };
+    if count.close + 1 != left.1
+        || count.method != "count"
+        || !count.argument(masked).trim().is_empty()
+    {
+        return false;
+    }
+    let Some(guard_chars) = call_before(masked, count.dot) else {
+        return false;
+    };
+    guard_chars.method == "chars"
+        && guard_chars.argument(masked).trim().is_empty()
+        && simple_receiver(masked, guard_chars.dot)
+            .is_some_and(|guarded| guarded.start == left.0 && guarded.text() == receiver.text())
+}
+
+fn next_chars_call<'a>(masked: &'a str, next: &Call<'_>) -> Option<Call<'a>> {
+    if !next.is_next(masked) {
+        return None;
+    }
+    let chars = call_before(masked, next.dot)?;
+    (chars.method == "chars" && chars.argument(masked).trim().is_empty()).then_some(chars)
+}
+
+fn char_case_iterator_next(masked: &str, next: &Call<'_>) -> bool {
+    if !next.is_next(masked) {
+        return false;
+    }
+    let Some(case) = call_before(masked, next.dot) else {
+        return false;
+    };
+    if !matches!(case.method, "to_lowercase" | "to_uppercase")
+        || !case.argument(masked).trim().is_empty()
+    {
+        return false;
+    }
+    let Some(receiver) = simple_receiver(masked, case.dot) else {
+        return false;
+    };
+    // char case mappings yield one or more characters, unlike arbitrary iterators:
+    // https://doc.rust-lang.org/std/primitive.char.html#method.to_lowercase
+    // Establish the char from a local chars().next() binding, not the method name alone.
+    immutable_binding_initializer(masked, receiver)
+        .is_some_and(|initializer| chars_first_initializer(masked, initializer))
+}
+
+fn immutable_binding_initializer(masked: &str, receiver: Receiver<'_>) -> Option<(usize, usize)> {
+    if !receiver.text().bytes().all(|byte| is_ident_continue(&byte)) {
+        return None;
+    }
+    let (binding, _) = masked[..receiver.start]
+        .rmatch_indices(receiver.text())
+        .find(|(at, _)| {
+            identifier_is_bounded(
+                &masked[..*at],
+                &masked[*at + receiver.text().len()..receiver.start],
+            )
+        })?;
+    let before_let = masked[..binding].trim_end().strip_suffix("let")?;
+    if before_let.as_bytes().last().is_some_and(is_ident_continue) {
+        return None;
+    }
+    let scope = enclosing_block(masked, binding)?;
+    if matching_close(masked.as_bytes(), scope, b'{', b'}')? < receiver.start {
+        return None;
+    }
+    let after_binding = binding + receiver.text().len();
+    let equal = trim_range(masked, after_binding, receiver.start).0;
+    if masked.as_bytes().get(equal) != Some(&b'=') {
+        return None;
+    }
+    let initializer_start = equal + 1;
+    let end = initializer_start + masked[initializer_start..receiver.start].find(';')?;
+    Some(trim_range(masked, initializer_start, end))
+}
+
+fn chars_first_initializer(masked: &str, initializer: (usize, usize)) -> bool {
+    let Some(unwrapped) = call_before(masked, initializer.1) else {
+        return false;
+    };
+    if !matches!(unwrapped.method, "unwrap" | "expect") {
+        return false;
+    }
+    let Some(first) = call_before(masked, unwrapped.dot) else {
+        return false;
+    };
+    let Some(chars) = next_chars_call(masked, &first) else {
+        return false;
+    };
+    simple_receiver(masked, chars.dot).is_some_and(|text| text.start == initializer.0)
+}
+
 fn split_iterator_next(masked: &str, access: &Call<'_>) -> bool {
-    access.method == "next"
-        && access.argument(masked).trim().is_empty()
+    access.is_next(masked)
         && call_before(masked, access.dot)
             .is_some_and(|iterator| matches!(iterator.method, "split" | "rsplit"))
 }
@@ -347,7 +578,7 @@ fn guarded_receiver<'a>(
     // Reject even harmless intervening uses. This deliberately errs toward reporting: with no
     // type information an arbitrary method call on the receiver may mutate it through interior
     // mutability, and a repeated binding may shadow it.
-    if contains_receiver(&masked[block_open + 1..receiver.start], receiver.text()) {
+    if receiver_reused(&masked[block_open + 1..receiver.start], receiver.text()) {
         return None;
     }
 
@@ -413,15 +644,94 @@ fn option_guarded(source: &str, masked: &str, unwrap_dot: usize) -> bool {
     let Some(block_open) = enclosing_block(masked, receiver.start) else {
         return false;
     };
+    if option_early_return_guarded(source, masked, block_open, receiver) {
+        return true;
+    }
     let Some(condition) = if_condition(masked, block_open) else {
         return false;
     };
-    if contains_receiver(&masked[block_open + 1..receiver.start], receiver.text()) {
+    if receiver_reused(&masked[block_open + 1..receiver.start], receiver.text()) {
         return false;
     }
-    guard_call_conjunct(source, masked, condition, receiver.text(), "is_some").is_some_and(
-        |guard_end| !contains_receiver(&masked[guard_end..condition.1], receiver.text()),
-    )
+    guard_call_conjunct(source, masked, condition, receiver.text(), "is_some")
+        .is_some_and(|guard_end| !receiver_reused(&masked[guard_end..condition.1], receiver.text()))
+}
+
+fn option_early_return_guarded(
+    source: &str,
+    masked: &str,
+    block_open: usize,
+    receiver: Receiver<'_>,
+) -> bool {
+    let bytes = masked.as_bytes();
+    let mut cursor = block_open + 1;
+    while let Some(relative_open) = masked[cursor..receiver.start].find('{') {
+        let open = cursor + relative_open;
+        let Some(close) = matching_close(bytes, open, b'{', b'}') else {
+            return false;
+        };
+        if close >= receiver.start {
+            return false;
+        }
+        let boundary = masked[..open]
+            .rfind([';', '{', '}'])
+            .map_or(0, |index| index + 1);
+        // An else-if guard need not execute, so only a standalone if can dominate the call.
+        let standalone_if = masked[boundary..open].trim_start().starts_with("if");
+        if standalone_if
+            && if_condition(masked, open).is_some_and(|condition| {
+                guard_call(source, masked, condition, false, receiver.text(), "is_none").is_some()
+            })
+            && unconditional_return(&masked[open + 1..close])
+            && !receiver_reused_before_unwrap(&masked[close + 1..receiver.start], receiver.text())
+        {
+            return true;
+        }
+        cursor = close + 1;
+    }
+    false
+}
+
+fn unconditional_return(body: &str) -> bool {
+    let Some(expression) = body.trim().strip_prefix("return") else {
+        return false;
+    };
+    if expression.as_bytes().first().is_some_and(is_ident_continue) {
+        return false;
+    }
+    let mut depth = 0usize;
+    for (index, byte) in expression.bytes().enumerate() {
+        match byte {
+            // Do not confuse a return in a nested closure or block with leaving this scope.
+            b'{' | b'}' => return false,
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth = depth.saturating_sub(1),
+            b';' if depth == 0 => return expression[index + 1..].trim().is_empty(),
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+fn receiver_reused_before_unwrap(prefix: &str, receiver: &str) -> bool {
+    // A closure without braces does not introduce an enclosing_block boundary, and may run later.
+    if prefix.contains('|') {
+        return true;
+    }
+    let boundary = completed_prefix_end(prefix);
+    let tail = prefix[boundary..].trim();
+    let declaration = tail
+        .strip_prefix("let ")
+        .and_then(|binding| binding.strip_suffix('='))
+        .map(str::trim)
+        .map(|binding| binding.strip_prefix("mut ").unwrap_or(binding).trim());
+    // A shadow binding is not in scope until its initializer finishes. Ignore only an exact
+    // simple binding at the call, not earlier shadowing, assignments, or other receiver uses.
+    if declaration == Some(receiver) {
+        receiver_reused(&prefix[..boundary], receiver)
+    } else {
+        receiver_reused(prefix, receiver)
+    }
 }
 
 fn guard_call_conjunct(
@@ -489,16 +799,17 @@ fn short_circuit_guard(masked: &str, receiver: Receiver<'_>) -> Option<(usize, u
     Some(trim_range(masked, guard_start, and_start))
 }
 
-fn exact_len_one_guard(masked: &str, mut guard: (usize, usize), receiver: &str) -> bool {
-    guard = strip_parentheses(masked, guard);
-    let Some(equal) = masked[guard.0..guard.1].find("==").map(|at| guard.0 + at) else {
+fn one_comparison_left(masked: &str, guard: (usize, usize)) -> Option<(usize, usize)> {
+    let guard = strip_parentheses(masked, guard);
+    let equal = guard.0 + masked[guard.0..guard.1].find("==")?;
+    let right = trim_range(masked, equal + 2, guard.1);
+    (&masked[right.0..right.1] == "1").then(|| trim_range(masked, guard.0, equal))
+}
+
+fn exact_len_one_guard(masked: &str, guard: (usize, usize), receiver: &str) -> bool {
+    let Some(left) = one_comparison_left(masked, guard) else {
         return false;
     };
-    let left = trim_range(masked, guard.0, equal);
-    let right = trim_range(masked, equal + 2, guard.1);
-    if &masked[right.0..right.1] != "1" {
-        return false;
-    }
     let Some(call) = call_before(masked, left.1) else {
         return false;
     };
@@ -549,13 +860,7 @@ fn cursor_guarded(masked: &str, next: &Call<'_>) -> bool {
 }
 
 fn cursor_chars_slice(masked: &str, next: &Call<'_>) -> Option<(usize, usize)> {
-    if next.method != "next" || !next.argument(masked).trim().is_empty() {
-        return None;
-    }
-    let chars = call_before(masked, next.dot)?;
-    if chars.method != "chars" || !chars.argument(masked).trim().is_empty() {
-        return None;
-    }
+    let chars = next_chars_call(masked, next)?;
     let bytes = masked.as_bytes();
     let slice_close = previous_nonspace(bytes, chars.dot)?;
     if bytes[slice_close] != b']' {
@@ -603,6 +908,10 @@ struct Call<'a> {
 }
 
 impl Call<'_> {
+    fn is_next(&self, text: &str) -> bool {
+        self.method == "next" && self.argument(text).trim().is_empty()
+    }
+
     fn argument<'a>(&self, text: &'a str) -> &'a str {
         &text[self.open + 1..self.close]
     }
@@ -621,15 +930,11 @@ impl Receiver<'_> {
 }
 
 fn unwrap_chain_dot(masked: &str, call_offset: usize) -> Option<usize> {
-    let bytes = masked.as_bytes();
-    let mut start = call_offset;
-    while start > 0 && bytes[start - 1].is_ascii_whitespace() {
-        start -= 1;
+    if masked.as_bytes().get(call_offset) == Some(&b'.') {
+        Some(call_offset)
+    } else {
+        masked[..call_offset].rfind('.')
     }
-    if bytes.get(start) == Some(&b'.') {
-        return Some(start);
-    }
-    masked[..call_offset].rfind('.')
 }
 
 fn call_before(masked: &str, end: usize) -> Option<Call<'_>> {
@@ -698,13 +1003,14 @@ fn enclosing_block(masked: &str, offset: usize) -> Option<usize> {
 fn if_condition(masked: &str, block_open: usize) -> Option<(usize, usize)> {
     let prefix = &masked[..block_open];
     let boundary = prefix.rfind([';', '{', '}']).map_or(0, |index| index + 1);
-    let mut start = boundary;
-    while masked
-        .as_bytes()
-        .get(start)
-        .is_some_and(u8::is_ascii_whitespace)
+    let (mut start, _) = trim_range(masked, boundary, block_open);
+    if masked[start..block_open].starts_with("else")
+        && masked
+            .as_bytes()
+            .get(start + 4)
+            .is_some_and(u8::is_ascii_whitespace)
     {
-        start += 1;
+        start = trim_range(masked, start + 4, block_open).0;
     }
     if !masked[start..block_open].starts_with("if")
         || masked
@@ -744,7 +1050,7 @@ fn guard_call(
     if guard_receiver.start != condition.0 || guard_receiver.text() != receiver {
         return None;
     }
-    if matches!(method, "is_empty" | "is_some") {
+    if matches!(method, "is_empty" | "is_some" | "is_none") {
         return call.argument(masked).trim().is_empty().then(String::new);
     }
     literal_argument(source, masked, &call)
@@ -767,17 +1073,22 @@ fn decode_literal(literal: &str) -> Option<String> {
             return None;
         }
         let suffix = format!("\"{hashes}");
-        return literal
-            .ends_with(&suffix)
-            .then(|| literal[quote + 1..literal.len() - suffix.len()].to_owned());
+        let content = literal.strip_suffix(&suffix)?.get(quote + 1..)?;
+        return (!content.contains(&suffix)).then(|| content.to_owned());
     }
     let quote = literal.as_bytes().first().copied()?;
-    if !matches!(quote, b'\'' | b'"') || literal.as_bytes().last() != Some(&quote) {
+    if literal.len() < 2
+        || !matches!(quote, b'\'' | b'"')
+        || literal.as_bytes().last() != Some(&quote)
+    {
         return None;
     }
     let mut result = String::new();
     let mut chars = literal[1..literal.len() - 1].chars();
     while let Some(character) = chars.next() {
+        if character == char::from(quote) {
+            return None;
+        }
         if character != '\\' {
             result.push(character);
             continue;

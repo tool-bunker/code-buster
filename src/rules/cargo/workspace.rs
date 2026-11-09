@@ -8,7 +8,8 @@ use crate::findings::Finding;
 use crate::source_analysis_context::SourceAnalysisContext;
 
 use super::{
-    CargoManifest, ci_line_without_comment, finding, is_ci_path, manifest_directory, section_line,
+    CargoManifest, ci_line_without_comment, finding, for_each_ci_command_line, is_ci_path,
+    is_sourcehut_path, manifest_directory, section_line,
 };
 
 pub(super) fn analyze(
@@ -280,26 +281,42 @@ fn append_partial_workspace_ci(
         .iter()
         .filter(|(path, _)| is_ci_path(path))
     {
-        if DELEGATED_WORKSPACE_CI.is_match(source) {
+        let direct = is_sourcehut_path(path);
+        if !direct && DELEGATED_WORKSPACE_CI.is_match(source) {
             broad_command = true;
         }
-        if source.contains("working-directory:") {
+        if !direct && source.contains("working-directory:") {
             continue;
         }
-        for (line_index, raw_line) in source.lines().enumerate() {
-            let line = ci_line_without_comment(raw_line);
+        for_each_ci_command_line(path, source, |line_index, raw_line, changed_directory| {
+            let line = if direct {
+                raw_line
+            } else {
+                ci_line_without_comment(raw_line)
+            };
+            if direct
+                && DELEGATED_WORKSPACE_CI
+                    .find(line)
+                    .is_some_and(|command| command.start() == 0)
+            {
+                broad_command = true;
+            }
             for command in WORKSPACE_CARGO_COMMAND.find_iter(line) {
+                if direct && command.start() != 0 {
+                    continue;
+                }
                 let text = command.as_str();
                 if has_workspace_scope(text) {
                     broad_command = true;
                 } else if !has_package_scope(text)
+                    && !changed_directory
                     && !line[..command.start()].contains("cd ")
                     && first_unscoped.is_none()
                 {
                     first_unscoped = Some((path.as_str(), line_index + 1));
                 }
             }
-        }
+        });
     }
     if broad_command {
         return;
@@ -712,6 +729,66 @@ mod tests {
         ]);
 
         assert!(findings.is_empty(), "unexpected findings: {findings:?}");
+    }
+
+    #[test]
+    fn sourcehut_workspace_coverage_requires_executable_tasks() {
+        for coverage in [
+            "echo 'cargo test --workspace'",
+            "# cargo run -p ci -- test",
+            "cd member && cargo test --locked",
+        ] {
+            let workflow = format!(
+                "environment:\n  RUNNER: cargo run -p ci -- test\n  DIRECTORY: 'working-directory:'\ndescription: |\n  cargo test --workspace\ntasks:\n  - test: |\n      cargo test --locked\n  - coverage: |\n      {coverage}"
+            );
+            let findings = analyze_project([
+                (
+                    "Cargo.toml",
+                    "[package]\nname = \"root\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\nmembers = [\"member\"]",
+                ),
+                (
+                    "member/Cargo.toml",
+                    "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2024\"",
+                ),
+                (".builds/ci.yml", workflow.as_str()),
+            ]);
+
+            assert_eq!(
+                findings.len(),
+                1,
+                "unexpected findings for {coverage}: {findings:?}"
+            );
+            assert_eq!(findings[0].code, "rust-partial-workspace-ci");
+            assert_eq!(findings[0].path, ".builds/ci.yml");
+            assert_eq!(findings[0].line, 8);
+            assert_eq!(findings[0].confidence, "high");
+            assert_eq!(findings[0].related_files, ["member/Cargo.toml"]);
+        }
+    }
+
+    #[test]
+    fn accepts_sourcehut_workspace_commands_and_delegated_ci_runners() {
+        for coverage in ["cargo test --workspace --locked", "cargo run -p ci -- test"] {
+            let workflow = format!(
+                "tasks:\n  - test: |\n      cargo test --locked\n  - coverage: |\n      {coverage}"
+            );
+            let findings = analyze_project([
+                (
+                    "Cargo.toml",
+                    "[package]\nname = \"root\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\nmembers = [\"member\"]",
+                ),
+                (
+                    "member/Cargo.toml",
+                    "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2024\"",
+                ),
+                (".build.yml", workflow.as_str()),
+            ]);
+
+            assert!(
+                findings.is_empty(),
+                "unexpected findings for {coverage}: {findings:?}"
+            );
+        }
     }
 
     #[test]

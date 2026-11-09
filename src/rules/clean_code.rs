@@ -1285,6 +1285,12 @@ fn exported_symbol_matches_filename(context: &SourceAnalysisContext<'_>, path: &
 }
 
 fn peer_naming_role(context: &SourceAnalysisContext<'_>, path: &str) -> &'static str {
+    if is_localized_java_resource(path) {
+        return "localized-resource";
+    }
+    if let Some(role) = native_file_role(path) {
+        return role;
+    }
     let jsx_component = (path.ends_with(".tsx") || path.ends_with(".jsx"))
         && file_stem(path)
             .chars()
@@ -1297,6 +1303,42 @@ fn peer_naming_role(context: &SourceAnalysisContext<'_>, path: &str) -> &'static
     } else {
         "module"
     }
+}
+
+fn native_file_role(path: &str) -> Option<&'static str> {
+    let extension = path.rsplit_once('.')?.1.to_ascii_lowercase();
+    if matches!(extension.as_str(), "h" | "hh" | "hpp" | "hxx" | "ipp") {
+        Some("native-header")
+    } else if matches!(extension.as_str(), "c" | "cc" | "cpp" | "cxx" | "m" | "mm") {
+        Some("native-source")
+    } else {
+        None
+    }
+}
+
+fn is_localized_java_resource(path: &str) -> bool {
+    if !path.ends_with(".java") {
+        return false;
+    }
+    let stem = file_stem(path);
+    let Some((base, locale)) = stem.split_once('_') else {
+        return false;
+    };
+    if !base.starts_with(|character: char| character.is_ascii_uppercase()) {
+        return false;
+    }
+    let mut parts = locale.split('_');
+    let Some(language) = parts.next() else {
+        return false;
+    };
+    (2..=3).contains(&language.len())
+        && language
+            .chars()
+            .all(|character| character.is_ascii_lowercase())
+        && parts.all(|part| {
+            (part.len() == 2 && part.chars().all(|character| character.is_ascii_uppercase()))
+                || (part.len() == 3 && part.chars().all(|character| character.is_ascii_digit()))
+        })
 }
 
 fn changed_public_api_without_test(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
@@ -2391,6 +2433,27 @@ function broad() {\n\
                 .collect::<Vec<_>>(),
             ["src/utils/cloud-drafts.ts"]
         );
+    }
+
+    #[test]
+    fn separates_native_headers_and_localized_java_resources_from_source_peers() {
+        let sources = sources(&[
+            ("native/Alpha.c", ""),
+            ("native/Bravo.c", ""),
+            ("native/Charlie.c", ""),
+            ("native/Delta.c", ""),
+            ("native/Echo.c", ""),
+            ("native/shared_api.h", ""),
+            ("resources/Message_de.java", ""),
+            ("resources/Message_fr.java", ""),
+            ("resources/Message_sv.java", ""),
+            ("resources/Message_es.java", ""),
+            ("resources/Message_it.java", ""),
+            ("resources/Message.java", ""),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(inconsistent_peer_file_naming(&context).is_empty());
     }
     #[test]
     fn changed_public_api_accepts_a_concept_related_changed_test() {

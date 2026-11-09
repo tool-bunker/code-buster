@@ -370,13 +370,17 @@ fn collect_comment_files<'a>(
 ) -> Vec<CommentFile<'a>> {
     context
         .sources()
-        .keys()
-        .filter(|path| !excluded_comment_density_path(path))
-        .filter_map(|path| summarize_comment_file(path, &facts_by_path[path]))
+        .iter()
+        .filter(|(path, _)| !excluded_comment_density_path(path))
+        .filter_map(|(path, source)| summarize_comment_file(path, source, &facts_by_path[path]))
         .collect()
 }
 
-fn summarize_comment_file<'a>(path: &'a str, facts: &[LineFacts]) -> Option<CommentFile<'a>> {
+fn summarize_comment_file<'a>(
+    path: &'a str,
+    source: &str,
+    facts: &[LineFacts],
+) -> Option<CommentFile<'a>> {
     let mut file = CommentFile {
         path,
         code: 0,
@@ -384,7 +388,9 @@ fn summarize_comment_file<'a>(path: &'a str, facts: &[LineFacts]) -> Option<Comm
         baseline_comments: 0,
         first: 0,
     };
-    for (index, fact) in facts.iter().enumerate().skip(leading_license_end(facts)) {
+    let header_end =
+        leading_license_end(facts).max(leading_shell_contract_end(path, source, facts));
+    for (index, fact) in facts.iter().enumerate().skip(header_end) {
         if !fact.code.trim().is_empty() {
             file.code += 1;
         }
@@ -469,12 +475,54 @@ fn leading_license_end(facts: &[LineFacts]) -> usize {
     if text.contains("copyright")
         && (text.contains("licensed under")
             || text.contains("license information")
-            || text.contains("permission is hereby granted"))
+            || text.contains("permission is hereby granted")
+            || text.contains("gnu general public license")
+            || text.contains("gnu lesser general public license"))
     {
         end
     } else {
         0
     }
+}
+
+#[derive(Clone, Copy)]
+enum ShellContractSection {
+    Environment,
+    Usage,
+}
+
+fn leading_shell_contract_end(path: &str, source: &str, facts: &[LineFacts]) -> usize {
+    if !crate::languages::shell::is_shell_source(path, source) {
+        return 0;
+    }
+    let mut section = None;
+    let mut contract = false;
+    let mut end = 0;
+    for (index, fact) in facts.iter().enumerate() {
+        if !fact.code.trim().is_empty() {
+            break;
+        }
+        let comment = fact.comment.trim();
+        if comment.is_empty() {
+            continue;
+        }
+        end = index + 1;
+        if SHELL_ENVIRONMENT_HEADER.is_match(comment) {
+            section = Some(ShellContractSection::Environment);
+        } else if let Some(captures) = SHELL_USAGE_HEADER.captures(comment) {
+            section = Some(ShellContractSection::Usage);
+            contract |= SHELL_USAGE_ARGUMENT.is_match(&captures[1]);
+        } else {
+            contract |= match section {
+                Some(ShellContractSection::Environment) => {
+                    SHELL_ENVIRONMENT_ENTRY.is_match(comment)
+                }
+                Some(ShellContractSection::Usage) => SHELL_USAGE_ARGUMENT.is_match(comment),
+                None => false,
+            };
+        }
+    }
+    if contract { end } else { 0 }
 }
 
 fn narrating_implementation_comments(
@@ -881,6 +929,16 @@ static GO_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static GO_DECLARATION_BLOCK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*type\s+\w+\s+(?:interface|struct)\s*\{").unwrap());
+static SHELL_ENVIRONMENT_HEADER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^(?:(?:expected|required|optional)\s+)?environment(?:\s+variables)?\s*:$")
+        .unwrap()
+});
+static SHELL_ENVIRONMENT_ENTRY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*:\s+\S").unwrap());
+static SHELL_USAGE_HEADER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(?:usage|synopsis)\s*:\s*(.*)$").unwrap());
+static SHELL_USAGE_ARGUMENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[[^\]]+\]|<[^>]+>|--[A-Za-z]|\$\{?0\b").unwrap());
 static NARRATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(?:(?:first|next|now|then|finally),?\s+(?:we|i)(?:\s+will|\s+need\s+to|\s+can|\s+should)?|(?:we|i)\s+(?:will|need\s+to|are\s+going\s+to)\s+(?:first|next|now|then))\b").unwrap()
 });
@@ -1079,6 +1137,16 @@ mod tests {
             ),
         );
         licensed_sources.insert(
+            "gpl.c".to_owned(),
+            format!(
+                "/*\n * Copyright 2026 The Authors\n *\n * This program is free software; you can redistribute it and/or modify\n * it under the terms of the GNU General Public License as published by\n * the Free Software Foundation; either version 2 of the License, or\n * (at your option) any later version.\n */\n{}",
+                (0..12)
+                    .map(|line| format!("int value{line} = {line};"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        );
+        licensed_sources.insert(
             "go.mod".to_owned(),
             (0..24)
                 .map(|line| format!("require example.com/dependency{line} v1.0.0 // indirect"))
@@ -1087,6 +1155,105 @@ mod tests {
         );
         let context = SourceAnalysisContext::unchanged(&licensed_sources);
         assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
+    }
+
+    #[test]
+    fn excludes_leading_shell_environment_and_usage_contracts_from_density() {
+        let mut sources = ordinary_sources("sh");
+        let code = (0..24)
+            .map(|line| format!("value_{line}={line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sources.insert(
+            "scripts/package.sh".to_owned(),
+            format!(
+                "#!/bin/bash\n# Create an archive for distribution.\n#\n# Expected environment variables:\n#\n# TARGET: target to publish\n# BIN_PATH: binary to package\n# STAGING: directory for package files\n# NAME: output name\n#   defaults to the package name and version\n# VERSION: version to publish\n# OUTPUT: file for published paths\n{code}\n{}",
+                (0..6)
+                    .flat_map(|section| {
+                        [
+                            format!("# Package section {section}"),
+                            format!("printf '%s\\n' \"$value_{section}\""),
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        );
+        for (name, usage) in [
+            (
+                "inline.bash",
+                "# Usage: package [--target TARGET] <archive>",
+            ),
+            (
+                "multiline.sh",
+                "# Synopsis:\n#   package [OPTIONS] <archive>",
+            ),
+        ] {
+            sources.insert(
+                format!("scripts/{name}"),
+                format!(
+                    "#!/bin/sh\n# Package a release for distribution.\n{usage}\n{}\n{code}",
+                    (0..12)
+                        .map(|line| format!("# Documented invocation constraint {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            );
+        }
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
+    }
+
+    #[test]
+    fn keeps_noisy_shell_headers_and_nonleading_contract_comments_in_density() {
+        let noisy = (0..16)
+            .map(|line| format!("# explanation number {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let variables = (0..16)
+            .map(|line| format!("# VALUE_{line}: an implementation detail"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let code = (0..8)
+            .map(|line| format!("value_{line}={line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for (body, first) in [
+            (format!("{noisy}\n{code}"), 2),
+            (
+                format!("# Usage: increment the counter\n{noisy}\n{code}"),
+                2,
+            ),
+            (
+                format!("# Expected environment variables:\n{noisy}\n{code}"),
+                2,
+            ),
+            (
+                format!("value=0\n# Expected environment variables:\n{variables}\n{code}"),
+                3,
+            ),
+            (
+                format!("printf '%s\\n' '# Environment:'\n{variables}\n{code}"),
+                3,
+            ),
+            (
+                format!("# Environment:\n# VALUE: initial value\nvalue=0\n{noisy}\n{code}"),
+                5,
+            ),
+        ] {
+            let mut sources = ordinary_sources("sh");
+            sources.insert("scripts/noisy.sh".to_owned(), format!("#!/bin/sh\n{body}"));
+            let context = SourceAnalysisContext::unchanged(&sources);
+            let findings = excessive_comment_density(&context, &facts(&context));
+
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].code, "excessive-comment-density");
+            assert_eq!(findings[0].path, "scripts/noisy.sh");
+            assert_eq!(findings[0].line, first);
+            assert_eq!(findings[0].confidence, "medium");
+            assert!(findings[0].related_files.is_empty());
+        }
     }
 
     #[test]

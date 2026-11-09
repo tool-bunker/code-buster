@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Issuing a database operation for each loop item creates N+1 latency and load that grows linearly with the collection.",
   "suggestion": "Fetch or mutate the required records in one batch outside the loop.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -20,7 +20,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only direct execute, query, scalar, scalars, and get calls on database-shaped receivers such as cursor, connection, session, engine, database, or repository variables are reported.",
+    "Only direct execute, query, scalar, and scalars calls on database-shaped receivers such as cursor, connection, session, engine, database, or repository variables are reported.",
+    "Get calls require a session-shaped receiver and an explicit class-shaped model argument followed by an identity argument; ambiguous mapping and key-value lookups are excluded.",
     "Unqualified calls and methods on receivers without database-oriented names are excluded; calls hidden behind application helpers are not inferred."
   ]
 }

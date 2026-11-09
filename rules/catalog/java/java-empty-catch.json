@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "An empty catch block silently loses failures and the context needed to diagnose them.",
   "suggestion": "Recover, rethrow, or record the exception instead of discarding it.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -28,6 +28,6 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only catch declarations whose parameter list has no nested parentheses are checked."
+    "Only catch declarations whose parameter list has no nested parentheses are checked. Empty catches remain advisory by default because recovery, fallback, and best-effort cleanup intent cannot be inferred from an empty body alone."
   ]
 }

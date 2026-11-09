@@ -9,7 +9,7 @@
   "legacyGroup": "suspicious",
   "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
   "suggestion": "Clarify the intent or replace the suspicious construct.",
-  "version": 15,
+  "version": 16,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -26,7 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Self-inequality comparisons are treated as intentional NaN detection, and Python comment text is excluded; equality comparisons on the same value remain reportable outside recognized assertions and NaN contexts.",
+    "Self-inequality comparisons and paired ternary self-comparisons are treated as intentional NaN detection; Python comment text is excluded, while equality comparisons on the same value remain reportable outside recognized assertions and NaN contexts.",
     "Comparisons against a cast or otherwise extended expression are excluded because the two operands are not equivalent."
   ]
 }

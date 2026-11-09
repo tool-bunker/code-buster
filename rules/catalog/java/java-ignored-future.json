@@ -9,7 +9,7 @@
   "legacyGroup": "reliability",
   "why": "Ignoring a Future suppresses asynchronous failures and discards the handle needed for cancellation or coordination.",
   "suggestion": "Retain, return, compose, or explicitly observe the Future so failures and cancellation remain visible.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["reliability"],
@@ -21,6 +21,6 @@
   "languageVersions": [],
   "limitations": [
     "Discarded direct CompletableFuture async factories and known executor submit or schedule calls are reported.",
-    "Aliases, custom Future-returning methods, annotations, and deliberate fire-and-forget policies are not inferred."
+    "Assignments split across lines, immediately chained result observation, and submitted FutureTask handles retained independently of the executor's wrapper Future are recognized; aliases, custom Future-returning methods, annotations, and deliberate fire-and-forget policies are not inferred."
   ]
 }

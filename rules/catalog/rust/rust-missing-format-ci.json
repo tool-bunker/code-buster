@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Without a checked formatting gate, style drift creates avoidable review noise and inconsistent generated patches.",
   "suggestion": "Run cargo fmt --all -- --check in a checked-in CI workflow.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
-    "Conventional cargo-run or xtask lint commands and pre-commit hooks delegated to matching Makefile targets are resolved; reusable workflows, aliases, and other shell wrappers are not."
+    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, Jenkins, and SourceHut manifests are inspected; SourceHut paths are limited to root .build.yml and direct .builds/*.yml or .builds/*.yaml files.",
+    "Conventional cargo-run or xtask lint commands and pre-commit hooks delegated to matching Makefile targets are resolved; reusable workflows, aliases, and other shell wrappers are not.",
+    "SourceHut evidence comes only from direct commands in tasks script scalars, not task names, packages, environment values, comments, or descriptions; YAML aliases and shell expansion or multiline command reconstruction are not resolved."
   ]
 }

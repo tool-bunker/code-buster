@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "This Java construct can weaken correctness, observability, or security.",
   "suggestion": "Use the safer Java API or pattern described by the rule.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Generic identifiers containing `key` as part of another word or a compound such as `keyId` are excluded; explicit secret, token, nonce, salt, password, API key, and key-value identifiers remain reportable."
+  ]
 }

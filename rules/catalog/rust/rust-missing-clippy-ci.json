@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A Rust project that builds and tests in CI without Clippy misses compiler-integrated diagnostics for common correctness, performance, and maintainability problems.",
   "suggestion": "Add a cargo clippy command to a checked-in CI workflow and configure the lint level appropriate for the project.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -28,7 +28,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, and Jenkins files are inspected.",
-    "Direct make targets named for Clippy, conventional cargo-run or xtask lint commands, and pre-commit hooks delegated to matching Makefile targets are resolved; reusable workflows, aliases, and other shell wrappers are not."
+    "Only checked-in GitHub Actions, GitLab CI, Azure Pipelines, Jenkins, and SourceHut manifests are inspected; SourceHut paths are limited to root .build.yml and direct .builds/*.yml or .builds/*.yaml files.",
+    "Direct make targets named for Clippy, conventional cargo-run or xtask lint commands, and pre-commit hooks delegated to matching Makefile targets are resolved; reusable workflows, aliases, and other shell wrappers are not.",
+    "SourceHut evidence comes only from direct commands in tasks script scalars, not task names, packages, environment values, comments, or descriptions; YAML aliases and shell expansion or multiline command reconstruction are not resolved."
   ]
 }

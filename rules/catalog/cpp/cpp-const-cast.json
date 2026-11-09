@@ -3,13 +3,13 @@
   "language": "cpp",
   "group": "style",
   "listingTitle": "Cpp const cast",
-  "title": "Preserve const correctness",
+  "title": "Review const-cast assumptions",
   "mvvm": false,
   "defaultSeverity": "warn",
   "legacyGroup": "nim-style",
-  "why": "This construct weakens C++ type, lifetime, or interface safety.",
-  "suggestion": "Use the safer typed C++ alternative described by the rule.",
-  "version": 1,
+  "why": "const_cast changes cv-qualification, but undefined behavior depends on the original object's qualifiers and how the result is used. Legitimate API adaptation is possible; this is a contextual review rather than proof of an invalid write.",
+  "suggestion": "Check the original object's const and volatile qualification and any reads or writes through the result. Preserve legitimate adaptation of mutable storage; prefer a const-correct API when available and never modify an originally const object.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,9 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Matches const_cast syntax outside comments and quoted or raw string literals, including a line break before the opening angle bracket; does not resolve original object qualification, aliases, macro expansion, or later accesses.",
+    "Does not distinguish qualification additions, legacy API adaptation, or known mutable storage from unsafe removal of const or volatile; all remain contextual review evidence.",
+    "One advisory per rule and file, located at the first matching cast line; related_files preserves every other distinct matching source line. The count describes evidence lines, not defects or individual casts."
+  ]
 }

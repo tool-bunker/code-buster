@@ -3,13 +3,13 @@
   "language": "cpp",
   "group": "style",
   "listingTitle": "Cpp reinterpret cast",
-  "title": "Preserve type safety",
+  "title": "Review reinterpret-cast assumptions",
   "mvvm": false,
   "defaultSeverity": "warn",
   "legacyGroup": "nim-style",
-  "why": "This construct weakens C++ type, lifetime, or interface safety.",
-  "suggestion": "Use the safer typed C++ alternative described by the rule.",
-  "version": 1,
+  "why": "reinterpret_cast can depend on alignment, aliasing, lifetime, pointer provenance, or calling-convention assumptions. Some uses, including valid byte views, are intentional; this advisory identifies code to review rather than proving undefined behavior.",
+  "suggestion": "Check the source and destination types and subsequent use. Validate alignment, lifetime, bounds, and any function-call signature; prefer typed access, memcpy, or bit_cast where their semantics fit, and retain justified low-level conversions.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,9 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Matches reinterpret_cast syntax outside comments and quoted or raw string literals, including a line break before the opening angle bracket; does not resolve source or destination types, aliases, macro expansion, bounds checks, or subsequent dereferences.",
+    "Byte-view casts remain review evidence: a char or byte destination alone does not establish an object-pointer source, valid lifetime, or bounded access. Integer-to-pointer, function-pointer, and alignment-sensitive conversions are not excluded.",
+    "One advisory per rule and file, located at the first matching cast line; related_files preserves every other distinct matching source line. The count describes evidence lines, not defects or individual casts."
+  ]
 }

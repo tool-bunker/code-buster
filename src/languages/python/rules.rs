@@ -54,7 +54,10 @@ fn analyze_source(
         analyze_style(path, &current, &policy.disabled, findings);
         analyze_language_constructs(
             path,
-            &lines,
+            &PythonSourceLines {
+                raw: &lines,
+                sanitized: &sanitized,
+            },
             &current,
             &monkey_patch_replacements,
             &policy.disabled,
@@ -92,6 +95,11 @@ fn analyze_source(
     );
 }
 
+struct PythonSourceLines<'a> {
+    raw: &'a [&'a str],
+    sanitized: &'a [String],
+}
+
 #[derive(Default)]
 struct PythonScanState {
     saw_code: bool,
@@ -106,6 +114,7 @@ struct PythonScanState {
     immutable_sequence_variables: BTreeSet<String>,
     numpy_aliases: BTreeSet<String>,
     string_variables: BTreeMap<String, usize>,
+    logging_bindings: BTreeMap<String, (usize, bool)>,
     sequence_variable_indents: BTreeMap<String, usize>,
     variable_assignment_indents: BTreeMap<String, usize>,
     continued_string_quote: Option<char>,
@@ -230,6 +239,7 @@ impl PythonScanState {
     }
 
     fn update_performance_facts(&mut self, current: &PythonLine<'_>) {
+        self.update_logging_bindings(current);
         if is_python_function_header(current.line()) {
             self.list_variables.clear();
             self.string_variables.clear();
@@ -265,6 +275,39 @@ impl PythonScanState {
                     .map_or("numpy", |alias| alias.as_str())
                     .to_owned(),
             );
+        }
+    }
+
+    fn update_logging_bindings(&mut self, current: &PythonLine<'_>) {
+        let line = current.line();
+        if line.is_empty() {
+            return;
+        }
+        self.logging_bindings
+            .retain(|_, (indent, _)| *indent <= current.indent);
+        if is_python_function_header(line) {
+            self.logging_bindings
+                .retain(|name, _| !identifier_token_occurs(line, name));
+        }
+        if let Some(import) = STANDARD_LOGGING_IMPORT.captures(line) {
+            let name = import.get(1).map_or("logging", |alias| alias.as_str());
+            self.logging_bindings
+                .insert(name.to_owned(), (current.indent, true));
+        }
+        if let Some(assignment) = LOGGING_ASSIGNMENT.captures(line) {
+            let name = &assignment[1];
+            let is_logger = STANDARD_LOGGER_FACTORY
+                .captures(&assignment[2])
+                .is_some_and(|factory| {
+                    self.logging_bindings
+                        .get(&factory[1])
+                        .is_some_and(|(_, module)| *module)
+                });
+            self.logging_bindings.remove(name);
+            if is_logger {
+                self.logging_bindings
+                    .insert(name.to_owned(), (current.indent, false));
+            }
         }
     }
 
@@ -509,7 +552,7 @@ fn report_backslash_continuation(
 
 fn analyze_language_constructs(
     path: &str,
-    lines: &[&str],
+    lines: &PythonSourceLines<'_>,
     current: &PythonLine<'_>,
     monkey_patch_replacements: &BTreeSet<String>,
     disabled: &BTreeSet<&'static str>,
@@ -530,7 +573,7 @@ fn analyze_language_constructs(
         findings,
     );
     report_mutable_default(path, current, function, disabled, findings);
-    report_exception_handler(path, lines, current, disabled, state, findings);
+    report_exception_handler(path, lines.raw, current, disabled, state, findings);
     report_dynamic_execution(path, current, function, disabled, findings);
     report_shell_execution(path, current, disabled, findings);
     report_runtime_assert(path, current, disabled, state, findings);
@@ -538,7 +581,7 @@ fn analyze_language_constructs(
 
 fn report_function_name(
     path: &str,
-    lines: &[&str],
+    lines: &PythonSourceLines<'_>,
     current: &PythonLine<'_>,
     function: Option<&str>,
     monkey_patch_replacements: &BTreeSet<String>,
@@ -555,8 +598,8 @@ fn report_function_name(
     {
         return;
     }
-    if is_com_interface_method(lines, current.index, current.indent)
-        || has_override_decorator(lines, current.index, current.indent)
+    if is_com_interface_method(lines.raw, current.index, current.indent)
+        || has_naming_contract_decorator(lines, current.indent, name)
         || monkey_patch_replacements.contains(name)
         || has_noqa_for(current.comment, "N802")
         || has_pylint_disable(current.comment, &["invalid-name", "c0103"])
@@ -613,7 +656,10 @@ fn report_exception_handler(
         );
         return;
     }
-    if line == "except:" || line.starts_with("except:") {
+    if (line == "except:" || line.starts_with("except:"))
+        && !broad_handler_unconditionally_raises(lines, current)
+        && !has_noqa_for(current.comment, "E722")
+    {
         add_finding(
             disabled,
             findings,
@@ -824,6 +870,7 @@ fn report_dynamic_sql(
     findings: &mut Vec<Finding>,
 ) {
     if has_dynamic_sql_string_expression(&current.code)
+        && !uses_literal_sql_identifier_choice(lines, current)
         && !expression_has_noqa(lines, current, "S608")
     {
         add_finding(
@@ -874,7 +921,7 @@ fn report_weak_hash(
             path,
             "py-weak-hash",
             current.number(),
-            "weak hash algorithm used",
+            "MD5 or SHA-1 use needs a security-context review",
         );
     }
 }
@@ -1166,7 +1213,7 @@ fn analyze_performance(
     report_string_concatenation(path, lines, state, current, disabled, findings);
     report_sequence_rebuild(path, lines, state, current, disabled, findings);
     report_numpy_growth(path, lines, state, current, disabled, findings);
-    report_loop_query(path, current, disabled, findings);
+    report_loop_query(path, lines, current, disabled, findings);
 }
 
 fn report_regex_compilation(
@@ -1284,11 +1331,16 @@ fn report_string_concatenation(
 
 fn report_loop_query(
     path: &str,
+    lines: &[&str],
     current: &PythonLine<'_>,
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    if PYTHON_LOOP_QUERY.is_match(current.line()) {
+    if PYTHON_LOOP_QUERY.is_match(current.line())
+        || (PYTHON_SESSION_GET_OPEN.is_match(current.line())
+            && PYTHON_LOOP_QUERY
+                .is_match(strip_quoted_strings(&continued_call(lines, current.index)).trim()))
+    {
         add_finding(
             disabled,
             findings,
@@ -1367,11 +1419,15 @@ fn report_eager_logging_format(
     state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
-    if !EAGER_LOGGING_CALL.is_match(&current.code) {
+    let Some(candidate) = EAGER_LOGGING_CALL.captures(current.line()) else {
+        return;
+    };
+    if !state.logging_bindings.contains_key(&candidate[1]) {
         return;
     }
     let call = continued_call(lines, current.index);
-    let Some(call_open) = EAGER_LOGGING_CALL.find(&call) else {
+    let masked = mask_strings(&call);
+    let Some(call_open) = EAGER_LOGGING_CALL.find(&masked) else {
         return;
     };
     let argument = first_call_argument(&call[call_open.end()..]).trim();
@@ -1978,7 +2034,7 @@ fn report_unbounded_retry_loops(
                 path,
                 "py-unbounded-retry-loop",
                 index + 1,
-                "retry loop has no attempt, deadline, or terminating path",
+                "retry handler can repeat without a visible attempt limit, deadline, or cancellation guard",
             );
         }
     }
@@ -2018,7 +2074,9 @@ fn exception_handler_retries_without_exit(
 ) -> bool {
     (start..end).any(|handler| {
         let line = sanitized[handler].trim();
-        if !line.starts_with("except") {
+        if !line.starts_with("except")
+            || is_interactive_validation_handler(lines, sanitized, start, handler)
+        {
             return false;
         }
         if let Some(suite) = inline_suite(line) {
@@ -2045,6 +2103,60 @@ fn exception_handler_retries_without_exit(
             }
         }
         retries && !exits
+    })
+}
+
+fn is_interactive_validation_handler(
+    lines: &[&str],
+    sanitized: &[String],
+    start: usize,
+    handler: usize,
+) -> bool {
+    let Some(error) = INTERACTIVE_VALIDATION_ERROR.captures(sanitized[handler].trim()) else {
+        return false;
+    };
+    let indent = leading_indent(lines[handler]);
+    let Some(try_index) = (start..handler).rev().find(|index| {
+        leading_indent(lines[*index]) == indent && sanitized[*index].trim() == "try:"
+    }) else {
+        return false;
+    };
+    let Some(prompt_index) = (start..try_index)
+        .rev()
+        .find(|index| !sanitized[*index].trim().is_empty())
+    else {
+        return false;
+    };
+    if leading_indent(lines[prompt_index]) != indent {
+        return false;
+    }
+    let Some(prompt) = INTERACTIVE_INPUT_ASSIGNMENT.captures(sanitized[prompt_index].trim()) else {
+        return false;
+    };
+    let body = sanitized[try_index + 1..handler].join("\n");
+    let body = body.trim();
+    let Some(validation) = INTERACTIVE_VALIDATION_CALL.captures(body) else {
+        return false;
+    };
+    if &error[1] == "ValueError" && !matches!(&validation[1], "int" | "float" | "complex") {
+        return false;
+    }
+    let Some(matched) = validation.get(0) else {
+        return false;
+    };
+    let open = matched.end() - 1;
+    if parenthesized_body(body, open).map(|argument| argument.trim().trim_end_matches(',').trim())
+        != Some(&prompt[1])
+    {
+        return false;
+    }
+    suffix_after_matching_delimiter(body, open).is_some_and(|suffix| {
+        let suffix = suffix.trim();
+        suffix.is_empty()
+            || suffix
+                .strip_prefix("if ")
+                .and_then(|condition| condition.split_once(" else "))
+                .is_some_and(|(condition, fallback)| condition == &prompt[1] && fallback == "None")
     })
 }
 
@@ -2535,6 +2647,63 @@ fn uses_safe_ruamel_yaml(lines: &[&str], index: usize) -> bool {
     false
 }
 
+fn uses_literal_sql_identifier_choice(lines: &[&str], current: &PythonLine<'_>) -> bool {
+    let fields = PYTHON_F_STRING_IDENTIFIER_FIELD
+        .captures_iter(&current.code)
+        .map(|captures| captures[1].to_owned())
+        .collect::<BTreeSet<_>>();
+    !fields.is_empty()
+        && fields.iter().all(|field| {
+            lines[..current.index]
+                .iter()
+                .rev()
+                .take(12)
+                .find(|line| {
+                    PYTHON_SIMPLE_ASSIGNMENT
+                        .captures(line)
+                        .is_some_and(|captures| &captures[1] == field)
+                })
+                .is_some_and(|line| is_literal_sql_identifier_choice(line, field))
+        })
+}
+
+fn is_literal_sql_identifier_choice(line: &str, field: &str) -> bool {
+    let Some((name, value)) = code_before_comment(line).split_once('=') else {
+        return false;
+    };
+    if name.trim() != field {
+        return false;
+    }
+    let Some((when_true, condition_and_false)) = value.split_once(" if ") else {
+        return false;
+    };
+    let Some((_condition, when_false)) = condition_and_false.rsplit_once(" else ") else {
+        return false;
+    };
+    is_sql_identifier_literal(when_true) && is_sql_identifier_literal(when_false)
+}
+
+fn is_sql_identifier_literal(expression: &str) -> bool {
+    let expression = expression.trim();
+    let Some(captures) = SECRET_STRING_LITERAL.captures(expression) else {
+        return false;
+    };
+    let Some(whole) = captures.get(0) else {
+        return false;
+    };
+    let literal = captures
+        .get(1)
+        .or_else(|| captures.get(2))
+        .map_or("", |capture| capture.as_str());
+    whole.start() == 0
+        && whole.end() == expression.len()
+        && literal.chars().enumerate().all(|(index, character)| {
+            character == '_'
+                || character.is_ascii_alphanumeric()
+                    && (index > 0 || character.is_ascii_alphabetic())
+        })
+}
+
 fn has_dynamic_sql_string_expression(code: &str) -> bool {
     for literal_match in QUOTED_STRING.find_iter(code) {
         let literal = literal_match.as_str();
@@ -2592,20 +2761,59 @@ fn is_com_interface_method(lines: &[&str], method_index: usize, method_indent: u
     false
 }
 
-fn has_override_decorator(lines: &[&str], method_index: usize, method_indent: usize) -> bool {
-    for raw in lines[..method_index].iter().rev() {
-        let candidate = raw.trim();
-        if candidate.is_empty() || candidate.starts_with('#') {
-            continue;
-        }
-        if leading_indent(raw) != method_indent || !candidate.starts_with('@') {
+fn has_naming_contract_decorator(
+    lines: &PythonSourceLines<'_>,
+    method_indent: usize,
+    method_name: &str,
+) -> bool {
+    let mut continuation_depth = 0;
+    for (index, code) in lines.sanitized.iter().enumerate().rev() {
+        let raw = lines.raw[index];
+        let candidate = code.trim();
+        if candidate.is_empty() {
+            if raw.trim().is_empty() || raw.trim_start().starts_with('#') || continuation_depth > 0
+            {
+                continue;
+            }
             return false;
         }
-        if matches!(candidate, "@override" | "@typing.override") {
-            return true;
+        continuation_depth -= bracket_delta(candidate);
+        if continuation_depth > 0 {
+            continue;
+        }
+        if continuation_depth < 0
+            || leading_indent(raw) != method_indent
+            || !candidate.starts_with('@')
+        {
+            return false;
+        }
+        match naming_contract_decorator(&candidate[1..], method_name) {
+            Some(true) => return true,
+            None => return false,
+            Some(false) => {}
         }
     }
     false
+}
+
+fn naming_contract_decorator(decorator: &str, method_name: &str) -> Option<bool> {
+    let decorator = decorator.trim();
+    let (target, configured) = decorator
+        .split_once('(')
+        .map_or((decorator, false), |(target, _)| (target.trim(), true));
+    if !QUALIFIED_PYTHON_IDENTIFIER.is_match(target) {
+        return None;
+    }
+    let name = target.rsplit('.').next().unwrap_or(target);
+    let direct_override = !configured && matches!(target, "override" | "typing.override");
+    let descriptor = matches!(name, "property" | "classproperty" | "cached_property");
+    let accessor = !configured
+        && matches!(name, "getter" | "setter" | "deleter")
+        && target
+            .rsplit_once('.')
+            .and_then(|(attribute, _)| attribute.rsplit('.').next())
+            == Some(method_name);
+    Some(direct_override || descriptor || accessor)
 }
 
 fn monkey_patch_replacements(lines: &[&str]) -> BTreeSet<String> {
@@ -3162,15 +3370,26 @@ static SENSITIVE_FSTRING_LOGGING: LazyLock<Regex> = LazyLock::new(|| {
 });
 static PYTHON_LOOP_QUERY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^(?:[A-Za-z_]\w*\s*=\s*)?(?:await\s+)?(?:[A-Za-z_]\w*\.)*\w*(?:cursor|cur|connection|conn|database|db|session|engine|repository|repo|store)\.(?:execute|query|scalar|scalars|get)\s*\(",
+        r"^(?:[A-Za-z_]\w*\s*=\s*)?(?:await\s+)?(?:[A-Za-z_]\w*\.)*(?:\w*(?:cursor|cur|connection|conn|database|db|session|engine|repository|repo|store)\.(?:execute|query|scalar|scalars)\s*\(|\w*session\.get\s*\(\s*(?:[A-Za-z_]\w*\.)*[A-Z]\w*\s*,)",
     )
     .unwrap()
 });
+static PYTHON_SESSION_GET_OPEN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b\w*session\.get\s*\(").unwrap());
 static RETRY_BOUND_GUARD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)\b\w*(?:attempts?|retries|retry_count|deadline|timeout|shutdown|stop|cancel|max_retries|max_attempts)\b",
     )
     .unwrap()
+});
+static INTERACTIVE_VALIDATION_ERROR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^except\s+(SyntaxError|ValueError)(?:\s+as\s+[A-Za-z_]\w*)?\s*:").unwrap()
+});
+static INTERACTIVE_INPUT_ASSIGNMENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([A-Za-z_]\w*)\s*=\s*input\s*\([^;]*\)\s*$").unwrap());
+static INTERACTIVE_VALIDATION_CALL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:return\s+|[A-Za-z_]\w*\s*=\s*)?([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\(")
+        .unwrap()
 });
 static FROM_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*from\s+([A-Za-z_][\w.]*)\s+import\s+([A-Za-z_]\w*)\b").unwrap()
@@ -3210,7 +3429,14 @@ static SUM_CALL_OPEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bsum\s*\(
 static EMPTY_LIST_SUM_START: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:start\s*=\s*)?\[\s*\]\s*,?$").unwrap());
 static EAGER_LOGGING_CALL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:[A-Za-z_]\w*logger|_?logger|log|logging)\.(?:debug|info)\s*\(").unwrap()
+    Regex::new(r"\b((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*)\.(?:debug|info)\s*\(").unwrap()
+});
+static STANDARD_LOGGING_IMPORT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^import\s+logging(?:\s+as\s+([A-Za-z_]\w*))?\s*$").unwrap());
+static LOGGING_ASSIGNMENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^((?:self\.)?[A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(.*)$").unwrap());
+static STANDARD_LOGGER_FACTORY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^([A-Za-z_]\w*)\.(?:getLogger|Logger|LoggerAdapter)\s*\(").unwrap()
 });
 static EAGER_FSTRING_ARGUMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)^(?:f|fr|rf)\s*(?:"|')"#).unwrap());
@@ -3301,6 +3527,8 @@ static SQL_STATEMENT: LazyLock<Regex> = LazyLock::new(|| {
 });
 static PYTHON_F_STRING_PREFIX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(?:^|[^\w])(?:f[r]?|r[f])$").unwrap());
+static PYTHON_F_STRING_IDENTIFIER_FIELD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\{([A-Za-z_]\w*)\}").unwrap());
 static DYNAMIC_SQL_LITERAL_SUFFIX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*(?:\.format\s*\(|%\s*[A-Za-z_(\[]|\+\s*[^"'])"#).unwrap());
 static DYNAMIC_SQL_LITERAL_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
@@ -3315,6 +3543,8 @@ static MONKEY_PATCH_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bpatch(?:es)?\.patch\s*\(([^#\n]*)").unwrap());
 static PYTHON_IDENTIFIER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[A-Za-z_]\w*\b").unwrap());
+static QUALIFIED_PYTHON_IDENTIFIER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$").unwrap());
 static PYTHON_TEST_DIRECTORY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:^|/)(?:test|tests|__tests__)(?:/|$)").unwrap());
 static NOQA: LazyLock<Regex> =
@@ -3596,6 +3826,160 @@ def ReportMe():\n\
     }
 
     #[test]
+    fn accepts_descriptor_attributes_and_attached_override_contracts() {
+        let sources = BTreeMap::from([(
+            "attributes.py".to_owned(),
+            r#"class Attributes:
+    @classproperty
+    def IE_NAME(cls):
+        return cls.__name__
+
+    @classproperty(cache=True)
+    def FormatSort(cls):
+        return Sorter
+
+    @helpers.classproperty(
+        cache=True,
+        options={"brackets": ("(", ")")},
+    )
+    # The decorator still belongs to this definition.
+    def _VALID_URL(
+        cls,
+    ):
+        return cls.pattern
+
+    @property
+    def API_URL(self):
+        return self.url
+
+    @API_URL.setter
+    def API_URL(self, value):
+        self.url = value
+
+    @API_URL.deleter
+    def API_URL(self):
+        del self.url
+
+    @Base.API_URL.getter
+    def API_URL(self):
+        return self.url
+
+    @cached_property
+    def DEVICE_ID(self):
+        return generate_id()
+
+    @functools.cached_property
+    def CLIENT_ID(self):
+        return load_id()
+
+    @builtins.property
+    def DISPLAY_NAME(self):
+        return self.name
+
+    @descriptors.cached_property(
+        ttl=60,
+    )
+    def CACHE_KEY(self):
+        return self.key
+
+    @typing.override
+    @instrument(
+        label="property",
+        options={
+            "nested": (1, 2),
+        },
+    )
+    def shouldRollover(self, record):
+        return False
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert!(
+            analyze(&context)
+                .iter()
+                .all(|finding| finding.code != "py-function-naming")
+        );
+    }
+
+    #[test]
+    fn reports_ordinary_names_without_borrowing_descriptor_decorators() {
+        let cases = [
+            (
+                "ordinary.py",
+                "def OrdinaryBadName():\n    return None\n",
+                1,
+            ),
+            (
+                "unrelated.py",
+                "@instrument\ndef OrdinaryBadName():\n    return None\n",
+                2,
+            ),
+            (
+                "configured.py",
+                "@instrument(\n    property=True,\n    label='@cached_property',\n)\ndef OrdinaryBadName():\n    return None\n",
+                5,
+            ),
+            (
+                "lookalike.py",
+                "@cached_property_wrapper\ndef OrdinaryBadName():\n    return None\n",
+                2,
+            ),
+            (
+                "member.py",
+                "@property.instrument\ndef OrdinaryBadName():\n    return None\n",
+                2,
+            ),
+            (
+                "accessor.py",
+                "class Attributes:\n    @Base.VALUE.getter\n    def OtherName(self):\n        return None\n",
+                3,
+            ),
+            (
+                "neighbor.py",
+                "class Attributes:\n    @property\n    def VALUE(self):\n        return None\n\n    @instrument\n    def OrdinaryBadName(self):\n        return None\n",
+                7,
+            ),
+            (
+                "nested.py",
+                "class Attributes:\n    @property\n    def VALUE(self):\n        def OrdinaryBadName():\n            return None\n        return OrdinaryBadName()\n",
+                4,
+            ),
+            (
+                "comment.py",
+                "# @property\ndef OrdinaryBadName():\n    return None\n",
+                2,
+            ),
+            (
+                "string.py",
+                "\"\"\"\n@property\n\"\"\"\ndef OrdinaryBadName():\n    return None\n",
+                4,
+            ),
+            (
+                "wrapped.py",
+                "@instrument(property)\ndef OrdinaryBadName():\n    return None\n",
+                2,
+            ),
+        ];
+        for (path, source, line) in cases {
+            let sources = BTreeMap::from([(path.to_owned(), source.to_owned())]);
+            let context = SourceAnalysisContext::unchanged(&sources);
+            let selected = analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "py-function-naming")
+                .map(|finding| (finding.path, finding.line, finding.confidence))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                selected,
+                [(path.to_owned(), line, "medium".to_owned())],
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
     fn honors_inline_and_legacy_broad_exception_suppressions() {
         let inline_sources = BTreeMap::from([
             (
@@ -3662,14 +4046,18 @@ def ReportMe():\n\
     fn accepts_broad_exception_observation_before_unconditional_rethrow() {
         let sources = BTreeMap::from([(
             "telemetry.py".to_owned(),
-            "try:\n    run()\nexcept Exception as error:\n    record(error)\n    mark_failed()\n    raise\n"
+            "try:\n    run()\nexcept Exception as error:\n    record(error)\n    mark_failed()\n    raise\n\
+try:\n    run()\nexcept:  # noqa: E722\n    clean_up()\n    raise\n"
                 .to_owned(),
         )]);
 
         assert!(
             analyze(&SourceAnalysisContext::unchanged(&sources))
                 .iter()
-                .all(|finding| finding.code != "py-broad-except")
+                .all(|finding| !matches!(
+                    finding.code.as_str(),
+                    "py-bare-except" | "py-broad-except"
+                ))
         );
     }
     #[test]
@@ -3700,6 +4088,8 @@ prompt = f"Select from your existing {kind} credential blocks"
 
 debug = True
 unsafe_query = f"SELECT * FROM users WHERE id = {user_id}"
+secure_column = "is_secure" if "is_secure" in columns else "secure"
+cursor.execute(f"SELECT {secure_column} FROM cookies")
 app.run(debug=True)
 "#
             .to_owned(),
@@ -3920,7 +4310,7 @@ examples = {"example": '{"password": "password_for_server"}'}
         let sources = BTreeMap::from([(
             "efficiency.py".to_owned(),
             r#"import numpy as np
-
+import logging
 def inefficient(values: list[int], groups, batches):
     result = []
     payload: bytes = b""
@@ -3937,9 +4327,9 @@ def inefficient(values: list[int], groups, batches):
         groups,
         [],
     )
-    logger.debug(f"flattened={len(flattened)}")
-    logger.info("count={}".format(len(flattened)))
-    logger.debug("count=" + str(len(flattened)))
+    logging.debug(f"flattened={len(flattened)}")
+    logging.info("count={}".format(len(flattened)))
+    logging.debug("count=" + str(len(flattened)))
     for value in values:
         duplicates = values.count(value)
         position = values.index(value)
@@ -4254,6 +4644,123 @@ def rereraise():
     }
 
     #[test]
+    fn distinguishes_interactive_validation_from_autonomous_retry() {
+        let sources = BTreeMap::from(
+            [
+                (
+                    "interactive.py",
+                    r#"def choose():
+    while True:
+        if interactive:
+            value = input()
+            try:
+                selected = parse_selector(value) if value else None
+            except SyntaxError:
+                continue
+        break
+
+def choose_number():
+    while True:
+        value = input("Number: ")
+        try:
+            selected = int(
+                value,
+            )
+        except ValueError:
+            continue
+        return selected
+"#,
+                ),
+                (
+                    "network.py",
+                    r#"def connect_forever():
+    while True:
+        value = input()
+        try:
+            return connect(value)
+        except ValueError:
+            continue
+"#,
+                ),
+                (
+                    "mixed.py",
+                    r#"def choose_and_send():
+    while True:
+        value = input()
+        try:
+            selected = parse_selector(value)
+            send_request(selected)
+        except SyntaxError:
+            continue
+"#,
+                ),
+                (
+                    "future.py",
+                    r#"def wait(future):
+    while True:
+        try:
+            return future.result(0.1)
+        except TimeoutError:
+            continue
+"#,
+                ),
+                (
+                    "success.py",
+                    r#"def retry():
+    while True:
+        try:
+            return connect()
+        except OSError:
+            continue
+"#,
+                ),
+                (
+                    "other_handler.py",
+                    r#"def choose():
+    while True:
+        value = input()
+        try:
+            selected = parse_selector(value)
+        except SyntaxError:
+            continue
+        except Exception:
+            continue
+        return selected
+"#,
+                ),
+                (
+                    "unrelated.py",
+                    r#"def run():
+    while True:
+        value = input()
+        try:
+            selected = parse_selector(cached)
+        except SyntaxError:
+            continue
+"#,
+                ),
+            ]
+            .map(|(path, source)| (path.to_owned(), source.to_owned())),
+        );
+        let findings = analyze(&SourceAnalysisContext::unchanged(&sources));
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "py-unbounded-retry-loop")
+                .map(|finding| finding.path.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "future.py",
+                "mixed.py",
+                "network.py",
+                "other_handler.py",
+                "success.py",
+                "unrelated.py",
+            ]
+        );
+    }
+
+    #[test]
     fn reports_python_security_database_and_subprocess_rules_without_duplicates() {
         let sources = BTreeMap::from([(
             "boundaries.py".to_owned(),
@@ -4323,6 +4830,86 @@ async def load(items):
                 ("py-unsafe-archive-extract".to_owned(), 8),
                 ("py-unsafe-archive-extract".to_owned(), 12),
             ]
+        );
+    }
+
+    #[test]
+    fn distinguishes_mapping_lookups_from_database_work_in_loops() {
+        let sources = BTreeMap::from([(
+            "lookups.py".to_owned(),
+            r#"def scan(connections, session, cursor, store):
+    for connection in connections:
+        href = connection.get('href')
+        kind = connection.get('kind', 'video')
+        cached = store.get('key')
+        model = session.get(User, key)
+        result = cursor.execute(query)
+        # session.get(User, key)
+        example = "cursor.execute(query)"
+        model = session.get(
+            models.User,
+            key,
+        )
+        cached = session.get(
+            'setting',
+            fallback,
+        )
+    return session.get(User, key)
+"#
+            .to_owned(),
+        )]);
+        let findings = analyze(&SourceAnalysisContext::unchanged(&sources));
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "py-query-in-loop")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [6, 7, 10]
+        );
+    }
+
+    #[test]
+    fn requires_standard_logging_provenance_for_deferred_formatting_advice() {
+        let sources = BTreeMap::from([
+            (
+                "bound.py".to_owned(),
+                "import logging as log\nlogger = log.getLogger(__name__)\nlogger.debug(f'value={value}')\n"
+                    .to_owned(),
+            ),
+            (
+                "module.py".to_owned(),
+                "import logging\nlogging.info(\n    f'value={value}',\n)\n".to_owned(),
+            ),
+            (
+                "custom.py".to_owned(),
+                "logger = CustomLogger()\nlogger.debug(f'value={value}')\nself.logger.info(f'value={value}')\n"
+                    .to_owned(),
+            ),
+            (
+                "shadow.py".to_owned(),
+                "import logging\nlogging = CustomLogger()\nlogging.info(f'value={value}')\n"
+                    .to_owned(),
+            ),
+            (
+                "parameter.py".to_owned(),
+                "import logging\ndef run(logging):\n    logging.debug(f'value={value}')\n"
+                    .to_owned(),
+            ),
+            (
+                "safe.py".to_owned(),
+                "import logging\nlogging.debug('value=%s', value)\n# logging.info(f'value={value}')\nexample = \"logging.info(f'value={value}')\"\n"
+                    .to_owned(),
+            ),
+        ]);
+        let findings = analyze(&SourceAnalysisContext::unchanged(&sources));
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "py-logging-eager-format")
+                .map(|finding| (finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            [("bound.py", 3), ("module.py", 2)]
         );
     }
 

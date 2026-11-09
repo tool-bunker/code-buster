@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "expect terminates the process and its invariant can become stale as code evolves.",
   "suggestion": "Propagate or handle the error unless the message documents a genuine invariant.",
-  "version": 10,
+  "version": 12,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -30,7 +30,10 @@
   "languageVersions": [],
   "limitations": [
     "The rule uses masked source tokens and does not perform Rust type resolution.",
-    "Conventional test modules, including files containing zero-hash raw strings, lint-allowed items, literal or fully escaped regex construction, regex capture group zero, guarded Option and collection access, infallible formatting into a proven String, literal parsing, generated catalog invariants, documented UTF-8 masking invariants, and messages or nearby comments that explicitly state a construction-time invariant are excluded.",
+    "Conventional test modules, including files containing zero-hash raw strings, lint-allowed items, literal or fully escaped regex construction, regex capture group zero, guarded Option and collection access, infallible formatting into a proven String, literal parsing, NUL-free CString literals and unambiguous same-file root string constants, generated catalog invariants, documented UTF-8 masking invariants, and messages or nearby comments that explicitly state a construction-time invariant are excluded.",
+    "Local guards include else-if Option checks and exact chars().count() == 1 checks with matching receivers and no intervening receiver or parent reuse; disjoint sibling fields may change. The first character of a fresh case-mapping iterator is excluded only for a local immutable binding obtained directly from chars().next().unwrap()/expect().",
+    "A standalone same-brace-scope is_none() guard followed by an unconditional return excludes a later unwrap/expect on the same receiver, including as_ref()/as_deref() and an exact shadow-binding initializer. Receiver or parent reuse invalidates the proof; disjoint sibling fields may change. Nested scopes, closure prefixes, compound conditions, and return expressions containing braces are not proven.",
+    "CString constant resolution excludes nested modules, ambiguous declarations, name-imports, glob imports, nonliteral initializers, and unsupported escapes. Unconditionally compiled modules remain production source even when their names or documentation describe test helpers.",
     "Calls on receivers with an explicit non-Option/Result type or an enum-like associated-value argument are excluded as custom methods."
   ]
 }

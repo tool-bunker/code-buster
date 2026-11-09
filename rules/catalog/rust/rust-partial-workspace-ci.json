@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "An unscoped Cargo command at a non-virtual workspace root selects the root or default packages and can leave member crates unbuilt and untested.",
   "suggestion": "Use --workspace, configure default-members to cover every production member, or run an explicitly scoped command for each member.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": ["maintainability"],
@@ -20,7 +20,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only direct commands in supported checked-in CI files are inspected.",
-    "Workflow steps with working-directory and commands scoped by package or manifest are conservatively excluded."
+    "Only direct commands in checked-in GitHub Actions, GitLab CI, Azure Pipelines, Jenkins, and SourceHut manifests are inspected; SourceHut paths are limited to root .build.yml and direct .builds/*.yml or .builds/*.yaml files.",
+    "Workflow steps with working-directory and commands scoped by package or manifest are conservatively excluded.",
+    "SourceHut evidence comes only from direct commands in tasks script scalars, not task names, packages, environment values, comments, or descriptions; YAML aliases and shell expansion or multiline command reconstruction are not resolved."
   ]
 }

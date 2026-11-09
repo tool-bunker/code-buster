@@ -67,13 +67,9 @@ struct SourcePatternMatches {
     c_style_cast: bool,
     null: bool,
     goto: bool,
-    non_const_ref: bool,
     allocation_api: bool,
     unsafe_c_string: bool,
     rand: bool,
-    const_cast: bool,
-    reinterpret_cast: bool,
-    memset_zero: bool,
 }
 
 impl SourcePatternMatches {
@@ -88,22 +84,16 @@ impl SourcePatternMatches {
 
     fn match_interface_patterns(&mut self, line: &str) {
         self.using_namespace_std = USING_NAMESPACE_STD.is_match(line);
-        self.non_const_ref = NON_CONST_REF.is_match(line)
-            && !CONST_REFERENCE_EXCLUSION.is_match(line)
-            && !line.contains("&&");
     }
 
     fn match_memory_patterns(&mut self, line: &str) {
         self.manual_delete = MANUAL_DELETE.is_match(line);
         self.allocation_api = CPP_ALLOCATION_API.is_match(line);
         self.unsafe_c_string = has_unsafe_c_string_call(line);
-        self.memset_zero = MEMSET_ZERO.is_match(line);
     }
 
     fn match_cast_patterns(&mut self, line: &str) {
         self.c_style_cast = has_c_style_cast(line);
-        self.const_cast = CONST_CAST.is_match(line);
-        self.reinterpret_cast = REINTERPRET_CAST.is_match(line);
     }
 
     fn match_legacy_language_patterns(&mut self, line: &str) {
@@ -116,12 +106,13 @@ impl SourcePatternMatches {
 fn source_pattern_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, source) in sources {
-        let mut in_block_comment = false;
-        for (index, raw) in source.split('\n').enumerate() {
-            let line = mask_non_code(raw, &mut in_block_comment);
-            let matches = SourcePatternMatches::for_line(&line);
+        let code = mask_cpp_source_non_code(source);
+        for (index, line) in code.split('\n').enumerate() {
+            let matches = SourcePatternMatches::for_line(line);
             emit_source_pattern_findings(&mut findings, &matches, path, index + 1);
         }
+        contextual_advisories(&mut findings, path, &code);
+        whole_object_zeroing(&mut findings, path, &code);
     }
     findings
 }
@@ -174,14 +165,6 @@ fn emit_source_pattern_findings(
     );
     emit_pattern_finding(
         findings,
-        matches.non_const_ref,
-        "cpp-non-const-ref-param",
-        path,
-        line_number,
-        "non-const reference parameter may hide mutation",
-    );
-    emit_pattern_finding(
-        findings,
         matches.allocation_api,
         "cpp-malloc-free",
         path,
@@ -204,30 +187,6 @@ fn emit_source_pattern_findings(
         line_number,
         "C rand/srand used",
     );
-    emit_pattern_finding(
-        findings,
-        matches.const_cast,
-        "cpp-const-cast",
-        path,
-        line_number,
-        "const_cast used",
-    );
-    emit_pattern_finding(
-        findings,
-        matches.reinterpret_cast,
-        "cpp-reinterpret-cast",
-        path,
-        line_number,
-        "reinterpret_cast used",
-    );
-    emit_pattern_finding(
-        findings,
-        matches.memset_zero,
-        "cpp-memset-zero",
-        path,
-        line_number,
-        "memset used for zero-initialization",
-    );
 }
 
 #[inline]
@@ -241,6 +200,117 @@ fn emit_pattern_finding(
 ) {
     if matched {
         findings.push(finding(code, path, line_number, message));
+    }
+}
+
+fn contextual_advisories(findings: &mut Vec<Finding>, path: &str, code: &str) {
+    for (rule, description, lines) in [
+        (
+            "cpp-non-const-ref-param",
+            "mutable-reference parameter",
+            mutable_reference_lines(code),
+        ),
+        (
+            "cpp-const-cast",
+            "const_cast",
+            CONST_CAST
+                .find_iter(code)
+                .map(|matched| line_at_offset(code, matched.start()))
+                .collect(),
+        ),
+        (
+            "cpp-reinterpret-cast",
+            "reinterpret_cast",
+            REINTERPRET_CAST
+                .find_iter(code)
+                .map(|matched| line_at_offset(code, matched.start()))
+                .collect(),
+        ),
+    ] {
+        let mut lines = lines.into_iter();
+        let Some(first_line) = lines.next() else {
+            continue;
+        };
+        let related_files = lines
+            .map(|line| format!("{path}:{line}"))
+            .collect::<Vec<_>>();
+        let count = related_files.len() + 1;
+        let message =
+            format!("Review {description} usage on {count} distinct source line(s) in this file");
+        let mut advisory = finding(rule, path, first_line, &message);
+        advisory.related_files = related_files;
+        findings.push(advisory);
+    }
+}
+
+fn mutable_reference_lines(code: &str) -> BTreeSet<usize> {
+    let mut lines = BTreeSet::new();
+    for capture in REFERENCE_FUNCTION.captures_iter(code) {
+        let parameters = capture.name("parameters").expect("function parameters");
+        let mut depth = 0usize;
+        let mut start = 0;
+        for (offset, character) in parameters.as_str().char_indices() {
+            match character {
+                '<' | '[' => depth += 1,
+                '>' | ']' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    record_mutable_reference(
+                        code,
+                        parameters.start() + start,
+                        &parameters.as_str()[start..offset],
+                        &mut lines,
+                    );
+                    start = offset + 1;
+                }
+                _ => {}
+            }
+        }
+        record_mutable_reference(
+            code,
+            parameters.start() + start,
+            &parameters.as_str()[start..],
+            &mut lines,
+        );
+    }
+    lines
+}
+
+fn record_mutable_reference(
+    code: &str,
+    offset: usize,
+    parameter: &str,
+    lines: &mut BTreeSet<usize>,
+) {
+    let declaration = parameter.split('=').next().unwrap_or(parameter);
+    let Some(reference) = declaration.rfind('&') else {
+        return;
+    };
+    if declaration[..reference].trim_end().ends_with('&')
+        || !PARAMETER_NAME.is_match(declaration[reference + 1..].trim())
+    {
+        return;
+    }
+    let mut depth = 0usize;
+    let mut qualifier_start = 0;
+    let mut is_const = false;
+    for (index, character) in declaration[..reference].char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            '*' if depth == 0 => {
+                qualifier_start = index + 1;
+                is_const = false;
+            }
+            _ if depth == 0 && character.is_whitespace() => {
+                is_const |= declaration[qualifier_start..index].trim() == "const";
+                qualifier_start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    is_const |= declaration[qualifier_start..reference].trim() == "const";
+    if !is_const {
+        lines.insert(line_at_offset(code, offset + reference));
     }
 }
 
@@ -296,6 +366,106 @@ fn has_unsafe_c_string_call(line: &str) -> bool {
         capture
             .name("arguments")
             .is_some_and(|arguments| !arguments.as_str().contains(','))
+    })
+}
+
+fn whole_object_zeroing(findings: &mut Vec<Finding>, path: &str, code: &str) {
+    for capture in MEMSET_ZERO.captures_iter(code) {
+        let call = capture.get(0).expect("whole-object memset match");
+        let prefix = code[..call.start()].trim_end();
+        if prefix
+            .chars()
+            .next_back()
+            .is_some_and(|character| matches!(character, '.' | '>' | ':'))
+            || capture
+                .name("qualifier")
+                .is_some_and(|qualifier| qualifier.as_str() != "std")
+            || capture["object"] != capture["size_object"]
+        {
+            continue;
+        }
+        findings.push(finding(
+            "cpp-memset-zero",
+            path,
+            line_at_offset(code, call.start()),
+            "memset used for zero-initialization",
+        ));
+    }
+}
+
+fn mask_cpp_source_non_code(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut state = MaskState::Code;
+    let mut characters = source.char_indices().peekable();
+    while let Some((offset, character)) = characters.next() {
+        if matches!(state, MaskState::Code)
+            && character == 'R'
+            && let Some(end) = cpp_raw_string_end(source, offset)
+        {
+            result.push(' ');
+            while let Some((_, character)) = characters.next_if(|(offset, _)| *offset < end) {
+                result.push(if character == '\n' { '\n' } else { ' ' });
+            }
+            continue;
+        }
+        let next = characters.peek().map(|(_, character)| *character);
+        let (next_state, action) = mask_transition(state, character, next);
+        state = next_state;
+        match action {
+            MaskAction::Copy => result.push(character),
+            MaskAction::Mask => result.push(if character == '\n' { '\n' } else { ' ' }),
+            MaskAction::MaskPair => {
+                result.push_str("  ");
+                characters.next();
+            }
+            MaskAction::Stop => {
+                result.push(' ');
+                mask_cpp_line_comment(&mut characters, &mut result);
+            }
+        }
+    }
+    result
+}
+
+fn mask_cpp_line_comment(
+    characters: &mut impl Iterator<Item = (usize, char)>,
+    result: &mut String,
+) {
+    let mut previous = None;
+    for (_, character) in characters.by_ref() {
+        if character == '\n' {
+            result.push('\n');
+            if previous != Some('\\') {
+                break;
+            }
+            previous = None;
+        } else {
+            result.push(' ');
+            if character != '\r' {
+                previous = Some(character);
+            }
+        }
+    }
+}
+
+fn cpp_raw_string_end(source: &str, start: usize) -> Option<usize> {
+    let tail = source[start..].strip_prefix("R\"")?;
+    let open = tail.find('(')?;
+    let delimiter = &tail[..open];
+    if delimiter.len() > 16
+        || delimiter
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || matches!(byte, b'\\' | b')'))
+    {
+        return None;
+    }
+    let body = start + 2 + open + 1;
+    source[body..].match_indices(')').find_map(|(offset, _)| {
+        let after_close = body + offset + 1;
+        source[after_close..]
+            .strip_prefix(delimiter)
+            .is_some_and(|tail| tail.starts_with('"'))
+            .then_some(after_close + delimiter.len() + 1)
     })
 }
 
@@ -1009,11 +1179,13 @@ static OBJECTIVE_C_PARAMETER_CAST: LazyLock<Regex> = LazyLock::new(|| {
 });
 static CPP_NULL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bNULL\b").unwrap());
 static CPP_GOTO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(^|\s)goto\s+").unwrap());
-static NON_CONST_REF: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*(?:void|int|bool|auto)\b[^=;{}]*\([^;{}]*&\s+[A-Za-z_]\w*").unwrap()
+static REFERENCE_FUNCTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]*(?:(?:inline|static|constexpr|virtual|extern|friend)[ \t]+)*(?:void|int|bool|auto)\b[ \t*&]+(?:[A-Za-z_]\w*::)*[A-Za-z_]\w*[ \t]*\((?P<parameters>[^;{}()]*)\)",
+    )
+    .unwrap()
 });
-static CONST_REFERENCE_EXCLUSION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bconst(?:\s|&)").unwrap());
+static PARAMETER_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z_]\w*$").unwrap());
 static CPP_ALLOCATION_API: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:malloc|calloc|realloc|free)\s*\(").unwrap());
 static UNSAFE_C_STRING: LazyLock<Regex> =
@@ -1027,8 +1199,12 @@ static CPP_RAND: LazyLock<Regex> =
 static CONST_CAST: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bconst_cast\s*<").unwrap());
 static REINTERPRET_CAST: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\breinterpret_cast\s*<").unwrap());
-static MEMSET_ZERO: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bmemset\s*\([^,]+,\s*0\s*,").unwrap());
+static MEMSET_ZERO: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?:(?P<qualifier>\b[A-Za-z_]\w*)\s*::\s*|::\s*)?\bmemset\s*\(\s*&\s*(?P<object>[A-Za-z_]\w*)\s*,\s*0\s*,\s*sizeof\s*\(\s*(?P<size_object>[A-Za-z_]\w*)\s*\)\s*\)",
+    )
+    .unwrap()
+});
 static CONDITIONAL_MACRO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*#\s*if(?:n?def)?\s+([A-Za-z_]\w*)").unwrap());
 static DEFINE: LazyLock<Regex> =
@@ -1051,6 +1227,51 @@ mod tests {
     use crate::source_analysis_context::SourceAnalysisContext;
 
     #[test]
+    fn reviews_mutable_referents_instead_of_any_const_or_rvalue_in_the_signature() {
+        let source = [
+            "void mixed(const Input& input, Output& output);",
+            "void nested(std::vector<std::pair<int, int>>& output);",
+            "void pointee(const int*& output);",
+            "void readonly(int const& value, int* const& pointer);",
+            "void move(int&& input, int& output);",
+            "void nested_const(std::vector<const Item*>& output);",
+            "void internal_ref(std::tuple<int&>& output);",
+            "void multiline(",
+            "  const Input& input,",
+            "  Output& output,",
+            "  int&& moved);",
+            "void (*callback)(Item& output);",
+            "int bits = (left & right);",
+            "void read(const int& value);",
+            "void append(std::vector<std::uint8_t>& output) { output.push_back(1); }",
+        ]
+        .join("\n");
+        let sources = BTreeMap::from([("main.cpp".to_owned(), source)]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let reviews = analyze(&context)
+            .into_iter()
+            .filter(|finding| finding.code == "cpp-non-const-ref-param")
+            .collect::<Vec<_>>();
+
+        assert_eq!(reviews.len(), 1);
+        assert_eq!(reviews[0].path, "main.cpp");
+        assert_eq!(reviews[0].line, 1);
+        assert_eq!(reviews[0].confidence, "medium");
+        assert_eq!(
+            reviews[0].related_files,
+            [
+                "main.cpp:2",
+                "main.cpp:3",
+                "main.cpp:5",
+                "main.cpp:6",
+                "main.cpp:7",
+                "main.cpp:10",
+                "main.cpp:15",
+            ]
+        );
+    }
+
+    #[test]
     fn reports_every_cpp_rule_with_stable_contracts() {
         let sources = BTreeMap::from([(
             "main.cpp".to_owned(),
@@ -1064,7 +1285,7 @@ void mutate(int& value) {\n\
   int converted = (int)value;\n\
   void* memory = malloc(16);\n\
   strcpy((char*)memory, input);\n\
-  memset(memory, 0, 16);\n\
+  memset(&value, 0, sizeof(value));\n\
   auto random = rand();\n\
   auto immutable = const_cast<int*>(source);\n\
   auto raw = reinterpret_cast<char*>(memory);\n\
@@ -1084,12 +1305,7 @@ cleanup: free(memory);\n\
                 .then_with(|| left.line.cmp(&right.line))
         });
         assert!(findings.iter().all(|finding| {
-            finding.path == "main.cpp"
-                && finding.end_line == 0
-                && finding.confidence == "medium"
-                && finding.why == "This construct weakens C++ type, lifetime, or interface safety."
-                && finding.suggestion
-                    == "Use the safer typed C++ alternative described by the rule."
+            finding.path == "main.cpp" && finding.end_line == 0 && finding.confidence == "medium"
         }));
         assert_eq!(
             findings
@@ -1098,63 +1314,110 @@ cleanup: free(memory);\n\
                     finding.code.as_str(),
                     finding.line,
                     finding.severity.as_str(),
-                    finding.message.as_str(),
                 ))
                 .collect::<Vec<_>>(),
             vec![
-                ("cpp-cast", 8, "info", "C-style cast used"),
-                ("cpp-cast", 10, "info", "C-style cast used"),
-                ("cpp-const-cast", 13, "warn", "const_cast used"),
-                ("cpp-goto", 17, "warn", "goto statement used"),
-                ("cpp-macro-constant", 2, "info", "macro constant used"),
-                (
-                    "cpp-malloc-free",
-                    9,
-                    "warn",
-                    "C allocation API used in C++ code",
-                ),
-                (
-                    "cpp-malloc-free",
-                    18,
-                    "warn",
-                    "C allocation API used in C++ code",
-                ),
-                ("cpp-manual-delete", 16, "warn", "manual delete used"),
-                (
-                    "cpp-memset-zero",
-                    11,
-                    "info",
-                    "memset used for zero-initialization",
-                ),
-                (
-                    "cpp-non-const-ref-param",
-                    7,
-                    "info",
-                    "non-const reference parameter may hide mutation",
-                ),
-                ("cpp-null", 17, "info", "NULL used instead of nullptr"),
-                ("cpp-rand", 12, "info", "C rand/srand used"),
-                ("cpp-raw-owning-new", 15, "warn", "raw new expression used",),
-                ("cpp-reinterpret-cast", 14, "warn", "reinterpret_cast used",),
-                (
-                    "cpp-unsafe-c-string",
-                    10,
-                    "warn",
-                    "unsafe C string/buffer API used",
-                ),
-                (
-                    "cpp-using-namespace-std",
-                    1,
-                    "info",
-                    "using namespace std used",
-                ),
-                (
-                    "cpp-virtual-no-destructor",
-                    3,
-                    "warn",
-                    "class has virtual methods but no virtual destructor",
-                ),
+                ("cpp-cast", 8, "info"),
+                ("cpp-cast", 10, "info"),
+                ("cpp-const-cast", 13, "warn"),
+                ("cpp-goto", 17, "warn"),
+                ("cpp-macro-constant", 2, "info"),
+                ("cpp-malloc-free", 9, "warn"),
+                ("cpp-malloc-free", 18, "warn"),
+                ("cpp-manual-delete", 16, "warn"),
+                ("cpp-memset-zero", 11, "info"),
+                ("cpp-non-const-ref-param", 7, "info"),
+                ("cpp-null", 17, "info"),
+                ("cpp-rand", 12, "info"),
+                ("cpp-raw-owning-new", 15, "warn"),
+                ("cpp-reinterpret-cast", 14, "warn"),
+                ("cpp-unsafe-c-string", 10, "warn"),
+                ("cpp-using-namespace-std", 1, "info"),
+                ("cpp-virtual-no-destructor", 3, "warn"),
             ]
+        );
+    }
+
+    #[test]
+    fn reports_only_matching_whole_object_zeroing_with_original_lines() {
+        let source = r###"void initialize() {
+  State first;
+  memset(&first, 0, sizeof(first));
+  State second;
+  std::memset(
+      &second, /* complete object */
+      0,
+      sizeof(
+          second));
+  State third;
+  ::memset(&third, 0, sizeof(third));
+}"###;
+        let sources = BTreeMap::from([("initialize.cpp".to_owned(), source.to_owned())]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context)
+            .into_iter()
+            .filter(|finding| finding.code == "cpp-memset-zero")
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.confidence.as_str(),
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("initialize.cpp", 3, "medium"),
+                ("initialize.cpp", 5, "medium"),
+                ("initialize.cpp", 11, "medium"),
+            ]
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.related_files.is_empty())
+        );
+    }
+
+    #[test]
+    fn ignores_runtime_ranges_mismatches_and_non_code_zeroing() {
+        let source = r###"auto* packet = Allocate(words);
+std::memset(packet, 0, words * sizeof(uint32_t));
+packet[0] = header;
+memset(buffer, 0, sizeof(buffer));
+memset(buffer + offset, 0, count);
+memset(&buffer[0], 0, sizeof(buffer));
+memset(&state + offset, 0, sizeof(state));
+memset(&state, 0, sizeof(other));
+memset(&state, 0, sizeof(State));
+memset(&state, 0, sizeof(state) - 1);
+memset(&state, 0, byte_count);
+memset(&state, 1, sizeof(state));
+memset(&state, 0, sizeof(&state));
+custom::memset(&state, 0, sizeof(state));
+writer.memset(&state, 0, sizeof(state));
+writer->memset(&state, 0, sizeof(state));
+// memset(&state, 0, sizeof(state));
+// continued comment \
+  memset(&state, 0, sizeof(state));
+/* std::memset(
+  &state, 0, sizeof(state)); */
+const char* quoted = "memset(&state, 0, sizeof(state));";
+const char* continued = "example \
+  memset(&state, 0, sizeof(state));";
+const char* raw = R"example("quoted"
+  memset(&state, 0, sizeof(state));
+)example";
+"###;
+        let sources = BTreeMap::from([("buffers.cpp".to_owned(), source.to_owned())]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert!(
+            analyze(&context)
+                .iter()
+                .all(|finding| finding.code != "cpp-memset-zero")
         );
     }
 

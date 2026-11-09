@@ -1985,7 +1985,7 @@ static STATIC_LITERAL_PARSE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static STATIC_INFALLIBLE_CONSTRUCTION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"\b(?:NonZero(?:U|I)(?:8|16|32|64|128|size)::new\(\s*[1-9][0-9_]*(?:[iu](?:8|16|32|64|128|size))?\s*\)|(?:std::ffi::)?CString::new\(\s*""\s*\))\s*\.(?:unwrap|expect)\s*\("#,
+        r"\bNonZero(?:U|I)(?:8|16|32|64|128|size)::new\(\s*[1-9][0-9_]*(?:[iu](?:8|16|32|64|128|size))?\s*\)\s*\.(?:unwrap|expect)\s*\(",
     )
     .expect("statically infallible Rust construction regex must compile")
 });
@@ -2421,6 +2421,302 @@ async fn refresh() {
             .collect::<Vec<_>>();
 
         assert_eq!(selected, vec!["rust-unwrap:5", "rust-unwrap:6"]);
+    }
+
+    #[test]
+    fn proves_same_scope_none_guard_return_before_option_unwrap() {
+        let source = r#"fn replace_separator<'a>(
+    path: &'a OsStr,
+    path_separator: Option<&str>,
+) -> Cow<'a, OsStr> {
+    if path_separator.is_none() {
+        return Cow::Borrowed(path);
+    }
+    let path_separator = path_separator.unwrap();
+    dynamic.unwrap();
+}
+fn borrowed(&mut self) {
+    if self.value.is_none() { return; }
+    self.other = None;
+    self.value.as_ref().expect("required");
+}
+fn multiline(value: Option<&str>) {
+    if
+        (value.is_none())
+    {
+        return fallback();
+    }
+    let mut value = value.as_deref().unwrap();
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+            .map(|finding| (finding.code, finding.path, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![("rust-unwrap".to_owned(), "src/lib.rs".to_owned(), 9)]
+        );
+    }
+
+    #[test]
+    fn retains_invalidated_non_dominating_and_non_exiting_none_guards() {
+        for source in [
+            "fn f() { if other.is_none() { return; } value.unwrap(); }",
+            "fn f() { if value.is_none() {} value.unwrap(); }",
+            "fn f() { if value.is_none() { if ready { return; } } value.unwrap(); }",
+            "fn f() { if ready {} else if value.is_none() { return; } value.unwrap(); }",
+            "fn f() { { if value.is_none() { return; } } value.unwrap(); }",
+            "fn f() { if value.is_none() { return; } value = None; value.unwrap(); }",
+            "fn f() { if value.is_none() { return; } let value = None; let value = value.unwrap(); }",
+            "fn f() { if value.is_none() { return; } replace(&mut value, None); value.unwrap(); }",
+            "fn f() { if self.value.is_none() { return; } self.reset(); self.value.unwrap(); }",
+            "fn f() { if self.value.is_none() { return; } replace(&mut self); self.value.unwrap(); }",
+            "fn f() { if value.is_none() && ready { return; } value.unwrap(); }",
+            "fn f() { if value.is_none() { let f = || return; f(); } value.unwrap(); }",
+            "fn f() { if value.is_none() { return; } run(|| value.unwrap()); }",
+            "fn f() { let example = \"if value.is_none() { return; }\"; value.unwrap(); }",
+            "fn f() {\n// if value.is_none() { return; }\nvalue.unwrap(); }",
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-unwrap")
+                .collect::<Vec<_>>();
+            assert_eq!(selected.len(), 1, "{source}");
+            assert_eq!(selected[0].path, "src/lib.rs", "{source}");
+            assert_eq!(selected[0].line, source.lines().count(), "{source}");
+        }
+    }
+
+    #[test]
+    fn retains_fallible_constructors_thread_results_and_shared_batch_state() {
+        for source in [
+            "fn f() { AhoCorasick::new([\"{{\", \"}}\", \"{}\"]).unwrap(); }",
+            "fn f() { self.items.lock().unwrap(); }",
+            "fn f() { self.lock().take().unwrap().into_iter(); }",
+            "fn f() { if self.needs_flush(batch.as_ref()) { batch = self.batch.lock(); } batch.as_mut().unwrap(); }",
+            "fn f() { handles.into_iter().map(|handle| handle.join().unwrap()); }",
+            "fn f() { ctrlc::set_handler(move || quit()).unwrap(); }",
+            "fn f() { receiver.join().unwrap(); }",
+            "fn f() { absolute_path(path.normalize().unwrap().as_path()).unwrap(); }",
+            "fn f() { for arg in args { if arg.has_tokens() { path_arg = Some(arg); } } path_arg.unwrap(); }",
+            "fn f() { determine_command().map(|cmd| CommandSet::new_batch([cmd]).unwrap()); }",
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-unwrap")
+                .collect::<Vec<_>>();
+            assert_eq!(selected.len(), 1, "{source}");
+            assert_eq!(selected[0].path, "src/lib.rs", "{source}");
+            assert_eq!(selected[0].line, 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn retains_unsafe_signal_block_with_operation_comment_but_no_safety_rationale() {
+        let source = r#"fn exit() {
+    // Get rid of the SIGINT handler, if present, and raise SIGINT
+    unsafe {
+        if signal(SIGINT, SigDfl).is_ok() { let _ = raise(SIGINT); }
+    }
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![("src/lib.rs".to_owned(), 3)]);
+    }
+
+    #[test]
+    fn proves_else_if_option_guard_without_changing_sibling_fields() {
+        let source = r#"fn shorten(&mut self) {
+    if self.width > limit {
+        return;
+    } else if self.width == limit && self.shortener.is_some() {
+        let has_next = self.chars.clone().next().is_some();
+        self.action = Action::Terminate;
+        return has_next.then(|| self.shortener.unwrap()).or(Some(ch));
+    }
+    dynamic.unwrap();
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-unwrap")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![9]);
+    }
+
+    #[test]
+    fn retains_invalidated_mismatched_and_non_dominating_else_if_guards() {
+        let source = r#"fn guarded(&mut self) {
+    if ready {} else if self.shortener.is_some() {
+        self.shortener = None;
+        self.shortener.unwrap();
+    }
+    if ready {} else if self.shortener.is_some() {
+        self.reset();
+        self.shortener.unwrap();
+    }
+    if ready {} else if self.shortener.is_some() {
+        self.other.unwrap();
+    }
+    if ready {} else if self.shortener.is_some() {}
+    self.shortener.unwrap();
+    if ready {} else if self.shortener.is_some() || ready {
+        self.shortener.unwrap();
+    }
+    if ready {} else if self.shortener.is_some() && self.reset() {
+        self.shortener.unwrap();
+    }
+    if ready {} else if self.shortener.is_some() {
+        replace(&mut self);
+        self.shortener.unwrap();
+    }
+    // if self.shortener.is_some() {
+    self.shortener.unwrap();
+    let example = "if self.shortener.is_some() {";
+    self.shortener.unwrap();
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-unwrap")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![4, 8, 11, 14, 16, 19, 23, 26, 28]);
+    }
+
+    #[test]
+    fn proves_guarded_first_character_and_nonempty_char_case_mapping() {
+        let source = r#"fn character(text: &str, shift: bool) {
+    if text.chars().count() == 1 {
+        let modifier = flags.contains(SHIFT);
+        let ch = text
+            .chars()
+            .next()
+            .unwrap();
+        let lower = if shift { ch.to_lowercase().next().unwrap() } else { ch };
+    }
+    if text.chars().count() == 1 {
+        let ch = text.chars().next().expect("one character");
+        let upper = ch.to_uppercase().next().expect("first mapped character");
+    }
+    text.chars().next().unwrap();
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![("rust-unwrap".to_owned(), 14)]);
+    }
+
+    #[test]
+    fn retains_unproven_or_invalidated_character_operations() {
+        let source = r#"fn character(text: &mut String, other: &str, custom: Custom) {
+    if other.chars().count() == 1 { text.chars().next().unwrap(); }
+    if text.chars().count() == 1 {
+        text.clear();
+        text.chars().next().unwrap();
+    }
+    if text.chars().count() == 0 { text.chars().next().unwrap(); }
+    if text.chars().count() == 1 || ready { text.chars().next().unwrap(); }
+    if text.chars().count() == 1 {}
+    text.chars().next().unwrap();
+    custom.to_lowercase().next().unwrap();
+    let ch = custom;
+    ch.to_uppercase().next().unwrap();
+    let ch = text.chars().next().unwrap();
+    let ch = custom;
+    ch.to_lowercase().next().unwrap();
+    let mut ch = text.chars().next().unwrap();
+    ch = custom;
+    ch.to_lowercase().next().unwrap();
+    // if text.chars().count() == 1 {
+    text.chars().next().unwrap();
+    let example = "if text.chars().count() == 1 {";
+    text.chars().next().unwrap();
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-unwrap")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![2, 5, 7, 8, 10, 11, 13, 14, 16, 17, 19, 21, 23]
+        );
+    }
+
+    #[test]
+    fn proves_nul_free_cstring_literals_and_unambiguous_root_constants() {
+        let source = r##"const FALLBACK_LOCALE: &str = "UTF-8";
+const OTHER: &str = r#"plain\0text"#;
+fn locale(input: String) {
+    CString::new(FALLBACK_LOCALE).unwrap();
+    std::ffi::CString::new(OTHER).expect("constant text");
+    CString::new("literal").unwrap();
+    CString::new(r#"raw literal"#).unwrap();
+    CString::new("line\nbreak").unwrap();
+    CString::new(input).unwrap();
+    CString::new("has\0nul").unwrap();
+    CString::new("has\x00nul").unwrap();
+    CString::new("has\u{0}nul").unwrap();
+    let mixed = (CString::new("safe").unwrap(), CString::new(input).unwrap());
+}"##;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![9, 10, 11, 12, 13]);
+    }
+
+    #[test]
+    fn retains_unresolved_and_shadowed_cstring_constants() {
+        for source in [
+            r#"const TEXT: &str = "has\0nul"; fn f() { CString::new(TEXT).unwrap(); }"#,
+            r#"const TEXT: &str = input; fn f() { CString::new(TEXT).unwrap(); }"#,
+            r#"const OTHER: &str = "safe"; fn f() { CString::new(TEXT).unwrap(); }"#,
+            r#"mod inner { const TEXT: &str = "safe"; } fn f() { CString::new(TEXT).unwrap(); }"#,
+            r#"const TEXT: &str = "safe"; mod inner { fn f() { CString::new(TEXT).unwrap(); } }"#,
+            r#"const TEXT: &str = "safe"; fn f() { const TEXT: &str = input; CString::new(TEXT).unwrap(); }"#,
+            r#"const TEXT: &str = "safe"; fn f() { use other::TEXT; CString::new(TEXT).unwrap(); }"#,
+            r#"const TEXT: &str = "safe"; fn f() { use other::*; CString::new(TEXT).unwrap(); }"#,
+            r#"// const TEXT: &str = "safe";
+fn f() { CString::new(TEXT).unwrap(); }"#,
+            r#"fn f() { let example = "const TEXT: &str = \"safe\";"; CString::new(TEXT).unwrap(); }"#,
+            r#"fn f() { CString::new("safe" + input + "").unwrap(); }"#,
+            r##"fn f() { CString::new(r#"safe"# + input + r#""#).unwrap(); }"##,
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-unwrap")
+                .collect::<Vec<_>>();
+            assert_eq!(selected.len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn retains_unconditional_modules_even_with_test_support_documentation() {
+        let source = r#"/// Terminal test helpers.
+pub mod test {
+    pub fn mock_term(content: &str) { dynamic.unwrap(); }
+}
+mod test_helpers {
+    pub fn production() { dynamic.unwrap(); }
+}
+#[cfg(test)]
+mod tests {
+    fn test_only() { dynamic.unwrap(); }
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-unwrap")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![3, 6]);
     }
 
     #[test]

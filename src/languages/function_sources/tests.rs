@@ -476,6 +476,11 @@ while (next()) {
                int value)\n\
              {\n\
                return value;\n\
+             }\n\
+             static int __attribute__((noinline))\n\
+             attributed(int value)\n\
+             {\n\
+               return value;\n\
              }\n"
             .to_owned(),
         )]));
@@ -485,7 +490,7 @@ while (next()) {
                 .iter()
                 .map(|function| (function.name.as_str(), function.line, function.end_line))
                 .collect::<Vec<_>>(),
-            [("active", 7, 11)]
+            [("active", 7, 11), ("attributed", 12, 16)]
         );
     }
 

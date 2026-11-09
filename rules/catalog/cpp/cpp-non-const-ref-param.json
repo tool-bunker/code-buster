@@ -3,13 +3,13 @@
   "language": "cpp",
   "group": "style",
   "listingTitle": "Cpp non const ref param",
-  "title": "Make mutation explicit",
+  "title": "Review mutable-reference interfaces",
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This construct weakens C++ type, lifetime, or interface safety.",
-  "suggestion": "Use the safer typed C++ alternative described by the rule.",
-  "version": 1,
+  "why": "A mutable-reference parameter allows changes to the caller's object. Output and in/out references are idiomatic C++; this advisory asks for an interface review, not an automatic defect finding.",
+  "suggestion": "Check that mutation and ownership are clear at the call site. Keep intentional output or in/out references; use a const reference or a returned result only when that better expresses the contract.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,10 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Lexical review of named lvalue-reference parameters in simple void, int, bool, and auto function signatures; aliases, custom return types, function-pointer parameters, nested parentheses, and macro-generated declarations may be missed.",
+    "Const qualification is checked on the referenced object, not unrelated parameters or nested template arguments. Types and overloads are not resolved, so declaration/expression ambiguities and const-qualified aliases cannot always be distinguished.",
+    "Does not infer whether a parameter is actually mutated or whether an output or in/out interface is appropriate.",
+    "One advisory per rule and file, located at the first matching parameter line; related_files preserves every other distinct matching source line. The count describes evidence lines, not defects or individual parameters."
+  ]
 }

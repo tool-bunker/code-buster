@@ -1,7 +1,7 @@
 {
   "id": "java-package-cycle",
   "language": "java",
-  "group": "correctness",
+  "group": "maintainability",
   "listingTitle": "Break Java package dependency cycle",
   "title": "Break Java package dependency cycle",
   "mvvm": false,
@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Package cycles blur ownership and prevent one-way architecture boundaries.",
   "suggestion": "Extract shared contracts or invert one package dependency.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [

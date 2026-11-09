@@ -35,6 +35,140 @@ fn rust_functions(path: &str, source: &str) -> Vec<FunctionSource> {
     functions
 }
 
+#[derive(Default)]
+pub(crate) struct RustComplexityContext {
+    quote_bindings: BTreeSet<String>,
+    quote_lines: Vec<(usize, usize)>,
+}
+
+impl RustComplexityContext {
+    pub(crate) fn new(source: &str) -> Self {
+        if !source.contains("quote::") {
+            return Self::default();
+        }
+        let (masked, _) = function_lexical_facts(source);
+        let mut quote_bindings = BTreeSet::new();
+        for captures in RUST_QUOTE_IMPORT.captures_iter(&masked) {
+            for import in captures["imports"].trim_matches(['{', '}']).split(',') {
+                let mut words = import.split_whitespace();
+                if words.next() != Some("quote") {
+                    continue;
+                }
+                let name = match (words.next(), words.next(), words.next()) {
+                    (None, None, None) => "quote",
+                    (Some("as"), Some(alias), None) => alias,
+                    _ => continue,
+                };
+                quote_bindings.insert(name.to_owned());
+            }
+        }
+        // Local macro shadowing is deliberately conservative without name resolution.
+        for captures in RUST_MACRO_DEFINITION.captures_iter(&masked) {
+            quote_bindings.remove(captures.name("name").expect("macro name capture").as_str());
+        }
+        let quote_lines = rust_quote_templates(&masked, Some(&quote_bindings))
+            .into_iter()
+            .map(|(start, end)| (line_at(source, start), line_at(source, end)))
+            .collect();
+        Self { quote_bindings, quote_lines }
+    }
+
+    pub(crate) fn contains_template_function(&self, line: usize) -> bool {
+        self.quote_lines.iter().any(|&(start, end)| start < line && line <= end)
+    }
+}
+
+pub(crate) fn rust_complexity_source(
+    source: &str,
+    context: Option<&RustComplexityContext>,
+) -> String {
+    let (masked, _) = function_lexical_facts(source);
+    let templates = rust_quote_templates(&masked, context.map(|context| &context.quote_bindings));
+    let mut bytes = masked.into_bytes();
+    for (start, end) in templates {
+        blank_rust_complexity_bytes(&mut bytes[start..=end]);
+    }
+    for (start, _) in source.match_indices("||") {
+        if bytes.get(start..start + 2) == Some(b"||")
+            && rust_empty_closure_prefix(&bytes[..start])
+        {
+            bytes[start..start + 2].fill(b' ');
+        }
+    }
+    let masked = String::from_utf8(bytes).expect("Rust template masking preserves UTF-8");
+    // Skip the owner, retaining independent extraction of every nested callable.
+    let nested_functions = RUST_FUNCTION.find_iter(&masked).skip(1);
+    let mut excluded = BTreeMap::new();
+    for declaration in nested_functions.chain(RUST_LOCAL_IMPL.find_iter(&masked)) {
+        if let Some(end) = matching_masked_brace(&masked, declaration.end() - 1) {
+            excluded.insert(declaration.start(), end);
+        }
+    }
+    let mut bytes = masked.into_bytes();
+    let mut masked_until = None;
+    for (start, end) in excluded {
+        if masked_until.is_some_and(|previous_end| start <= previous_end) {
+            continue;
+        }
+        blank_rust_complexity_bytes(&mut bytes[start..=end]);
+        masked_until = Some(end);
+    }
+    String::from_utf8(bytes).expect("Rust scope masking preserves UTF-8")
+}
+
+fn blank_rust_complexity_bytes(bytes: &mut [u8]) {
+    for byte in bytes {
+        if !matches!(*byte, b'\n' | b'\r') {
+            *byte = b' ';
+        }
+    }
+}
+
+fn rust_empty_closure_prefix(prefix: &[u8]) -> bool {
+    let end = prefix
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map_or(0, |index| index + 1);
+    let prefix = &prefix[..end];
+    if prefix.last().is_none_or(|byte| b"([{,=;".contains(byte))
+        || prefix.ends_with(b"=>")
+    {
+        return true;
+    }
+    ["move", "async", "return", "break"].iter().any(|keyword| {
+        prefix.strip_suffix(keyword.as_bytes()).is_some_and(|before| {
+            before.last().is_none_or(|byte| {
+                byte.is_ascii() && !byte.is_ascii_alphanumeric() && !b"_#.".contains(byte)
+            })
+        })
+    })
+}
+
+fn rust_quote_templates(
+    masked: &str,
+    imported: Option<&BTreeSet<String>>,
+) -> Vec<(usize, usize)> {
+    RUST_MACRO_INVOCATION
+        .captures_iter(masked)
+        .filter(|captures| {
+            let path = captures.name("path").map_or("", |path| path.as_str());
+            let name = captures.name("name").expect("macro name capture").as_str();
+            (matches!(path, "quote::" | "::quote::") && name == "quote")
+                || (path.is_empty() && imported.is_some_and(|names| names.contains(name)))
+        })
+        .filter_map(|captures| {
+            let opening = captures.name("opening")?.start();
+            let (open, close) = match masked.as_bytes()[opening] {
+                b'{' => (b'{', b'}'),
+                b'(' => (b'(', b')'),
+                b'[' => (b'[', b']'),
+                _ => return None,
+            };
+            matching_delimiter(masked, opening, open, close).map(|closing| (opening, closing))
+        })
+        .collect()
+}
+
 fn rust_contract_signature(source: &str, function_start: usize, header: &str) -> bool {
     rust_trait_or_binding_method(source, function_start)
         || header
@@ -114,4 +248,21 @@ fn rust_trait_or_binding_method(source: &str, function_start: usize) -> bool {
 static RUST_FUNCTION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?(?:async[ \t]+)?(?:unsafe[ \t]+)?(?:extern[ \t]+"[^"]+"[ \t]+)?fn[ \t]+(?P<name>[A-Za-z_]\w*)[ \t]*(?:<[^>{}]*>)?[ \t]*\([^;{}]*\)[^{;]*\{"#)
         .expect("Rust function regex must compile")
+});
+
+static RUST_LOCAL_IMPL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^[ \t]*(?:unsafe[ \t]+)?impl\b[^;{]*\{")
+        .expect("Rust local impl regex must compile")
+});
+static RUST_QUOTE_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\buse\s+(?:::)?quote::(?P<imports>\{[^{};]*\}|[^{};]+);")
+        .expect("Rust quote import regex must compile")
+});
+static RUST_MACRO_DEFINITION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bmacro_rules\s*!\s*(?P<name>[A-Za-z_]\w*)")
+        .expect("Rust macro definition regex must compile")
+});
+static RUST_MACRO_INVOCATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?P<path>(?:::)?(?:[A-Za-z_]\w*::)*)(?P<name>[A-Za-z_]\w*)\s*!\s*(?P<opening>[{(\[])")
+        .expect("Rust macro invocation regex must compile")
 });

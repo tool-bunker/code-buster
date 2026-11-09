@@ -188,7 +188,8 @@ fn excludes_intentional_self_comparison(
             || has_nan_context(lines, line_index)
             || has_following_nan_guard(lines, line_index)
             || has_no_self_compare_directive(lines, line_index)
-            || is_nan_ternary_comparison(lines, line_index, comparison.operator))
+            || is_nan_ternary_comparison(lines, line_index, comparison.operator)
+            || has_peer_self_comparison(code_at(lines, line_index), comparison))
 }
 
 fn excludes_same_value_context(code: &str, comparison: SameValueComparison<'_>) -> bool {
@@ -330,6 +331,23 @@ fn is_nan_ternary_comparison(lines: &[&str], line_index: usize, operator: &str) 
     false
 }
 
+fn code_at<'a>(lines: &'a [&str], line_index: usize) -> &'a str {
+    lines.get(line_index).copied().unwrap_or_default()
+}
+
+fn has_peer_self_comparison(code: &str, comparison: SameValueComparison<'_>) -> bool {
+    matches!(comparison.operator, "==" | "!=")
+        && code.contains('?')
+        && code.contains(':')
+        && COMPARISON
+            .captures_iter(code)
+            .filter_map(parse_comparison_candidate)
+            .filter_map(|candidate| normalize_same_value_operands(code, candidate))
+            .any(|peer| {
+                peer.identifier != comparison.identifier && peer.operator == comparison.operator
+            })
+}
+
 fn trailing_same_value<'a>(line: &'a str, operator: &str) -> Option<&'a str> {
     let comparison = same_value_comparison(line)?;
     (comparison.operator == operator
@@ -375,10 +393,13 @@ fn suspicious_command_arguments(sources: &BTreeMap<String, String>) -> Vec<Findi
 }
 
 fn command_argument_has_embedded_space(arguments: &str) -> bool {
-    ARGUMENT_LITERAL.captures_iter(arguments).any(|capture| {
+    ARGUMENT_LITERAL.captures(arguments).is_some_and(|capture| {
         let Some(complete) = capture.get(0) else {
             return false;
         };
+        if !arguments[..complete.start()].trim().is_empty() {
+            return false;
+        }
         let Some(literal) = capture
             .name("double")
             .or_else(|| capture.name("single"))
@@ -389,8 +410,7 @@ fn command_argument_has_embedded_space(arguments: &str) -> bool {
         if !literal.chars().any(char::is_whitespace) {
             return false;
         }
-        let preceding = arguments[..complete.start()].trim_end();
         let following = arguments[complete.end()..].trim_start();
-        !preceding.ends_with(".split") && !following.starts_with(".split(")
+        !following.starts_with(".split(")
     })
 }

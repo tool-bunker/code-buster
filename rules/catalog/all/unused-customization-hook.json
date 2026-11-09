@@ -9,7 +9,7 @@
   "legacyGroup": "yagni",
   "why": "An unused callback hook adds branching and API surface for variation that has no current caller.",
   "suggestion": "Remove the hook and its fallback path until a concrete caller needs customization.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -35,6 +35,6 @@
   "limitations": [
     "Reports optional callback-like parameters on private C# methods and underscore-prefixed Dart, JavaScript, TypeScript, or Python functions with at least three visible call sites and a project-unique name.",
     "Requires the function body to invoke the hook and complete evidence that no visible caller supplies it.",
-    "Reflective calls, method tear-offs, overload ownership, forwarded callback parameters, and framework-discovered private hooks are not resolved."
+    "Python calls containing *args or **kwargs prevent a complete omission claim and are excluded; reflective calls, method tear-offs, overload ownership, forwarded callback parameters, and framework-discovered private hooks are not resolved."
   ]
 }

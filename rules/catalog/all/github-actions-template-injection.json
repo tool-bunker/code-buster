@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "GitHub expands expressions before invoking the shell, so attacker-controlled event or dispatch values can inject commands into a generated script.",
   "suggestion": "Assign the expression to an env value, validate it where appropriate, and reference the quoted shell variable from run.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "project",
   "securityKind": "vulnerability",
   "taxonomy": [
@@ -28,6 +28,6 @@
   "languageVersions": [],
   "limitations": [
     "Only direct run commands in checked-in .github/workflows YAML files are inspected.",
-    "String inputs, github.event fields, and github.head_ref are treated as untrusted contexts; typed boolean, choice, and number workflow inputs plus GitHub's guaranteed numeric pull-request number and workflow-run head SHA are excluded. The rule does not perform cross-step data-flow analysis."
+    "String inputs, github.event fields, and github.head_ref are treated as untrusted contexts; typed boolean, choice, and number workflow inputs plus GitHub's guaranteed numeric pull-request number and workflow-run head SHA are excluded. Only the complete github.event.repository.default_branch expression is also excluded because it identifies the trusted base repository's default branch; pull-request head repository fields, property extensions, and mixed expressions remain untrusted. The rule does not perform cross-step data-flow analysis."
   ]
 }

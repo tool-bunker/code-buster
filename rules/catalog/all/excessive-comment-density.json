@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A source file has substantially more commentary than comparable files in the same repository, which can obscure the implementation and become stale.",
   "suggestion": "Keep comments that explain constraints or intent and remove narration or restatements of the code.",
-  "version": 10,
+  "version": 11,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -27,6 +27,7 @@
   "languageVersions": [],
   "limitations": [
     "Requires at least five source files with twenty or more substantive lines.",
-    "Generated files, tests, documentation comments, recognized license headers, inline annotations, tooling directives, decorative separators, Shell parameter-removal and path syntax, and files with fewer than ten implementation-comment lines are excluded."
+    "Generated files, tests, documentation comments, recognized license headers, inline annotations, tooling directives, decorative separators, Shell parameter-removal and path syntax, and files with fewer than ten implementation-comment lines are excluded.",
+    "Leading shell module comments are excluded when they contain an explicit environment section with named variable descriptions or a Usage/Synopsis section with option or argument notation. Unstructured leading comments, empty contract headings, and comments after the first command remain eligible; this is lexical contract recognition, not shell execution analysis."
   ]
 }

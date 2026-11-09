@@ -207,6 +207,7 @@ pub(crate) fn mode_for_code<'a>(code: &str, config: &'a Config, group: &str) -> 
             | "py-subprocess-no-timeout"
             | "py-unbounded-retry-loop"
             | "py-unsafe-archive-extract"
+            | "java-empty-catch"
             | "shell-ignored-command-failure"
             | "shell-unquoted-expansion"
     ) {
@@ -284,11 +285,15 @@ mod tests {
     }
 
     #[test]
-    fn keeps_conventional_shell_advice_out_of_actionable_findings_by_default() {
+    fn keeps_intent_dependent_advice_out_of_actionable_findings_by_default() {
         let mut config = Config::defaults(std::path::PathBuf::new());
-        for code in ["shell-ignored-command-failure", "shell-unquoted-expansion"] {
+        for code in [
+            "java-empty-catch",
+            "shell-ignored-command-failure",
+            "shell-unquoted-expansion",
+        ] {
             let group = crate::rule_catalog::descriptor(code)
-                .expect("Shell rule must be registered")
+                .expect("rule must be registered")
                 .group;
             assert_eq!(mode_for_code(code, &config, group), "count", "{code}");
         }

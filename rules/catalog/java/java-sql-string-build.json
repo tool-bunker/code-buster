@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "This Java construct can weaken correctness, observability, or security.",
   "suggestion": "Use the safer Java API or pattern described by the rule.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -27,5 +27,7 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Requires Java database API evidence in the containing source; unrelated query languages are excluded."
+  ]
 }

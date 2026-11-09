@@ -45,6 +45,7 @@ impl JavaLineFinding {
 fn line_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, source) in sources {
+        let jdbc_source = JDBC_CONTEXT.is_match(source);
         let mut in_block_comment = false;
         let allow_console_output = is_java_test_or_command_line_source(path, source);
         let mut reported_object_input_stream = false;
@@ -59,6 +60,7 @@ fn line_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
                 &without_comments,
                 &masked,
                 allow_console_output,
+                jdbc_source,
                 &mut reported_object_input_stream,
             );
             findings.extend(
@@ -77,17 +79,16 @@ fn classify_line_findings(
     without_comments: &str,
     masked: &str,
     allow_console_output: bool,
+    jdbc_source: bool,
     reported_object_input_stream: &mut bool,
 ) -> [Option<JavaLineFinding>; 8] {
     let catch_exception = CATCH_EXCEPTION.is_match(masked);
-    let object_input_stream = !*reported_object_input_stream
-        && !masked.trim_start().starts_with("import ")
-        && OBJECT_INPUT_STREAM.is_match(masked);
+    let object_input_stream =
+        !*reported_object_input_stream && OBJECT_INPUT_STREAM_CONSTRUCTION.is_match(masked);
     *reported_object_input_stream |= object_input_stream;
     let print_stacktrace = !allow_console_output && PRINT_STACKTRACE.is_match(masked);
-    let sensitive_random =
-        raw.contains("new Random(") && SENSITIVE_RANDOM.is_match(&raw.to_ascii_lowercase());
-    let sql_string_build = has_sql_string_build(raw);
+    let sensitive_random = raw.contains("new Random(") && SENSITIVE_RANDOM.is_match(raw);
+    let sql_string_build = jdbc_source && has_sql_string_build(raw);
     let string_identity = has_string_identity_comparison(without_comments);
     let system_out = !allow_console_output && SYSTEM_OUT.is_match(masked);
     let thread_sleep = THREAD_SLEEP.is_match(masked);
@@ -99,7 +100,7 @@ fn classify_line_findings(
         }),
         object_input_stream.then_some(JavaLineFinding {
             code: "java-objectinputstream",
-            message: "Java native deserialization used",
+            message: "ObjectInputStream constructed",
         }),
         print_stacktrace.then_some(JavaLineFinding {
             code: "java-print-stacktrace",
@@ -350,6 +351,9 @@ fn is_symbolic_credential_reference(
     normalized_identifier: &str,
     normalized_literal: &str,
 ) -> bool {
+    if LEXICAL_TOKEN_IDENTIFIER.is_match(identifier) && LEXICAL_TOKEN_LITERAL.is_match(literal) {
+        return true;
+    }
     if UPPERCASE_IDENTIFIER.is_match(identifier)
         && (literal.contains('%') || literal.contains("{{"))
     {
@@ -417,7 +421,9 @@ struct JavaFunction<'a> {
 
 fn java_functions<'a>(sources: &'a BTreeMap<&str, &str>) -> Vec<JavaFunction<'a>> {
     let mut functions = Vec::new();
-    for (path, source) in sources {
+    for (path, raw_source) in sources {
+        let commentless = java_source_without_comments(raw_source);
+        let source = mask_quoted_text(&commentless);
         let lines = source.split('\n').collect::<Vec<_>>();
         let mut index = 0;
         while index < lines.len() {
@@ -471,9 +477,14 @@ fn resources_not_closed(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
             let Ok(returned) = Regex::new(&format!(r"\breturn\s+{escaped}\s*;")) else {
                 continue;
             };
+            let Ok(escaped_to_callee) = Regex::new(&format!(r"(?:\(|,)\s*{escaped}\s*(?:,|\))"))
+            else {
+                continue;
+            };
             if close.is_match(&function.source)
                 || TRY_WITH_RESOURCES.is_match(&function.source)
                 || returned.is_match(&function.source)
+                || escaped_to_callee.is_match(&function.source[allocation_match.end()..])
             {
                 continue;
             }
@@ -623,6 +634,9 @@ fn ignored_future_results(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
             }) {
                 continue;
             }
+            if future_result_is_observed(&code, &whole) {
+                continue;
+            }
             findings.push(finding(
                 "java-ignored-future",
                 path,
@@ -634,6 +648,56 @@ fn ignored_future_results(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
         }
     }
     findings
+}
+fn future_result_is_observed(code: &str, call: &regex::Match<'_>) -> bool {
+    let Some(open) = call.end().checked_sub(1) else {
+        return false;
+    };
+    let Some(close) = matching_delimiter(code, open, '(', ')') else {
+        return false;
+    };
+    let argument = code[open + 1..close].trim();
+    if is_java_identifier(argument)
+        && (java_variable_type_before(code, argument, call.start())
+            .is_some_and(|(_, kind)| java_future_task_type(kind))
+            || java_future_task_declared_before(code, argument, call.start()))
+    {
+        return true;
+    }
+    if code[close + 1..].trim_start().starts_with('.') {
+        return true;
+    }
+    code[..call.start()]
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .is_some_and(|line| {
+            let line = line.trim_end();
+            line.ends_with('=') || line == "return" || line.ends_with(" return")
+        })
+}
+
+fn is_java_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|character| character == '$' || character == '_' || character.is_alphabetic())
+        && characters
+            .all(|character| character == '$' || character == '_' || character.is_alphanumeric())
+}
+
+fn java_future_task_type(variable_type: &str) -> bool {
+    variable_type
+        .split('<')
+        .next()
+        .and_then(|base| base.trim().rsplit('.').next())
+        == Some("FutureTask")
+}
+
+fn java_future_task_declared_before(code: &str, variable: &str, offset: usize) -> bool {
+    JAVA_FUTURE_TASK_DECLARATION
+        .captures_iter(&code[..offset])
+        .any(|capture| &capture[1] == variable)
 }
 
 // code-buster-ignore complex-function: one loop traversal shares source ranges and deduplication across performance rules.
@@ -1082,8 +1146,17 @@ fn representative_cycle(
 }
 
 fn module_for(path: &str) -> &str {
-    const MARKER: &str = "/src/main/java/";
-    path.find(MARKER).map_or(".", |index| &path[..index])
+    const STANDARD_MARKER: &str = "/src/main/java/";
+    if let Some(index) = path.find(STANDARD_MARKER) {
+        return &path[..index];
+    }
+    if let Some(rest) = path.strip_prefix("src/")
+        && let Some(module_end) = rest.find('/')
+        && rest[module_end + 1..].contains("/classes/")
+    {
+        return &path[..4 + module_end];
+    }
+    "."
 }
 
 fn package_node(module: &str, package: &str) -> String {
@@ -1096,7 +1169,12 @@ fn package_node(module: &str, package: &str) -> String {
 
 fn display_package_node(node: &str) -> String {
     if let Some((module, package)) = node.split_once("::") {
-        format!("{module}/src/main/java/{}", package.replace('.', "/"))
+        let source_root = if module.starts_with("src/") {
+            format!("{module}/share/classes")
+        } else {
+            format!("{module}/src/main/java")
+        };
+        format!("{source_root}/{}", package.replace('.', "/"))
     } else {
         node.replace('.', "/")
     }
@@ -1345,12 +1423,16 @@ static JAVA_STRING_CONCAT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*(?:\+=|=\s*([A-Za-z_]\w*)\s*\+)").unwrap());
 static CATCH_EXCEPTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"catch\s*\(\s*(?:Exception|Throwable)\b").unwrap());
-static OBJECT_INPUT_STREAM: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bObjectInputStream\b").unwrap());
+static OBJECT_INPUT_STREAM_CONSTRUCTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bnew\s+(?:java\s*\.\s*io\s*\.\s*)?ObjectInputStream\s*\(").unwrap()
+});
 static PRINT_STACKTRACE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[a-z_$][\w$]*\.printStackTrace\s*\(").unwrap());
 static SENSITIVE_RANDOM: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"token|secret|password|passwd|api_key|apikey|nonce|salt|key").unwrap()
+    Regex::new(
+        r"(?i)\b(?:token|secret|password|passwd|api[_-]?key|nonce|salt)\w*\b|[a-z0-9](?:token|secret|password|passwd|nonce|salt|key)\b|\bkey\b|[_$]key\b|key[_$]",
+    )
+    .unwrap()
 });
 static SQL_STRING_BUILD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)"\s*(?:select\b[^"]*\bfrom\b|insert\s+into\b|update\b[^"]*\bset\b|delete\s+from\b)[^"]*"\s*\+\s*"#).unwrap()
@@ -1395,7 +1477,7 @@ static NON_CREDENTIAL_KEY: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 static NON_CREDENTIAL_ROLE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:^|_)(?:prefix|suffix|cache|header|claim|message|name|path|pattern|regex|property|success|failure|template|format|metadata|descriptor|descriptors|label|field|xfield|column|location|description|parameter|expiration|id|redacted|invalid|missing|mismatch|mismatching|option|query)(?:_|$)").unwrap()
+    Regex::new(r"(?i)(?:^|_)(?:prefix|suffix|cache|header|claim|message|name|path|pattern|regex|property|success|failure|template|format|metadata|descriptor|descriptors|label|tag|field|xfield|column|location|description|parameter|expiration|id|redacted|invalid|missing|mismatch|mismatching|option|query)(?:_|$)").unwrap()
 });
 static UPPERCASE_IDENTIFIER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Z][A-Z0-9_]*$").unwrap());
@@ -1411,6 +1493,10 @@ static PLACEHOLDER_LITERAL: LazyLock<Regex> = LazyLock::new(|| {
 static CREDENTIAL_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(?:token|secret|password|passwd|api[_-]?(?:key|secret)|nonce|salt)$").unwrap()
 });
+static LEXICAL_TOKEN_IDENTIFIER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)(?:^|_)(?:script|parse)_token_[0-9]+$").unwrap());
+static LEXICAL_TOKEN_LITERAL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\.?[a-z][a-z0-9._-]{2,31}$").unwrap());
 static LEGACY_DIGEST: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\bMessageDigest\s*\.\s*getInstance\s*\(\s*"[^"]*\b(?:MD5|SHA-?1)\b"#).unwrap()
 });
@@ -1437,6 +1523,10 @@ static ANNOTATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^@(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)\b").unwrap());
 static FORWARDING_CONSTRUCTOR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)\{\s*super\s*\([^;]*\);\s*}\s*$").unwrap());
+static JAVA_FUTURE_TASK_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:[A-Za-z_$][\w$]*\.)*FutureTask(?:\s*<[^;\n=]+>)?\s+([A-Za-z_$][\w$]*)\s*=")
+        .unwrap()
+});
 static JAVA_VARIABLE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"\b([A-Za-z_$][\w$.]*(?:\s*<[^;(){}=>\n]+>)?(?:\s*\[\])?)\s+([A-Za-z_$][\w$]*)\s*(?:=|,|\)|;|:)",
@@ -1449,7 +1539,7 @@ static JAVA_INDEXED_ACCESS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_$][\w$]*)\s*\.\s*get\s*\(").unwrap());
 static JAVA_IGNORED_FUTURE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?m)^\s*(?:(?P<receiver>[A-Za-z_$][\w$]*)\s*\.\s*(?:submit|schedule|scheduleAtFixedRate|scheduleWithFixedDelay)|CompletableFuture\s*\.\s*(?:runAsync|supplyAsync))\s*\(",
+        r"(?m)^[ \t]*(?:(?P<receiver>[A-Za-z_$][\w$]*)\s*\.\s*(?:submit|schedule|scheduleAtFixedRate|scheduleWithFixedDelay)|CompletableFuture\s*\.\s*(?:runAsync|supplyAsync))\s*\(",
     )
     .unwrap()
 });
@@ -1458,6 +1548,9 @@ static PACKAGE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*import\s+(?:static\s+)?([A-Za-z_]\w*(?:\.[A-Za-z_*]\w*)*)\s*;").unwrap()
+});
+static JDBC_CONTEXT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*import\s+java\.sql(?:\.|\s*;)|\b(?:Connection|PreparedStatement|CallableStatement|ResultSet|RowSet|DatabaseMetaData)\b|\b(?:executeQuery|executeUpdate|prepareStatement)\s*\(").unwrap()
 });
 
 #[cfg(test)]
@@ -1480,10 +1573,10 @@ mod tests {
             ),
             (
                 "Main.java".to_owned(),
-                "class Main {\n\
+                "class Main { Connection connection;\n\
 +  void run(int a, int b, int c, int d, int e, int f, int g, int h) {\n\
 +    String password = \"real-secret-value\";\n\
-+    ObjectInputStream input = open();\n\
++    ObjectInputStream input = new ObjectInputStream(stream);\n\
 +    FileInputStream file = new FileInputStream(path);\n\
 +    String text = \"\";\n\
 +    for (String value : values) { text += value; }\n\
@@ -1555,6 +1648,28 @@ mod tests {
     }
 
     #[test]
+    fn distinguishes_sensitive_random_values_from_non_secret_key_identifiers() {
+        let sources = BTreeMap::from([(
+            "Session.java".to_owned(),
+            "int currentKeyID = new Random(System.nanoTime()).nextInt();\n\
+             int keyboardIndex = new Random().nextInt();\n\
+             int apiToken = new Random().nextInt();\n\
+             int encryptionKey = new Random().nextInt();"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-random-security")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [3, 4]
+        );
+    }
+
+    #[test]
     fn applies_java_exclusions_and_once_per_file_behavior() {
         let sources = BTreeMap::from([
             (
@@ -1587,7 +1702,7 @@ class Derived extends Base {\n\
             (
                 "Main.java".to_owned(),
                 "import java.io.ObjectInputStream;\n\
-ObjectInputStream first = open();\n\
+ObjectInputStream first = new ObjectInputStream(stream);\n\
 ObjectInputStream second = reopen();\n\
 Thread.sleep(100);\n\
 String sleepExample = \"Thread.sleep(100)\";\n\
@@ -1808,6 +1923,114 @@ String outputExample = \"System.err.println(value)\";\n"
     }
 
     #[test]
+    fn accepts_observed_futures_and_reports_only_directly_discarded_results() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/AsyncWork.java".to_owned(),
+            r#"class AsyncWork {
+  void run(ExecutorService executor) {
+    Future<?> retained =
+        executor.submit(this::work);
+    executor.submit(this::work).get();
+    executor.submit(this::work);
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-ignored-future")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![6]
+        );
+    }
+
+    #[test]
+    fn accepts_submitted_future_tasks_retained_for_later_observation() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/AsyncWork.java".to_owned(),
+            r#"class AsyncWork {
+  Optional<FutureTask<Set<Location>>> run(ExecutorService executor) {
+    FutureTask<Set<Location>> task = new FutureTask<>(this::work);
+    tasks.add(task);
+    executor.submit(task);
+    return Optional.of(task);
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert!(
+            analyze(&context)
+                .into_iter()
+                .all(|finding| finding.code != "java-ignored-future")
+        );
+    }
+
+    #[test]
+    fn ignores_serialization_hooks_documentation_examples_and_non_database_query_dsls() {
+        let sources = BTreeMap::from([(
+            "Safe.java".to_owned(),
+            r#"/** Example: FileInputStream file = new FileInputStream(path); */
+class Safe {
+  private void readObject(ObjectInputStream input) throws Exception {
+    input.defaultReadObject();
+  }
+  void query(String eventType) {
+    Query query = new Query("SELECT * FROM " + eventType);
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "java-objectinputstream" | "java-resource-not-closed" | "java-sql-string-build"
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert!(findings.is_empty(), "unexpected findings: {findings:?}");
+    }
+
+    #[test]
+    fn reports_only_resources_that_remain_owned_by_the_creating_method() {
+        let sources = BTreeMap::from([(
+            "Resources.java".to_owned(),
+            r#"class Resources {
+  void load(Path path) {
+    FileReader transferred = new FileReader(path.toFile());
+    BufferedReader buffered = new BufferedReader(transferred);
+    buffered.close();
+    FileReader leaked = new FileReader(path.toFile());
+    leaked.read();
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-resource-not-closed")
+                .map(|finding| (finding.line, finding.message))
+                .collect::<Vec<_>>(),
+            [(
+                6,
+                "locally-created resource `leaked` is not closed".to_owned()
+            )]
+        );
+    }
+
+    #[test]
     fn distinguishes_secrets_from_symbolic_token_labels() {
         let sources = BTreeMap::from([(
             "Secrets.java".to_owned(),
@@ -1827,7 +2050,11 @@ String outputExample = \"System.err.println(value)\";\n"
              String TOKEN = \"ownership_token\";\n\
              String PASSWD_OPTION = \"password\";\n\
              String MISMATCHING_TOKEN = \"token did not match\";\n\
-             String TOKEN_QUERY = \"/latest/api/token\";"
+             String TOKEN_QUERY = \"/latest/api/token\";\n\
+             String JDK_SCRIPT_TOKEN_1 = \"configure\";\n\
+             String JDK_SCRIPT_TOKEN_2 = \".jcheck\";\n\
+             String EXCLUDE_PARSE_TOKEN_1 = \"gtest\";\n\
+             String _TAG_KA_NONCE = \"KA-Nonce\";"
                 .to_owned(),
         )]);
         let context = SourceAnalysisContext::unchanged(&sources);

@@ -381,15 +381,17 @@ fn is_ci_metadata_path(relative: &Path) -> bool {
         && file_name.is_some_and(|name| {
             matches!(
                 name,
-                ".gitlab-ci.yml" | "azure-pipelines.yml" | "Jenkinsfile"
+                ".build.yml" | ".gitlab-ci.yml" | "azure-pipelines.yml" | "Jenkinsfile"
             )
         });
-    let github_workflow = relative.parent() == Some(Path::new(".github/workflows"))
-        && relative
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| matches!(extension, "yml" | "yaml"));
-    root_ci || github_workflow
+    let yaml_manifest = matches!(
+        relative.parent(),
+        Some(parent) if parent == Path::new(".github/workflows") || parent == Path::new(".builds")
+    ) && relative
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension, "yml" | "yaml"));
+    root_ci || yaml_manifest
 }
 
 fn read_manifest(path: &Path) -> String {

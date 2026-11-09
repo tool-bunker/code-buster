@@ -345,7 +345,7 @@ fn finding(path: &str, line: usize) -> Finding {
 }
 
 static SUPPORTED_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\.(?:dart|java|kt|kts|cs|js|jsx|mjs|cjs|ts|tsx|py|rb|php|go)$").unwrap()
+    Regex::new(r"(?i)\.(?:dart|kt|kts|cs|js|jsx|mjs|cjs|ts|tsx|py|rb|php|go)$").unwrap()
 });
 static SQL_STATEMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:select\s+.+\s+from\b|insert\s+into|update\s+.+\s+set|delete\s+from)\b")
@@ -455,6 +455,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1]
         );
+    }
+
+    #[test]
+    fn leaves_java_sql_analysis_to_the_java_rule_pack() {
+        let fixture = Fixture::new([(
+            "Query.java",
+            "String query = \"SELECT * FROM users WHERE id=\" + userId;",
+        )]);
+
+        assert!(analyze(&fixture.context()).is_empty());
     }
 
     #[test]

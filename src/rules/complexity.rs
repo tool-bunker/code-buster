@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
@@ -6,7 +7,7 @@ use regex::Regex;
 use super::is_localization_path;
 use crate::config::Config;
 use crate::findings::{Finding, Severity};
-use crate::function_sources::FunctionSource;
+use crate::function_sources::{FunctionSource, RustComplexityContext, rust_complexity_source};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct FunctionMetrics {
@@ -22,10 +23,24 @@ pub fn analyze(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut localization_complexity = Vec::new();
+    let mut rust_contexts = BTreeMap::new();
     for function in functions {
-        let metrics = measure(function);
-        if metrics.cyclomatic as i64 > config.complexity_threshold
-            || metrics.cognitive as i64 > config.cognitive_threshold
+        let rust_context = function.path.ends_with(".rs").then(|| {
+            rust_contexts
+                .entry(function.path.as_str())
+                .or_insert_with(|| {
+                    RustComplexityContext::new(
+                        sources.get(&function.path).map_or("", String::as_str),
+                    )
+                })
+        });
+        let in_quote_template = rust_context
+            .as_ref()
+            .is_some_and(|context| context.contains_template_function(function.line));
+        let metrics = measure(function, rust_context.as_deref());
+        if !in_quote_template
+            && (metrics.cyclomatic as i64 > config.complexity_threshold
+                || metrics.cognitive as i64 > config.cognitive_threshold)
         {
             let finding = Finding {
                 code: "complex-function".to_owned(),
@@ -89,15 +104,30 @@ pub fn analyze(
     findings
 }
 
-fn measure(function: &FunctionSource) -> FunctionMetrics {
+fn measure(
+    function: &FunctionSource,
+    rust_context: Option<&RustComplexityContext>,
+) -> FunctionMetrics {
     let mut cyclomatic = 1usize;
     let mut cognitive = 0usize;
     let mut depth = 0isize;
     let mut lexical = LexicalState::default();
     let dart = function.path.ends_with(".dart");
     let python = function.path.ends_with(".py");
-    for line in function.source.split('\n') {
-        let code = strip_code(line, &mut lexical, dart, python);
+    let rust_source = function
+        .path
+        .ends_with(".rs")
+        .then(|| rust_complexity_source(&function.source, rust_context));
+    for line in rust_source
+        .as_deref()
+        .unwrap_or(&function.source)
+        .split('\n')
+    {
+        let code = if rust_source.is_some() {
+            Cow::Borrowed(line)
+        } else {
+            Cow::Owned(strip_code(line, &mut lexical, dart, python))
+        };
         let cyclomatic_signals = CYCLOMATIC_SIGNAL.find_iter(&code).count();
         let cognitive_controls = COGNITIVE_CONTROL.find_iter(&code).count();
         cyclomatic += cyclomatic_signals;
@@ -153,7 +183,7 @@ fn file_findings(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Fin
             .rsplit_once('.')
             .map(|(_, extension)| extension.to_ascii_lowercase())
             .unwrap_or_default();
-        if !matches!(extension.as_str(), "c" | "cs" | "h") {
+        if extension != "cs" {
             continue;
         }
         let mut lexical = LexicalState::default();
@@ -395,9 +425,254 @@ static GOTO_STATEMENT: LazyLock<Regex> = LazyLock::new(|| {
 mod tests {
     use super::{FunctionMetrics, analyze, measure};
     use crate::config::Config;
-    use crate::function_sources::FunctionSource;
+    use crate::function_sources::{FunctionSource, RustComplexityContext, extract};
     use std::collections::BTreeMap;
     use std::path::PathBuf;
+
+    #[test]
+    fn measures_rust_nested_visitors_independently_without_changing_extracted_sources() {
+        let source = r#"fn deserialize(value: bool) -> bool {
+    struct Field;
+    impl Read for Field {
+        fn deserialize(value: bool) -> bool {
+            struct FieldVisitor;
+            impl Visitor for FieldVisitor {
+                fn expecting() -> bool { true }
+                fn visit_str(value: bool) -> bool {
+                    if value { return true; }
+                    false
+                }
+            }
+            FieldVisitor::visit_str(value)
+        }
+    }
+    struct RawBindingVisitor;
+    impl Visitor for RawBindingVisitor {
+        fn visit_map(values: &[bool]) -> bool {
+            for value in values {
+                if *value && values.len() > 1 {
+                    return true;
+                }
+            }
+            false
+        }
+    }
+    RawBindingVisitor::visit_map(&[Field::deserialize(value)])
+}"#;
+        let sources = BTreeMap::from([("src/visitor.rs".to_owned(), source.to_owned())]);
+        let functions = extract(&sources);
+        assert!(functions[0].source.contains("if *value"));
+        assert_eq!(
+            functions
+                .iter()
+                .map(|function| {
+                    let metrics = measure(function, None);
+                    (
+                        function.name.as_str(),
+                        function.line,
+                        metrics.cyclomatic,
+                        metrics.cognitive,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            [
+                ("deserialize", 1, 1, 0),
+                ("deserialize", 4, 1, 0),
+                ("expecting", 7, 1, 0),
+                ("visit_str", 8, 2, 1),
+                ("visit_map", 18, 4, 4),
+            ]
+        );
+        let mut config = Config::defaults(PathBuf::from("."));
+        config.complexity_threshold = 2;
+        config.cognitive_threshold = 100;
+        config.max_function_lines = 0;
+        let findings = analyze(&functions, &sources, &config);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "complex-function");
+        assert_eq!(findings[0].path, "src/visitor.rs");
+        assert_eq!(findings[0].line, 18);
+        assert_eq!(findings[0].end_line, 18);
+        assert_eq!(findings[0].message, "visit_map complexity=4 cognitive=4");
+    }
+
+    #[test]
+    fn retains_rust_owner_branches_and_closure_logic_around_nested_functions() {
+        let source = r#"fn outer(value: bool) {
+    fn helper(value: bool) {
+        while value {
+            if value { break; }
+        }
+    }
+    if value { helper(value); }
+    let callback = || {
+        if value { helper(value); }
+    };
+    callback();
+}"#;
+        let sources = BTreeMap::from([("src/callback.rs".to_owned(), source.to_owned())]);
+        let functions = extract(&sources);
+        assert_eq!(
+            functions
+                .iter()
+                .map(|function| {
+                    let metrics = measure(function, None);
+                    (
+                        function.name.as_str(),
+                        metrics.cyclomatic,
+                        metrics.cognitive,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            [("outer", 3, 3), ("helper", 3, 3)]
+        );
+        let mut config = Config::defaults(PathBuf::from("."));
+        config.complexity_threshold = 2;
+        config.cognitive_threshold = 100;
+        config.max_function_lines = 0;
+        let findings = analyze(&functions, &sources, &config);
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            [("complex-function", 1), ("complex-function", 2)]
+        );
+    }
+
+    #[test]
+    fn distinguishes_empty_rust_closures_from_boolean_or() {
+        for modifiers in ["", "move ", "async ", "async move "] {
+            let source = format!(
+                "fn probe(left: bool, right: bool) {{\n    let callback = {modifiers}|| {{\n        if left || right {{ return true; }}\n        false\n    }};\n    callback();\n}}"
+            );
+            let sources = BTreeMap::from([("src/closure.rs".to_owned(), source)]);
+            let functions = extract(&sources);
+            let metrics = measure(&functions[0], None);
+            assert_eq!(
+                (metrics.cyclomatic, metrics.cognitive),
+                (3, 3),
+                "{modifiers}"
+            );
+        }
+        for name in ["r#move", "émove"] {
+            let source = format!(
+                "fn probe({name}: bool, right: bool) {{\n    if {name} || right {{ return; }}\n}}"
+            );
+            let sources = BTreeMap::from([("src/condition.rs".to_owned(), source)]);
+            let functions = extract(&sources);
+            let metrics = measure(&functions[0], None);
+            assert_eq!((metrics.cyclomatic, metrics.cognitive), (3, 2), "{name}");
+        }
+    }
+
+    #[test]
+    fn excludes_proven_quote_templates_but_retains_generator_and_runtime_macro_branches() {
+        let source = r#"use quote::{format_ident, quote as tokens};
+fn generate(fields: &[Field]) -> Tokens {
+    let base = tokens! {
+        fn generated() {
+            if never { while never { if never {} } }
+        }
+    };
+    for field in fields {
+        if field.optional {
+            let extra = quote::quote! {
+                if value.is_none() { continue; }
+                #base
+            };
+            emit(extra);
+        }
+    }
+    evaluate! {
+        if ready { emit(base); }
+    }
+    base
+}"#;
+        let sources = BTreeMap::from([("src/generator.rs".to_owned(), source.to_owned())]);
+        let functions = extract(&sources);
+        let context = RustComplexityContext::new(source);
+        let metrics = measure(&functions[0], Some(&context));
+        assert_eq!(metrics.cyclomatic, 4);
+        assert_eq!(metrics.cognitive, 5);
+        assert_eq!(metrics.length, 20);
+        let mut config = Config::defaults(PathBuf::from("."));
+        config.complexity_threshold = 2;
+        config.cognitive_threshold = 100;
+        config.max_function_lines = 0;
+        let findings = analyze(&functions, &sources, &config);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "complex-function");
+        assert_eq!(findings[0].path, "src/generator.rs");
+        assert_eq!(findings[0].line, 2);
+        assert_eq!(findings[0].message, "generate complexity=4 cognitive=5");
+    }
+
+    #[test]
+    fn retains_unproven_and_shadowed_quote_macros_and_evaluated_span_expressions() {
+        for source in [
+            "fn generate() {\n    quote! { if ready { run(); } }\n}",
+            "use quote::quote;\nmacro_rules! quote { ($($input:tt)*) => { $($input)* }; }\nfn generate() {\n    quote! { if ready { run(); } }\n}",
+            "use quote::quote_spanned;\nfn generate() {\n    quote_spanned! { if ready { first } else { second } => value }\n}",
+        ] {
+            let sources = BTreeMap::from([("src/generator.rs".to_owned(), source.to_owned())]);
+            let functions = extract(&sources);
+            let context = RustComplexityContext::new(source);
+            let metrics = measure(&functions[0], Some(&context));
+            assert_eq!(metrics.cyclomatic, 2);
+            assert_eq!(metrics.cognitive, 1);
+        }
+    }
+
+    #[test]
+    fn retains_actual_field_deserializer_complexity_after_ignoring_emitted_branches() {
+        let source = r#"use quote::quote;
+fn field_deserializer(fields: &mut Fields, field: &Field) {
+    let assignment = quote! {
+        match deserialize(value) {
+            Ok(value) => config.field = value,
+            Err(error) => { log(error); }
+        }
+    };
+    for attr in &field.attrs {
+        match attr.kind {
+            Flatten => {
+                if fields.has_flatten { return; }
+            }
+            Deprecated => {
+                if let Some(warning) = attr.param { emit(warning); }
+            }
+            Alias => {
+                if let Some(alias) = attr.param { emit(alias); }
+            }
+            _ => {}
+        }
+    }
+    if let Type::Path(path) = &field.ty {
+        if path.is_option {
+            let assignment = quote! {
+                if value.is_none() { continue; }
+                #assignment
+            };
+        }
+    }
+}"#;
+        let sources = BTreeMap::from([("src/derive.rs".to_owned(), source.to_owned())]);
+        let functions = extract(&sources);
+        let context = RustComplexityContext::new(source);
+        let metrics = measure(&functions[0], Some(&context));
+        assert_eq!(metrics.cyclomatic, 7);
+        assert_eq!(metrics.cognitive, 16);
+        let findings = analyze(&functions, &sources, &Config::defaults(PathBuf::from(".")));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "complex-function");
+        assert_eq!(findings[0].path, "src/derive.rs");
+        assert_eq!(findings[0].line, 2);
+        assert_eq!(
+            findings[0].message,
+            "field_deserializer complexity=7 cognitive=16"
+        );
+    }
 
     #[test]
     fn measures_nested_control_flow() {
@@ -410,7 +685,7 @@ mod tests {
             source: "void logic() {\n  if (first && second) {\n    for (final item in items) {\n      if (item.ready) {\n        save(item);\n      }\n    }\n  }\n}".to_owned(),
         };
         assert_eq!(
-            measure(&function),
+            measure(&function, None),
             FunctionMetrics {
                 cyclomatic: 5,
                 cognitive: 7,
@@ -432,7 +707,7 @@ mod tests {
         };
 
         assert_eq!(
-            measure(&function),
+            measure(&function, None),
             FunctionMetrics {
                 cyclomatic: 5,
                 cognitive: 2,
@@ -452,7 +727,7 @@ mod tests {
         };
 
         assert_eq!(
-            measure(&function),
+            measure(&function, None),
             FunctionMetrics {
                 cyclomatic: 4,
                 cognitive: 3,
@@ -483,7 +758,7 @@ mod tests {
         };
 
         assert_eq!(
-            measure(&function),
+            measure(&function, None),
             FunctionMetrics {
                 cyclomatic: 2,
                 cognitive: 1,
@@ -530,6 +805,31 @@ mod tests {
             findings
                 .iter()
                 .any(|finding| finding.path == "src/logic.rs")
+        );
+    }
+
+    #[test]
+    fn leaves_c_cleanup_gotos_to_language_specific_review() {
+        let sources = BTreeMap::from([
+            (
+                "native/resource.c".to_owned(),
+                "int load(void) {\n  if (failed()) goto cleanup;\ncleanup:\n  release();\n  return 0;\n}"
+                    .to_owned(),
+            ),
+            (
+                "src/Workflow.cs".to_owned(),
+                "void Run() {\n  goto Finished;\nFinished:\n  return;\n}".to_owned(),
+            ),
+        ]);
+        let findings = analyze(&[], &sources, &Config::defaults(PathBuf::from(".")));
+
+        assert_eq!(
+            findings
+                .into_iter()
+                .filter(|finding| finding.code == "goto-statement")
+                .map(|finding| finding.path)
+                .collect::<Vec<_>>(),
+            ["src/Workflow.cs"]
         );
     }
 }
