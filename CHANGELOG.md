@@ -9,6 +9,10 @@
 - Include effective `report`/`count` modes in JSON and NDJSON findings, preserving command-specific rule-group routing and configuration precedence independently of severity.
 - Add opt-in `sourceMetrics` to verbose JSON reports and NDJSON summary records, with language-aware code-line totals for every selected file, canonical Rust/Python inline-test masking, embedded-code support, and native Nim/Wren counting. Ordinary scans do not perform line counting.
 
+### Fixed
+
+- Build Linux release artifacts on Ubuntu 24.04 to preserve the glibc 2.39 minimum instead of inheriting newer requirements when GitHub upgrades `ubuntu-latest`.
+
 ## 0.14.2
 
 ### Fixed
