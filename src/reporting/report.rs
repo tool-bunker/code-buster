@@ -4,9 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Write as _};
 use std::process::Command;
 
-use super::terminal;
+use super::{source_metrics, terminal};
 use crate::config::{Config, PatternRule};
 use crate::discovery::{AnalysisProfile, PreparedPreview, ProcessingDiagnostic, RulePackTiming};
+use crate::finding_controls;
 use crate::findings::{Finding, Severity, rule_suggestion, rule_why};
 use crate::options::ReportFormat;
 use crate::rule_catalog;
@@ -15,6 +16,7 @@ pub struct FindingReport<'a> {
     pub command: &'static str,
     pub prepared: &'a PreparedPreview,
     pub findings: &'a [Finding],
+    pub taxonomy_group: fn(&str) -> &'static str,
     pub actionable_count: usize,
     pub advisory_summary: &'a BTreeMap<String, usize>,
     pub show_advisory_hint: bool,
@@ -25,7 +27,7 @@ pub struct FindingReport<'a> {
 pub fn render(format: ReportFormat, report: &FindingReport<'_>) -> Result<String, String> {
     match format {
         ReportFormat::Text => Ok(text(report, terminal::colors_enabled())),
-        ReportFormat::Json => serde_json::to_string(&json_envelope(report))
+        ReportFormat::Json => serde_json::to_string(&json_envelope(report)?)
             .map_err(|error| format!("failed to encode finding report: {error}")),
         ReportFormat::Ndjson => ndjson(report),
         ReportFormat::Markdown => Ok(markdown(report)),
@@ -537,13 +539,19 @@ impl TerminalPalette {
     }
 }
 
-fn json_envelope(report: &FindingReport<'_>) -> Value {
+fn json_envelope(report: &FindingReport<'_>) -> Result<Value, String> {
     let mut object = Map::new();
     object.insert("schemaVersion".to_owned(), json!(3));
     object.insert("version".to_owned(), json!(1));
     object.insert("command".to_owned(), json!(report.command));
     object.insert("root".to_owned(), json!(report.prepared.root));
     object.insert("files".to_owned(), json!(report.prepared.files.len()));
+    if report.verbose {
+        object.insert(
+            "sourceMetrics".to_owned(),
+            json!(source_metrics::measure(report.prepared)?),
+        );
+    }
     let languages = language_summary(report)
         .into_iter()
         .map(|(language, (files, findings))| {
@@ -580,13 +588,29 @@ fn json_envelope(report: &FindingReport<'_>) -> Value {
     object.insert("manifest".to_owned(), manifest(report));
     object.insert(
         "findings".to_owned(),
-        Value::Array(report.findings.iter().map(Finding::to_json).collect()),
+        Value::Array(
+            report
+                .findings
+                .iter()
+                .map(|finding| finding_json(finding, report))
+                .collect(),
+        ),
     );
-    Value::Object(object)
+    Ok(Value::Object(object))
+}
+
+fn finding_json(finding: &Finding, report: &FindingReport<'_>) -> Value {
+    let mut object = finding.to_json();
+    object["mode"] = json!(finding_controls::mode_for_code(
+        &finding.code,
+        &report.prepared.config,
+        (report.taxonomy_group)(&finding.code),
+    ));
+    object
 }
 
 fn ndjson(report: &FindingReport<'_>) -> Result<String, String> {
-    let mut records = vec![json!({
+    let mut summary = json!({
         "schemaVersion": 3,
         "recordType": "summary",
         "command": report.command,
@@ -598,9 +622,13 @@ fn ndjson(report: &FindingReport<'_>) -> Result<String, String> {
             "total": report.advisory_summary.values().sum::<usize>(),
             "groups": report.advisory_summary,
         },
-    })];
+    });
+    if report.verbose {
+        summary["sourceMetrics"] = json!(source_metrics::measure(report.prepared)?);
+    }
+    let mut records = vec![summary];
     for finding in report.findings {
-        let Value::Object(mut object) = finding.to_json() else {
+        let Value::Object(mut object) = finding_json(finding, report) else {
             return Err(
                 "failed to encode NDJSON report: finding JSON must be an object".to_owned(),
             );
@@ -1056,4 +1084,99 @@ fn xml(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discovery::prepare;
+    use crate::options::PreviewOptions;
+    use std::fs;
+
+    fn prepared(root: &std::path::Path) -> PreparedPreview {
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        prepare(&PreviewOptions {
+            root: root.to_path_buf(),
+            ..PreviewOptions::default()
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn computes_metrics_only_for_verbose_json_and_ndjson() {
+        let root = tempfile::tempdir().unwrap();
+        let mut prepared = prepared(root.path());
+        // An inconsistent preparation fails measurement, but formats that do
+        // not request metrics must not inspect the source map for counting.
+        prepared.sources.clear();
+        let advisory_summary = BTreeMap::new();
+        let mut report = FindingReport {
+            command: "review",
+            prepared: &prepared,
+            findings: &[],
+            taxonomy_group: rule_catalog::taxonomy_group,
+            actionable_count: 0,
+            advisory_summary: &advisory_summary,
+            show_advisory_hint: false,
+            verbose: false,
+            profile: false,
+        };
+        for format in [ReportFormat::Json, ReportFormat::Ndjson] {
+            let value: Value = serde_json::from_str(&render(format, &report).unwrap()).unwrap();
+            assert!(value.get("sourceMetrics").is_none());
+        }
+        report.verbose = true;
+        for format in [
+            ReportFormat::Text,
+            ReportFormat::Markdown,
+            ReportFormat::Sarif,
+            ReportFormat::Junit,
+        ] {
+            assert!(render(format, &report).is_ok());
+        }
+        for format in [ReportFormat::Json, ReportFormat::Ndjson] {
+            assert!(render(format, &report).is_err());
+        }
+    }
+
+    #[test]
+    fn reports_modes_from_the_same_taxonomy_callback_as_finding_controls() {
+        let root = tempfile::tempdir().unwrap();
+        let mut prepared = prepared(root.path());
+        prepared
+            .config
+            .group_modes
+            .insert("maintainability".to_owned(), "count".to_owned());
+        prepared
+            .config
+            .group_modes
+            .insert("security".to_owned(), "report".to_owned());
+        let findings = [Finding::structure(
+            "external-rule",
+            "src/main.rs".to_owned(),
+            "Imported finding".to_owned(),
+            "",
+            Vec::new(),
+        )];
+        let advisory_summary = BTreeMap::from([("maintainability".to_owned(), 1)]);
+        let report = FindingReport {
+            command: "quality",
+            prepared: &prepared,
+            findings: &findings,
+            taxonomy_group: |_| "maintainability",
+            actionable_count: 0,
+            advisory_summary: &advisory_summary,
+            show_advisory_hint: false,
+            verbose: false,
+            profile: false,
+        };
+        assert_eq!(
+            json_envelope(&report).unwrap()["findings"][0]["mode"],
+            "count"
+        );
+        let records = ndjson(&report).unwrap();
+        let finding: Value = serde_json::from_str(records.lines().nth(1).unwrap()).unwrap();
+        assert_eq!(finding["mode"], "count");
+    }
 }

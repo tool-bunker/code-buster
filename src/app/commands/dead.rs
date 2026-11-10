@@ -54,6 +54,7 @@ pub fn execute(options: &PreviewOptions) -> Result<DeadOutcome, String> {
             command: "dead",
             prepared: &prepared,
             findings: &detailed,
+            taxonomy_group: dead_group,
             actionable_count,
             advisory_summary: &advisory_summary,
             show_advisory_hint: false,

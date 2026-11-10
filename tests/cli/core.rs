@@ -1283,3 +1283,165 @@ fn doctor_advises_on_many_explicitly_requested_duplicate_groups() {
     ));
 }
 
+
+#[test]
+fn verbose_review_reports_source_metrics_and_effective_finding_modes() {
+    let root = TempDirectory::new("cbr-density-report");
+    root.write(
+        "code-buster.toml",
+        br#"languages = ["dart", "rust", "python", "javascript", "shell", "html", "go", "nim", "wren"]
+[rules.groups]
+style = "report"
+[rules.mode]
+dart-print = "count"
+[rules.severity]
+dart-print = "error"
+tab-indent = "info"
+"#,
+    );
+    root.write("lib/main.dart", b"void main() {\n\tprint(\"debug\");\n}\n");
+    root.write(
+        "src/lib.rs",
+        b"/// ```rust\n/// let example = 1;\n/// ```\npub fn production() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn fixture() { let sample = 1; }\n}\n",
+    );
+    root.write(
+        "src/main.py",
+        b"QUERY = \"\"\"\nSELECT 1\n\"\"\"\ndef calculate():\n    return QUERY\n",
+    );
+    root.write("src/empty.js", b"// No production code.\n");
+    root.write("scripts/run", b"#!/bin/sh\n# comment\necho ready\n");
+    root.write(
+        "src/view.svelte",
+        b"<script>\n// comment\nconst value = 1;\n</script>\n<style>\n/* comment */\nh1 { color: red; }\n</style>\n<h1>Hello</h1>\n",
+    );
+    root.write("src/project.mod", b"module example\n// comment\n");
+    root.write("src/start.nims", b"let path = r\"\\\"\n#[ comment\n body\n]#\necho path\n");
+    root.write("src/main.wren", b"// comment\nvar value = \"not // a comment\"\n");
+    root.write("tests/fixture.rs", b"fn excluded_fixture() {}\n");
+    root.write("README.md", b"Documentation is not a selected source file.\n");
+
+    let json = run_root_command(
+        "review",
+        &root.path,
+        &["--advisory", "--verbose", "--no-cache", "--format", "json"],
+    );
+    assert_eq!(json.status.code(), Some(0), "{}", String::from_utf8_lossy(&json.stderr));
+    assert!(json.stderr.is_empty());
+    let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(report["schemaVersion"], 3);
+    assert_eq!(report["sourceMetrics"], serde_json::json!({
+        "schemaVersion": 1,
+        "codeLines": 21,
+        "fileCodeLines": {
+            "lib/main.dart": 3,
+            "src/lib.rs": 1,
+            "src/main.py": 5,
+            "src/empty.js": 0,
+            "scripts/run": 1,
+            "src/view.svelte": 7,
+            "src/project.mod": 1,
+            "src/start.nims": 2,
+            "src/main.wren": 1,
+        },
+    }));
+    assert!(report["manifest"].get("sourceMetrics").is_none());
+    let selected = report["manifest"]["selectedFiles"].as_array().unwrap();
+    let metrics = report["sourceMetrics"]["fileCodeLines"].as_object().unwrap();
+    assert_eq!(metrics.len(), selected.len());
+    assert!(selected.iter().all(|path| metrics.contains_key(path.as_str().unwrap())));
+    let findings = report["findings"].as_array().unwrap();
+    for (code, severity, mode) in [
+        ("dart-print", "error", "count"),
+        ("tab-indent", "info", "report"),
+    ] {
+        let finding = findings.iter().find(|finding| finding["code"] == code).unwrap();
+        assert_eq!(finding["severity"], severity);
+        assert_eq!(finding["mode"], mode);
+    }
+    assert!(findings.iter().all(|finding| matches!(finding["mode"].as_str(), Some("report" | "count"))));
+    assert_eq!(
+        report["actionableFindingCount"].as_u64().unwrap() as usize,
+        findings.iter().filter(|finding| finding["mode"] == "report").count(),
+    );
+    assert_eq!(
+        report["advisorySummary"]["total"].as_u64().unwrap() as usize,
+        findings.iter().filter(|finding| finding["mode"] == "count").count(),
+    );
+
+    let ndjson = run_root_command(
+        "review",
+        &root.path,
+        &["--advisory", "--verbose", "--no-cache", "--format", "ndjson"],
+    );
+    assert_eq!(ndjson.status.code(), Some(0), "{}", String::from_utf8_lossy(&ndjson.stderr));
+    assert!(ndjson.stderr.is_empty());
+    let records = String::from_utf8(ndjson.stdout).unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let summary = &records[0];
+    assert_eq!(summary["recordType"], "summary");
+    for key in ["sourceMetrics", "files", "actionableFindingCount", "detailedFindingCount", "advisorySummary"] {
+        assert_eq!(summary[key], report[key], "{key}");
+    }
+    let ndjson_findings = records.iter()
+        .filter(|record| record["recordType"] == "finding")
+        .map(|record| {
+            let mut finding = record.clone();
+            let object = finding.as_object_mut().unwrap();
+            object.remove("schemaVersion");
+            object.remove("recordType");
+            finding
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(&ndjson_findings, findings);
+
+    for format in ["json", "ndjson"] {
+        let ordinary = run_root_command(
+            "review",
+            &root.path,
+            &["--advisory", "--no-cache", "--format", format],
+        );
+        assert_eq!(ordinary.status.code(), Some(0));
+        let output = String::from_utf8(ordinary.stdout).unwrap();
+        let value: serde_json::Value = serde_json::from_str(output.lines().next().unwrap()).unwrap();
+        assert!(value.get("sourceMetrics").is_none(), "{format}");
+    }
+}
+
+#[test]
+fn verbose_review_metrics_follow_selected_scope() {
+    let root = TempDirectory::new("cbr-density-scope");
+    root.write("src/main.rs", b"fn main() {}\n");
+    root.write("src/other.rs", b"fn other() {}\nfn next() {}\n");
+    root.write("tests/fixture.rs", b"fn fixture() {}\n");
+    root.write(".gitignore", b"ignored.rs\n");
+    root.write("ignored.rs", b"fn ignored() {}\n");
+    let output = run_root_command(
+        "review",
+        &root.path,
+        &["--verbose", "--no-cache", "--format", "json", "--include-tests", "--exclude", "src/other.rs"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["sourceMetrics"], serde_json::json!({
+        "schemaVersion": 1,
+        "codeLines": 2,
+        "fileCodeLines": {"src/main.rs": 1, "tests/fixture.rs": 1},
+    }));
+}
+
+#[test]
+fn verbose_empty_review_has_measured_zero_source_lines() {
+    let root = TempDirectory::new("cbr-density-empty");
+    let output = run_root_command(
+        "review",
+        &root.path,
+        &["--verbose", "--allow-empty", "--no-cache", "--format", "json"],
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["sourceMetrics"], serde_json::json!({
+        "schemaVersion": 1, "codeLines": 0, "fileCodeLines": {},
+    }));
+}

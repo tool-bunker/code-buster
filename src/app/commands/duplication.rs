@@ -78,6 +78,7 @@ fn execute_named(
             command,
             prepared: &prepared,
             findings: &detailed,
+            taxonomy_group: duplication_group,
             actionable_count,
             advisory_summary: &advisory_summary,
             show_advisory_hint: false,

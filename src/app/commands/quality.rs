@@ -294,6 +294,7 @@ fn render_quality_json(
         command: "summary",
         prepared: &run.prepared,
         findings: &run.actionable_findings,
+        taxonomy_group: rule_catalog::taxonomy_group,
         actionable_count: run.actionable_count,
         advisory_summary: &run.advisory_summary,
         show_advisory_hint: false,

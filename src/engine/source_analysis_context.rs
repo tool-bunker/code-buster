@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::sync::LazyLock;
@@ -49,11 +50,11 @@ impl<'a> SourceAnalysisContext<'a> {
         let raw_sources = sources;
         let sources = sources
             .iter()
-            .map(|(path, source)| (path.clone(), mask_test_regions(path, source)))
+            .map(|(path, source)| (path.clone(), mask_test_regions(path, source).into_owned()))
             .collect::<BTreeMap<_, _>>();
         let base_sources = base_sources
             .iter()
-            .map(|(path, source)| (path.clone(), mask_test_regions(path, source)))
+            .map(|(path, source)| (path.clone(), mask_test_regions(path, source).into_owned()))
             .collect::<BTreeMap<_, _>>();
         let masked_source_lines = sources
             .iter()
@@ -105,10 +106,12 @@ impl<'a> SourceAnalysisContext<'a> {
     }
 }
 
-fn mask_test_regions(path: &str, source: &str) -> String {
-    let source = mask_rust_test_regions(path, source);
+pub(crate) fn mask_test_regions<'a>(path: &str, source: &'a str) -> Cow<'a, str> {
+    if path.ends_with(".rs") {
+        return Cow::Owned(mask_rust_test_regions(path, source));
+    }
     if !path.ends_with(".py") {
-        return source;
+        return Cow::Borrowed(source);
     }
 
     let lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
@@ -135,7 +138,7 @@ fn mask_test_regions(path: &str, source: &str) -> String {
         }
     }
 
-    masked.join("\n")
+    Cow::Owned(masked.join("\n"))
 }
 
 fn is_python_embedded_test_assignment(line: &str) -> bool {

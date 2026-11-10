@@ -20,7 +20,7 @@ use crate::reporting::progress::AnalysisProgress;
 use crate::repository_contract_rules;
 use crate::repository_defaults::RepositoryMetadataFile;
 use crate::repository_policy_rules;
-use crate::rule_catalog;
+use crate::rule_catalog::taxonomy_group;
 use crate::sarif_ingestion;
 use crate::source_analysis_context::SourceAnalysisContext;
 
@@ -222,6 +222,7 @@ pub(crate) fn execute_report(
             command,
             prepared: &run.prepared,
             findings: &detailed,
+            taxonomy_group,
             actionable_count: run.actionable_count,
             advisory_summary: &run.advisory_summary,
             show_advisory_hint: command == "summary"
@@ -360,13 +361,6 @@ fn collect_flutter_asset_existence(
 static FLUTTER_ASSET_REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:Image\.asset|AssetImage)\s*\(\s*["'](assets/[^"']+)["']"#).unwrap()
 });
-
-pub(crate) fn taxonomy_group(code: &str) -> &'static str {
-    rule_catalog::descriptor(code)
-        .map(|descriptor| descriptor.group)
-        // Project-defined pattern rules are report-mode findings in the Dart contract.
-        .unwrap_or("security")
-}
 
 #[cfg(test)]
 mod tests {

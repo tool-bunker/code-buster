@@ -44,6 +44,13 @@ pub fn descriptor(id: &str) -> Option<&'static RuleDescriptor> {
         .map(|index| &RULE_DESCRIPTORS[index])
 }
 
+pub(crate) fn taxonomy_group(code: &str) -> &'static str {
+    descriptor(code)
+        .map(|descriptor| descriptor.group)
+        // Project-defined pattern rules are actionable unless configuration overrides their mode.
+        .unwrap_or("security")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{RULE_DESCRIPTORS, RULE_METADATA, descriptor, metadata};

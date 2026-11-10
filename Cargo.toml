@@ -1,6 +1,6 @@
 [package]
 name = "code-buster"
-version = "0.14.2"
+version = "0.14.3"
 edition = "2024"
 rust-version = "1.88"
 description = "Repository-aware static analysis for AI-assisted development"
@@ -25,6 +25,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 time = { version = "=0.3.47", features = ["macros", "parsing"] }
+tokei = { version = "=13.0.0", default-features = false }
 toml = { version = "0.9", features = ["preserve_order"] }
 
 [dev-dependencies]

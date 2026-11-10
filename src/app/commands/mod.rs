@@ -28,6 +28,7 @@ fn print_quality_report(
     options: &PreviewOptions,
     prepared: &PreparedPreview,
     findings: &[Finding],
+    taxonomy_group: fn(&str) -> &'static str,
     actionable_count: usize,
     advisory_summary: &BTreeMap<String, usize>,
 ) -> Result<(), String> {
@@ -39,6 +40,7 @@ fn print_quality_report(
                 command: "quality",
                 prepared,
                 findings,
+                taxonomy_group,
                 actionable_count,
                 advisory_summary,
                 show_advisory_hint: false,

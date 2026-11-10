@@ -47,6 +47,7 @@ pub fn execute(options: &PreviewOptions) -> Result<ComplexityOutcome, String> {
         options,
         &prepared,
         &detailed,
+        complexity_group,
         actionable_count,
         &advisory_summary,
     )?;

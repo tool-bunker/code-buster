@@ -45,6 +45,7 @@ pub fn execute(options: &PreviewOptions) -> Result<StructureOutcome, String> {
         options,
         &prepared,
         &detailed,
+        structure_group,
         actionable_count,
         &advisory_summary,
     )?;
