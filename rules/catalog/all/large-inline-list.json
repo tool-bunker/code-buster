@@ -9,7 +9,7 @@
   "legacyGroup": "suspicious",
   "why": "This pattern often indicates unfinished, redundant, or error-prone code.",
   "suggestion": "Clarify the intent or replace the suspicious construct.",
-  "version": 6,
+  "version": 7,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Generated files, Rust test regions, C/C++ collection-like brackets, CSS declaration blocks, Objective-C braced initializer data, and Java static final array data are excluded. C++ square brackets denote captures or subscripts rather than collection literals; Objective-C square-bracket literals remain eligible."
+    "Generated files, Rust test regions, C/C++ collection-like brackets, CSS declaration blocks, Objective-C braced initializer data, and Java static final array data are excluded. C++ square brackets denote captures or subscripts rather than collection literals; Objective-C square-bracket literals remain eligible.",
+    "Rust brace-delimited use trees and record bodies are not built-in collection literals; unresolved brace macros are not inferred as collections. TypeScript declaration files describe types rather than runtime collections and are excluded."
   ]
 }

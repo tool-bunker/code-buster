@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "chars().nth(index) starts decoding UTF-8 from the beginning, so index-driven use inside a loop can become quadratic.",
   "suggestion": "Iterate with chars or char_indices once, or materialize an index only when repeated random character access is required.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -20,7 +20,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only identifier receivers followed by chars().nth(identifier) inside recognized braced loops are reported.",
+    "Only identifier receivers followed by chars().nth(identifier) inside recognized braced loops are reported. For-loop headers must contain in; trait implementation headers are not loops.",
     "Receiver types, iterator reuse, loop bounds, aliases, and whether indexing is material on the current path are not inferred."
   ]
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Regex construction parses and compiles the pattern, so repeating it for every iteration adds avoidable CPU work and allocation.",
   "suggestion": "Compile the constant pattern once before the loop or store it in LazyLock, then reuse the Regex.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -20,7 +20,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only Regex or RegexBuilder constructors whose first argument is a string literal inside a braced loop are reported.",
+    "Only Regex or RegexBuilder constructors whose first argument is a string literal inside a braced loop are reported. For-loop headers must contain in; trait implementation headers are not loops.",
     "Aliases, wrapper constructors, macro-generated patterns, and dynamically computed patterns are not inferred."
   ]
 }

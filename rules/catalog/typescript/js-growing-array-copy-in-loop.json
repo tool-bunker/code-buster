@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Reassigning an array from a spread or concat of its previous value copies every accumulated element on each iteration, producing quadratic copying as the array grows.",
   "suggestion": "Keep the array locally owned and append with push, or collect chunks and flatten once after the loop.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only direct same-line self-reassignment with leading array spread or concat inside recognized braced loops is reported.",
-    "The destination must be a typed array, array parameter, or array-literal variable declared outside the loop; aliases, immutable-state requirements, and actual iteration counts are not inferred."
+    "The destination must be a typed array, array parameter, or array-literal variable declared outside the loop; aliases, immutable-state requirements, and actual iteration counts are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

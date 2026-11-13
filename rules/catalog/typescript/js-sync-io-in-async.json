@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Synchronous filesystem calls block the Node event loop and delay unrelated requests and tasks while I/O completes.",
   "suggestion": "Use fs.promises or the callback API and await completion instead of calling a Sync filesystem method.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only named or namespace imports and CommonJS requires from fs or node:fs are resolved.",
-    "Wrappers, reassigned bindings, dynamic imports, and synchronous APIs from other modules are not inferred."
+    "Wrappers, reassigned bindings, dynamic imports, and synchronous APIs from other modules are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

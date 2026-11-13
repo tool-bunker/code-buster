@@ -9,7 +9,7 @@
   "legacyGroup": "reliability",
   "why": "Holding a synchronous mutex guard across await can block an executor worker and deadlock tasks that need the same lock.",
   "suggestion": "Limit the guard to an inner scope before awaiting, or use an async-aware mutex when the guard must span a yield point.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["reliability"],
@@ -20,7 +20,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Direct lock bindings that unwrap a lock result or use parking_lot inside an async block are recognized.",
-    "Type aliases, custom synchronous lock APIs, data-flow moves, and implicit early drops are not resolved."
+    "Direct, optionally multiline lock-guard bindings on identifier or field receivers that unwrap a lock result or use parking_lot inside async code are recognized. Dereferenced copies and results extracted through another call are not guard bindings.",
+    "Only awaits in the guard's enclosing lexical block and outside nested async bodies count as suspension points; the same source guard is reported once.",
+    "Type aliases, custom synchronous lock APIs, borrowed guard bindings, arbitrary receiver expressions, data-flow moves, and implicit early drops are not resolved. Explicit drop and nested lexical block boundaries are recognized."
   ]
 }

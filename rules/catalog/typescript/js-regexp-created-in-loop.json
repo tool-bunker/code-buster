@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Constructing RegExp from a constant string in every iteration repeats parsing and allocation that can be shared.",
   "suggestion": "Create the RegExp once before the loop or use a regular-expression literal when its state is managed safely.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only new RegExp calls with a single- or double-quoted literal inside a braced loop are reported.",
-    "Dynamic patterns, aliases, wrapper constructors, and regular-expression literals are not reported."
+    "Dynamic patterns, aliases, wrapper constructors, and regular-expression literals are not reported.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

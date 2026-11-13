@@ -751,25 +751,22 @@ fn line_expression_constraints(source: &str, assertion: usize) -> Vec<ProofConst
 
 fn ternary_branch_constraint(prefix: &str) -> Option<(&str, bool)> {
     let bytes = prefix.as_bytes();
-    let mut depths = [0usize; 3];
+    let mut depth = super::DelimiterDepth::default();
     let mut question = None;
     let mut colon_after_question = false;
     for (index, byte) in bytes.iter().enumerate() {
+        if depth.consume(*byte) {
+            continue;
+        }
         match *byte {
-            b'(' => depths[0] += 1,
-            b')' => depths[0] = depths[0].saturating_sub(1),
-            b'[' => depths[1] += 1,
-            b']' => depths[1] = depths[1].saturating_sub(1),
-            b'{' => depths[2] += 1,
-            b'}' => depths[2] = depths[2].saturating_sub(1),
             b'?' if bytes.get(index.wrapping_sub(1)) != Some(&b'?')
                 && bytes.get(index + 1) != Some(&b'?')
                 && bytes.get(index + 1) != Some(&b'.') =>
             {
-                question = Some((index, depths));
+                question = Some((index, depth));
                 colon_after_question = false;
             }
-            b':' if question.is_some_and(|(_, question_depths)| question_depths == depths) => {
+            b':' if question.is_some_and(|(_, question_depth)| question_depth == depth) => {
                 colon_after_question = true;
             }
             _ => {}

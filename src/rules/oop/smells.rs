@@ -25,7 +25,7 @@ fn collect_data_clump_groups(project: &Project) -> BTreeMap<String, ParameterGro
     for (path, source) in project
         .sources
         .iter()
-        .filter(|(path, _)| is_typescript(path))
+        .filter(|(path, _)| is_typescript(path) && !path.ends_with(".d.ts"))
     {
         add_typescript_parameter_groups(&mut groups, path, source);
     }

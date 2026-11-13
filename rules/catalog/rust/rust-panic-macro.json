@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A panic can abort useful work and cross an API boundary that should return an error.",
   "suggestion": "Return a Result or constrain the panic to a documented unreachable invariant.",
-  "version": 8,
+  "version": 11,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -30,6 +30,8 @@
   "languageVersions": [],
   "limitations": [
     "The rule uses masked source tokens and does not perform Rust type resolution.",
-    "Items marked as tests through `test` or `cfg(test)` attributes, explicit impossible-state messages, and functions with documented panic contracts are excluded."
+    "Items marked as tests through test or cfg(test) attributes, explicit impossible-state messages, and functions with attached documented panic contracts are excluded.",
+    "Function panic contracts accept outer line or block documentation and literal doc attributes, including raw strings and intervening multiline attributes. Computed doc expressions are not evaluated. Contracts do not extend into nested or sibling functions.",
+    "Multiline targeted allow or expect attributes are honored over their attributed item or block; inner policies stay within their enclosing scope. Comments and string literals cannot introduce policies."
   ]
 }

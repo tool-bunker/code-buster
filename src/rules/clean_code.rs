@@ -531,7 +531,10 @@ fn script_mutable_field(line: &str) -> Option<&str> {
     {
         return None;
     }
-    if trimmed.ends_with(',') || SCRIPT_THIS_ALIAS.is_match(trimmed) {
+    if trimmed.ends_with(',')
+        || SCRIPT_THIS_ALIAS.is_match(trimmed)
+        || SCRIPT_CALLABLE_FIELD.is_match(trimmed)
+    {
         return None;
     }
     SCRIPT_FIELD
@@ -563,10 +566,15 @@ fn commented_out_code(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
         .filter(|(path, _)| is_production_source(path))
     {
         let lines = source.split('\n').collect::<Vec<_>>();
+        let facts = super::generated_code_risks::scan_lines(path, source);
         let supports_hash = matches!(extension(path).as_str(), ".mojo" | ".nim" | ".php" | ".py");
-        if let Some(candidate) = comment_candidates(&lines, supports_hash)
-            .find(|candidate| is_commented_code_candidate(&lines, candidate))
-        {
+        if let Some(candidate) = comment_candidates(&lines, supports_hash).find(|candidate| {
+            let fact = &facts[candidate.line_index];
+            !(fact.documentation
+                || path.ends_with(".rs") && FOREIGN_RUST_DECLARATION.is_match(candidate.body))
+                && fact.comment.trim() == candidate.body
+                && is_commented_code_candidate(&lines, candidate)
+        }) {
             findings.push(commented_code_finding(path, candidate.line_index + 1));
         }
     }
@@ -604,11 +612,20 @@ fn is_commented_code_candidate(lines: &[&str], candidate: &CommentCandidate<'_>)
     candidate.body.len() >= 8
         && COMMENTED_CODE.is_match(candidate.body)
         && !MEMBER_ACCESS_PROSE.is_match(candidate.body)
+        && !COMMENT_ANNOTATION_PROSE.is_match(candidate.body)
         && !DIRECTIVE.is_match(candidate.body)
         && !DOCUMENTATION_PLACEHOLDER.is_match(candidate.body)
         && !LATEX_MATH.is_match(candidate.body)
         && !is_documented_example(lines, candidate.line_index)
         && !is_inline_syntax_example(lines, candidate)
+}
+
+fn comment_context_start(lines: &[&str], line_index: usize) -> usize {
+    (0..line_index)
+        .rev()
+        .take_while(|index| HASH_OR_SLASH_COMMENT.is_match(lines[*index]))
+        .last()
+        .unwrap_or(line_index)
 }
 
 fn commented_code_finding(path: &str, line: usize) -> Finding {
@@ -623,13 +640,25 @@ fn commented_code_finding(path: &str, line: usize) -> Finding {
 }
 
 fn is_documented_example(lines: &[&str], line_index: usize) -> bool {
-    for index in (0..=line_index).rev() {
-        let Some(comment) = HASH_OR_SLASH_COMMENT.captures(lines[index]) else {
+    let start = comment_context_start(lines, line_index);
+    let mut fenced = false;
+    for line in &lines[start..=line_index] {
+        let Some(comment) = HASH_OR_SLASH_COMMENT.captures(line) else {
             return false;
         };
-        if DOCUMENTATION_EXAMPLE.is_match(comment.name("body").unwrap().as_str()) {
+        let body = comment.name("body").unwrap().as_str();
+        if body.trim_start().starts_with("```") {
+            fenced = !fenced;
+        }
+        if DOCUMENTATION_EXAMPLE.is_match(body)
+            || DOCUMENTED_ALTERNATIVE.is_match(body)
+            || body.contains("::=")
+        {
             return true;
         }
+    }
+    if fenced {
+        return true;
     }
     false
 }
@@ -822,7 +851,7 @@ fn mixed_boundary_responsibilities(context: &SourceAnalysisContext<'_>) -> Vec<F
         if !is_production_source(path) {
             continue;
         }
-        for function in function_blocks(source) {
+        for function in function_blocks(source, path) {
             if function.lines < 8 || ORCHESTRATOR_NAME.is_match(&function.name) {
                 continue;
             }
@@ -860,7 +889,6 @@ struct PolicyLiteral<'a> {
 #[derive(Clone, Copy)]
 struct PolicyConcept<'a> {
     name: &'a str,
-    start: usize,
     end: usize,
 }
 
@@ -911,13 +939,15 @@ fn collect_policy_literals<'a>(context: &'a SourceAnalysisContext<'_>) -> Vec<Po
         .keys()
         .filter(|path| is_production_source(path))
     {
+        let mut comment_masker = SlashCommentMasker::default();
         for (index, line) in context.masked_lines(path).iter().enumerate() {
             let line = if path.ends_with(".py") {
                 line.split_once('#').map_or(line.as_str(), |(code, _)| code)
             } else {
                 line.as_str()
             };
-            collect_line_policy_literals(line, path, index + 1, &mut literals);
+            let code = comment_masker.code(line);
+            collect_line_policy_literals(line, &code, path, index + 1, &mut literals);
         }
     }
     literals
@@ -925,19 +955,27 @@ fn collect_policy_literals<'a>(context: &'a SourceAnalysisContext<'_>) -> Vec<Po
 
 fn collect_line_policy_literals<'a>(
     line: &'a str,
+    code: &str,
     path: &'a str,
     line_number: usize,
     literals: &mut Vec<PolicyLiteral<'a>>,
 ) {
+    if NAMED_POLICY_CONSTANT.is_match(code) {
+        return;
+    }
     let first_line_literal = literals.len();
     let mut named = Vec::new();
     let mut comparison_concept: Option<PolicyConcept<'a>> = None;
     let mut named_concepts = Vec::new();
 
-    for captures in POLICY_TOKEN.captures_iter(line) {
+    for captures in POLICY_TOKEN.captures_iter(line).filter(|captures| {
+        let matched = captures.get(0).unwrap();
+        code.get(matched.range()) == Some(matched.as_str())
+    }) {
         if let Some(literal) = captures.name("literal") {
             if let Some(concept) = comparison_concept.take()
                 && is_policy_comparison(&line[concept.end..literal.start()])
+                && !policy_literal_has_arithmetic_suffix(&line[literal.end()..])
             {
                 push_line_policy_literal(
                     literals,
@@ -962,11 +1000,6 @@ fn collect_line_policy_literals<'a>(
         let Some(captured) = captured_policy_concept(&captures) else {
             continue;
         };
-        if let Some((start, literal)) =
-            embedded_policy_literal(line, captured.concept.start, captured.concept.name)
-        {
-            collect_named_policy_match(line, start, literal, &mut named_concepts, &mut named);
-        }
         comparison_concept = captured.comparison.then_some(captured.concept);
         if captured.named {
             named_concepts.push(captured.concept);
@@ -999,7 +1032,6 @@ fn captured_policy_concept<'a>(
     Some(CapturedPolicyConcept {
         concept: PolicyConcept {
             name: matched.as_str(),
-            start: matched.start(),
             end: matched.end(),
         },
         comparison,
@@ -1016,45 +1048,13 @@ fn collect_named_policy_match<'a>(
 ) {
     if let Some(concept) = concepts
         .iter()
+        .rev()
         .find(|concept| is_named_policy_gap(&line[concept.end..literal_start]))
+        && !policy_literal_has_arithmetic_suffix(&line[literal_start + literal.len()..])
     {
         matches.push((concept.name, literal));
     }
     concepts.clear();
-}
-
-fn embedded_policy_literal<'a>(
-    line: &'a str,
-    token_start: usize,
-    token: &str,
-) -> Option<(usize, &'a str)> {
-    let offset = token
-        .as_bytes()
-        .iter()
-        .position(|byte| byte.is_ascii_digit())?;
-    let start = token_start + offset;
-    let remainder = line.get(start..)?;
-    let mut length = remainder
-        .as_bytes()
-        .iter()
-        .take_while(|byte| byte.is_ascii_digit())
-        .count();
-    if remainder.as_bytes().get(length) == Some(&b'.') {
-        let fractional_digits = remainder
-            .as_bytes()
-            .get(length + 1..)
-            .map_or(0, |fraction| {
-                fraction
-                    .iter()
-                    .take_while(|byte| byte.is_ascii_digit())
-                    .count()
-            });
-        if fractional_digits > 0 {
-            length += fractional_digits + 1;
-        }
-    }
-    line.get(start..start + length)
-        .map(|literal| (start, literal))
 }
 
 fn push_line_policy_literal<'a>(
@@ -1085,8 +1085,12 @@ fn is_policy_comparison(gap: &str) -> bool {
     matches!(gap.trim(), "<" | "<=" | ">" | ">=" | "==" | "!=")
 }
 
+fn policy_literal_has_arithmetic_suffix(suffix: &str) -> bool {
+    suffix.trim_start().starts_with(['+', '-', '*', '/', '%'])
+}
+
 fn is_named_policy_gap(gap: &str) -> bool {
-    !gap.contains(';') && gap.chars().count() <= 40
+    !gap.contains([';', '+', '-', '*', '/', '%']) && gap.chars().count() <= 40
 }
 
 fn is_excluded_policy_literal(concept: &str, literal: &str, line: &str) -> bool {
@@ -1191,12 +1195,13 @@ fn related_policy_paths(policy: &QualifiedPolicy<'_, '_>) -> Vec<String> {
 
 // code-buster-ignore complex-function: peer naming analysis requires one directory grouping and style-majority pass.
 fn inconsistent_peer_file_naming(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
+    let imported_python = imported_python_peers(context);
     let mut by_directory_and_role = BTreeMap::<(String, &'static str), Vec<String>>::new();
     for path in context.sources().keys().filter(|path| is_source(path)) {
         by_directory_and_role
             .entry((
                 posix_directory(path).to_owned(),
-                peer_naming_role(context, path),
+                peer_naming_role(context, path, &imported_python),
             ))
             .or_default()
             .push(path.clone());
@@ -1284,7 +1289,64 @@ fn exported_symbol_matches_filename(context: &SourceAnalysisContext<'_>, path: &
     })
 }
 
-fn peer_naming_role(context: &SourceAnalysisContext<'_>, path: &str) -> &'static str {
+fn imported_python_peers(context: &SourceAnalysisContext<'_>) -> BTreeSet<String> {
+    let mut imported = BTreeSet::new();
+    for path in context
+        .sources()
+        .keys()
+        .filter(|path| path.ends_with(".py"))
+    {
+        let modules = context.masked_lines(path).iter().filter_map(|line| {
+            PYTHON_FROM_IMPORT
+                .captures(line)
+                .and_then(|captures| captures.name("name"))
+                .or_else(|| {
+                    PYTHON_DIRECT_IMPORT
+                        .captures(line)
+                        .and_then(|captures| captures.name("names"))
+                })
+        });
+        for name in modules
+            .flat_map(|names| names.as_str().split(','))
+            .filter_map(|entry| entry.split_whitespace().next())
+        {
+            add_python_import_peer(context, &mut imported, path, name);
+        }
+    }
+    imported
+}
+
+fn add_python_import_peer(
+    context: &SourceAnalysisContext<'_>,
+    imported: &mut BTreeSet<String>,
+    path: &str,
+    name: &str,
+) {
+    if !name
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return;
+    }
+    let directory = posix_directory(path);
+    let candidate = if directory.is_empty() {
+        format!("{name}.py")
+    } else {
+        format!("{directory}/{name}.py")
+    };
+    if candidate != path && context.sources().contains_key(&candidate) {
+        imported.insert(candidate);
+    }
+}
+
+fn peer_naming_role(
+    context: &SourceAnalysisContext<'_>,
+    path: &str,
+    imported_python: &BTreeSet<String>,
+) -> &'static str {
+    if imported_python.contains(path) {
+        return "python-importable-module";
+    }
     if is_localized_java_resource(path) {
         return "localized-resource";
     }
@@ -1389,11 +1451,11 @@ fn changed_complexity_regressions(context: &SourceAnalysisContext<'_>) -> Vec<Fi
         let Some(before) = context.base_sources().get(path) else {
             continue;
         };
-        let old_functions = function_blocks(before)
+        let old_functions = function_blocks(before, path)
             .into_iter()
             .map(|function| (function.name.clone(), function))
             .collect::<BTreeMap<_, _>>();
-        for current in function_blocks(source) {
+        for current in function_blocks(source, path) {
             let Some(old) = old_functions.get(&current.name) else {
                 continue;
             };
@@ -1425,9 +1487,15 @@ struct FunctionBlock {
     lines: usize,
 }
 
-fn function_blocks(source: &str) -> Vec<FunctionBlock> {
+fn function_blocks(source: &str, path: &str) -> Vec<FunctionBlock> {
     let raw_lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
-    let lines = mask_generic_rule_strings(&raw_lines, "");
+    let mut lines = mask_generic_rule_strings(&raw_lines, path);
+    let mut comment_masker = SlashCommentMasker::default();
+    for line in &mut lines {
+        if let Cow::Owned(code) = comment_masker.code(line) {
+            *line = code;
+        }
+    }
     let mut result = Vec::new();
     let mut index = 0;
     while index < lines.len() {
@@ -1663,20 +1731,32 @@ static DART_FIELD: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static FOREIGN_RUST_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:public|private|protected|internal|final|var|def|class|interface|throw)\b")
+        .unwrap()
+});
 static SCRIPT_FIELD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*(?:public\s+)?(?P<name>[A-Za-z_$][\w$]*)\s*(?::\s*[^=;]+)?(?:=|;)").unwrap()
+});
+static SCRIPT_CALLABLE_FIELD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[A-Za-z_$][\w$]*\??\s*:\s*(?:<[^;=]+>)?\s*\([^;=]*\)\s*=>").unwrap()
 });
 static HASH_OR_SLASH_COMMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*(?://|#)\s?(?P<body>.*)$").unwrap());
 static SLASH_COMMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*//\s?(?P<body>.*)$").unwrap());
 static COMMENTED_CODE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:\s*(?:public|private|protected|internal|static|final|const|var|let|def|class|interface|return|throw|if\s*\(|for\s*\(|while\s*\(|[A-Za-z_$]\w*\s*[.(\[]).*(?:[;{}]|=>)\s*)$").unwrap()
+    Regex::new(r"^(?:\s*(?:(?:public|private|protected|internal|static|final|const|var|let|def|class|interface|return|throw)\b|(?:if|for|while)\s*\(|[A-Za-z_$]\w*(?:\.[A-Za-z_$]\w*)*\s*(?:\(|\[|=|\+\+|--)).*(?:[;{}]|=>)\s*)$").unwrap()
 });
 static MEMBER_ACCESS_PROSE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_$]\w*(?:\.[A-Za-z_$]\w*)+\s+[A-Za-z]").unwrap());
+static COMMENT_ANNOTATION_PROSE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z_]\w*\([^)]*\):\s+\S").unwrap());
+static DOCUMENTED_ALTERNATIVE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:line|curve|plane|equation|formula)\s+(?:is\s+)?defined\s+by\b|\b(?:could|can|would)\s+be\s+(?:simplified|rewritten|expressed)\s+(?:to|as)\s*:").unwrap()
+});
 static DOCUMENTATION_EXAMPLE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:examples?|e\.?g\.?|i\.?e\.?|snippets?|expands?\s+to|ends?\s+up\s+like|code\s+(?:like|such\s+as)|calls?\s+this\s+like|following\s+code|(?:may|would)\s+look\s+like|looks?\s+like(?:\s+this)?)\b").unwrap()
+    Regex::new(r"(?i)\b(?:examples?|e\.?g\.?|i\.?e\.?|snippets?|expands?\s+to|ends?\s+up\s+like|code\s+(?:like|such\s+as)|calls?\s+this\s+like|following\s+(?:code|situation)|same\s+semantics\s+as|target\s+API|when\s+the\s+user|so\s+destructuring\s+works|(?:may|would)\s+look\s+like|looks?\s+like(?:\s+this)?|roughly\s+equivalent)\b").unwrap()
 });
 static DOCUMENTATION_PLACEHOLDER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[[a-z][a-z0-9]*(?:_[a-z0-9]+)+\]").unwrap());
@@ -1692,6 +1772,10 @@ static COMMENTED_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:const|let|var)\b.*;?\s*$").unwrap());
 static OBJECT_PROPERTY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z_$]\w*\s*:").unwrap());
+static PYTHON_FROM_IMPORT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*from\s+\.?(?P<name>[A-Za-z_]\w*)\s+import\b").unwrap());
+static PYTHON_DIRECT_IMPORT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*import\s+(?P<names>[^#;]+)").unwrap());
 static PLACEHOLDER_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:export\s+|public\s+)?(?:class|interface|enum|struct|def|function|fn|proc|func|void|var|let|const|final|[A-Z][\w$<>,?\[\].]*)\s+(?P<name>[A-Za-z_$][\w$]*)").unwrap()
 });
@@ -1703,16 +1787,19 @@ static ORCHESTRATOR_NAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(?:main|bootstrap|migrate|transaction)\b").unwrap());
 static BOUNDARIES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     vec![
-        ("persistence", Regex::new(r"(?i)\b(?:(?:repository|database)\s*\.|(?:insert|update|delete|save|query|executeSql)\s*\()").unwrap()),
+        ("persistence", Regex::new(r"(?i)\b(?:repository|database|db)\s*\.\s*\w+\s*\(|\b(?:connection|transaction)\s*\.\s*(?:execute|query|insert|update|delete)\s*\(|\bexecuteSql\s*\(").unwrap()),
         ("network", Regex::new(r"(?i)\b(?:https?\s*\.|fetch\s*\(|request\s*\(|client\s*\.\s*(?:get|post|put|send)\s*\()").unwrap()),
-        ("filesystem", Regex::new(r"(?i)\b(?:File|Directory)\s*\(|\b(?:readAs|writeAs|openSync|readFile|writeFile)\s*\(").unwrap()),
-        ("process", Regex::new(r"(?i)\bProcess\s*\.\s*(?:run|start)\s*\(|(?:^|[^\w$.])(?:exec|spawn|subprocess)\s*\(").unwrap()),
+        ("filesystem", Regex::new(r"\b(?:File|Directory)\s*\(|\b(?:readAs|writeAs|openSync|readFile|writeFile)\s*\(").unwrap()),
+        ("process", Regex::new(r"\bProcess\s*\.\s*(?:run|start)\s*\(|\b(?:child_process|subprocess)\s*\.\s*(?:exec|spawn|run|Popen|call|check_call|check_output)\s*\(|\b(?:std::process::)?Command::new\s*\(").unwrap()),
         ("telemetry", Regex::new(r"(?i)\b(?:analytics|telemetry|metrics|track|logger?)\s*\.").unwrap()),
         ("navigation", Regex::new(r"(?i)\b(?:Navigator\s*\.|(?:redirect|navigate)\s*\()").unwrap()),
     ]
 });
+static NAMED_POLICY_CONSTANT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:(?:pub(?:\([^)]*\))?|export|public|private|protected|static|final)\s+)*(?:const|static|final)\s+(?:[A-Za-z_][\w:<>]*\s+)?[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=").unwrap()
+});
 static POLICY_TOKEN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:\b(?:(?P<named_comparison>capacity|limit|max|min|retries|retry|threshold|timeout)\b|(?P<comparison>(?:attempts?|capacity|complexity|count|depth|files?|height|limit|lines?|max|min|retries|retry|score|size|threshold|timeout|width)\w*)|(?P<named_only>Duration)\b)|(?P<literal>-?\b\d+(?:\.\d+)?\b))").unwrap()
+    Regex::new(r"(?i)(?:\b(?:(?P<named_comparison>capacity|limit|max|min|retries|retry|threshold|timeout)\b|(?P<comparison>(?:attempts?|capacity|complexity|count|depth|files?|height|limit|lines?|max|min|retries|retry|score|size|threshold|timeout|width)\w*)|(?P<named_only>Duration(?:::[A-Za-z_]\w*)?)\b)|(?P<literal>-?\b\d+(?:\.\d+)?\b))").unwrap()
 });
 static PUBLIC_API: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*(?:export\s+|public\s+|abstract\s+interface\s+class\s+|class\s+[A-Z])")
@@ -2214,6 +2301,23 @@ function broad() {\n\
     }
 
     #[test]
+    fn ignores_digits_embedded_in_duration_factories_and_policy_identifiers() {
+        let sources = sources(&[
+            (
+                "src/a.rs",
+                "fn secs(duration: f32) -> Duration {\n    Duration::from_secs_f32(duration)\n}\nfn limits(config: Config) {\n    let timeout = config.max32;\n    let retries = config.capacity64;\n}",
+            ),
+            (
+                "src/b.rs",
+                "fn secs(duration: f64) -> Duration {\n    Duration::from_secs_f64(duration)\n}\nfn limits(config: Config) {\n    let timeout = config.max32;\n    let retries = config.capacity64;\n}",
+            ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert!(repeated_policy_literals(&context).is_empty());
+    }
+
+    #[test]
     fn ignores_common_policy_sentinels_and_unit_conversions() {
         let sources = sources(&[
             (
@@ -2493,6 +2597,227 @@ function broad() {\n\
         let findings = changed_complexity_regressions(&context);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].path, "lib/large.dart");
+    }
+
+    #[test]
+    fn recognizes_documented_samples_and_prose_without_hiding_disabled_calls() {
+        let sources = sources(&[
+            (
+                "src/fenced.rs",
+                "// Usage of the accumulator:\n// ```rust\n// let sum = accumulate();\n// sum.finish();\n// ```\nfn active() {}",
+            ),
+            (
+                "src/asn1.rs",
+                "// PrivateKeyInfo ::= SEQUENCE {\n// attributes [0] IMPLICIT Attributes OPTIONAL }\nfn active() {}",
+            ),
+            (
+                "src/prose.py",
+                "# Single-flight lease: compilation is shared.\n# compile. The lease is best-effort;\n# it. Cancelling first guarantees no callback runs;\npass",
+            ),
+            (
+                "src/config.rs",
+                "// Next.js: next.config.{js,mjs,ts}\nfn active() {}",
+            ),
+            (
+                "src/foreign.rs",
+                "// interface Foo { new<T>(arg: any): any }\nfn active() {}",
+            ),
+            (
+                "src/api.ts",
+                "// Target API:\n// let s = net.connect({port: 80});\nexport const active = true;",
+            ),
+            (
+                "src/sample.rs",
+                "let example = r###\"\n// legacy.run();\n\"###;\nfn active() {}",
+            ),
+            ("src/template.mjs", "const sample = `\n// legacy.run();\n`;"),
+            (
+                "src/live.rs",
+                "// DEV ONLY: Enable to inspect the buffer.\n// _dump(ctx);\n// legacy.run();",
+            ),
+        ]);
+        let context = unchanged(&sources);
+        let findings = commented_out_code(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "commented-out-code");
+        assert_eq!(findings[0].path, "src/live.rs");
+        assert_eq!(findings[0].line, 2);
+        assert_eq!(findings[0].confidence, "high");
+        assert!(findings[0].related_files.is_empty());
+    }
+
+    #[test]
+    fn separates_policy_units_and_ignores_comments_named_constants_and_arithmetic() {
+        let sources = sources(&[
+            (
+                "src/a.rs",
+                "/// threshold of approximately 1e-4\n// timeout = 5000;\n/*\nlet capacity = 64;\n*/\nconst FETCH_TIMEOUT: Duration = Duration::from_secs(30);\nlet duration_ms = duration.as_secs_f64() * 1000.0;\nlet margin = Duration::from_secs(5 * 60);\nlet delay = Duration::from_millis(30);\nlet limit = 32 * scale;\nif size > 40 + offset { stop(); }\nlet retry = Duration::from_secs(45);",
+            ),
+            (
+                "src/b.rs",
+                "/// threshold of approximately 1e-4\n// timeout = 5000;\n/*\nlet capacity = 64;\n*/\nconst ICON_TIMEOUT: Duration = Duration::from_secs(30);\nlet duration_ms = duration.as_secs_f64() * 1000.0;\nlet margin = Duration::from_secs(5 * 60);\nlet delay = Duration::from_secs(30);\nlet limit = 32 * scale;\nif size > 40 + offset { stop(); }\nlet retry = Duration::from_secs(45);",
+            ),
+        ]);
+        let context = unchanged(&sources);
+        let findings = repeated_policy_literals(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "repeated-policy-literal");
+        assert_eq!(findings[0].path, "src/a.rs");
+        assert_eq!(findings[0].line, 12);
+        assert_eq!(findings[0].confidence, "medium");
+        assert_eq!(
+            findings[0].message,
+            "policy literal `45` for `duration::from_secs` appears 2 times without a shared name"
+        );
+        assert_eq!(findings[0].related_files, vec!["src/b.rs"]);
+    }
+
+    #[test]
+    fn distinguishes_callable_contracts_from_exported_mutable_state() {
+        let sources = sources(&[
+            (
+                "src/api.d.ts",
+                "export declare class FormData {\n  keys: () => Iterator<string>;\n  values: () => Iterator<string>;\n}\nexport declare class Cursor {\n  position: number;\n  end: number;\n}",
+            ),
+            (
+                "src/internal.ts",
+                "import { api } from './api';\nclass Cursor {\n  position: number;\n}",
+            ),
+            (
+                "src/public.ts",
+                "export class Cursor {\n  position = 0;\n  end = 0;\n}",
+            ),
+        ]);
+        let context = unchanged(&sources);
+        let findings = public_mutable_state(&context);
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.confidence.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![("src/api.d.ts", 6, "high"), ("src/public.ts", 2, "high")]
+        );
+    }
+
+    #[test]
+    fn requires_external_apis_for_structural_boundary_advice() {
+        let sources = sources(&[
+            (
+                "src/state.rs",
+                "fn reload_buffer() {\n  let values = state.update(cx);\n  headers.insert(key, value);\n  let file = buffer.file();\n  client.send(values);\n  std::thread::spawn(move || finish());\n  prepare();\n  normalize();\n  finish();\n}",
+            ),
+            (
+                "src/comments.rs",
+                "fn render() {\n  let sample = r###\"\ndatabase.save(value);\nclient.post(value);\nFile(path);\n\"###;\n  // database.save(value); client.post(value); File(path);\n  prepare();\n  finish();\n}",
+            ),
+            (
+                "src/service.dart",
+                "void registerUser() {\n  database.save(user);\n  client.post(request);\n  File(path).writeAsString(event);\n  prepare();\n  normalize();\n  notify();\n  finish();\n}",
+            ),
+        ]);
+        let context = unchanged(&sources);
+        let findings = mixed_boundary_responsibilities(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "mixed-boundary-responsibility");
+        assert_eq!(findings[0].path, "src/service.dart");
+        assert_eq!(findings[0].line, 1);
+        assert_eq!(findings[0].confidence, "medium");
+        assert!(findings[0].related_files.is_empty());
+    }
+
+    #[test]
+    fn separates_importable_python_helpers_from_executable_script_peers() {
+        let sources = sources(&[
+            ("scripts/shared_helpers.py", "def helper(): pass"),
+            ("scripts/check-one.py", "from shared_helpers import helper"),
+            ("scripts/check-two.py", "import shared_helpers as helpers"),
+            ("scripts/check-three.py", ""),
+            ("scripts/check-four.py", ""),
+            ("scripts/check-five.py", ""),
+            ("other/lone_outlier.py", ""),
+            ("other/check-one.py", ""),
+            ("other/check-two.py", ""),
+            ("other/check-three.py", ""),
+            ("other/check-four.py", ""),
+            ("other/check-five.py", ""),
+        ]);
+        let context = unchanged(&sources);
+        let findings = inconsistent_peer_file_naming(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "inconsistent-peer-file-naming");
+        assert_eq!(findings[0].path, "other/lone_outlier.py");
+        assert_eq!(findings[0].line, 1);
+        assert_eq!(findings[0].confidence, "high");
+        assert_eq!(findings[0].related_files.len(), 3);
+    }
+
+    #[test]
+    fn complexity_growth_ignores_comment_decisions_and_raw_sample_bodies() {
+        let source = "fn decide() {\n  let example = r###\"\nif a { act(); }\nif b { act(); }\nif c { act(); }\nif d { act(); }\nif e { act(); }\nif f { act(); }\nif g { act(); }\nif h { act(); }\nif i { act(); }\n\"###;\n  // if a && b || c { act(); }\n  run();\n}";
+        let sources = sources(&[("src/decision.rs", source)]);
+        let base = self::sources(&[("src/decision.rs", "fn decide() { run(); }")]);
+        let changed = set(&["src/decision.rs"]);
+        let context = SourceAnalysisContext::new(&sources, &base, &changed, true);
+        assert!(changed_complexity_regressions(&context).is_empty());
+    }
+
+    #[test]
+    fn preserves_explicit_process_boundary_positives() {
+        let sources = sources(&[(
+            "src/publish.dart",
+            "void publish() {\n  database.save(record);\n  client.post(request);\n  Process.run(command, args);\n  prepare();\n  normalize();\n  notify();\n  finish();\n}",
+        )]);
+        let context = unchanged(&sources);
+        let findings = mixed_boundary_responsibilities(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "src/publish.dart");
+        assert_eq!(
+            findings[0].message,
+            "publish directly coordinates persistence, network, process boundaries"
+        );
+    }
+
+    #[test]
+    fn distinguishes_formula_and_annotation_prose_from_disabled_implementations() {
+        let sources = sources(&[
+            (
+                "src/formula.rs",
+                "// Finds intersection of the line defined by\n// L = L0 * (1 - t) + t * L1;\n// C = t * C1;\nfn active() {}",
+            ),
+            (
+                "src/alternative.rs",
+                "// NOTE: This could be simplified to:\n// cluster_far = cluster_near * ratio;\nfn active() {}",
+            ),
+            (
+                "src/situation.js",
+                "// Take the following situation:\n// req1 = client.request('GET', '/');\nexport const active = true;",
+            ),
+            (
+                "src/annotation.rs",
+                "// TODO(owner): Currently this fast fn won't throw like `disabled`;\nfn active() {}",
+            ),
+            (
+                "src/disabled.rs",
+                "fn active() {\n  // TODO(owner): restore the fallback;\n  // if (ready()) {\n  //   fallback(nested(value));\n  // }\n}\n",
+            ),
+            (
+                "src/strings.rs",
+                "const SAMPLE: &str = r###\"\n// fallback(nested(value));\n\"###;\n",
+            ),
+            ("tests/disabled.rs", "// fallback(nested(value));"),
+        ]);
+        let context = unchanged(&sources);
+        let findings = commented_out_code(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "commented-out-code");
+        assert_eq!(findings[0].path, "src/disabled.rs");
+        assert_eq!(findings[0].line, 3);
+        assert_eq!(findings[0].confidence, "high");
+        assert!(findings[0].related_files.is_empty());
     }
 
     fn unchanged(sources: &BTreeMap<String, String>) -> SourceAnalysisContext<'_> {

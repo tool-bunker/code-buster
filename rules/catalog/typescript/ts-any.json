@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "The any type disables static checking for the value and can spread unchecked assumptions through callers.",
   "suggestion": "Use a concrete type or unknown with an explicit narrowing check.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -28,6 +28,9 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Detects explicit any annotations, assertions, and generic syntax after masking comments and literals; repeated occurrences are grouped per file, and an applicable Biome noExplicitAny rule explicitly set to off suppresses the advisory."
+    "Detects explicit any type tokens after masking comments and literals; similarly prefixed type names are not any. Repeated occurrences are grouped per file.",
+    "Declaration files and dynamic API boundaries are not exempt: compatibility signatures, narrowing predicates and runtime-validated values can intentionally use any. Advice does not prove unknown is a source-compatible replacement.",
+    "Explicit Biome noExplicitAny and Deno lint.rules include/exclude policy is honored at the nearest configured directory; Deno takes precedence over Biome at the same directory. Deno file and next balanced-node no-explicit-any directives are honored.",
+    "Deno directive attachment is lexical, not an AST span; unusual unbraced multiline declarations and configuration extends, tags, and file overrides are not resolved."
   ]
 }

@@ -17,23 +17,7 @@ fn indentation_functions(path: &str, source: &str, extension: &str) -> Vec<Funct
         let Some(name) = captures.name("name").map(|matched| matched.as_str()) else {
             continue;
         };
-        let indentation = indent(lines[index], extension.starts_with("nim"));
-        let mut signature_depth = if extension == "py" {
-            update_delimiter_depth(masked_lines[index], 0)
-        } else {
-            0
-        };
-        let mut end = index + 1;
-        while end < lines.len()
-            && (signature_depth > 0
-                || lines[end].trim().is_empty()
-                || indent(lines[end], extension.starts_with("nim")) > indentation)
-        {
-            if signature_depth > 0 {
-                signature_depth = update_delimiter_depth(masked_lines[end], signature_depth);
-            }
-            end += 1;
-        }
+        let end = indentation_function_end(&lines, &masked_lines, index, extension);
         let source = lines[index..end].join("\n");
         result.push(FunctionSource {
             path: path.to_owned(),
@@ -46,6 +30,33 @@ fn indentation_functions(path: &str, source: &str, extension: &str) -> Vec<Funct
         index = if extension == "py" { index + 1 } else { end };
     }
     result
+}
+
+fn indentation_function_end(
+    lines: &[&str],
+    masked_lines: &[&str],
+    start: usize,
+    extension: &str,
+) -> usize {
+    let nim_tabs = extension.starts_with("nim");
+    let indentation = indent(lines[start], nim_tabs);
+    let mut signature_depth = if extension == "py" {
+        update_delimiter_depth(masked_lines[start], 0)
+    } else {
+        0
+    };
+    let mut end = start + 1;
+    while end < lines.len()
+        && (signature_depth > 0
+            || lines[end].trim().is_empty()
+            || indent(lines[end], nim_tabs) > indentation)
+    {
+        if signature_depth > 0 {
+            signature_depth = update_delimiter_depth(masked_lines[end], signature_depth);
+        }
+        end += 1;
+    }
+    end
 }
 
 fn python_contract_signature(lines: &[&str], function_line: usize) -> bool {

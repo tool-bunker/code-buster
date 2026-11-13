@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::LazyLock;
@@ -109,6 +110,13 @@ struct GenericReference {
 struct GenericSource<'a> {
     path: &'a str,
     source: &'a str,
+    rust_generic_scopes: OnceCell<Vec<RustGenericScope<'a>>>,
+}
+
+struct RustGenericScope<'a> {
+    start: usize,
+    end: usize,
+    parameters: BTreeSet<&'a str>,
 }
 
 struct GenericUseIndex<'source, 'candidate> {
@@ -126,6 +134,7 @@ impl<'source, 'candidate> GenericUseIndex<'source, 'candidate> {
             .map(|(path, source)| GenericSource {
                 path: path.as_str(),
                 source: source.as_str(),
+                rust_generic_scopes: OnceCell::new(),
             })
             .collect::<Vec<_>>();
         let candidate_languages = candidates
@@ -301,6 +310,21 @@ fn concrete_generic_calls(
         ) else {
             continue;
         };
+        if candidate.language == GenericLanguage::Rust
+            && source
+                .rust_generic_scopes
+                .get_or_init(|| rust_generic_scopes(source.source))
+                .iter()
+                .any(|scope| {
+                    scope.start < reference.identifier_end
+                        && reference.identifier_end < scope.end
+                        && IDENTIFIER
+                            .find_iter(&concrete_type)
+                            .any(|identifier| scope.parameters.contains(identifier.as_str()))
+                })
+        {
+            return None;
+        }
         calls.push(GenericCall {
             concrete_type,
             path: source.path.to_owned(),
@@ -313,6 +337,38 @@ fn concrete_generic_calls(
             .iter()
             .all(|call| call.concrete_type == first.concrete_type))
     .then_some(calls)
+}
+
+fn rust_generic_scopes(source: &str) -> Vec<RustGenericScope<'_>> {
+    RUST_GENERIC_BINDER
+        .find_iter(source)
+        .filter_map(|binder| {
+            let open = binder.end() - 1;
+            let close = matching_angle(source, open)?;
+            let body = close + 1 + source[close + 1..].find(['{', ';'])?;
+            if source.as_bytes()[body] != b'{' {
+                return None;
+            }
+            let end = matching_delimiter(source, body, b'{', b'}')?;
+            let parameters = split_top_level(&source[open + 1..close])
+                .into_iter()
+                .filter_map(|parameter| {
+                    let parameter = parameter.trim();
+                    if parameter.starts_with('\'') {
+                        return None;
+                    }
+                    let mut identifiers = IDENTIFIER.find_iter(parameter);
+                    let first = identifiers.next()?;
+                    (first.start() == 0 && first.as_str() != "const").then_some(first.as_str())
+                })
+                .collect();
+            Some(RustGenericScope {
+                start: body,
+                end,
+                parameters,
+            })
+        })
+        .collect()
 }
 
 fn explicit_generic_call(
@@ -935,6 +991,11 @@ static CALLBACK_NAME: LazyLock<Regex> = LazyLock::new(|| {
     .expect("callback name regex")
 });
 
+static RUST_GENERIC_BINDER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:impl|(?:fn|trait|struct|enum)\s+[A-Za-z_]\w*)\s*<")
+        .expect("Rust generic binder regex")
+});
+
 static RUST_SINGLE_TYPE_GENERIC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?m)^[ \t]*(?:(?:const|async|unsafe)[ \t]+)*(?:extern[ \t]+"[^"]+"[ \t]+)?fn[ \t]+(?P<name>[A-Za-z_]\w*)[ \t]*<[ \t]*(?P<parameter>[A-Za-z_]\w*)(?:[ \t]*:[^,>{}\r\n]+)?[ \t]*>[ \t]*\("#,
@@ -1048,6 +1109,49 @@ void use_all() {
             "template <typename T>\nstatic T local(T value) { return value; }\nvoid a() { local<int>(1); }\nvoid b() { local<int>(2); }\n",
         )
         .is_empty());
+    }
+
+    #[test]
+    fn does_not_mistake_named_enclosing_type_parameters_for_concrete_types() {
+        let source = r#"fn create_info<F>() -> Info { inspect::<F>() }
+macro_rules! implement {
+    ($($Arg:ident),*) => {
+        impl<$($Arg,)* ReturnType, Function> Typed<ReturnType> for Function {
+            fn first() { create_info::<Function>(); }
+            fn second() { create_info::<Function>(); }
+        }
+    };
+}
+"#;
+        assert!(generic_findings("src/info.rs", source).is_empty());
+        let nested = r#"fn convert<T>(value: T) -> T { value }
+fn caller<Element>(value: Element) {
+    if ready() {
+        convert::<Element>(value);
+        convert::<Element>(value);
+    }
+}
+"#;
+        assert!(generic_findings("src/nested.rs", nested).is_empty());
+    }
+
+    #[test]
+    fn keeps_concrete_named_types_outside_unrelated_generic_scopes() {
+        let source = r###"struct Element;
+fn convert<T>(value: T) -> T { value }
+fn unrelated<Element>() { inspect::<Element>(); }
+fn first() { convert::<Element>(Element); }
+fn second() { convert::<Element>(Element); }
+// fn ignored<Element>() { convert::<Element>(Element); }
+const SAMPLE: &str = r##"fn sample<Element>() { convert::<Element>(Element); }"##;
+"###;
+        let findings = generic_findings("src/concrete.rs", source);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "single-concrete-generic");
+        assert_eq!(findings[0].path, "src/concrete.rs");
+        assert_eq!(findings[0].line, 2);
+        assert_eq!(findings[0].confidence, "high");
+        assert!(findings[0].related_files.is_empty());
     }
 
     #[test]

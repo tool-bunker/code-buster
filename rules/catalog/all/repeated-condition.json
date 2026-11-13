@@ -9,7 +9,7 @@
   "legacyGroup": "design",
   "why": "A complex condition is repeated across multiple locations.",
   "suggestion": "Extract a named predicate or document the intentional repetition.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,6 +27,8 @@
   "languageVersions": [],
   "limitations": [
     "Repeated byte-scanner cursor conditions are treated as parser mechanics and excluded.",
-    "Mechanical shell-completion dispatch is excluded because its repeated conditions are generated from command schemas."
+    "Mechanical shell-completion dispatch is excluded because its repeated conditions are generated from command schemas.",
+    "Rust conditions inside comments, string literals and test-only or explicit test-support scopes are excluded using the shared Rust lexical facts.",
+    "Conditions are compared within each file; identical predicates across callback or API boundaries still require contextual review."
   ]
 }

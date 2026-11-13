@@ -2293,6 +2293,69 @@ fn summary_reports_production_imports_of_excluded_test_code() {
 }
 
 #[test]
+fn summary_accepts_test_attribute_implementations_but_keeps_runtime_test_imports() {
+    let root = TempDirectory::new("cb-rust-test-attribute-exports");
+    root.write(
+        "Cargo.toml",
+        b"[package]\nname = \"macros\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\
+          [lib]\nproc-macro = true\n",
+    );
+    root.write(
+        "src/lib.rs",
+        br##"use proc_macro::TokenStream;
+mod test;
+mod tests;
+mod bench;
+mod ordinary;
+#[proc_macro_attribute]
+pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
+    test::expand(args, input)
+}
+#[proc_macro_attribute]
+pub fn tests(args: TokenStream, input: TokenStream) -> TokenStream {
+    tests::expand(args, input)
+}
+const EXAMPLE: &str = "#[proc_macro_attribute] pub fn bench(args: TokenStream) {}";
+"##,
+    );
+    root.write(
+        "src/test.rs",
+        b"use proc_macro::TokenStream;\npub fn expand(_: TokenStream, input: TokenStream) -> TokenStream { input }\n",
+    );
+    root.write(
+        "src/tests/mod.rs",
+        b"use proc_macro::TokenStream;\npub fn expand(_: TokenStream, input: TokenStream) -> TokenStream { input }\n",
+    );
+    root.write("src/bench.rs", b"pub fn helper() {}\n");
+    root.write("src/ordinary.rs", b"mod test;\npub fn test() {}\n");
+    root.write("src/ordinary/test.rs", b"pub fn helper() {}\n");
+    root.write("tooling/xtask/src/main.rs", b"mod test;\nfn main() {}\n");
+    root.write("tooling/xtask/src/test.rs", b"pub fn helper() {}\n");
+
+    let output = run_summary(
+        &root.path,
+        &["--format", "json", "--no-cache", "--only", "production-imports-test-code"],
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must emit JSON");
+    let findings = report["findings"].as_array().expect("findings array");
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| (
+                finding["path"].as_str().unwrap(),
+                finding["related_files"][0].as_str().unwrap(),
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("src/lib.rs", "src/bench.rs"),
+            ("src/ordinary.rs", "src/ordinary/test.rs"),
+        ]
+    );
+}
+
+#[test]
 fn summary_accepts_explicit_python_test_support_exports() {
     let root = TempDirectory::new("cb-python-test-support-export");
     root.write(

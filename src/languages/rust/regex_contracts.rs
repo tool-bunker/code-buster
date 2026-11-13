@@ -174,6 +174,7 @@ fn hir_guarantees_any_capture(hir: &Hir, accesses: &[CaptureAccess]) -> bool {
 enum BindingValue {
     Regex(Arc<CaptureContract>),
     DynamicRegex,
+    RegexSlice,
     Captures(Arc<CaptureContract>),
     Unknown,
 }
@@ -222,13 +223,17 @@ impl Analyzer<'_> {
     }
 
     fn resolve(&self, name: &str, offset: usize) -> Option<&BindingValue> {
+        self.resolve_binding(name, offset)
+            .map(|binding| &binding.value)
+    }
+
+    fn resolve_binding(&self, name: &str, offset: usize) -> Option<&Binding> {
         self.bindings
             .iter()
             .filter(|binding| {
                 binding.name == name && binding.start <= offset && offset < binding.end
             })
             .max_by_key(|binding| (binding.scope_depth, binding.start, binding.serial))
-            .map(|binding| &binding.value)
     }
 
     fn collect_closure_parameters(&mut self) {
@@ -360,14 +365,22 @@ impl Analyzer<'_> {
                     continue;
                 };
                 if !matches!(name.as_str(), "self" | "Self" | "mut" | "ref") {
-                    let value = if self.is_regex_type(colon + 1, end) {
-                        BindingValue::DynamicRegex
-                    } else {
-                        BindingValue::Unknown
-                    };
+                    let value = self.parameter_value(start, colon, end);
                     self.add_binding(&name, binding_start, scope_id, value);
                 }
             }
+        }
+    }
+
+    fn parameter_value(&self, start: usize, colon: usize, end: usize) -> BindingValue {
+        if self.is_regex_type(colon + 1, end) {
+            BindingValue::DynamicRegex
+        } else if !(start..colon).any(|index| self.parsed.tokens[index].is_ident("mut"))
+            && self.is_regex_slice_type(colon + 1, end)
+        {
+            BindingValue::RegexSlice
+        } else {
+            BindingValue::Unknown
         }
     }
 
@@ -389,6 +402,16 @@ impl Analyzer<'_> {
             }
             _ => false,
         }
+    }
+
+    fn is_regex_slice_type(&self, start: usize, end: usize) -> bool {
+        let tokens = &self.parsed.tokens;
+        tokens.get(start).is_some_and(|token| token.is_symbol(b'&'))
+            && tokens
+                .get(start + 1)
+                .is_some_and(|token| token.is_symbol(b'['))
+            && self.parsed.matching(start + 1) == end.checked_sub(1)
+            && self.is_regex_type(start + 2, end - 1)
     }
 
     fn find_function_body(&self, start: usize) -> Option<usize> {
@@ -866,7 +889,11 @@ impl Analyzer<'_> {
         expression: usize,
         method: &str,
     ) -> Option<(BindingValue, usize, usize)> {
-        let capture_call = self.capture_call(expression, method);
+        let capture_call = if method == "captures_iter" {
+            self.chained_capture_iterator(expression)
+        } else {
+            self.capture_call(expression, method)
+        };
         let body = capture_call.as_ref().map_or_else(
             || self.find_control_body(expression),
             |(_, close)| Some(close + 1),
@@ -880,6 +907,94 @@ impl Analyzer<'_> {
             BindingValue::Captures(contract)
         });
         Some((value, body, scope_id))
+    }
+
+    fn chained_capture_iterator(&self, expression: usize) -> Option<(Arc<CaptureContract>, usize)> {
+        let (mut contract, mut close) = self
+            .capture_call(expression, "captures_iter")
+            .or_else(|| self.flat_mapped_capture_iterator(expression))?;
+        let tokens = &self.parsed.tokens;
+        while tokens
+            .get(close + 1)
+            .is_some_and(|token| token.is_symbol(b'.'))
+            && tokens
+                .get(close + 2)
+                .is_some_and(|token| token.is_ident("chain"))
+        {
+            let open = close + 3;
+            if !tokens.get(open).is_some_and(|token| token.is_symbol(b'(')) {
+                return None;
+            }
+            let chain_close = self.parsed.matching(open)?;
+            let (_, argument_close) = self.capture_call(open + 1, "captures_iter")?;
+            if argument_close + 1 != chain_close {
+                return None;
+            }
+            // Every element is a successful capture from one of the iterators,
+            // but explicit numbered/named groups can differ between patterns.
+            contract = Arc::new(CaptureContract::group_zero());
+            close = chain_close;
+        }
+        Some((contract, close))
+    }
+
+    fn flat_mapped_capture_iterator(
+        &self,
+        expression: usize,
+    ) -> Option<(Arc<CaptureContract>, usize)> {
+        let (receiver_end, iter_open) = self.receiver_method_call(expression, "iter")?;
+        let (name, offset) = self.bare_receiver_name(expression, receiver_end)?;
+        if !self.pristine_regex_slice_receiver(name, offset) {
+            return None;
+        }
+        let iter_close = self.parsed.matching(iter_open)?;
+        if iter_close != iter_open + 1 {
+            return None;
+        }
+        let tokens = &self.parsed.tokens;
+        let (binding, body, flat_close) = self.direct_flat_map_body(iter_close + 1)?;
+        let (capture_receiver, capture_open) = self.receiver_method_call(body, "captures_iter")?;
+        if capture_receiver != body + 1 || tokens.get(body)?.identifier()? != binding {
+            return None;
+        }
+        let capture_close = self.parsed.matching(capture_open)?;
+        if capture_close + 1 != flat_close {
+            return None;
+        }
+        // All elements came directly from the proven regex slice. Patterns may differ,
+        // so only the mandatory whole-match group survives flattening.
+        Some((Arc::new(CaptureContract::group_zero()), flat_close))
+    }
+
+    fn pristine_regex_slice_receiver(&self, name: &str, offset: usize) -> bool {
+        let Some(binding) = self.resolve_binding(name, offset) else {
+            return false;
+        };
+        // Unparsed destructuring and nested binding forms must not inherit a parameter's
+        // type. Restrict this proof to its first source use after the parameter enters scope.
+        matches!(binding.value, BindingValue::RegexSlice)
+            && !self
+                .parsed
+                .tokens
+                .iter()
+                .take_while(|token| token.start < offset)
+                .any(|token| token.start >= binding.start && token.identifier() == Some(name))
+    }
+
+    fn direct_flat_map_body(&self, dot: usize) -> Option<(&str, usize, usize)> {
+        let tokens = &self.parsed.tokens;
+        if !tokens.get(dot)?.is_symbol(b'.')
+            || !tokens.get(dot + 1)?.is_ident("flat_map")
+            || !tokens.get(dot + 2)?.is_symbol(b'(')
+        {
+            return None;
+        }
+        let close = self.parsed.matching(dot + 2)?;
+        let pipe = dot + 3;
+        if !tokens.get(pipe)?.is_symbol(b'|') || !tokens.get(pipe + 2)?.is_symbol(b'|') {
+            return None;
+        }
+        Some((tokens.get(pipe + 1)?.identifier()?, pipe + 3, close))
     }
 
     fn collect_let_else_binding(&mut self, start: usize) {
@@ -1006,7 +1121,9 @@ impl Analyzer<'_> {
             Some(BindingValue::DynamicRegex) | None => {
                 Some(Arc::new(CaptureContract::group_zero()))
             }
-            Some(BindingValue::Captures(_) | BindingValue::Unknown) => None,
+            Some(BindingValue::Captures(_) | BindingValue::RegexSlice | BindingValue::Unknown) => {
+                None
+            }
         }
     }
 
@@ -1694,6 +1811,90 @@ fn lexical_scopes(
 #[cfg(test)]
 mod tests {
     use super::RegexContracts;
+
+    #[test]
+    fn proves_group_zero_from_direct_flat_maps_over_proven_regex_slices() {
+        let source = r###"
+fn scan(patterns: &[&Regex], owned: &[regex::Regex], input: &str) {
+    for capture in patterns
+        .iter()
+        .flat_map(|pattern| pattern.captures_iter(input))
+    {
+        capture.get(0).unwrap();
+        capture.get(1).unwrap();
+        capture.name("field").expect("not guaranteed");
+    }
+    for owned_capture in owned.iter().flat_map(|regex| regex.captures_iter(input)) {
+        owned_capture.get(0).expect("whole match");
+    }
+}
+"###;
+        let masked = mask(source);
+        let contracts = RegexContracts::new(source, &masked);
+        assert_invariant(&contracts, source, &masked, "capture.get(0).unwrap");
+        assert_invariant(&contracts, source, &masked, "owned_capture.get(0).expect");
+        assert_not_invariant(&contracts, source, &masked, "capture.get(1).unwrap");
+        assert_not_invariant(
+            &contracts,
+            source,
+            &masked,
+            "capture.name(\"field\").expect",
+        );
+    }
+
+    #[test]
+    fn rejects_custom_shadowed_and_transformed_flat_map_origins() {
+        for source in [
+            "fn scan(patterns: &[Record], input: &str) { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: Unknown, input: &str) { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } }",
+            "fn scan(mut patterns: &[Regex], input: &str) { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { let (patterns, _) = custom(); for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { for (patterns, _) in custom() { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } } }",
+            "fn scan(patterns: &[Regex], input: &str) { borrow(patterns); for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { let patterns = custom(); for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { run(|patterns| { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { capture.get(0).unwrap(); } }); }",
+            "fn scan(patterns: &[Regex], other: &Record, input: &str) { for capture in patterns.iter().flat_map(|pattern| other.captures_iter(input)) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { for capture in patterns.iter().flat_map(|pattern| { let pattern = custom(); pattern.captures_iter(input) }) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input).map(convert)) { capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) { let capture = record(); capture.get(0).unwrap(); } }",
+            "fn scan(patterns: &[Regex], input: &str) { for capture in patterns.iter().flat_map(|pattern| pattern.captures_iter(input)) {} capture.get(0).unwrap(); }",
+            "fn scan(patterns: &[Regex], input: &str) { for capture in patterns.iter().flat_map(|pattern| pattern.records(input)) { capture.get(0).unwrap(); } }",
+        ] {
+            let masked = mask(source);
+            let contracts = RegexContracts::new(source, &masked);
+            assert_not_invariant(&contracts, source, &masked, "capture.get(0).unwrap");
+        }
+    }
+
+    #[test]
+    fn proves_only_group_zero_for_chained_capture_iterators() {
+        let source = r###"
+fn scan(first: &Regex, second: &Regex, ordinary: Vec<Record>, input: &str) {
+    for capture in first
+        .captures_iter(input)
+        .chain(second.captures_iter(input))
+    {
+        capture.get(0).unwrap();
+        capture.get(1).unwrap();
+        capture.name("field").expect("not guaranteed");
+    }
+    for unknown in first.captures_iter(input).chain(ordinary) {
+        unknown.get(0).unwrap();
+    }
+}
+"###;
+        let masked = mask(source);
+        let contracts = RegexContracts::new(source, &masked);
+        assert_invariant(&contracts, source, &masked, "capture.get(0).unwrap");
+        assert_not_invariant(&contracts, source, &masked, "capture.get(1).unwrap");
+        assert_not_invariant(
+            &contracts,
+            source,
+            &masked,
+            "capture.name(\"field\").expect",
+        );
+        assert_not_invariant(&contracts, source, &masked, "unknown.get(0).unwrap");
+    }
 
     #[test]
     fn proves_group_zero_named_and_numbered_captures() {

@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "mem::forget skips destruction and can permanently retain memory or external resources.",
   "suggestion": "Use normal ownership, ManuallyDrop, or an explicit resource transfer contract.",
-  "version": 6,
+  "version": 7,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,6 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule uses masked source tokens and does not perform Rust type resolution."
+    "The rule uses masked source tokens and does not perform Rust type resolution.",
+    "Targeted allow or expect policies for clippy::mem_forget or mem_forget are honored on the attributed item or expression, including multiline reasons and scoped inner attributes. Other lint policies, comments, and strings do not suppress findings.",
+    "Intentional shutdown leaks and manual ownership transfers without an explicit targeted policy remain review findings; comments do not prove correct destruction."
   ]
 }

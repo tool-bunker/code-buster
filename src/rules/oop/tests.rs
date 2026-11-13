@@ -160,6 +160,53 @@ interface Gateway {
     }
 
     #[test]
+    fn excludes_ambient_declarations_from_implementation_parameter_clumps() {
+        let mut sources = BTreeMap::from([
+            (
+                "a.ts".to_owned(),
+                "export function create(tenant: string, region: number, active: boolean): void {}"
+                    .to_owned(),
+            ),
+            (
+                "b.ts".to_owned(),
+                "export function update(tenant: string, region: number, active: boolean): void {}"
+                    .to_owned(),
+            ),
+            (
+                "types/api.d.ts".to_owned(),
+                "export declare function send(tenant: string, region: number, active: boolean): void;\n\
+                 export declare function clear(tenant: string, region: number, active: boolean): void;"
+                    .to_owned(),
+            ),
+            (
+                "types/window.d.ts".to_owned(),
+                "declare var Factory: {\n\
+                 new(tenant: string, region: number, active: boolean): () => void;\n\
+                 };"
+                    .to_owned(),
+            ),
+        ]);
+        assert!(
+            analyze(&sources)
+                .iter()
+                .all(|finding| finding.code != "oop-data-clump")
+        );
+        sources.insert(
+            "c.ts".to_owned(),
+            "export function archive(tenant: string, region: number, active: boolean): void {}"
+                .to_owned(),
+        );
+        let findings = analyze(&sources);
+        let clumps = findings
+            .iter()
+            .filter(|finding| finding.code == "oop-data-clump")
+            .collect::<Vec<_>>();
+        assert_eq!(clumps.len(), 1);
+        assert_eq!(clumps[0].path, "a.ts");
+        assert_eq!(clumps[0].related_files, ["b.ts", "c.ts"]);
+    }
+
+    #[test]
     fn ignores_overload_families_concentrated_in_two_type_declarations() {
         let sources = BTreeMap::from([
             (

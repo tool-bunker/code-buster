@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Assigning Buffer.concat back to one of its input buffers copies all accumulated bytes on every loop iteration and can produce quadratic work.",
   "suggestion": "Collect chunks and concatenate once after the loop, or write them directly to a stream or preallocated destination.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only direct assignments whose Buffer.concat array contains the same destination identifier inside a recognized braced loop are reported.",
-    "Aliases of Buffer, property destinations, reassignment through helper functions, bounded loop counts, and total byte volume are not inferred."
+    "Aliases of Buffer, property destinations, reassignment through helper functions, bounded loop counts, and total byte volume are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A comment that repeats the adjacent statement adds maintenance cost without explaining intent.",
   "suggestion": "Remove the comment or explain the constraint, tradeoff, or reason instead.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -27,6 +27,6 @@
   "languageVersions": [],
   "limitations": [
     "Only narrow return, assignment, increment, and invocation restatements are reported.",
-    "Documentation comments and test sources are excluded."
+    "Documentation comments, test sources, Rust raw and multiline string contents, and JavaScript/TypeScript template text are excluded. Template interpolation is not resolved as a separate executable scope."
   ]
 }

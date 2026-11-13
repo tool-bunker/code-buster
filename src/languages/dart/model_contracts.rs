@@ -992,18 +992,12 @@ fn matching_open_delimiter(source: &str, close: usize, opening: u8, closing: u8)
 }
 
 fn expression_end(source: &str, start: usize) -> usize {
-    let mut depths = [0usize; 3];
+    let mut depth = super::DelimiterDepth::default();
     for (index, byte) in source.as_bytes().iter().enumerate().skip(start) {
-        match *byte {
-            b'(' => depths[0] += 1,
-            b')' if depths[0] > 0 => depths[0] -= 1,
-            b'[' => depths[1] += 1,
-            b']' if depths[1] > 0 => depths[1] -= 1,
-            b'{' => depths[2] += 1,
-            b'}' if depths[2] > 0 => depths[2] -= 1,
-            b';' if depths == [0, 0, 0] => return index + 1,
-            _ => {}
+        if *byte == b';' && depth.is_top_level() {
+            return index + 1;
         }
+        depth.consume(*byte);
     }
     source.len()
 }

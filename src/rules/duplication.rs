@@ -24,6 +24,7 @@ struct Location {
 struct NormalizedLine {
     number: usize,
     text: String,
+    declaration: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -81,7 +82,11 @@ fn exact_duplicates(
             continue;
         }
         let first = &spans[0];
-        let maximal_lines = normalized_by_path[&first.path][first.start_index..=first.end_index]
+        let maximal = &normalized_by_path[&first.path][first.start_index..=first.end_index];
+        if maximal.iter().all(|line| line.declaration) {
+            continue;
+        }
+        let maximal_lines = maximal
             .iter()
             .map(|line| line.text.as_str())
             .collect::<Vec<_>>();
@@ -133,7 +138,10 @@ fn record_source_duplicate_windows(
     occurrences: &mut DuplicateOccurrences,
     normalized_by_path: &mut NormalizedSources,
 ) {
-    if historical_sql(path) || mechanical_shell_completion(path, source) {
+    if historical_sql(path)
+        || mechanical_shell_completion(path, source)
+        || ambient_declaration_module(path)
+    {
         return;
     }
     let lines = normalized_lines(source, path);
@@ -183,6 +191,12 @@ fn mechanical_shell_completion(path: &str, source: &str) -> bool {
         && source.contains("COMPREPLY")
         && source.contains("COMP_WORDS")
         && source.contains("compgen")
+}
+
+fn ambient_declaration_module(path: &str) -> bool {
+    [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| path.ends_with(suffix))
 }
 
 fn duplicate_window_key(language_key: &str, scope: &str, lines: &[NormalizedLine]) -> String {
@@ -445,7 +459,24 @@ fn index_repeated_conditions(sources: &BTreeMap<String, String>) -> ConditionInd
         if mechanical_shell_completion(path, source) {
             continue;
         }
+        let rust_facts = path
+            .ends_with(".rs")
+            .then(|| function_lexical_facts(source));
+        let masked_lines = rust_facts
+            .as_ref()
+            .map(|(masked, _)| masked.split('\n').collect::<Vec<_>>());
         for (index, line) in source.split('\n').enumerate() {
+            if rust_facts
+                .as_ref()
+                .is_some_and(|(_, tests)| tests.contains(&index))
+                || masked_lines.as_ref().is_some_and(|lines| {
+                    !["if ", "else if ", "while "]
+                        .iter()
+                        .any(|prefix| lines[index].trim_start().starts_with(prefix))
+                })
+            {
+                continue;
+            }
             let Some((normalized, condition)) = qualified_condition(line.trim()) else {
                 continue;
             };
@@ -810,6 +841,10 @@ fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
     let rust_masked_lines = rust_facts
         .as_ref()
         .map(|(masked, _)| masked.split('\n').collect::<Vec<_>>());
+    let rust_declarations = rust_facts
+        .as_ref()
+        .map(|(masked, _)| rust_declaration_lines(masked))
+        .unwrap_or_default();
     let exclusions = NormalizationExclusions {
         source_path,
         dart_forwarding: &dart_forwarding,
@@ -834,6 +869,7 @@ fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
         result.push(NormalizedLine {
             number: index + 1,
             text,
+            declaration: rust_declarations.contains(&(index + 1)),
         });
     }
     result
@@ -889,6 +925,81 @@ fn python_declaration_lines(source: &str, source_path: &str) -> BTreeSet<usize> 
         }
     }
     signatures
+}
+
+fn rust_declaration_lines(masked: &str) -> BTreeSet<usize> {
+    let mut declarations = BTreeSet::new();
+    let line_starts = std::iter::once(0)
+        .chain(
+            masked
+                .bytes()
+                .enumerate()
+                .filter_map(|(offset, byte)| (byte == b'\n').then_some(offset + 1)),
+        )
+        .collect::<Vec<_>>();
+    for item in RUST_DECLARATION.find_iter(masked) {
+        let start = item.start();
+        let Some(length) = rust_declaration_extent(&masked[start..], item.as_str().trim_start())
+        else {
+            continue;
+        };
+        let end = start + length;
+        let tail = masked[end..].split('\n').next().unwrap_or_default().trim();
+        if !tail.is_empty() && tail != ";" {
+            continue;
+        }
+        let first_line = line_starts.partition_point(|offset| *offset <= start);
+        let line_count = line_starts.partition_point(|offset| *offset < end) - first_line;
+        declarations.extend(first_line..=first_line + line_count);
+    }
+    declarations
+}
+
+fn rust_declaration_extent(source: &str, prefix: &str) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if prefix.starts_with('#') {
+        let bracket = source.find('[')?;
+        return rust_delimiter_extent(&bytes[bracket..], b'[', b']').map(|end| bracket + end);
+    }
+    let data = prefix.ends_with("use ")
+        || ["struct ", "enum ", "union "]
+            .iter()
+            .any(|keyword| prefix.contains(keyword));
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'(' | b'[' => {
+                let closing = if bytes[cursor] == b'(' { b')' } else { b']' };
+                cursor += rust_delimiter_extent(&bytes[cursor..], bytes[cursor], closing)?;
+            }
+            b'{' => {
+                let length = if data {
+                    rust_delimiter_extent(&bytes[cursor..], b'{', b'}')?
+                } else {
+                    1
+                };
+                return Some(cursor + length);
+            }
+            b';' => return Some(cursor + 1),
+            _ => cursor += 1,
+        }
+    }
+    None
+}
+
+fn rust_delimiter_extent(bytes: &[u8], opening: u8, closing: u8) -> Option<usize> {
+    let mut depth = 0usize;
+    for (offset, byte) in bytes.iter().copied().enumerate() {
+        if byte == opening {
+            depth += 1;
+        } else if byte == closing {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(offset + 1);
+            }
+        }
+    }
+    None
 }
 
 fn python_signature_depth(line: &str, mut depth: usize) -> usize {
@@ -1168,13 +1279,19 @@ fn mostly_literal_data(lines: &[&str]) -> bool {
 }
 
 fn mostly_case_labels(lines: &[&str]) -> bool {
-    lines.len() >= 10
-        && lines
-            .iter()
-            .filter(|line| CASE_LABEL.is_match(line))
-            .count()
-            * 5
-            >= lines.len() * 4
+    let literal_match = lines.iter().any(|line| line.contains("=>"))
+        && lines.iter().all(|line| {
+            RUST_LITERAL_PATTERN.is_match(line)
+                || (line.starts_with("match ") && line.ends_with(" {"))
+        });
+    literal_match
+        || (lines.len() >= 10
+            && lines
+                .iter()
+                .filter(|line| CASE_LABEL.is_match(line))
+                .count()
+                * 5
+                >= lines.len() * 4)
 }
 
 fn rust_trait_delegation(lines: &[&str]) -> bool {
@@ -1259,6 +1376,19 @@ static PYTHON_FUNCTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 static PYTHON_ANNOTATION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[ \t]+[A-Za-z_]\w*[ \t]*:[ \t]*[^=\s].*$")
         .expect("Python annotation declaration regex must compile")
+});
+
+static RUST_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]*(?:#!?\[|(?:pub(?:\([^)\n]*\))?[ \t]+)?(?:use[ \t]+|extern[ \t]+crate[ \t]+|(?:struct|enum|union)[ \t]+\w+|(?:(?:async|unsafe|const|extern)[ \t]+)*fn[ \t]+\w+))",
+    )
+    .expect("Rust declaration regex must compile")
+});
+static RUST_LITERAL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"^(?:\| )?(?:[A-Za-z_]\w*::)+[A-Za-z_]\w*(?: \| (?:[A-Za-z_]\w*::)+[A-Za-z_]\w*)*(?: => (?:true|false|[-+]?\d+(?:\.\d+)?|"(?:\\.|[^"\\])*"),)?$"#,
+    )
+    .expect("Rust literal pattern regex must compile")
 });
 
 #[cfg(test)]
@@ -1607,5 +1737,165 @@ fn third(user: User) {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, "repeated-condition");
         assert_eq!(findings[0].line, 11);
+    }
+
+    #[test]
+    fn excludes_rust_schema_and_constructor_parameter_contracts() {
+        let fields = "    cache: Arc<Cache>,\n    resolver: Arc<Resolver>,\n    progress: Progress,\n    loader: Option<Loader>,\n";
+        let sources = BTreeMap::from([(
+            "graph.rs".to_owned(),
+            format!(
+                "pub struct Builder {{\n{fields}}}\nimpl Builder {{\n    pub fn new(\n{fields}    ) -> Self {{\n        Self {{ cache, resolver, progress, loader }}\n    }}\n}}\n"
+            ),
+        )]);
+        assert!(exact_findings(&sources, 3).is_empty());
+
+        let schema = "#[derive(Debug, Clone)]\n#[serde(rename_all = \"camelCase\")]\npub struct Coverage {\n    pub start: usize,\n    pub end: usize,\n    pub count: i64,\n}\n";
+        let sources = BTreeMap::from([
+            ("cli.rs".to_owned(), schema.to_owned()),
+            ("runtime.rs".to_owned(), schema.to_owned()),
+        ]);
+        assert!(exact_findings(&sources, 3).is_empty());
+    }
+
+    #[test]
+    fn excludes_rust_import_and_attribute_only_spans() {
+        let metadata = "#![forbid(unsafe_code)]\n#![no_std]\nuse math::{\n    Vec3,\n    Vec4,\n};\n#[cfg(feature = \"reflect\")]\nuse reflect::prelude::*;\n#[derive(Debug, Clone)]\n#[cfg_attr(\n    feature = \"reflect\",\n    derive(Reflect),\n)]\nextern crate alloc;\n";
+        let sources = BTreeMap::from([
+            (
+                "first.rs".to_owned(),
+                format!("{metadata}pub struct First;\n"),
+            ),
+            (
+                "second.rs".to_owned(),
+                format!("{metadata}pub struct Second;\n"),
+            ),
+        ]);
+        assert!(exact_findings(&sources, 3).is_empty());
+    }
+
+    #[test]
+    fn preserves_rust_algorithm_bodies_across_trait_contracts() {
+        let methods = "#[inline]\nfn interpolate(a: &Self, b: &Self, t: f32) -> Self {\n    a.slerp(*b, t)\n}\n#[inline]\nfn blend(inputs: impl Iterator<Item = BlendInput<Self>>) -> Self {\n    let mut value = Self::IDENTITY;\n    for BlendInput {\n        weight,\n        value: incoming_value,\n        additive,\n    } in inputs\n    {\n        if additive {\n            value = Self::slerp(Self::IDENTITY, incoming_value, weight) * value;\n        } else {\n            value = Self::interpolate(&value, &incoming_value, weight);\n        }\n    }\n    value\n}\n";
+        let sources = BTreeMap::from([(
+            "animation.rs".to_owned(),
+            format!(
+                "impl Animatable for Quat {{\n{methods}}}\nimpl Animatable for Rot2 {{\n{methods}}}\n"
+            ),
+        )]);
+        let findings = exact_findings(&sources, 15);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "duplicate-block");
+        assert_eq!(findings[0].path, "animation.rs");
+        assert_eq!(findings[0].line, 2);
+        assert_eq!(findings[0].confidence, "high");
+        assert_eq!(findings[0].related_files.len(), 1);
+    }
+
+    #[test]
+    fn excludes_ambient_modules_but_preserves_typescript_runtime_logic() {
+        let declarations = "interface Contract {\n  read(value: string): void;\n  write(value: string): void;\n  close(): void;\n}\n";
+        for suffix in [".d.ts", ".d.mts", ".d.cts"] {
+            let sources = BTreeMap::from([
+                (format!("first{suffix}"), declarations.to_owned()),
+                (format!("second{suffix}"), declarations.to_owned()),
+            ]);
+            assert!(exact_findings(&sources, 3).is_empty());
+        }
+        let runtime = format!(
+            "{declarations}function execute(value: string) {{\n  const ready = normalize(value);\n  const checked = validate(ready);\n  return persist(checked);\n}}\n"
+        );
+        let sources = BTreeMap::from([
+            ("first.ts".to_owned(), runtime.clone()),
+            ("second.ts".to_owned(), runtime),
+        ]);
+        assert_eq!(exact_findings(&sources, 3).len(), 1);
+    }
+
+    #[test]
+    fn distinguishes_static_enum_membership_tables_from_algorithm_arms() {
+        let labels = "match self {\n    Self::Alpha\n    | Self::Beta\n    | Self::Gamma\n    | Self::Delta => true,\n";
+        let sources = BTreeMap::from([(
+            "models.rs".to_owned(),
+            format!(
+                "fn supports_tools(&self) -> bool {{\n{labels}    _ => false,\n}}\n}}\nfn supports_images(&self) -> bool {{\n{labels}    _ => self.fallback(),\n}}\n}}\n"
+            ),
+        )]);
+        assert!(exact_findings(&sources, 3).is_empty());
+
+        let algorithm = "match input {\n    State::Ready => prepare(input),\n    State::Pending => schedule(input),\n    State::Failed => retry(input),\n}\nfinish(input);\n";
+        let sources = BTreeMap::from([
+            ("first.rs".to_owned(), algorithm.to_owned()),
+            ("second.rs".to_owned(), algorithm.to_owned()),
+        ]);
+        assert_eq!(exact_findings(&sources, 3).len(), 1);
+    }
+
+    #[test]
+    fn keeps_callback_algorithms_comparable() {
+        let body = "    let source = resolve(input.source_path).await;\n    let destination = resolve(input.destination_path).await;\n    let escapes = collect_symlink_escapes(source, destination);\n    if !escapes.is_empty() {\n        authorize(escapes).await?;\n    }\n    validate_sensitive_settings(source, destination).await?;\n";
+        let sources = BTreeMap::from([
+            (
+                "copy.rs".to_owned(),
+                format!(
+                    "cx.spawn(async move |cx| {{\n{body}    copy(source, destination);\n}});\n"
+                ),
+            ),
+            (
+                "move.rs".to_owned(),
+                format!(
+                    "cx.spawn(async move |cx| {{\n{body}    rename(source, destination);\n}});\n"
+                ),
+            ),
+        ]);
+        assert_eq!(exact_findings(&sources, 3).len(), 1);
+    }
+
+    #[test]
+    fn repeated_conditions_exclude_rust_literal_comments_and_test_support() {
+        let condition = "    if size.width <= 0 || size.height <= 0 {\n        return;\n    }\n";
+        let source = format!(
+            "fn production() {{\n{condition}}}\n#[cfg(any(test, feature = \"test-support\"))]\nfn support_one() {{\n{condition}}}\n#[cfg(test)]\nfn support_two() {{\n{condition}}}\nconst DOCUMENT: &str = r#\"\n{condition}{condition}{condition}\"#;\n/*\n{condition}{condition}{condition}*/\n"
+        );
+        let sources = BTreeMap::from([("renderer.rs".to_owned(), source)]);
+        assert!(repeated_condition_findings(&sources).is_empty());
+        let source = format!(
+            "fn first() {{\n{condition}}}\nfn second() {{\n{condition}}}\nfn third() {{\n{condition}}}\n"
+        );
+        let findings =
+            repeated_condition_findings(&BTreeMap::from([("renderer.rs".to_owned(), source)]));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "repeated-condition");
+        assert_eq!(findings[0].path, "renderer.rs");
+        assert_eq!(findings[0].line, 2);
+        assert_eq!(findings[0].related_files.len(), 2);
+    }
+
+    #[test]
+    fn retains_duplicate_group_and_location_caps() {
+        let mut sources = BTreeMap::new();
+        for index in 0..55 {
+            let block = format!("prepare_{index}();\nvalidate_{index}();\npersist_{index}();\n");
+            sources.insert(format!("{index:02}_a.rs"), block.clone());
+            sources.insert(format!("{index:02}_b.rs"), block);
+        }
+        assert_eq!(exact_group_count(&sources, 3), 50);
+        assert_eq!(exact_findings(&sources, 3).len(), 50);
+
+        let sources = (0..40)
+            .map(|index| {
+                (
+                    format!("{index:02}.rs"),
+                    "prepare();\nvalidate();\npersist();\n".to_owned(),
+                )
+            })
+            .collect();
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].related_files.len(), 31);
+        assert_eq!(
+            findings[0].related_files.last().map(String::as_str),
+            Some("31.rs:1-3")
+        );
     }
 }

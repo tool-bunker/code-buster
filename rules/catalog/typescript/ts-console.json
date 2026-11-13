@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "Console logging in app/library code can leak data and create noisy production output.",
   "suggestion": "Use a structured logger or remove debug logging before release.",
-  "version": 9,
+  "version": 10,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Node.js shebang programs, conventional tooling paths, and JavaScript or TypeScript files invoked directly by package.json scripts are treated as command-line programs.",
-    "Repeated calls in one file and peer JavaScript or TypeScript module variants are grouped into one finding with related locations. Reviewed ESLint file, block, next-line, and same-line `no-console` suppressions are honored."
+    "Node.js shebang programs, conventional tooling paths, and files invoked directly by package.json scripts are treated as command-line programs.",
+    "Only executable console.log and console.debug calls are reviewed; comments, strings, regex literals and properties of unrelated receivers are masked. Repeated calls and peer module variants are grouped.",
+    "ESLint no-console comment directives and Deno no-console file/next balanced-node directives and explicit lint.rules include/exclude configuration are honored. Directive attachment is lexical; configuration extends, tags, overrides, and unusual unbraced multiline targets are not resolved."
   ]
 }

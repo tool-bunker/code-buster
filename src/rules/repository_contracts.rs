@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde_json::Value as JsonValue;
 use toml::Value as TomlValue;
 
@@ -80,14 +82,43 @@ fn is_intentional_test_dependency(
         || feature_gates_test_support(target_path, source)
         || imports_test_support_only_from_test_apis(source_path, target_path, source)
         || explicitly_exports_test_support(source_path, target_path, source)
+        || exports_rust_test_attribute(source_path, target_path, source)
 }
 fn is_tooling_source_path(source_path: &str) -> bool {
     Path::new(source_path).components().any(|component| {
-        component
-            .as_os_str()
-            .to_str()
-            .is_some_and(|segment| matches!(segment, "devscripts" | "scripts" | "tools"))
+        component.as_os_str().to_str().is_some_and(|segment| {
+            matches!(segment, "devscripts" | "scripts" | "tools" | "tooling")
+        })
     })
+}
+
+fn exports_rust_test_attribute(source_path: &str, target_path: &str, source: Option<&str>) -> bool {
+    let source_path = Path::new(source_path);
+    let target_path = Path::new(target_path);
+    let module_path = if target_path.file_name().is_some_and(|name| name == "mod.rs") {
+        target_path.parent().unwrap_or(target_path)
+    } else {
+        target_path
+    };
+    if source_path
+        .extension()
+        .is_none_or(|extension| extension != "rs")
+        || source_path.parent() != module_path.parent()
+    {
+        return false;
+    }
+    let Some((source, module)) = source.zip(module_path.file_stem().and_then(|name| name.to_str()))
+    else {
+        return false;
+    };
+    let (masked, _) = crate::languages::rust::rules::function_lexical_facts(source);
+    RUST_TEST_ATTRIBUTE_EXPORT
+        .captures_iter(&masked)
+        .any(|export| {
+            export
+                .name("name")
+                .is_some_and(|name| name.as_str() == module)
+        })
 }
 
 fn is_test_command_entrypoint(source_path: &str) -> bool {
@@ -653,16 +684,7 @@ fn python_references(manifest: &str, source: &str, references: &mut Vec<Manifest
         {
             continue;
         }
-        let module_path = module.replace('.', "/");
-        let candidates = [base.clone(), base.join("src")]
-            .into_iter()
-            .flat_map(|root| {
-                [
-                    root.join(format!("{module_path}.py")),
-                    root.join(&module_path).join("__init__.py"),
-                ]
-            })
-            .collect();
+        let candidates = python_module_candidates(&base, module, &value);
         push_reference(
             references,
             manifest,
@@ -672,6 +694,49 @@ fn python_references(manifest: &str, source: &str, references: &mut Vec<Manifest
             candidates,
         );
     }
+}
+
+fn python_module_candidates(base: &Path, module: &str, manifest: &TomlValue) -> Vec<PathBuf> {
+    let package_dirs = manifest
+        .get("tool")
+        .and_then(|tool| tool.get("setuptools"))
+        .and_then(|setuptools| setuptools.get("package-dir"))
+        .and_then(TomlValue::as_table);
+    let mapped = package_dirs
+        .into_iter()
+        .flatten()
+        .filter_map(|(package, directory)| {
+            let directory = directory.as_str()?;
+            (package.is_empty()
+                || module == package.as_str()
+                || module
+                    .strip_prefix(package.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('.')))
+            .then_some((package.as_str(), directory))
+        })
+        .max_by_key(|(package, _)| package.len());
+    if let Some((package, directory)) = mapped {
+        let suffix = module
+            .strip_prefix(package)
+            .unwrap_or(module)
+            .trim_start_matches('.');
+        let path = base.join(directory).join(suffix.replace('.', "/"));
+        return if suffix.is_empty() {
+            vec![path.join("__init__.py")]
+        } else {
+            vec![path.with_extension("py"), path.join("__init__.py")]
+        };
+    }
+    let module_path = module.replace('.', "/");
+    [base.to_owned(), base.join("src")]
+        .into_iter()
+        .flat_map(|root| {
+            [
+                root.join(format!("{module_path}.py")),
+                root.join(&module_path).join("__init__.py"),
+            ]
+        })
+        .collect()
 }
 
 fn valid_python_identifier(character: char) -> bool {
@@ -708,6 +773,13 @@ fn push_reference(
         candidates,
     });
 }
+
+static RUST_TEST_ATTRIBUTE_EXPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"#\s*\[\s*proc_macro_attribute\s*\]\s*(?:#\s*\[[^\]]*\]\s*)*pub\s+fn\s+(?P<name>[A-Za-z_]\w*)\s*\(",
+    )
+    .expect("Rust procedural attribute export regex must compile")
+});
 
 #[cfg(test)]
 mod tests {
@@ -784,6 +856,54 @@ mod tests {
             messages
                 .iter()
                 .any(|message| message.contains("app.missing"))
+        );
+    }
+
+    #[test]
+    fn resolves_setuptools_package_directories_without_using_unmapped_fallbacks() {
+        let root = tempdir().expect("temporary repository");
+        for relative in [
+            "flat/cli.py",
+            "flat/app/missing.py",
+            "nested/handlers/cli.py",
+            "nested/lib/commands/missing.py",
+            "custom/python/app/cli.py",
+        ] {
+            let path = root.path().join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).expect("package directory");
+            std::fs::write(path, "def main(): pass\n").expect("Python module");
+        }
+        let mut auxiliary = BTreeMap::from([
+            (
+                "flat/pyproject.toml".to_owned(),
+                "[project.scripts]\napp = 'app.cli:main'\nmissing = 'app.missing:main'\n\
+                 [tool.setuptools.package-dir]\napp = '.'\n"
+                    .to_owned(),
+            ),
+            (
+                "nested/pyproject.toml".to_owned(),
+                "[project.scripts]\napp = 'app.commands.cli:main'\nmissing = 'app.commands.missing:main'\n\
+                 [tool.setuptools.package-dir]\napp = 'lib'\n'app.commands' = 'handlers'\n"
+                    .to_owned(),
+            ),
+            (
+                "custom/pyproject.toml".to_owned(),
+                "[project.scripts]\napp = 'app.cli:main'\n\
+                 [tool.setuptools.package-dir]\n'' = 'python'\n"
+                    .to_owned(),
+            ),
+        ]);
+        auxiliary.extend(manifest_existence_markers(root.path(), &auxiliary));
+
+        assert_eq!(
+            missing_manifest_paths(&auxiliary)
+                .iter()
+                .map(|finding| (finding.path.as_str(), finding.related_files[0].as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("flat/pyproject.toml", "app.missing"),
+                ("nested/pyproject.toml", "app.commands.missing"),
+            ]
         );
     }
 

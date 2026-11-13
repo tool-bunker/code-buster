@@ -361,136 +361,23 @@ fn skip_whitespace(source: &str, mut offset: usize) -> usize {
     offset
 }
 
-enum SeparatorScanTransition {
-    Advance(usize),
-    Found,
-}
-
-#[derive(Default)]
-struct SeparatorScanState {
-    depths: [usize; 3],
-    quote: Option<u8>,
-}
-
-impl SeparatorScanState {
-    fn transition(&mut self, byte: u8, has_next: bool, separator: u8) -> SeparatorScanTransition {
-        if let Some(quote) = self.quote {
-            return self.quoted_transition(byte, quote, has_next);
-        }
-        self.code_transition(byte, separator)
-    }
-
-    fn quoted_transition(
-        &mut self,
-        byte: u8,
-        quote: u8,
-        has_next: bool,
-    ) -> SeparatorScanTransition {
-        if byte == b'\\' && has_next {
-            return SeparatorScanTransition::Advance(2);
-        }
-        if byte == quote {
-            self.quote = None;
-        }
-        SeparatorScanTransition::Advance(1)
-    }
-
-    fn code_transition(&mut self, byte: u8, separator: u8) -> SeparatorScanTransition {
-        match byte {
-            b'\'' | b'"' => self.quote = Some(byte),
-            b'(' => self.depths[0] += 1,
-            b')' => self.depths[0] = self.depths[0].saturating_sub(1),
-            b'[' => self.depths[1] += 1,
-            b']' => self.depths[1] = self.depths[1].saturating_sub(1),
-            b'{' => self.depths[2] += 1,
-            b'}' => self.depths[2] = self.depths[2].saturating_sub(1),
-            value if value == separator && self.depths == [0, 0, 0] => {
-                return SeparatorScanTransition::Found;
-            }
-            _ => {}
-        }
-        SeparatorScanTransition::Advance(1)
-    }
-}
-
 fn top_level_separator(source: &str, separator: u8) -> Option<usize> {
-    let bytes = source.as_bytes();
-    let mut state = SeparatorScanState::default();
-    let mut index = 0usize;
-    while let Some(&byte) = bytes.get(index) {
-        match state.transition(byte, index + 1 < bytes.len(), separator) {
-            SeparatorScanTransition::Advance(width) => index += width,
-            SeparatorScanTransition::Found => return Some(index),
+    let mut depth = super::DelimiterDepth::default();
+    for (index, byte) in super::QuoteAwareCodeBytes::new(source, 0) {
+        if !depth.consume(byte) && byte == separator && depth.is_top_level() {
+            return Some(index);
         }
     }
     None
 }
 
-#[derive(Default)]
-struct ExpressionScanState {
-    depths: [usize; 3],
-    quote: Option<u8>,
-}
-
-enum ExpressionScanTransition {
-    Advance(usize),
-    Complete,
-}
-
-impl ExpressionScanState {
-    fn transition(&mut self, byte: u8, has_next: bool) -> ExpressionScanTransition {
-        if let Some(quote) = self.quote {
-            return self.quoted_transition(byte, quote, has_next);
-        }
-        self.code_transition(byte)
-    }
-
-    fn quoted_transition(
-        &mut self,
-        byte: u8,
-        quote: u8,
-        has_next: bool,
-    ) -> ExpressionScanTransition {
-        if byte == b'\\' && has_next {
-            return ExpressionScanTransition::Advance(2);
-        }
-        if byte == quote {
-            self.quote = None;
-        }
-        ExpressionScanTransition::Advance(1)
-    }
-
-    fn code_transition(&mut self, byte: u8) -> ExpressionScanTransition {
-        if self.is_terminal(byte) {
-            return ExpressionScanTransition::Complete;
-        }
-        match byte {
-            b'\'' | b'"' => self.quote = Some(byte),
-            b'(' => self.depths[0] += 1,
-            b')' if self.depths[0] > 0 => self.depths[0] -= 1,
-            b'[' => self.depths[1] += 1,
-            b']' if self.depths[1] > 0 => self.depths[1] -= 1,
-            b'{' => self.depths[2] += 1,
-            b'}' if self.depths[2] > 0 => self.depths[2] -= 1,
-            _ => {}
-        }
-        ExpressionScanTransition::Advance(1)
-    }
-
-    fn is_terminal(&self, byte: u8) -> bool {
-        byte == b';' && self.depths == [0, 0, 0]
-    }
-}
-
 fn expression_end(source: &str, start: usize) -> usize {
-    let bytes = source.as_bytes();
-    let mut state = ExpressionScanState::default();
-    let mut index = start;
-    while let Some(&byte) = bytes.get(index) {
-        match state.transition(byte, index + 1 < bytes.len()) {
-            ExpressionScanTransition::Advance(width) => index += width,
-            ExpressionScanTransition::Complete => return index + 1,
+    let mut depth = super::DelimiterDepth::default();
+    for (index, byte) in super::QuoteAwareCodeBytes::new(source, start) {
+        if byte == b';' && depth.is_top_level() {
+            return index + 1;
         }
+        depth.consume(byte);
     }
     source.len()
 }

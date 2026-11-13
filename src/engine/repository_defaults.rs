@@ -350,6 +350,8 @@ fn is_repository_metadata_file(relative: &Path) -> bool {
         "biome.jsonc",
         "cargo.lock",
         "cargo.toml",
+        "deno.json",
+        "deno.jsonc",
         "feature-flags.json",
         "feature_flags.json",
         "go.mod",

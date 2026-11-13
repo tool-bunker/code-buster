@@ -343,13 +343,6 @@ fn parse_scope(
     ScopeParser::new(source, structure, start, end, class_name).parse()
 }
 
-#[derive(Default)]
-struct ScopeDepth {
-    round: usize,
-    square: usize,
-    curly: usize,
-}
-
 struct ScopeParser<'a> {
     source: &'a str,
     structure: &'a str,
@@ -360,7 +353,7 @@ struct ScopeParser<'a> {
     methods: Vec<Method>,
     member_start: usize,
     index: usize,
-    depth: ScopeDepth,
+    depth: super::DelimiterDepth,
     quote: Option<(u8, usize)>,
 }
 
@@ -382,7 +375,7 @@ impl<'a> ScopeParser<'a> {
             methods: Vec::new(),
             member_start: start,
             index: start,
-            depth: ScopeDepth::default(),
+            depth: super::DelimiterDepth::default(),
             quote: None,
         }
     }
@@ -442,26 +435,21 @@ impl<'a> ScopeParser<'a> {
     }
 
     fn consume_code_byte(&mut self) {
-        match self.bytes[self.index] {
-            b'(' => self.depth.round += 1,
-            b')' => self.depth.round = self.depth.round.saturating_sub(1),
-            b'[' => self.depth.square += 1,
-            b']' => self.depth.square = self.depth.square.saturating_sub(1),
-            b'{' => {
-                if self.at_top_level() && self.consume_callable_block() {
-                    return;
-                }
-                self.depth.curly += 1;
+        let byte = self.bytes[self.index];
+        if self.at_top_level() {
+            if byte == b'{' && self.consume_callable_block() {
+                return;
             }
-            b'}' => self.depth.curly = self.depth.curly.saturating_sub(1),
-            b';' if self.at_top_level() => self.finish_semicolon_member(),
-            _ => {}
+            if byte == b';' {
+                self.finish_semicolon_member();
+            }
         }
+        self.depth.consume(byte);
         self.index += 1;
     }
 
     fn at_top_level(&self) -> bool {
-        self.depth.round == 0 && self.depth.square == 0 && self.depth.curly == 0
+        self.depth.is_top_level()
     }
 
     fn consume_callable_block(&mut self) -> bool {
@@ -988,20 +976,14 @@ fn direct_body(body: &str) -> String {
 
 fn callback_expression_end(source: &str, start: usize) -> usize {
     let bytes = source.as_bytes();
-    let mut depths = [0usize; 3];
+    let mut depth = super::DelimiterDepth::default();
     let mut index = start;
     while index < bytes.len() {
-        match bytes[index] {
-            b'(' => depths[0] += 1,
-            b')' if depths[0] == 0 && depths[1] == 0 && depths[2] == 0 => return index,
-            b')' => depths[0] = depths[0].saturating_sub(1),
-            b'[' => depths[1] += 1,
-            b']' => depths[1] = depths[1].saturating_sub(1),
-            b'{' => depths[2] += 1,
-            b'}' => depths[2] = depths[2].saturating_sub(1),
-            b',' | b';' if depths == [0, 0, 0] => return index,
-            _ => {}
+        let byte = bytes[index];
+        if matches!(byte, b')' | b',' | b';') && depth.is_top_level() {
+            return index;
         }
+        depth.consume(byte);
         index += 1;
     }
     source.len()

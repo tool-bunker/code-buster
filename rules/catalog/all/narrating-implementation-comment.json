@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Step-by-step narration duplicates control flow rather than explaining a constraint or design decision.",
   "suggestion": "Delete the narration or replace it with the non-obvious reason the implementation is necessary.",
-  "version": 3,
+  "version": 6,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -26,7 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only explicit first-person sequencing phrases are reported, and contiguous comment blocks that explain a condition, trade-off, ordering constraint, or external specification are excluded.",
-    "Documentation comments and test sources are excluded."
+    "Only explicit first-person sequencing phrases are reported. Comment paragraphs explaining a condition, trade-off, causal outcome (including 'this allows/enables us to'), avoidance or failure constraint, safety contract, equation, specification, example, or external reference are excluded. Paragraphs may be separated by blank comment or whitespace-only lines, but executable statements and quoted statements stop rationale propagation.",
+    "Documentation comments, test sources, Rust raw and multiline strings, and JavaScript/TypeScript template text are excluded. Unlabelled algorithm or protocol sequencing can remain an intentional advisory review candidate; the detector does not prove commentary is redundant."
   ]
 }

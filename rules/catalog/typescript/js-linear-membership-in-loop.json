@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Array includes and indexOf scan linearly, so using them inside another loop can produce quadratic work.",
   "suggestion": "Build a Set before the loop when repeated membership checks dominate and array ordering is not required for lookup.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only variables with an array type annotation or array-literal assignment used with includes or indexOf in braced loops are reported.",
-    "Collection size, reassignment, variable shadowing, and intentionally small arrays are not inferred."
+    "Collection size, reassignment, variable shadowing, and intentionally small arrays are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

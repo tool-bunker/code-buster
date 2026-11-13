@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Repeating the same dependency requirement across several members creates multiple update sites for one workspace-wide policy.",
   "suggestion": "Declare the version once in workspace.dependencies and use workspace = true from each member.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": ["maintainability"],
@@ -20,7 +20,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule requires the same direct registry requirement in at least three internal or private production members; published packages are excluded.",
-    "Member-specific feature additions remain compatible with workspace inheritance and do not need to be centralized."
+    "The rule requires the same direct registry requirement in at least three internal or private production members, including equivalent omitted-zero caret forms; published packages are excluded.",
+    "Member-specific feature additions remain compatible with workspace inheritance and do not need to be centralized. Explicitly inherited workspace publication, version, and description policy participates in determining whether a member is internal."
   ]
 }

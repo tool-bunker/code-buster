@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Repeatedly extending an immutable string can copy a growing prefix and create avoidable temporary values.",
   "suggestion": "Collect fragments in an array and join once after the loop, or stream them directly to the consumer.",
-  "version": 2,
+  "version": 4,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -20,7 +20,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only += on variables with a string annotation or string-literal initializer is reported inside braced loops.",
-    "Engine rope optimizations, reassignment, bounded loops, and alternative string-like values are not inferred; repeated occurrences are grouped per file."
+    "Only += on a lexically visible local with a string annotation or quoted/template-string initializer is reported inside braced loops. A binding created inside that repeating loop is not a growing accumulator; a nested loop can still repeatedly extend it.",
+    "Simple local declarations and function parameters shadow same-named strings; sibling scopes, member fields, comments, strings and regex text do not provide binding evidence. Closed-over strings remain candidates when the callback contains its own loop.",
+    "Engine rope optimizations, bounded inputs, reassignment, destructured or multi-declarator bindings and arbitrary type or control-flow facts are not resolved. Captured parameter evidence is conservative; repeated occurrences are grouped per file."
   ]
 }

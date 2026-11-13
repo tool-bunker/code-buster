@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "The same normalized code block appears in more than one location.",
   "suggestion": "Extract shared logic or raise min_duplication_lines if the duplication is intentional.",
-  "version": 21,
+  "version": 22,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -39,6 +39,10 @@
     "Standalone scaffold template roots are compared independently because they cannot share runtime code.",
     "Localization implementations are compared independently because parallel translations cannot share runtime code.",
     "Python function and annotation-only declarations are excluded from duplication windows; executable bodies remain comparable.",
-    "Mechanical shell-completion dispatch is excluded because repeated branches are derived from command schemas."
+    "Mechanical shell-completion dispatch is excluded because repeated branches are derived from command schemas.",
+    "Ambient TypeScript declaration modules (.d.ts, .d.mts and .d.cts) are API contracts, not executable implementations, and are excluded.",
+    "Rust spans composed entirely of imports, attributes, data-type declarations and function signatures are excluded; executable bodies remain comparable.",
+    "Rust enum-pattern lists mapping only to literal values are static membership data and are excluded; computed match-arm bodies remain comparable.",
+    "Ordinary TypeScript source and callback bodies remain comparable; lexical equality does not prove that extraction is architecturally appropriate."
   ]
 }

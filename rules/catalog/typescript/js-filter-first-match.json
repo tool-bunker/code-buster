@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Array.filter evaluates the full array and allocates a result array even when the caller only consumes the first or last match.",
   "suggestion": "Use find for the first match or findLast for the last match when callback short-circuiting preserves the intended behavior.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only variables with an array type annotation or array-literal assignment followed by [0], at(0), at(-1), shift(), or pop() are reported.",
-    "Sparse-array callback differences, callback side effects, aliases, and custom filter implementations are not inferred."
+    "Sparse-array callback differences, callback side effects, aliases, and custom filter implementations are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

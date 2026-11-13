@@ -9,6 +9,8 @@ static CONST_DECLARATION: LazyLock<Regex> =
 static USE_DECLARATION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\buse\s+[^;]+;").unwrap());
 static MODULE_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bmod\s+[A-Za-z_]\w*\s*\{").unwrap());
+static LET_SOME_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*let\s+Some\s*\(").unwrap());
 
 pub(super) fn locally_proven_invariant(source: &str, masked: &str, call_offset: usize) -> bool {
     if source.len() != masked.len() || call_offset > masked.len() {
@@ -20,19 +22,31 @@ pub(super) fn locally_proven_invariant(source: &str, masked: &str, call_offset: 
     };
 
     if option_guarded(source, masked, unwrap_dot)
+        || assigned_some_is_invariant(masked, unwrap_dot)
         || cstring_literal_construction(source, masked, unwrap_dot)
     {
         return true;
     }
 
-    let Some(access) = call_before(masked, unwrap_dot) else {
+    let Some(access) = presence_preserving_access(masked, unwrap_dot) else {
         return false;
     };
 
     iterator_next_is_invariant(masked, &access)
         || containment_position_guarded(source, masked, &access)
         || option_access_short_circuit_guarded(source, masked, &access)
+        || collection_access_guarded(source, masked, &access)
         || access_guarded(source, masked, &access)
+}
+
+fn presence_preserving_access(masked: &str, unwrap_dot: usize) -> Option<Call<'_>> {
+    let access = call_before(masked, unwrap_dot)?;
+    // These Option adapters preserve presence; arbitrary map/and_then callbacks do not.
+    if matches!(access.method, "copied" | "cloned") && access.argument(masked).trim().is_empty() {
+        call_before(masked, access.dot)
+    } else {
+        Some(access)
+    }
 }
 
 fn containment_position_guarded(source: &str, masked: &str, position: &Call<'_>) -> bool {
@@ -430,7 +444,7 @@ fn iterator_next_is_invariant(masked: &str, next: &Call<'_>) -> bool {
     cursor_guarded(masked, next)
         || chars_count_guarded(masked, next)
         || char_case_iterator_next(masked, next)
-        || split_iterator_next(masked, next)
+        || split_iterator_access(masked, next)
 }
 
 fn chars_count_guarded(masked: &str, next: &Call<'_>) -> bool {
@@ -537,8 +551,9 @@ fn chars_first_initializer(masked: &str, initializer: (usize, usize)) -> bool {
     simple_receiver(masked, chars.dot).is_some_and(|text| text.start == initializer.0)
 }
 
-fn split_iterator_next(masked: &str, access: &Call<'_>) -> bool {
-    access.is_next(masked)
+fn split_iterator_access(masked: &str, access: &Call<'_>) -> bool {
+    matches!(access.method, "next" | "last" | "next_back")
+        && access.argument(masked).trim().is_empty()
         && call_before(masked, access.dot)
             .is_some_and(|iterator| matches!(iterator.method, "split" | "rsplit"))
 }
@@ -550,6 +565,158 @@ fn option_access_short_circuit_guarded(source: &str, masked: &str, access: &Call
             len_short_circuit_guarded(masked, receiver)
                 || non_empty_short_circuit_guarded(source, masked, receiver)
         })
+}
+
+fn collection_access_guarded(source: &str, masked: &str, access: &Call<'_>) -> bool {
+    let collection = if access.is_next(masked) {
+        let Some(iterator) = call_before(masked, access.dot) else {
+            return false;
+        };
+        if !matches!(
+            iterator.method,
+            "iter" | "iter_mut" | "keys" | "values" | "values_mut"
+        ) || !iterator.argument(masked).trim().is_empty()
+        {
+            return false;
+        }
+        iterator
+    } else if matches!(
+        access.method,
+        "first" | "last" | "first_mut" | "last_mut" | "pop" | "pop_front"
+    ) && access.argument(masked).trim().is_empty()
+    {
+        *access
+    } else {
+        return false;
+    };
+    let Some(receiver) = simple_receiver(masked, collection.dot) else {
+        return false;
+    };
+    let Some(block_open) = enclosing_block(masked, receiver.start) else {
+        return false;
+    };
+    if collection_let_else_guarded(masked, block_open, receiver) {
+        return true;
+    }
+    if receiver_reused_before_unwrap(&masked[block_open + 1..receiver.start], receiver.text()) {
+        return false;
+    }
+    let Some(condition) = if_condition(masked, block_open)
+        .or_else(|| while_condition(masked, block_open))
+        .or_else(|| match_arm_condition(masked, block_open))
+    else {
+        return false;
+    };
+    conjunct_guard_end(masked, condition, |conjunct| {
+        exact_len_one_guard(masked, conjunct, receiver.text())
+            || guard_call(source, masked, conjunct, true, receiver.text(), "is_empty").is_some()
+    })
+    .is_some_and(|guard_end| !receiver_reused(&masked[guard_end..condition.1], receiver.text()))
+}
+
+fn collection_let_else_guarded(masked: &str, block_open: usize, receiver: Receiver<'_>) -> bool {
+    preceding_sibling_blocks(masked, block_open, receiver.start).any(|(open, close)| {
+        collection_let_else_header(masked, open, receiver.text())
+            && unconditional_return(&masked[open + 1..close])
+            && !receiver_reused_before_unwrap(&masked[close + 1..receiver.start], receiver.text())
+    })
+}
+
+fn preceding_sibling_blocks(
+    masked: &str,
+    block_open: usize,
+    before: usize,
+) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let mut cursor = block_open + 1;
+    std::iter::from_fn(move || {
+        let open = cursor + masked[cursor..before].find('{')?;
+        let close = matching_close(masked.as_bytes(), open, b'{', b'}')?;
+        if close >= before {
+            return None;
+        }
+        cursor = close + 1;
+        Some((open, close))
+    })
+}
+
+fn collection_let_else_header(masked: &str, open: usize, receiver: &str) -> bool {
+    let boundary = masked[..open]
+        .rfind([';', '{', '}'])
+        .map_or(0, |index| index + 1);
+    let header = &masked[boundary..open];
+    let Some(pattern) = LET_SOME_PATTERN.find(header) else {
+        return false;
+    };
+    let pattern_open = boundary + pattern.end() - 1;
+    let Some(pattern_close) = matching_close(masked.as_bytes(), pattern_open, b'(', b')') else {
+        return false;
+    };
+    if pattern_close >= open {
+        return false;
+    }
+    if receiver_reused(&masked[pattern_open + 1..pattern_close], receiver) {
+        return false;
+    }
+    let (assignment, _) = trim_range(masked, pattern_close + 1, open);
+    if masked.as_bytes().get(assignment) != Some(&b'=') {
+        return false;
+    }
+    let Some(before_else) = header.trim_end().strip_suffix("else") else {
+        return false;
+    };
+    let end = boundary + before_else.trim_end().len();
+    let Some(access) = call_before(masked, end) else {
+        return false;
+    };
+    matches!(access.method, "first" | "last" | "first_mut" | "last_mut")
+        && access.argument(masked).trim().is_empty()
+        && access.close + 1 == end
+        && simple_receiver(masked, access.dot).is_some_and(|guarded| {
+            guarded.text() == receiver
+                && guarded.start == trim_range(masked, assignment + 1, open).0
+        })
+}
+
+fn match_arm_condition(masked: &str, block_open: usize) -> Option<(usize, usize)> {
+    let (match_open, arrow_start) = match_arm_header(masked, block_open)?;
+    // Search only this arm's top-level pattern/guard, never nested patterns or earlier arms.
+    let bytes = masked.as_bytes();
+    let mut cursor = arrow_start;
+    while let Some(at) = previous_nonspace(bytes, cursor) {
+        if at <= match_open || bytes[at] == b',' {
+            return None;
+        }
+        match bytes[at] {
+            b')' => cursor = matching_open(bytes, at, b'(', b')')?,
+            b']' => cursor = matching_open(bytes, at, b'[', b']')?,
+            b'}' => return None,
+            byte if is_ident_continue(&byte) => {
+                let start = identifier_start(bytes, at + 1);
+                if &masked[start..at + 1] == "if" {
+                    return Some(trim_range(masked, at + 1, arrow_start));
+                }
+                cursor = start;
+            }
+            _ => cursor = at,
+        }
+    }
+    None
+}
+
+fn match_arm_header(masked: &str, block_open: usize) -> Option<(usize, usize)> {
+    let arrow_end = previous_nonspace(masked.as_bytes(), block_open)? + 1;
+    let arrow_start = arrow_end.checked_sub(2)?;
+    if &masked[arrow_start..arrow_end] != "=>" {
+        return None;
+    }
+    let match_open = enclosing_block(masked, block_open)?;
+    let prefix = &masked[..match_open];
+    let boundary = prefix.rfind([';', '{', '}']).map_or(0, |at| at + 1);
+    let header = &masked[boundary..match_open];
+    header
+        .match_indices("match")
+        .any(|(at, _)| identifier_is_bounded(&header[..at], &header[at + 5..]))
+        .then_some((match_open, arrow_start))
 }
 
 fn access_guarded(source: &str, masked: &str, access: &Call<'_>) -> bool {
@@ -628,23 +795,19 @@ fn split_once_guarded(
 }
 
 fn option_guarded(source: &str, masked: &str, unwrap_dot: usize) -> bool {
-    let receiver = match call_before(masked, unwrap_dot) {
-        Some(call)
-            if matches!(call.method, "as_ref" | "as_deref")
-                && call.argument(masked).trim().is_empty() =>
-        {
-            simple_receiver(masked, call.dot)
-        }
-        Some(_) => None,
-        None => simple_receiver(masked, unwrap_dot),
-    };
+    let receiver = option_receiver(masked, unwrap_dot);
     let Some(receiver) = receiver else {
         return false;
     };
+    if option_short_circuit_guarded(source, masked, receiver) {
+        return true;
+    }
     let Some(block_open) = enclosing_block(masked, receiver.start) else {
         return false;
     };
-    if option_early_return_guarded(source, masked, block_open, receiver) {
+    if option_early_return_guarded(source, masked, block_open, receiver)
+        || option_initialized_if_missing(source, masked, block_open, receiver)
+    {
         return true;
     }
     let Some(condition) = if_condition(masked, block_open) else {
@@ -653,8 +816,158 @@ fn option_guarded(source: &str, masked: &str, unwrap_dot: usize) -> bool {
     if receiver_reused(&masked[block_open + 1..receiver.start], receiver.text()) {
         return false;
     }
-    guard_call_conjunct(source, masked, condition, receiver.text(), "is_some")
-        .is_some_and(|guard_end| !receiver_reused(&masked[guard_end..condition.1], receiver.text()))
+    ["is_some", "is_ok"].iter().any(|method| {
+        guard_call_conjunct(source, masked, condition, receiver.text(), method).is_some_and(
+            |guard_end| !receiver_reused(&masked[guard_end..condition.1], receiver.text()),
+        )
+    })
+}
+
+fn option_receiver(masked: &str, unwrap_dot: usize) -> Option<Receiver<'_>> {
+    match call_before(masked, unwrap_dot) {
+        Some(call)
+            if matches!(
+                call.method,
+                "as_ref" | "as_deref" | "as_mut" | "as_deref_mut"
+            ) && call.argument(masked).trim().is_empty() =>
+        {
+            simple_receiver(masked, call.dot)
+        }
+        Some(_) => None,
+        None => simple_receiver(masked, unwrap_dot),
+    }
+}
+
+fn option_short_circuit_guarded(source: &str, masked: &str, receiver: Receiver<'_>) -> bool {
+    let boundary = masked[..receiver.start]
+        .rfind([';', '{', '}'])
+        .map_or(0, |index| index + 1);
+    let (start, _) = trim_range(masked, boundary, receiver.start);
+    let Some(after_if) = masked[start..receiver.start].strip_prefix("if") else {
+        return false;
+    };
+    if after_if.as_bytes().first().is_some_and(is_ident_continue) {
+        return false;
+    }
+    let mut operand = start + 2;
+    let mut cursor = operand;
+    let mut depth = 0;
+    let mut guard = None;
+    while cursor < receiver.start {
+        if let Some(operator) = conjunct_operator(masked.as_bytes(), cursor, &mut depth) {
+            if guard.is_some_and(|(previous, _)| previous != operator) {
+                guard = None;
+            }
+            let condition = trim_range(masked, operand, cursor);
+            let methods = if operator == b'&' {
+                ["is_some", "is_ok"]
+            } else {
+                ["is_none", "is_err"]
+            };
+            if methods.iter().any(|method| {
+                guard_call(source, masked, condition, false, receiver.text(), method).is_some()
+            }) {
+                guard = Some((operator, cursor + 2));
+            }
+            operand = cursor + 2;
+            cursor += 2;
+        } else {
+            cursor += 1;
+        }
+    }
+    guard.is_some_and(|(_, end)| {
+        !receiver_reused_before_unwrap(&masked[end..receiver.start], receiver.text())
+    })
+}
+
+fn assigned_some_is_invariant(masked: &str, unwrap_dot: usize) -> bool {
+    let receiver = option_receiver(masked, unwrap_dot);
+    let Some(receiver) = receiver else {
+        return false;
+    };
+    let Some((assignment, _)) = masked[..receiver.start]
+        .rmatch_indices(receiver.text())
+        .find(|(at, _)| {
+            identifier_is_bounded(&masked[..*at], &masked[*at + receiver.text().len()..])
+        })
+    else {
+        return false;
+    };
+    let Some(block) = enclosing_block(masked, receiver.start) else {
+        return false;
+    };
+    let before = masked[..assignment].trim_end();
+    if !before.ends_with([';', '{', '}']) || enclosing_block(masked, assignment) != Some(block) {
+        return false;
+    }
+    let after_receiver = assignment + receiver.text().len();
+    let after_receiver = masked[after_receiver..].trim_start();
+    let Some(value) = after_receiver.strip_prefix('=') else {
+        return false;
+    };
+    let value = value.trim_start();
+    let Some(argument) = value.strip_prefix("Some") else {
+        return false;
+    };
+    let open = masked.len() - argument.trim_start().len();
+    if masked.as_bytes().get(open) != Some(&b'(') {
+        return false;
+    }
+    let Some(close) = matching_close(masked.as_bytes(), open, b'(', b')') else {
+        return false;
+    };
+    if close >= receiver.start {
+        return false;
+    }
+    let end = trim_range(masked, close + 1, receiver.start).0;
+    masked.as_bytes().get(end) == Some(&b';')
+        && !receiver_reused_before_unwrap(&masked[end + 1..receiver.start], receiver.text())
+}
+
+fn option_initialized_if_missing(
+    source: &str,
+    masked: &str,
+    block_open: usize,
+    receiver: Receiver<'_>,
+) -> bool {
+    preceding_sibling_blocks(masked, block_open, receiver.start).any(|(open, close)| {
+        let boundary = masked[..open]
+            .rfind([';', '{', '}'])
+            .map_or(0, |index| index + 1);
+        let standalone = masked[boundary..open].trim_start().starts_with("if");
+        standalone
+            && if_condition(masked, open).is_some_and(|condition| {
+                guard_call(source, masked, condition, false, receiver.text(), "is_none").is_some()
+            })
+            && exact_some_assignment(masked, (open + 1, close), receiver.text())
+            && !masked[close + 1..receiver.start]
+                .trim_start()
+                .starts_with("else")
+            && !receiver_reused_before_unwrap(&masked[close + 1..receiver.start], receiver.text())
+    })
+}
+
+fn exact_some_assignment(masked: &str, body: (usize, usize), receiver: &str) -> bool {
+    let (mut start, end) = trim_range(masked, body.0, body.1);
+    // References and smart-pointer wrappers may assign through a single dereference.
+    if masked.as_bytes().get(start) == Some(&b'*') {
+        start = trim_range(masked, start + 1, end).0;
+    }
+    let Some(after_receiver) = masked[start..end].strip_prefix(receiver) else {
+        return false;
+    };
+    let Some(value) = after_receiver.trim_start().strip_prefix('=') else {
+        return false;
+    };
+    let Some(argument) = value.trim_start().strip_prefix("Some") else {
+        return false;
+    };
+    let open = end - argument.trim_start().len();
+    if masked.as_bytes().get(open) != Some(&b'(') {
+        return false;
+    }
+    matching_close(masked.as_bytes(), open, b'(', b')')
+        .is_some_and(|close| masked[close + 1..end].trim() == ";")
 }
 
 fn option_early_return_guarded(
@@ -663,54 +976,104 @@ fn option_early_return_guarded(
     block_open: usize,
     receiver: Receiver<'_>,
 ) -> bool {
-    let bytes = masked.as_bytes();
-    let mut cursor = block_open + 1;
-    while let Some(relative_open) = masked[cursor..receiver.start].find('{') {
-        let open = cursor + relative_open;
-        let Some(close) = matching_close(bytes, open, b'{', b'}') else {
-            return false;
-        };
-        if close >= receiver.start {
-            return false;
-        }
+    preceding_sibling_blocks(masked, block_open, receiver.start).any(|(open, close)| {
         let boundary = masked[..open]
             .rfind([';', '{', '}'])
             .map_or(0, |index| index + 1);
         // An else-if guard need not execute, so only a standalone if can dominate the call.
         let standalone_if = masked[boundary..open].trim_start().starts_with("if");
-        if standalone_if
+        standalone_if
             && if_condition(masked, open).is_some_and(|condition| {
-                guard_call(source, masked, condition, false, receiver.text(), "is_none").is_some()
+                ["is_none", "is_err"].iter().any(|method| {
+                    boolean_guard_end(masked, condition, b'|', |disjunct| {
+                        guard_call(source, masked, disjunct, false, receiver.text(), method)
+                            .is_some()
+                    })
+                    .is_some_and(|guard_end| {
+                        !receiver_reused(&masked[guard_end..condition.1], receiver.text())
+                    })
+                })
             })
-            && unconditional_return(&masked[open + 1..close])
+            && (unconditional_return(&masked[open + 1..close])
+                || (is_loop_body(masked, block_open)
+                    && unconditional_loop_exit(&masked[open + 1..close])))
             && !receiver_reused_before_unwrap(&masked[close + 1..receiver.start], receiver.text())
-        {
-            return true;
+    })
+}
+
+fn is_loop_body(masked: &str, open: usize) -> bool {
+    let boundary = masked[..open]
+        .rfind([';', '{', '}'])
+        .map_or(0, |index| index + 1);
+    let header = masked[boundary..open].trim_start();
+    ["for", "while", "loop"].iter().any(|keyword| {
+        header.strip_prefix(keyword).is_some_and(|after| {
+            after
+                .as_bytes()
+                .first()
+                .is_none_or(|byte| !is_ident_continue(byte))
+        })
+    })
+}
+
+fn unconditional_loop_exit(body: &str) -> bool {
+    let bytes = body.as_bytes();
+    let mut cursor = 0;
+    let mut statement_start = 0;
+    while cursor < body.len() {
+        match bytes[cursor] {
+            b'(' | b'[' | b'{' => {
+                let closing = match bytes[cursor] {
+                    b'(' => b')',
+                    b'[' => b']',
+                    _ => b'}',
+                };
+                let Some(close) = matching_close(bytes, cursor, bytes[cursor], closing) else {
+                    return false;
+                };
+                if bytes[cursor] == b'{' {
+                    statement_start = close + 1;
+                }
+                cursor = close + 1;
+            }
+            b';' => {
+                if !body[cursor + 1..].trim().is_empty() {
+                    statement_start = cursor + 1;
+                }
+                cursor += 1;
+            }
+            _ => cursor += 1,
         }
-        cursor = close + 1;
     }
-    false
+    matches!(
+        body[statement_start..].trim(),
+        "continue;" | "continue" | "break;" | "break"
+    )
 }
 
 fn unconditional_return(body: &str) -> bool {
-    let Some(expression) = body.trim().strip_prefix("return") else {
+    // Simple completed statements (for example logging) may precede the terminal return.
+    // Braces and closures remain unsupported so a nested return cannot prove dominance.
+    let mut statement_start = 0;
+    let mut statement_depth = 0usize;
+    for (index, byte) in body.bytes().enumerate() {
+        match byte {
+            b'{' | b'}' | b'|' => return false,
+            b'(' | b'[' => statement_depth += 1,
+            b')' | b']' => statement_depth = statement_depth.saturating_sub(1),
+            b';' if statement_depth == 0 && !body[index + 1..].trim().is_empty() => {
+                statement_start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    let Some(expression) = body[statement_start..].trim().strip_prefix("return") else {
         return false;
     };
     if expression.as_bytes().first().is_some_and(is_ident_continue) {
         return false;
     }
-    let mut depth = 0usize;
-    for (index, byte) in expression.bytes().enumerate() {
-        match byte {
-            // Do not confuse a return in a nested closure or block with leaving this scope.
-            b'{' | b'}' => return false,
-            b'(' | b'[' => depth += 1,
-            b')' | b']' => depth = depth.saturating_sub(1),
-            b';' if depth == 0 => return expression[index + 1..].trim().is_empty(),
-            _ => {}
-        }
-    }
-    depth == 0
+    statement_depth == 0
 }
 
 fn receiver_reused_before_unwrap(prefix: &str, receiver: &str) -> bool {
@@ -741,6 +1104,25 @@ fn guard_call_conjunct(
     receiver: &str,
     method: &str,
 ) -> Option<usize> {
+    conjunct_guard_end(masked, condition, |conjunct| {
+        guard_call(source, masked, conjunct, false, receiver, method).is_some()
+    })
+}
+
+fn conjunct_guard_end(
+    masked: &str,
+    condition: (usize, usize),
+    proves: impl Fn((usize, usize)) -> bool,
+) -> Option<usize> {
+    boolean_guard_end(masked, condition, b'&', proves)
+}
+
+fn boolean_guard_end(
+    masked: &str,
+    condition: (usize, usize),
+    separator: u8,
+    proves: impl Fn((usize, usize)) -> bool,
+) -> Option<usize> {
     let condition = strip_parentheses(masked, condition);
     let bytes = masked.as_bytes();
     let mut depth = 0usize;
@@ -749,10 +1131,10 @@ fn guard_call_conjunct(
     let mut index = condition.0;
     while index < condition.1 {
         match conjunct_operator(bytes, index, &mut depth) {
-            Some(b'|') => return None,
-            Some(b'&') => {
+            Some(operator) if operator != separator => return None,
+            Some(_) => {
                 let conjunct = trim_range(masked, conjunct_start, index);
-                if guard_call(source, masked, conjunct, false, receiver, method).is_some() {
+                if proves(conjunct) {
                     guarded_end = Some(index);
                 }
                 conjunct_start = index + 2;
@@ -762,7 +1144,7 @@ fn guard_call_conjunct(
         }
     }
     let conjunct = trim_range(masked, conjunct_start, condition.1);
-    if guard_call(source, masked, conjunct, false, receiver, method).is_some() {
+    if proves(conjunct) {
         guarded_end = Some(condition.1);
     }
     guarded_end
@@ -1023,6 +1405,18 @@ fn if_condition(masked: &str, block_open: usize) -> Option<(usize, usize)> {
     Some(trim_range(masked, start + 2, block_open))
 }
 
+fn while_condition(masked: &str, block_open: usize) -> Option<(usize, usize)> {
+    let boundary = masked[..block_open]
+        .rfind([';', '{', '}'])
+        .map_or(0, |index| index + 1);
+    let (start, _) = trim_range(masked, boundary, block_open);
+    let condition = masked[start..block_open].strip_prefix("while")?;
+    if condition.as_bytes().first().is_some_and(is_ident_continue) {
+        return None;
+    }
+    Some(trim_range(masked, start + 5, block_open))
+}
+
 fn guard_call(
     source: &str,
     masked: &str,
@@ -1050,7 +1444,10 @@ fn guard_call(
     if guard_receiver.start != condition.0 || guard_receiver.text() != receiver {
         return None;
     }
-    if matches!(method, "is_empty" | "is_some" | "is_none") {
+    if matches!(
+        method,
+        "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
+    ) {
         return call.argument(masked).trim().is_empty().then(String::new);
     }
     literal_argument(source, masked, &call)
@@ -1093,18 +1490,22 @@ fn decode_literal(literal: &str) -> Option<String> {
             result.push(character);
             continue;
         }
-        result.push(match chars.next()? {
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            '\\' => '\\',
-            '\'' => '\'',
-            '"' => '"',
-            '0' => '\0',
-            _ => return None,
-        });
+        result.push(decode_literal_escape(chars.next()?)?);
     }
     Some(result)
+}
+
+fn decode_literal_escape(character: char) -> Option<char> {
+    Some(match character {
+        'n' => '\n',
+        'r' => '\r',
+        't' => '\t',
+        '\\' => '\\',
+        '\'' => '\'',
+        '"' => '"',
+        '0' => '\0',
+        _ => return None,
+    })
 }
 
 fn contains_receiver(haystack: &str, receiver: &str) -> bool {
@@ -1207,6 +1608,287 @@ fn is_ident_continue(byte: &u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::locally_proven_invariant;
+
+    fn assert_panic_behavior(source: &str, reported: bool) {
+        let sources =
+            std::collections::BTreeMap::from([("src/lib.rs".to_owned(), source.to_owned())]);
+        let findings = super::super::rules::analyze(&sources)
+            .into_iter()
+            .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+            .collect::<Vec<_>>();
+        assert_eq!(findings.len(), usize::from(reported), "{source}");
+        if let Some(finding) = findings.first() {
+            assert_eq!(finding.path, "src/lib.rs");
+            assert_eq!(finding.confidence, "high");
+            assert!(finding.related_files.is_empty());
+            let offset = source
+                .find(".unwrap(")
+                .or_else(|| source.find(".expect("))
+                .unwrap();
+            assert_eq!(
+                finding.line,
+                source[..offset]
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count()
+                    + 1
+            );
+            assert_eq!(
+                finding.code,
+                if source[offset..].starts_with(".unwrap") {
+                    "rust-unwrap"
+                } else {
+                    "rust-expect"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn production_failure_disjunctions_and_loop_exits_prove_fallthrough() {
+        for source in [
+            "fn f() { if value.is_none() || unavailable { return; } value.unwrap(); }",
+            "fn f() { if unavailable || result.is_err() { return None; } result.expect(\"result\"); }",
+            "fn f() { for item in items { if value.is_none() || missing { continue; }\nlet value = value.unwrap(); } }",
+            "fn f() { while ready { if value.is_none() { break; } value.as_mut().unwrap(); } }",
+            "fn f() { loop { if current.is_none() { if key == ROOT { save(); } continue; } current.as_mut().unwrap(); } }",
+            "fn f() { if value.is_some() { value.as_deref_mut().expect(\"value\"); } }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { if value.is_none() && unavailable { return; } value.unwrap(); }",
+            "fn f() { if value.is_none() || change(&mut value) { return; } value.unwrap(); }",
+            "fn f() { if self.value.is_none() || self.reset() { return; } self.value.unwrap(); }",
+            "fn f() { if other.is_none() || unavailable { return; } value.unwrap(); }",
+            "fn f() { loop { if value.is_none() { if ready { continue; } } value.unwrap(); } }",
+            "fn f() { loop { if value.is_none() { run(|| { return; }); } value.unwrap(); } }",
+            "fn f() { loop { if value.is_none() { continue; } value.take(); value.unwrap(); } }",
+            "fn f() { loop { if value.is_none() { continue; } let value = other; value.unwrap(); } }",
+            "fn f() { loop { if value.is_none() { continue; } { value.unwrap(); } } }",
+            "fn f() { loop { if ready { if value.is_none() { continue; } } value.unwrap(); } }",
+            "fn f() { loop { let s = \"if value.is_none() { continue; }\"; value.unwrap(); } }",
+            "fn f() { loop { /* if value.is_none() { continue; } */ value.unwrap(); } }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_option_short_circuit_presence_is_operand_local() {
+        for source in [
+            "fn f() { if center.is_none() || z != center.unwrap() {} }",
+            "fn f() { if center.is_some() && z < center.unwrap() {} }",
+            "fn f() { if result.is_err() || result.as_ref().expect(\"result\").ready() {} }",
+            "fn f() { if value.is_none()\n|| consume(value.as_mut().unwrap()) {} }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { if value.is_some() || consume(value.unwrap()) {} }",
+            "fn f() { if value.is_none() && consume(value.unwrap()) {} }",
+            "fn f() { if value.is_some() && ready || consume(value.unwrap()) {} }",
+            "fn f() { if other.is_none() || consume(value.unwrap()) {} }",
+            "fn f() { if value.is_none() || change(&mut value) || consume(value.unwrap()) {} }",
+            "fn f() { if self.value.is_none() || self.reset() || consume(self.value.unwrap()) {} }",
+            "fn f() { if value.is_none() || run(|| value.unwrap()) {} }",
+            "fn f() { if value.is_some() {} value.unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_some_assignments_prove_only_unreused_same_scope_receivers() {
+        for source in [
+            "fn f() { self.cached_file = Some(CachedFile {\nversion: buffer.version(),\n});\nself.cached_file.as_ref().unwrap(); }",
+            "fn f() { value = Some(make()); value.expect(\"value\"); }",
+            "fn f() { self.value = Some(make()); self.other = changed(); self.value.as_mut().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { value = Some(make()); value = None; value.unwrap(); }",
+            "fn f() { value = Some(make()); value.take(); value.unwrap(); }",
+            "fn f() { value = Some(make()); replace(&mut value); value.unwrap(); }",
+            "fn f() { self.value = Some(make()); self.reset(); self.value.unwrap(); }",
+            "fn f() { value = Some(make()); let value = other; value.unwrap(); }",
+            "fn f() { if ready { value = Some(make()); } value.unwrap(); }",
+            "fn f() { value = Some(make()); { value.unwrap(); } }",
+            "fn f() { value = Some(make()); run(|| value.unwrap()); }",
+            "fn f() { value = Some(make()).filter(predicate); value.unwrap(); }",
+            "fn f() { value = maybe(); value.unwrap(); }",
+            "fn f() { let s = \"value = Some(make());\"; value.unwrap(); }",
+            "fn f() { /* value = Some(make()); */ value.unwrap(); }",
+            "fn f() { mutex.lock().unwrap(); }",
+            "fn f() { arbitrary!().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_missing_option_initialization_proves_only_exact_fallthrough() {
+        for source in [
+            "fn f() { if value.is_none() { value = Some(make()); } value.unwrap(); }",
+            "fn f() { if system_state.is_none() {\n*system_state = Some(SystemState::new(&mut world));\n}\nlet system_state = system_state.as_mut().unwrap(); }",
+            "fn f() { if self.buffer.is_none() { self.buffer = Some(make()); } self.other = changed(); self.buffer.as_ref().expect(\"buffer\"); }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { if value.is_some() { value = Some(make()); } value.unwrap(); }",
+            "fn f() { if value.is_none() && ready { value = Some(make()); } value.unwrap(); }",
+            "fn f() { if other.is_none() { value = Some(make()); } value.unwrap(); }",
+            "fn f() { if value.is_none() { other = Some(make()); } value.unwrap(); }",
+            "fn f() { if value.is_none() { if ready { value = Some(make()); } } value.unwrap(); }",
+            "fn f() { if value.is_none() { run(|| value = Some(make())); } value.unwrap(); }",
+            "fn f() { if ready {} else if value.is_none() { value = Some(make()); } value.unwrap(); }",
+            "fn f() { if value.is_none() { value = Some(make()); } else { value = None; } value.unwrap(); }",
+            "fn f() { if value.is_none() { value = Some(make()).filter(predicate); } value.unwrap(); }",
+            "fn f() { if value.is_none() { value = Some(make()); value.take(); } value.unwrap(); }",
+            "fn f() { if value.is_none() { value = Some(make()); } value.take(); value.unwrap(); }",
+            "fn f() { if value.is_none() { value = Some(make()); } change(&mut value); value.unwrap(); }",
+            "fn f() { if value.is_none() { value = Some(make()); } let value = other; value.unwrap(); }",
+            "fn f() { if self.value.is_none() { self.value = Some(make()); } self.reset(); self.value.unwrap(); }",
+            "fn f() { if value.is_none() { value = Some(make()); } run(|| value.unwrap()); }",
+            "fn f() { if value.is_none() { value = Some(make()); } run(|| { value.unwrap(); }); }",
+            "fn f() { if value.is_none() { value = Some(make()); } { value.unwrap(); } }",
+            "fn f() { if result.is_err() { result = Err(error); } result.unwrap(); }",
+            "fn f() { let text = \"if value.is_none() { value = Some(make()); }\"; value.unwrap(); }",
+            "fn f() { /* if value.is_none() { value = Some(make()); } */ value.unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_missing_option_initialization_does_not_prove_inner_result() {
+        let source = "fn f() {\nif result.is_none() { result = Some(load()); }\nresult.unwrap()\n.expect(\"load succeeded\");\n}";
+        let sources =
+            std::collections::BTreeMap::from([("src/lib.rs".to_owned(), source.to_owned())]);
+        let findings = super::super::rules::analyze(&sources)
+            .into_iter()
+            .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+            .collect::<Vec<_>>();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "rust-expect");
+        assert_eq!(findings[0].path, "src/lib.rs");
+        assert_eq!(findings[0].line, 4);
+        assert_eq!(findings[0].confidence, "high");
+        assert!(findings[0].related_files.is_empty());
+    }
+
+    #[test]
+    fn production_while_cardinality_is_reestablished_at_the_body_entry() {
+        for source in [
+            "fn f() { while !manager.queue.is_empty()\n&& count < limit {\ncount += 1;\nlet item = manager.queue.pop_front().unwrap();\n} }",
+            "fn f() { while !stack.is_empty() {\nlet &mut (ref node, ref mut successors) = stack.last_mut().unwrap();\nvisit(node, successors);\n} }",
+            "fn f() { while ready && !items.is_empty() { items.pop().expect(\"item\"); } }",
+            "fn f() { while items.len() == 1 { items.iter().next().unwrap(); } }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { while !items.is_empty() { items.clear(); items.pop().unwrap(); } }",
+            "fn f() { while !items.is_empty() { let items = other; items.last().unwrap(); } }",
+            "fn f() { while !items.is_empty() || ready { items.first().unwrap(); } }",
+            "fn f() { while !items.is_empty() && drain(&mut items) { items.first().unwrap(); } }",
+            "fn f() { while !self.items.is_empty() && self.reset() { self.items.first().unwrap(); } }",
+            "fn f() { while !items.is_empty() { items.pop_front(); items.pop_front().unwrap(); } }",
+            "fn f() { while !other.is_empty() { items.pop().unwrap(); } }",
+            "fn f() { while !items.is_empty() { run(|| items.last().unwrap()); } }",
+            "fn f() { while !items.is_empty() { run(|| { items.last().unwrap(); }); } }",
+            "fn f() { while !items.is_empty() { { items.last().unwrap(); } } }",
+            "fn f() { while !items.is_empty() { items.iter().filter(predicate).next().unwrap(); } }",
+            "fn f() { while !items.is_empty() { items.get(index).unwrap(); } }",
+            "fn f() { while !items.is_empty() {} items.last().unwrap(); }",
+            "fn f() { let text = \"while !items.is_empty()\"; items.last().unwrap(); }",
+            "fn f() { /* while !items.is_empty() {} */ items.last().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_cardinality_guards_prove_only_preserved_presence() {
+        for source in [
+            "fn f() { if candidates.len() == 1 { candidates.first().copied().unwrap(); } }",
+            "fn f() { if handles.len() == 1 { handles.keys().next().unwrap(); } }",
+            "fn f() { if ready && buffers.len() == 1 { buffers.pop().unwrap(); } }",
+            "fn f() { if selections.len() == 1 {\nselections.last().expect(\"selection\");\n} }",
+            "fn f() { if !items.is_empty() { items.last_mut().expect(\"item\"); } }",
+            "fn f() { if !items.is_empty() { items.iter().next().cloned().unwrap(); } }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { if items.len() == 1 { items.clear(); items.last().unwrap(); } }",
+            "fn f() { if items.len() == 1 { let items = other; items.pop().unwrap(); } }",
+            "fn f() { if items.len() == 1 && items.drain(..).count() == 1 { items.pop().unwrap(); } }",
+            "fn f() { if items.len() == 1 || ready { items.last().unwrap(); } }",
+            "fn f() { if other.len() == 1 { items.last().unwrap(); } }",
+            "fn f() { if items.len() == 1 { items.iter().filter(predicate).next().unwrap(); } }",
+            "fn f() { if items.len() == 1 { items.first().and_then(convert).unwrap(); } }",
+            "fn f() { if items.len() == 1 { { items.last().unwrap(); } } }",
+            "fn f() { if items.len() == 1 { run(|| items.last().unwrap()); } }",
+            "fn f() { if items.len() == 1 { items.front().unwrap(); } }",
+            "fn f() { if items.len() == 1 { items.get(index).unwrap(); } }",
+            "fn f() { let text = \"if items.len() == 1\"; items.last().unwrap(); }",
+            "fn f() { /* if items.len() == 1 */ items.last().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_match_arm_cardinality_is_local_to_the_guarded_arm() {
+        for source in [
+            "fn f() { match node { Node::Template(tpl) if tpl.quasis.len() == 1 => {\nreturn Some(tpl.quasis.first().unwrap());\n}, _ => None } }",
+            "fn f() { match items { items if !items.is_empty() => { items.iter().next().expect(\"item\"); }, _ => {} } }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { match node { Node::Template(tpl) if tpl.quasis.len() == 1 => {}, _ => { tpl.quasis.first().unwrap(); } } }",
+            "fn f() { match node { Node::Template(tpl) if tpl.quasis.len() == 1 => { tpl.quasis.clear(); tpl.quasis.first().unwrap(); }, _ => {} } }",
+            "fn f() { match node { Node::Template(tpl) if tpl.quasis.len() == 1 => { let tpl = other; tpl.quasis.first().unwrap(); }, _ => {} } }",
+            "fn f() { match node { Node::Template(tpl) if tpl.quasis.len() == 1 => { { tpl.quasis.first().unwrap(); } }, _ => {} } }",
+            "fn f() { match node { Node::Template(tpl) if tpl.quasis.len() == 0 => { tpl.quasis.first().unwrap(); }, _ => {} } }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_result_guards_preserve_dominance_and_receiver_boundaries() {
+        for source in [
+            "fn f() { if result.is_ok() { result.unwrap(); } }",
+            "fn f() { if result.is_ok() && ready { result.as_ref().expect(\"result\"); } }",
+            "fn f() { if result.is_err() { info!(\"unavailable\"); return; }\nregister();\nresult.unwrap(); }",
+            "fn f() { if value.is_none() { warn!(\"missing\"); return None; } value.expect(\"value\"); }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { if result.is_err() { info!(\"unavailable\"); } result.unwrap(); }",
+            "fn f() { if result.is_err() { if ready { return; } } result.unwrap(); }",
+            "fn f() { if result.is_err() { let task = || return; task(); } result.unwrap(); }",
+            "fn f() { if result.is_err() { return; } result = other; result.unwrap(); }",
+            "fn f() { if result.is_err() { return; } let result = other; result.unwrap(); }",
+            "fn f() { if result.is_err() && ready { return; } result.unwrap(); }",
+            "fn f() { if result.is_ok() { result.take(); result.unwrap(); } }",
+            "fn f() { if result.is_ok() && change(&mut result) { result.unwrap(); } }",
+            "fn f() { if result.is_ok() { { result.unwrap(); } } }",
+            "fn f() { if other.is_ok() { result.unwrap(); } }",
+            "fn f() { if state.result.is_ok() { state.reset(); state.result.unwrap(); } }",
+            "fn f() { if state.result.is_ok() { replace(&mut state); state.result.unwrap(); } }",
+            "fn f() { OsString::from(input).into_string().unwrap(); }",
+            "fn f() { evaluator.downcast_mut::<Evaluator>().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
 
     fn masked(source: &str) -> String {
         let mut result = source.as_bytes().to_vec();
@@ -1427,7 +2109,53 @@ mod tests {
         assert!(!proven(
             r#"if path.starts_with("root") { path.split_once('/').unwrap(); }"#
         ));
-        assert!(!proven("if value.is_ok() { value.unwrap(); }"));
+        assert!(!proven("if other.is_ok() { value.unwrap(); }"));
         assert!(!proven("if items.len() >= 1 { items.first().unwrap(); }"));
+    }
+
+    #[test]
+    fn production_collection_let_else_presence_is_local_and_uninvalidated() {
+        for source in [
+            "fn combine() {\nlet Some(top) = self.stack.last() else { return Ok(()); };\nif top.graph_node != graph_node { return Ok(()); }\nlet Element { value, weight } = self.stack.pop().unwrap();\n}",
+            "fn combine() {\nlet Some(&(_, node)) = self.stack.last() else {\n    return Ok(());\n};\nif node != graph_node { return Ok(()); }\nself.stack.pop().expect(\"stack\");\n}",
+            "fn first() { let Some(item) = values.first_mut() else { return; }; inspect(item); values.first().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn f() { let Some(top) = values.last() else { recover(); }; values.pop().unwrap(); }",
+            "fn f() { let Some(top) = other.last() else { return; }; values.pop().unwrap(); }",
+            "fn f() { let Some(top) = values.last() else { return; }; values.clear(); values.pop().unwrap(); }",
+            "fn f() { let Some(top) = self.values.last() else { return; }; self.reset(); self.values.pop().unwrap(); }",
+            "fn f() { let Some(top) = values.last() else { return; }; let values = other; values.pop().unwrap(); }",
+            "fn f() { let Some(values) = values.last() else { return; }; values.pop().unwrap(); }",
+            "fn f() { let Some(top) = values.last() else { return; }; run(|| values.pop().unwrap()); }",
+            "fn f() { if ready { let Some(top) = values.last() else { return; }; } values.pop().unwrap(); }",
+            "fn f() { let Some(top) = values.pop() else { return; }; values.pop().unwrap(); }",
+            "fn f() { let Some(top) = values.iter().find(predicate) else { return; }; values.pop().unwrap(); }",
+            "fn f() { /* let Some(top) = values.last() else { return; }; */ values.pop().unwrap(); }",
+            "fn f() { let example = \"let Some(top) = values.last() else { return; };\"; values.pop().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
+    }
+
+    #[test]
+    fn production_fresh_split_tails_are_nonempty_without_filtering() {
+        for source in [
+            "fn name() { core::any::type_name::<M>().split(\"::\").last().unwrap(); }",
+            "fn name() { text.rsplit('/').last().expect(\"segment\"); }",
+            "fn name() { text\n    .split(\"::\")\n    .next_back()\n    .unwrap(); }",
+        ] {
+            assert_panic_behavior(source, false);
+        }
+        for source in [
+            "fn name() { text.split_terminator(\"::\").last().unwrap(); }",
+            "fn name() { text.split(\"::\").filter(predicate).last().unwrap(); }",
+            "fn name() { iterator.last().unwrap(); }",
+            "fn name() { iterator.next_back().unwrap(); }",
+        ] {
+            assert_panic_behavior(source, true);
+        }
     }
 }

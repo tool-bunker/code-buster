@@ -339,6 +339,12 @@ impl Version {
     fn cmp_value(self, other: Self) -> Ordering {
         (self.major, self.minor, self.patch).cmp(&(other.major, other.minor, other.patch))
     }
+
+    fn compatible_release(self, expected: Self, require_minor: bool) -> bool {
+        self.major == expected.major
+            && (!require_minor || self.minor == expected.minor)
+            && self.cmp_value(expected) != Ordering::Less
+    }
 }
 
 fn constraint_allows(requirement: &str, version: Version) -> Option<bool> {
@@ -366,21 +372,19 @@ fn constraint_token_allows(token: &str, version: Version) -> Option<bool> {
     if partial_channel_overlaps_requirement(version, expected) {
         return None;
     }
-    let comparison = version.cmp_value(expected);
     match operator {
-        ">=" => Some(comparison != Ordering::Less),
-        ">" => Some(comparison == Ordering::Greater),
-        "<=" => Some(comparison != Ordering::Greater),
-        "<" => Some(comparison == Ordering::Less),
-        "^" => Some(version.major == expected.major && comparison != Ordering::Less),
-        "~" if expected.components >= 2 => Some(
+        ">=" => Some(version.cmp_value(expected) != Ordering::Less),
+        ">" => Some(version.cmp_value(expected) == Ordering::Greater),
+        "<=" => Some(version.cmp_value(expected) != Ordering::Greater),
+        "<" => Some(version.cmp_value(expected) == Ordering::Less),
+        "^" | "~" => {
+            Some(version.compatible_release(expected, operator == "~" && expected.components >= 2))
+        }
+        "" | "=" => Some(if expected.components == 1 {
             version.major == expected.major
-                && version.minor == expected.minor
-                && comparison != Ordering::Less,
-        ),
-        "~" => Some(version.major == expected.major && comparison != Ordering::Less),
-        "" | "=" if expected.components == 1 => Some(version.major == expected.major),
-        "" | "=" => Some(comparison == Ordering::Equal),
+        } else {
+            version.cmp_value(expected) == Ordering::Equal
+        }),
         _ => None,
     }
 }
@@ -508,6 +512,28 @@ mod tests {
                 .map(|finding| finding.line),
             Some(3)
         );
+    }
+
+    #[test]
+    fn preserves_compatible_release_and_partial_constraint_boundaries() {
+        for (requirement, raw_version, allowed) in [
+            ("^20.1", "20.2", Some(true)),
+            ("^20.1", "21", Some(false)),
+            ("^20.1", "20.0", Some(false)),
+            ("~20", "20.9", Some(true)),
+            ("~20.1", "20.1.9", Some(true)),
+            ("~20.1", "20.2", Some(false)),
+            ("=20", "20.9", Some(true)),
+            ("=20.1", "20.1.1", Some(false)),
+            ("~20.1", "20", None),
+            ("20.*", "20.9", None),
+        ] {
+            assert_eq!(
+                constraint_allows(requirement, Version::parse(raw_version).unwrap()),
+                allowed,
+                "{requirement} with {raw_version}"
+            );
+        }
     }
 
     #[test]

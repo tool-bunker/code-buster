@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "This scripting construct can weaken correctness, security, or runtime performance.",
   "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Executable direct/global eval calls and dynamic new Function constructors are reviewed after masking comments, quoted text and regular-expression literals; static constructors and unrelated eval methods are excluded.",
+    "Dynamic code generation is still a security hotspot when invoked by trusted internal callers or only at startup; arbitrary dataflow safety is not inferred."
+  ]
 }

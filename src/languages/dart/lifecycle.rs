@@ -499,21 +499,12 @@ fn contains_identifier(source: &str, identifier: &str) -> bool {
 fn split_top_level(source: &str, separator: u8) -> Vec<(usize, &str)> {
     let bytes = source.as_bytes();
     let mut result = Vec::new();
-    let mut depths = [0usize; 3];
+    let mut depth = super::DelimiterDepth::default();
     let mut start = 0usize;
     for (index, byte) in bytes.iter().enumerate() {
-        match *byte {
-            b'(' => depths[0] += 1,
-            b')' => depths[0] = depths[0].saturating_sub(1),
-            b'[' => depths[1] += 1,
-            b']' => depths[1] = depths[1].saturating_sub(1),
-            b'{' => depths[2] += 1,
-            b'}' => depths[2] = depths[2].saturating_sub(1),
-            value if value == separator && depths == [0, 0, 0] => {
-                result.push((start, &source[start..index]));
-                start = index + 1;
-            }
-            _ => {}
+        if !depth.consume(*byte) && *byte == separator && depth.is_top_level() {
+            result.push((start, &source[start..index]));
+            start = index + 1;
         }
     }
     result.push((start, &source[start..]));

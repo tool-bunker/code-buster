@@ -56,6 +56,7 @@ pub fn analyze_profiled(
     }
     let started = collect_timings.then(Instant::now);
     let scope_index = RustScopeIndex::new(functions);
+    let inherited_unsafe_policy = inherited_unsafe_policy_files(sources);
     if let Some(started) = started {
         record_duration(&mut shared_durations, "rust-scope-index", started);
     }
@@ -79,7 +80,12 @@ pub fn analyze_profiled(
             analyze_hardcoded_secrets(path, &file, &mut findings)
         });
         run!("rust-unsafe-blocks", {
-            analyze_unsafe_blocks(path, &file, &mut findings)
+            analyze_unsafe_blocks(
+                path,
+                &file,
+                inherited_unsafe_policy.contains(path),
+                &mut findings,
+            )
         });
         run!("rust-static-mut", {
             analyze_static_mut(path, &file, &mut findings)
@@ -145,11 +151,11 @@ fn analyze_simple_rules(
 ) {
     for rule in SIMPLE_RULES.iter() {
         let started = collect_timings.then(Instant::now);
-        if !file_allows_rule(file.source, rule.allowed_lints) {
-            let allowed_lines = attributed_allowed_lines(&file.masked, rule.allowed_lints);
+        if !file_allows_rule(&file.masked, rule.allowed_lints) {
+            let allowed_ranges = attributed_allowed_ranges(&file.masked, rule.allowed_lints);
             let mut source_offset = 0usize;
             for (index, line) in file.masked.split('\n').enumerate() {
-                if reportable_simple_match(file, rule, &allowed_lines, index, line, source_offset)
+                if reportable_simple_match(file, rule, &allowed_ranges, index, line, source_offset)
                     .is_some()
                 {
                     findings.push(finding(rule.code, path, index + 1, rule.message));
@@ -166,40 +172,46 @@ fn analyze_simple_rules(
 fn reportable_simple_match(
     file: &RustFile<'_>,
     rule: &SimpleRule,
-    allowed_lines: &BTreeSet<usize>,
+    allowed_ranges: &[(usize, usize)],
     index: usize,
     line: &str,
     source_offset: usize,
 ) -> Option<usize> {
-    if file.test_lines.contains(&index) || allowed_lines.contains(&index) {
+    if file.test_lines.contains(&index) {
         return None;
     }
     rule.pattern
         .find_iter(line)
         .find(|matched| {
-            !is_proven_panic_invariant(rule.code, file, source_offset + matched.start())
+            let offset = source_offset + matched.start();
+            !allowed_ranges
+                .iter()
+                .any(|(start, end)| *start <= offset && offset < *end)
+                && !is_proven_panic_invariant(rule.code, file, offset)
         })
         .map(|matched| matched.start())
 }
 
 fn is_proven_panic_invariant(code: &str, file: &RustFile<'_>, call_offset: usize) -> bool {
     match code {
-        "rust-panic-macro" => panic_macro_is_invariant(file.source, call_offset),
+        "rust-panic-macro" => panic_macro_is_invariant(file, call_offset),
         "rust-unwrap" | "rust-expect" => recoverable_panic_is_invariant(code, file, call_offset),
         _ => false,
     }
 }
 
-fn panic_macro_is_invariant(source: &str, call_offset: usize) -> bool {
+fn panic_macro_is_invariant(file: &RustFile<'_>, call_offset: usize) -> bool {
+    let source = file.source;
     let line_end = source[call_offset..]
         .find('\n')
         .map_or(source.len(), |offset| call_offset + offset);
     PANIC_INVARIANT_MESSAGE.is_match(&source[call_offset..line_end])
-        || containing_function_documents_panic(source, call_offset)
+        || containing_function_documents_panic(file, call_offset)
 }
 
 fn recoverable_panic_is_invariant(code: &str, file: &RustFile<'_>, call_offset: usize) -> bool {
     if local_panic_invariant(file, call_offset)
+        || containing_function_documents_panic(file, call_offset)
         || expect_call_is_proven_custom(code, file, call_offset)
     {
         return true;
@@ -207,11 +219,19 @@ fn recoverable_panic_is_invariant(code: &str, file: &RustFile<'_>, call_offset: 
     let statement_start = file.masked[..call_offset]
         .rfind(';')
         .map_or(0, |offset| offset + 1);
+    if code == "rust-expect"
+        && documented_utf8_reconstruction(
+            &file.source[statement_start..call_offset],
+            &file.source[call_offset..],
+        )
+    {
+        return true;
+    }
     let statement_end = file.masked[call_offset..]
         .find(';')
         .map_or(file.source.len(), |offset| call_offset + offset + 1);
     let statement = &file.source[statement_start..statement_end];
-    if statement_documents_panic_invariant(code, file, call_offset, statement_start, statement) {
+    if statement_documents_panic_invariant(code, file, statement_start, statement) {
         return true;
     }
     regex_constructor_is_invariant(file.source, &file.masked, statement_start, call_offset)
@@ -308,25 +328,32 @@ fn local_panic_invariant(file: &RustFile<'_>, call_offset: usize) -> bool {
     file.regex_contracts
         .capture_access_is_invariant(file.source, &file.masked, call_offset)
         || panic_guards::locally_proven_invariant(file.source, &file.masked, call_offset)
-        || preceding_comment_documents_invariant(file.source, call_offset)
+        || preceding_comment_documents_invariant(file, call_offset)
 }
 
 fn statement_documents_panic_invariant(
     code: &str,
     file: &RustFile<'_>,
-    call_offset: usize,
     statement_start: usize,
     statement: &str,
 ) -> bool {
-    expect_statement_documents_invariant(code, statement, &file.source[call_offset..])
+    expect_statement_documents_invariant(code, statement)
         || string_format_write_is_invariant(file.source, statement_start, statement)
         || literal_parse_is_invariant(statement)
         || static_infallible_construction_is_invariant(statement)
-        || statement.contains(".checked_")
-            && containing_function_documents_panic(file.source, call_offset)
 }
 
-fn preceding_comment_documents_invariant(source: &str, call_offset: usize) -> bool {
+fn preceding_comment_documents_invariant(file: &RustFile<'_>, call_offset: usize) -> bool {
+    let source = file.source;
+    if let Some(index) = file
+        .comments
+        .iter()
+        .rposition(|comment| comment.end <= call_offset)
+        && is_safety_expression_prefix(&file.masked[file.comments[index].end..call_offset])
+        && RUST_INVARIANT_COMMENT.is_match(file.comment_block_ending_at(index))
+    {
+        return true;
+    }
     let line_start = source[..call_offset]
         .rfind('\n')
         .map_or(0, |offset| offset + 1);
@@ -399,42 +426,109 @@ fn static_infallible_construction_is_invariant(statement: &str) -> bool {
     STATIC_INFALLIBLE_CONSTRUCTION.is_match(statement)
 }
 
-fn containing_function_documents_panic(source: &str, call_offset: usize) -> bool {
-    let mut lines = source[..call_offset].lines().rev();
-    if !lines.any(|line| RUST_FUNCTION_DECLARATION.is_match(line)) {
-        return false;
+fn containing_function_documents_panic(file: &RustFile<'_>, call_offset: usize) -> bool {
+    file.panic_contracts
+        .iter()
+        .rev()
+        .find(|(open, close, _)| *open < call_offset && call_offset < *close)
+        .is_some_and(|(_, _, documented)| *documented)
+}
+
+fn function_panic_contracts(
+    source: &str,
+    masked: &str,
+    comments: &[CommentRange],
+) -> Vec<(usize, usize, bool)> {
+    if !RUST_PANIC_DOCUMENTATION.is_match(source) {
+        return Vec::new();
     }
-    for line in lines.take(24) {
-        let trimmed = line.trim();
-        if trimmed.starts_with("///") {
-            if RUST_PANIC_DOCUMENTATION.is_match(trimmed) {
-                return true;
+    let documentation = panic_documentation_ranges(source, masked, comments);
+    RUST_FUNCTION_DECLARATION
+        .find_iter(masked)
+        .filter_map(|declaration| {
+            let open = declaration.end() + masked[declaration.end()..].find('{')?;
+            if masked[declaration.end()..open].contains(';') {
+                return None;
             }
+            let close = matching_delimiter(masked, open, b'{', b'}')?;
+            let mut cursor = declaration.start();
+            let mut documented = false;
+            for &(start, end, contract) in documentation.iter().rev() {
+                if end > cursor {
+                    continue;
+                }
+                if !RUST_FUNCTION_QUALIFIERS.is_match(&masked[end..cursor]) {
+                    break;
+                }
+                documented |= contract;
+                cursor = start;
+            }
+            Some((open, close, documented))
+        })
+        .collect()
+}
+
+fn panic_documentation_ranges(
+    source: &str,
+    masked: &str,
+    comments: &[CommentRange],
+) -> Vec<(usize, usize, bool)> {
+    let mut ranges = comments
+        .iter()
+        .map(|comment| {
+            let text = &source[comment.start..comment.end];
+            let outer_doc = (text.starts_with("///") && !text.starts_with("////"))
+                || (text.starts_with("/**") && !text.starts_with("/***"));
+            (
+                comment.start,
+                comment.end,
+                outer_doc && RUST_PANIC_DOCUMENTATION.is_match(text),
+            )
+        })
+        .collect::<Vec<_>>();
+    for attribute in RUST_OUTER_ATTRIBUTE.find_iter(masked) {
+        let open = attribute.end() - 1;
+        let Some(close) = matching_delimiter(masked, open, b'[', b']') else {
             continue;
-        }
-        if trimmed.is_empty() || trimmed.starts_with("#[") {
-            continue;
-        }
-        break;
+        };
+        let text = source[open + 1..close].trim();
+        let contract = text
+            .strip_prefix("doc")
+            .and_then(|text| text.trim_start().strip_prefix('='))
+            .map(str::trim)
+            .filter(|literal| literal.starts_with('"') || literal.starts_with('r'))
+            .filter(|literal| {
+                rust_literal_end(literal.as_bytes(), 0)
+                    .is_some_and(|end| literal[end..].trim().is_empty())
+            })
+            .and_then(rust_string_body)
+            .is_some_and(|body| RUST_PANIC_DOCUMENTATION.is_match(body));
+        ranges.push((attribute.start(), close + 1, contract));
     }
-    false
+    ranges.sort_unstable_by_key(|(_, end, _)| *end);
+    ranges
 }
 
-fn expect_statement_documents_invariant(code: &str, statement: &str, call: &str) -> bool {
+fn expect_statement_documents_invariant(code: &str, statement: &str) -> bool {
     code == "rust-expect"
-        && (expect_message_documents_invariant(call)
-            || [
-                "rule_catalog::metadata(",
-                "rule_catalog::descriptor(",
-                "Severity::parse(metadata.default_severity)",
-            ]
-            .iter()
-            .any(|invariant| statement.contains(invariant))
-            || statement.contains("String::from_utf8(") && statement.contains("UTF-8"))
+        && [
+            "rule_catalog::metadata(",
+            "rule_catalog::descriptor(",
+            "Severity::parse(metadata.default_severity)",
+        ]
+        .iter()
+        .any(|invariant| statement.contains(invariant))
 }
 
-fn expect_message_documents_invariant(call: &str) -> bool {
-    EXPECT_INVARIANT_MESSAGE.is_match(call)
+fn documented_utf8_reconstruction(receiver: &str, call: &str) -> bool {
+    UTF8_RECONSTRUCTION_RECEIVER.is_match(receiver)
+        && UTF8_RECONSTRUCTION_MESSAGE
+            .captures(call)
+            .is_some_and(|capture| {
+                let message = &capture["message"];
+                UTF8_MASKING_DESCRIPTION.is_match(message)
+                    && UTF8_PRESERVATION_DESCRIPTION.is_match(message)
+            })
 }
 
 fn regex_constructor_is_invariant(
@@ -574,23 +668,55 @@ fn file_allows_rule(source: &str, allowed_lints: &[&str]) -> bool {
         return false;
     }
     CRATE_ALLOW.captures_iter(source).any(|capture| {
-        allowed_lints
-            .iter()
-            .any(|lint| lint_list_contains(&capture[1], lint))
+        let attribute = capture.get(0).unwrap();
+        brace_delta(&source[..attribute.start()]) == 0
+            && allowed_lints
+                .iter()
+                .any(|lint| lint_list_contains(&capture[1], lint))
     })
 }
 
-fn attributed_allowed_lines(masked: &str, allowed_lints: &[&str]) -> BTreeSet<usize> {
+fn attributed_allowed_ranges(masked: &str, allowed_lints: &[&str]) -> Vec<(usize, usize)> {
+    attributed_policy_ranges(masked, allowed_lints, &[&ITEM_ALLOW, &CRATE_ALLOW])
+}
+
+fn attributed_policy_ranges(
+    masked: &str,
+    allowed_lints: &[&str],
+    patterns: &[&Regex],
+) -> Vec<(usize, usize)> {
+    let mut result = Vec::new();
     if allowed_lints.is_empty() {
-        return BTreeSet::new();
+        return result;
     }
-    attributed_lines(masked, |line| {
-        ITEM_ALLOW.captures(line).is_some_and(|capture| {
-            allowed_lints
-                .iter()
-                .any(|lint| lint_list_contains(&capture[1], lint))
-        })
-    })
+    for capture in patterns
+        .iter()
+        .flat_map(|pattern| pattern.captures_iter(masked))
+    {
+        if !allowed_lints
+            .iter()
+            .any(|lint| lint_list_contains(&capture[1], lint))
+        {
+            continue;
+        }
+        let attribute = capture.get(0).unwrap();
+        let mut cursor = skip_ascii_whitespace(masked, attribute.end());
+        while masked[cursor..].starts_with("#[") {
+            let Some(close) = matching_delimiter(masked, cursor + 1, b'[', b']') else {
+                break;
+            };
+            cursor = skip_ascii_whitespace(masked, close + 1);
+        }
+        let end = if attribute.as_str().starts_with("#!") {
+            enclosing_block_end(masked, 0, attribute.start()).unwrap_or(masked.len())
+        } else if let Some(end) = attributed_item_end(masked, cursor) {
+            end
+        } else {
+            continue;
+        };
+        result.push((attribute.start(), end));
+    }
+    result
 }
 
 fn lint_list_contains(list: &str, lint: &str) -> bool {
@@ -598,32 +724,17 @@ fn lint_list_contains(list: &str, lint: &str) -> bool {
         .any(|candidate| candidate == lint)
 }
 
-fn attributed_lines(masked: &str, matches_attribute: impl Fn(&str) -> bool) -> BTreeSet<usize> {
-    let mut result = BTreeSet::new();
-    let mut pending = false;
-    let mut depth = 0isize;
-    for (index, line) in masked.split('\n').enumerate() {
-        if depth > 0 {
-            result.insert(index);
-            depth += brace_delta(line);
-            continue;
-        }
-        if matches_attribute(line) {
-            pending = true;
-            result.insert(index);
-            continue;
-        }
-        if pending && line.trim_start().starts_with("#[") {
-            result.insert(index);
-            continue;
-        }
-        if pending && !line.trim().is_empty() {
-            result.insert(index);
-            depth = brace_delta(line);
-            pending = false;
+fn attributed_item_end(masked: &str, mut cursor: usize) -> Option<usize> {
+    while let Some(byte) = masked.as_bytes().get(cursor) {
+        match byte {
+            b'(' => cursor = matching_delimiter(masked, cursor, b'(', b')')? + 1,
+            b'[' => cursor = matching_delimiter(masked, cursor, b'[', b']')? + 1,
+            b'{' => return matching_delimiter(masked, cursor, b'{', b'}').map(|end| end + 1),
+            b';' => return Some(cursor + 1),
+            _ => cursor += 1,
         }
     }
-    result
+    None
 }
 
 fn brace_delta(line: &str) -> isize {
@@ -794,10 +905,156 @@ fn normalized_ascii(value: &str) -> impl Iterator<Item = u8> + '_ {
 fn rust_string_body(literal: &str) -> Option<&str> {
     let first_quote = literal.find('"')?;
     let last_quote = literal.rfind('"')?;
-    (last_quote > first_quote).then_some(&literal[first_quote + 1..last_quote])
+    literal.get(first_quote + 1..last_quote)
 }
 
-fn analyze_unsafe_blocks(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
+const UNSAFE_DOCUMENTATION_LINTS: &[&str] = &[
+    "clippy::undocumented_unsafe_blocks",
+    "undocumented_unsafe_blocks",
+];
+
+fn inherited_unsafe_policy_files(sources: &BTreeMap<String, String>) -> BTreeSet<String> {
+    let mut inherited = BTreeSet::new();
+    for (path, source) in sources {
+        let (directory, name) = path.rsplit_once('/').unwrap_or(("", path.as_str()));
+        if !matches!(name, "lib.rs" | "main.rs") || !source.contains("undocumented_unsafe_blocks") {
+            continue;
+        }
+        let sibling = if name == "lib.rs" {
+            "main.rs"
+        } else {
+            "lib.rs"
+        };
+        if sources.contains_key(&module_candidate(directory, sibling)) {
+            continue;
+        }
+        let masked = scan_rust(source).0;
+        if file_allows_rule(&masked, UNSAFE_DOCUMENTATION_LINTS)
+            && !file_denies_unsafe_policy(&masked)
+        {
+            inherit_unsafe_module_policy(sources, path, &masked, &mut inherited);
+        }
+    }
+    inherited
+}
+
+fn inherit_unsafe_module_policy(
+    sources: &BTreeMap<String, String>,
+    path: &str,
+    masked: &str,
+    inherited: &mut BTreeSet<String>,
+) {
+    if CUSTOM_MODULE_PATH.is_match(masked) {
+        return;
+    }
+    let base = rust_module_directory(path);
+    let mut previous = 0;
+    let mut depth = 0;
+    let denied_ranges = denied_unsafe_ranges(masked);
+    for capture in OUT_OF_LINE_MODULE.captures_iter(masked) {
+        let declaration = capture.get(0).unwrap();
+        depth += brace_delta(&masked[previous..declaration.start()]);
+        previous = declaration.end();
+        if depth != 0
+            || denied_ranges
+                .iter()
+                .any(|(start, end)| *start <= declaration.start() && declaration.start() < *end)
+        {
+            continue;
+        }
+        let module = &capture[1];
+        let flat = module_candidate(base, &format!("{module}.rs"));
+        let nested = module_candidate(base, &format!("{module}/mod.rs"));
+        let child = match (sources.contains_key(&flat), sources.contains_key(&nested)) {
+            (true, false) => flat,
+            (false, true) => nested,
+            _ => continue,
+        };
+        let child_masked = scan_rust(&sources[&child]).0;
+        if !file_denies_unsafe_policy(&child_masked) && inherited.insert(child.clone()) {
+            inherit_unsafe_module_policy(sources, &child, &child_masked, inherited);
+        }
+    }
+}
+
+fn rust_module_directory(path: &str) -> &str {
+    let (directory, name) = path.rsplit_once('/').unwrap_or(("", path));
+    if matches!(name, "lib.rs" | "main.rs" | "mod.rs") {
+        directory
+    } else {
+        path.strip_suffix(".rs").unwrap_or(directory)
+    }
+}
+
+fn module_candidate(directory: &str, relative: &str) -> String {
+    if directory.is_empty() {
+        relative.to_owned()
+    } else {
+        format!("{directory}/{relative}")
+    }
+}
+
+fn file_denies_unsafe_policy(masked: &str) -> bool {
+    UNSAFE_POLICY_DENY.captures_iter(masked).any(|capture| {
+        let attribute = capture.get(0).unwrap();
+        attribute.as_str().starts_with("#!")
+            && brace_delta(&masked[..attribute.start()]) == 0
+            && UNSAFE_DOCUMENTATION_LINTS
+                .iter()
+                .any(|lint| lint_list_contains(&capture[1], lint))
+    })
+}
+
+fn denied_unsafe_ranges(masked: &str) -> Vec<(usize, usize)> {
+    attributed_policy_ranges(masked, UNSAFE_DOCUMENTATION_LINTS, &[&UNSAFE_POLICY_DENY])
+}
+
+struct UnsafeDocumentationPolicy {
+    file_allowed: bool,
+    allowed: Vec<(usize, usize)>,
+    denied: Vec<(usize, usize)>,
+}
+
+impl UnsafeDocumentationPolicy {
+    fn new(masked: &str, inherited_policy: bool) -> Self {
+        let file_allowed = inherited_policy || file_allows_rule(masked, UNSAFE_DOCUMENTATION_LINTS);
+        Self {
+            file_allowed,
+            allowed: if file_allowed {
+                Vec::new()
+            } else {
+                attributed_allowed_ranges(masked, UNSAFE_DOCUMENTATION_LINTS)
+            },
+            denied: denied_unsafe_ranges(masked),
+        }
+    }
+
+    fn allows(&self, offset: usize) -> bool {
+        if self
+            .denied
+            .iter()
+            .any(|(start, end)| *start <= offset && offset < *end)
+        {
+            return false;
+        }
+        self.file_allowed
+            || self
+                .allowed
+                .iter()
+                .any(|(start, end)| *start <= offset && offset < *end)
+    }
+}
+
+fn analyze_unsafe_blocks(
+    path: &str,
+    file: &RustFile<'_>,
+    inherited_policy: bool,
+    findings: &mut Vec<Finding>,
+) {
+    let policy = UnsafeDocumentationPolicy::new(&file.masked, inherited_policy);
+    if policy.file_allowed && policy.denied.is_empty() {
+        return;
+    }
     for matched in UNSAFE_BLOCK.find_iter(&file.masked) {
         let Some(open) = file.masked[matched.start()..]
             .find('{')
@@ -805,7 +1062,10 @@ fn analyze_unsafe_blocks(path: &str, file: &RustFile<'_>, findings: &mut Vec<Fin
         else {
             continue;
         };
-        if file.excluded(matched.start()) || file.has_safety_rationale(matched.start(), open) {
+        if file.excluded(matched.start())
+            || policy.allows(matched.start())
+            || file.has_safety_rationale(matched.start(), open)
+        {
             continue;
         }
         findings.push(finding(
@@ -835,7 +1095,10 @@ fn analyze_static_mut(path: &str, file: &RustFile<'_>, findings: &mut Vec<Findin
 
 fn analyze_raw_ownership(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
     for matched in RAW_OWNERSHIP.find_iter(&file.masked) {
-        if !file.excluded(matched.start()) {
+        if !file.excluded(matched.start())
+            && standard_ownership_path(&file.masked, matched.start())
+            && !ownership_roundtrip_is_invariant(file, matched.start(), matched.end() - 1)
+        {
             findings.push(finding(
                 "rust-raw-ownership-reconstruction",
                 path,
@@ -846,17 +1109,72 @@ fn analyze_raw_ownership(path: &str, file: &RustFile<'_>, findings: &mut Vec<Fin
     }
 }
 
+fn standard_ownership_path(masked: &str, start: usize) -> bool {
+    let prefix = masked[..start].trim_end();
+    !prefix.ends_with("::")
+        || prefix.strip_suffix("::").is_some_and(|path| {
+            path.trim_end()
+                .as_bytes()
+                .last()
+                .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_')
+        })
+}
+
+fn ownership_roundtrip_is_invariant(file: &RustFile<'_>, start: usize, open: usize) -> bool {
+    let Some(close) = file.matching(open, b'(', b')') else {
+        return false;
+    };
+    let owner = file.masked[start..open].rsplit("::").nth(1).unwrap_or("");
+    let argument = &file.masked[open + 1..close];
+    let Some(origin) = RAW_ORIGIN.captures(argument) else {
+        return false;
+    };
+    if origin.get(1).unwrap().as_str() != owner {
+        return false;
+    }
+    let origin_open = open + 1 + origin.get(0).unwrap().end() - 1;
+    let Some(origin_close) = file.matching(origin_open, b'(', b')') else {
+        return false;
+    };
+    if origin_close >= close {
+        return false;
+    }
+    let conversion = file.masked[origin_close + 1..close].trim();
+    if conversion.is_empty() || OWNERSHIP_UNSIZING_CAST.is_match(conversion) {
+        // The same owner consumes its own fresh pointer exactly once. A direct
+        // trait-object cast is a compiler-checked unsizing coercion, not a
+        // reinterpretation of an unrelated concrete allocation layout.
+        return true;
+    }
+    OWNERSHIP_POINTER_CAST.is_match(conversion)
+        && enclosing_unsafe_rationale(file, start)
+            .is_some_and(|rationale| TRANSPARENT_LAYOUT.is_match(rationale))
+}
+
+fn enclosing_unsafe_rationale<'a>(file: &'a RustFile<'_>, offset: usize) -> Option<&'a str> {
+    let matched = UNSAFE_BLOCK
+        .find_iter(&file.masked[..offset])
+        .filter(|matched| {
+            file.matching(matched.end() - 1, b'{', b'}')
+                .is_some_and(|close| offset < close)
+        })
+        .last()?;
+    file.safety_rationale(matched.start(), matched.end() - 1)
+}
+
 fn analyze_impl_into(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
     const ALLOWED_LINTS: &[&str] = &["clippy::from_over_into", "from_over_into"];
 
     if file_allows_rule(&file.masked, ALLOWED_LINTS) {
         return;
     }
-    let allowed_lines = attributed_allowed_lines(&file.masked, ALLOWED_LINTS);
+    let allowed_ranges = attributed_allowed_ranges(&file.masked, ALLOWED_LINTS);
     for matched in IMPL_KEYWORD.find_iter(&file.masked) {
         let line = file.line_at(matched.start());
         if file.excluded(matched.start())
-            || allowed_lines.contains(&(line - 1))
+            || allowed_ranges
+                .iter()
+                .any(|(start, end)| *start <= matched.start() && matched.start() < *end)
             || !implements_into(&file.masked, matched.end())
         {
             continue;
@@ -1455,7 +1773,13 @@ fn line_prefix(source: &str, offset: usize) -> &str {
 }
 
 fn analyze_async_blocking(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
-    for scope in ASYNC_SCOPE.find_iter(&file.masked) {
+    let mut async_scopes = ASYNC_SCOPE.find_iter(&file.masked);
+    let Some(first_scope) = async_scopes.next() else {
+        return;
+    };
+    let mut reported = BTreeSet::new();
+    let boundaries = AsyncBlockingBoundaries::new(file);
+    for scope in std::iter::once(first_scope).chain(async_scopes) {
         if file.excluded(scope.start()) {
             continue;
         }
@@ -1471,7 +1795,10 @@ fn analyze_async_blocking(path: &str, file: &RustFile<'_>, findings: &mut Vec<Fi
         let body_start = open + 1;
         for call in BLOCKING_CALL.find_iter(&file.masked[body_start..close]) {
             let absolute = body_start + call.start();
-            if !inside_offload(file, body_start, absolute) {
+            if !file.excluded(absolute)
+                && !boundaries.excludes_call(body_start, absolute)
+                && reported.insert(absolute)
+            {
                 findings.push(finding(
                     "rust-blocking-call-in-async",
                     path,
@@ -1483,67 +1810,122 @@ fn analyze_async_blocking(path: &str, file: &RustFile<'_>, findings: &mut Vec<Fi
     }
 }
 
-fn inside_offload(file: &RustFile<'_>, scope_start: usize, call_offset: usize) -> bool {
-    for matched in OFFLOAD.find_iter(&file.masked[scope_start..]) {
-        let start = scope_start + matched.start();
-        if start >= call_offset {
-            break;
-        }
-        let Some(open) = file.masked[start..].find('(').map(|offset| start + offset) else {
-            continue;
-        };
-        if file
-            .matching(open, b'(', b')')
-            .is_some_and(|close| close >= call_offset)
-        {
-            return true;
+struct AsyncBlockingBoundaries {
+    functions: Vec<(usize, usize)>,
+    offloads: Vec<(usize, usize)>,
+}
+
+impl AsyncBlockingBoundaries {
+    fn new(file: &RustFile<'_>) -> Self {
+        let functions = RUST_FUNCTION_DECLARATION
+            .find_iter(&file.masked)
+            .filter_map(|declaration| {
+                let open = declaration.end() + file.masked[declaration.end()..].find('{')?;
+                if file.masked[declaration.end()..open].contains(';') {
+                    return None;
+                }
+                Some((open, file.matching(open, b'{', b'}')?))
+            })
+            .collect();
+        Self {
+            functions,
+            offloads: blocking_offload_ranges(file),
         }
     }
-    false
+
+    fn excludes_call(&self, scope_start: usize, offset: usize) -> bool {
+        self.functions
+            .iter()
+            .any(|(start, end)| scope_start <= *start && *start < offset && offset < *end)
+            || self
+                .offloads
+                .iter()
+                .any(|(start, end)| scope_start <= *start && *start <= offset && offset < *end)
+    }
+}
+
+fn blocking_offload_ranges(file: &RustFile<'_>) -> Vec<(usize, usize)> {
+    let mut imported = BTreeSet::new();
+    for import in OFFLOAD_IMPORT.captures_iter(&file.masked) {
+        let whole = import.get(0).unwrap();
+        if brace_delta(&file.masked[..whole.start()]) != 0 {
+            continue;
+        }
+        let name = import
+            .get(3)
+            .or_else(|| import.get(1))
+            .or_else(|| import.get(2))
+            .unwrap()
+            .as_str();
+        if !OFFLOAD_SHADOW_BINDING
+            .captures_iter(&file.masked)
+            .any(|binding| {
+                binding
+                    .get(1)
+                    .or_else(|| binding.get(2))
+                    .is_some_and(|bound| bound.as_str() == name)
+            })
+        {
+            imported.insert(name);
+        }
+    }
+    OFFLOAD
+        .captures_iter(&file.masked)
+        .filter_map(|call| {
+            let whole = call.get(0)?;
+            if file.masked[..whole.start()]
+                .trim_end()
+                .ends_with(['.', ':'])
+                || call
+                    .get(1)
+                    .is_some_and(|name| !imported.contains(name.as_str()))
+            {
+                return None;
+            }
+            let open = whole.end() - 1;
+            let close = file.matching(open, b'(', b')')?;
+            let mut argument = skip_ascii_whitespace(&file.masked, open + 1);
+            if token_at(&file.masked, argument, "move") {
+                argument = skip_ascii_whitespace(&file.masked, argument + 4);
+            }
+            if !file.masked[argument..].starts_with("||") {
+                return None;
+            }
+            let body = skip_ascii_whitespace(&file.masked, argument + 2);
+            let end = if file.masked.as_bytes().get(body) == Some(&b'{') {
+                file.matching(body, b'{', b'}')?
+            } else {
+                close
+            };
+            Some((body, end))
+        })
+        .collect()
 }
 
 fn analyze_sync_lock_across_await(path: &str, file: &RustFile<'_>, findings: &mut Vec<Finding>) {
     let parking_lot = PARKING_LOT_MUTEX.is_match(&file.masked);
-    let mut reported = BTreeSet::new();
-    for scope in ASYNC_SCOPE.find_iter(&file.masked) {
-        let Some(open) = file.masked[scope.start()..]
-            .find('{')
-            .map(|offset| scope.start() + offset)
+    let async_bodies = ASYNC_SCOPE
+        .find_iter(&file.masked)
+        .filter_map(|scope| {
+            let open = scope.start() + file.masked[scope.start()..].find('{')?;
+            Some((open, file.matching(open, b'{', b'}')?))
+        })
+        .collect::<Vec<_>>();
+    for lock in SYNC_LOCK_GUARD.captures_iter(&file.masked) {
+        let whole = lock.get(0).unwrap();
+        let absolute = whole.start();
+        if file.excluded(absolute) || (!parking_lot && lock.name("poison").is_none()) {
+            continue;
+        }
+        let Some((open, _)) = async_bodies
+            .iter()
+            .rev()
+            .find(|(open, close)| *open < absolute && absolute < *close)
         else {
             continue;
         };
-        let Some(close) = file.matching(open, b'{', b'}') else {
-            continue;
-        };
-        for lock in SYNC_LOCK_GUARD.captures_iter(&file.masked[open + 1..close]) {
-            let whole = lock.get(0).unwrap();
-            let absolute = open + 1 + whole.start();
-            if file.excluded(absolute)
-                || (!parking_lot
-                    && !whole.as_str().contains(".unwrap")
-                    && !whole.as_str().contains(".expect"))
-            {
-                continue;
-            }
-            let Some(block_end) = enclosing_rust_block_end(file, open, absolute) else {
-                continue;
-            };
-            let search_start = open + 1 + whole.end();
-            let Some(awaited) = AWAIT_POINT.find(&file.masked[search_start..block_end]) else {
-                continue;
-            };
-            let await_offset = search_start + awaited.start();
-            let guard = &lock["guard"];
-            let explicit_drop = Regex::new(&format!(
-                r"\b(?:std::mem::)?drop\s*\(\s*{}\s*\)",
-                regex::escape(guard)
-            ))
-            .expect("Rust guard-drop regex must compile");
-            if explicit_drop.is_match(&file.masked[search_start..await_offset])
-                || !reported.insert(absolute)
-            {
-                continue;
-            }
+        let guard = &lock["guard"];
+        if guard_suspends(file, &async_bodies, *open, absolute, whole.end(), guard) {
             findings.push(finding(
                 "rust-sync-lock-across-await",
                 path,
@@ -1554,16 +1936,48 @@ fn analyze_sync_lock_across_await(path: &str, file: &RustFile<'_>, findings: &mu
     }
 }
 
+fn guard_suspends(
+    file: &RustFile<'_>,
+    async_bodies: &[(usize, usize)],
+    scope_open: usize,
+    binding: usize,
+    search_start: usize,
+    guard: &str,
+) -> bool {
+    let Some(block_end) = enclosing_rust_block_end(file, scope_open, binding) else {
+        return false;
+    };
+    let Some(awaited) = AWAIT_POINT
+        .find_iter(&file.masked[search_start..block_end])
+        .find(|awaited| {
+            let offset = search_start + awaited.start();
+            !async_bodies
+                .iter()
+                .any(|(open, close)| binding < *open && *open < offset && offset < *close)
+        })
+    else {
+        return false;
+    };
+    let await_offset = search_start + awaited.start();
+    !EXPLICIT_GUARD_DROP
+        .captures_iter(&file.masked[search_start..await_offset])
+        .any(|dropped| &dropped["guard"] == guard)
+}
+
 fn enclosing_rust_block_end(
     file: &RustFile<'_>,
     scope_open: usize,
     offset: usize,
 ) -> Option<usize> {
+    enclosing_block_end(&file.masked, scope_open, offset)
+}
+
+fn enclosing_block_end(masked: &str, scope_open: usize, offset: usize) -> Option<usize> {
     let mut depth = 0usize;
     for index in (scope_open..offset).rev() {
-        match file.masked.as_bytes()[index] {
+        match masked.as_bytes()[index] {
             b'}' => depth += 1,
-            b'{' if depth == 0 => return file.matching(index, b'{', b'}'),
+            b'{' if depth == 0 => return matching_delimiter(masked, index, b'{', b'}'),
             b'{' => depth = depth.saturating_sub(1),
             _ => {}
         }
@@ -1597,6 +2011,7 @@ struct RustFile<'a> {
     comments: Vec<CommentRange>,
     test_lines: BTreeSet<usize>,
     regex_contracts: RegexContracts,
+    panic_contracts: Vec<(usize, usize, bool)>,
 }
 
 impl<'a> RustFile<'a> {
@@ -1604,6 +2019,7 @@ impl<'a> RustFile<'a> {
         let (masked, comments_masked, comments) = scan_rust(source);
         let test_lines = test_scopes::test_lines(source, &masked);
         let regex_contracts = RegexContracts::new(source, &masked);
+        let panic_contracts = function_panic_contracts(source, &masked, &comments);
         Self {
             source,
             masked,
@@ -1611,6 +2027,7 @@ impl<'a> RustFile<'a> {
             comments,
             test_lines,
             regex_contracts,
+            panic_contracts,
         }
     }
 
@@ -1645,46 +2062,71 @@ impl<'a> RustFile<'a> {
         None
     }
 
+    fn comment_block_ending_at(&self, index: usize) -> &'a str {
+        let mut first = index;
+        while first > 0
+            && self.source[self.comments[first - 1].end..self.comments[first].start]
+                .trim()
+                .is_empty()
+        {
+            first -= 1;
+        }
+        &self.source[self.comments[first].start..self.comments[index].end]
+    }
+
     fn has_safety_rationale(&self, unsafe_offset: usize, open_brace: usize) -> bool {
-        let line_start = self.source[..unsafe_offset]
-            .rfind('\n')
-            .map_or(0, |offset| offset + 1);
-        let preceding = self
+        self.safety_rationale(unsafe_offset, open_brace).is_some()
+    }
+
+    fn safety_rationale(&self, unsafe_offset: usize, open_brace: usize) -> Option<&str> {
+        self.preceding_safety_rationale(unsafe_offset).or_else(|| {
+            self.comments
+                .iter()
+                .find(|comment| {
+                    comment.start > open_brace
+                        && self.source[open_brace + 1..comment.start].trim().is_empty()
+                })
+                .map(|comment| &self.source[comment.start..comment.end])
+                .filter(|rationale| SAFETY_COMMENT.is_match(rationale))
+        })
+    }
+
+    fn preceding_safety_rationale(&self, unsafe_offset: usize) -> Option<&str> {
+        let index = self
             .comments
             .iter()
-            .take_while(|comment| comment.end <= line_start)
-            .copied()
-            .collect::<Vec<_>>();
-        if let Some(last) = preceding.last() {
-            let gap = &self.masked[last.end..line_start];
-            if gap.trim().is_empty() || is_safety_setup_prelude(gap) {
-                let mut first = preceding.len() - 1;
-                while first > 0
-                    && self.source[preceding[first - 1].end..preceding[first].start]
-                        .trim()
-                        .is_empty()
-                {
-                    first -= 1;
-                }
-                let rationale = preceding[first..]
-                    .iter()
-                    .map(|comment| &self.source[comment.start..comment.end])
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if SAFETY_COMMENT.is_match(&rationale) {
-                    return true;
-                }
-            }
+            .rposition(|comment| comment.end <= unsafe_offset)?;
+        let last = self.comments[index];
+        let gap = &self.masked[last.end..unsafe_offset];
+        if !(is_safety_expression_prefix(gap)
+            || is_safety_setup_prelude(gap)
+            || STRUCT_UPDATE_PREFIX.is_match(gap)
+            || STRUCT_MATCH_ARM_PREFIX.is_match(gap)
+            || self.is_containing_macro_prefix(last.end, unsafe_offset))
+        {
+            return None;
         }
-        self.comments
-            .iter()
-            .find(|comment| {
-                comment.start > open_brace
-                    && self.source[open_brace + 1..comment.start].trim().is_empty()
-            })
-            .is_some_and(|comment| {
-                SAFETY_COMMENT.is_match(&self.source[comment.start..comment.end])
-            })
+        let rationale = self.comment_block_ending_at(index);
+        SAFETY_COMMENT.is_match(rationale).then_some(rationale)
+    }
+
+    fn is_containing_macro_prefix(&self, comment_end: usize, unsafe_offset: usize) -> bool {
+        let gap = &self.masked[comment_end..unsafe_offset];
+        RUST_MACRO_EXPRESSION.find_iter(gap).any(|invocation| {
+            let prefix = &gap[..invocation.start()];
+            if !is_safety_expression_prefix(prefix) && !STRUCT_MATCH_ARM_PREFIX.is_match(prefix) {
+                return false;
+            }
+            let open = comment_end + invocation.end() - 1;
+            let opening = self.masked.as_bytes()[open];
+            let closing = match opening {
+                b'(' => b')',
+                b'[' => b']',
+                _ => b'}',
+            };
+            self.matching(open, opening, closing)
+                .is_some_and(|close| unsafe_offset < close)
+        })
     }
 }
 
@@ -1709,10 +2151,32 @@ fn is_safety_setup_prelude(masked: &str) -> bool {
         })
 }
 
+fn is_safety_expression_prefix(masked: &str) -> bool {
+    !masked
+        .bytes()
+        .any(|byte| matches!(byte, b';' | b'{' | b'}'))
+}
+
 pub(crate) fn function_lexical_facts(source: &str) -> (String, BTreeSet<usize>) {
-    let (masked, _, _) = scan_rust(source);
+    let masked = source_lexical_mask(source);
     let test_lines = test_scopes::test_lines(source, &masked);
     (masked, test_lines)
+}
+
+pub(crate) fn source_lexical_mask(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut masked = bytes.to_vec();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match rust_scan_transition(bytes, index) {
+            RustScanTransition::Advance => index += 1,
+            RustScanTransition::Comment(end) | RustScanTransition::Literal(end) => {
+                mask_range(&mut masked, index, end);
+                index = end;
+            }
+        }
+    }
+    String::from_utf8(masked).expect("masked Rust must remain UTF-8")
 }
 
 enum RustScanTransition {
@@ -1840,8 +2304,13 @@ fn rust_literal_kind(source: &[u8], start: usize) -> Option<RustLiteralKind> {
             }
         });
     }
-    (source.get(start) == Some(&b'\'')).then_some(RustLiteralKind::Character {
-        body_start: start + 1,
+    let character_start = if source.get(start) == Some(&b'b') {
+        start + 1
+    } else {
+        start
+    };
+    (source.get(character_start) == Some(&b'\'')).then_some(RustLiteralKind::Character {
+        body_start: character_start + 1,
     })
 }
 
@@ -1875,15 +2344,25 @@ fn rust_quoted_literal_end(source: &[u8], body_start: usize) -> usize {
 }
 
 fn rust_character_literal_end(source: &[u8], body_start: usize) -> Option<usize> {
-    let mut index = body_start;
-    if source.get(index) == Some(&b'\\') {
-        index += 2;
-    }
-    if source.get(index).is_some_and(|byte| *byte != b'\n') && source.get(index + 1) == Some(&b'\'')
-    {
-        return Some(index + 2);
-    }
-    None
+    let first = *source.get(body_start)?;
+    let width = match first {
+        b'\\' => match source.get(body_start + 1)? {
+            b'x' => 4,
+            b'u' => {
+                let digits = source.get(body_start + 2..)?.strip_prefix(b"{")?;
+                digits.iter().position(|byte| *byte == b'}')? + 4
+            }
+            _ => 2,
+        },
+        b'\n' | b'\r' | b'\'' => return None,
+        byte => usize::from(if byte.is_ascii() {
+            1
+        } else {
+            byte.leading_ones() as u8
+        }),
+    };
+    let close = body_start + width;
+    (source.get(close) == Some(&b'\'')).then_some(close + 1)
 }
 
 fn starts_with(source: &[u8], start: usize, pattern: &[u8]) -> bool {
@@ -1933,7 +2412,7 @@ static SIMPLE_RULES: LazyLock<Vec<SimpleRule>> = LazyLock::new(|| {
             code: "rust-mem-forget",
             pattern: Regex::new(r"\b(?:std::)?mem::forget\s*\(").unwrap(),
             message: "mem::forget deliberately skips destruction",
-            allowed_lints: &[],
+            allowed_lints: &["clippy::mem_forget", "mem_forget"],
         },
         SimpleRule {
             code: "rust-dbg-macro",
@@ -1951,22 +2430,34 @@ static SIMPLE_RULES: LazyLock<Vec<SimpleRule>> = LazyLock::new(|| {
 });
 
 static CRATE_ALLOW: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)#!\s*\[\s*allow\s*\(([^)]*)\)\s*\]").unwrap());
+    LazyLock::new(|| Regex::new(r"(?m)#!\s*\[\s*(?:allow|expect)\s*\(([^)]*)\)\s*\]").unwrap());
 static ITEM_ALLOW: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"#\s*\[\s*allow\s*\(([^)]*)\)\s*\]").unwrap());
-static SAFETY_COMMENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bSAFETY\b[ \t]*(?::[ \t]*)?\S").unwrap());
+    LazyLock::new(|| Regex::new(r"#\s*\[\s*(?:allow|expect)\s*\(([^)]*)\)\s*\]").unwrap());
+static OUT_OF_LINE_MODULE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bmod\s+(?:r#)?([A-Za-z_]\w*)\s*;").unwrap());
+static CUSTOM_MODULE_PATH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"#\s*\[\s*(?:path\b|cfg_attr\s*\([^]]*\bpath\b)").unwrap());
+static UNSAFE_POLICY_DENY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"#\s*!?\s*\[\s*(?:deny|forbid)\s*\(([^)]*)\)\s*\]").unwrap());
+static SAFETY_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:SAFETY\b[ \t]*(?::[ \t]*)?|SAFE[ \t]*:[ \t]*)\S").unwrap()
+});
 static ASSOCIATED_VALUE_ARGUMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Z][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+$").unwrap());
 static SECRET_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)\b(?:const|static|let)\s+(?:mut\s+)?([A-Za-z_]\w*)\s*(?::[^=\n;]+)?=").unwrap()
 });
-static EXPECT_INVARIANT_MESSAGE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"(?is)^\.expect\s*\(\s*(?:r#*)?"[^"\r\n]*(?:\b(?:always|never|invariant|impossible|guaranteed)\b|by construction|cannot fail|can't fail|static[- ]shape|writ(?:e|ing) to (?:a )?string)[^"\r\n]*""#,
-    )
-    .expect("expect invariant message regex must compile")
+static UTF8_RECONSTRUCTION_RECEIVER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bString::from_utf8\s*\(\s*[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*\)\s*$")
+        .unwrap()
 });
+static UTF8_RECONSTRUCTION_MESSAGE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^\.expect\s*\(\s*"(?P<message>(?:\\.|[^"\\])*)""#).unwrap());
+static UTF8_MASKING_DESCRIPTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:mask(?:ed|ing)?|structural|structured|normalized|stripped)\b").unwrap()
+});
+static UTF8_PRESERVATION_DESCRIPTION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(?:preserves?|remain(?:s)?)\s+UTF-8\b").unwrap());
 static RUST_INVARIANT_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)\b(?:invariant|ok because|we know|guaranteed|cannot fail|can't fail|impossible|only write to `?string`?)\b",
@@ -1993,6 +2484,10 @@ static RUST_FUNCTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bfn\s+[A-Za-z_]\w*[^(;{]*\(")
         .expect("Rust function declaration regex must compile")
 });
+static RUST_OUTER_ATTRIBUTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#\s*\[").unwrap());
+static RUST_FUNCTION_QUALIFIERS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:(?:pub(?:\s*\([^()]*\))?|unsafe|async|const|default|extern)\s+)*$").unwrap()
+});
 static RUST_PANIC_DOCUMENTATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:#\s*panics\b|\bpanics?\s+if\b|\bwill panic\b)")
         .expect("Rust panic documentation regex must compile")
@@ -2003,6 +2498,26 @@ static STATIC_MUT: LazyLock<Regex> =
 static RAW_OWNERSHIP: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:(?:std|alloc)::(?:boxed::Box|vec::Vec|string::String|ffi::CString|rc::Rc|sync::Arc)|Box|Vec|String|CString|Rc|Arc)::from_raw(?:_parts)?\s*\(").unwrap()
 });
+static RAW_ORIGIN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:(?:std|alloc)::(?:boxed|rc|sync)::)?(Box|Rc|Arc)::into_raw\s*\(").unwrap()
+});
+static OWNERSHIP_POINTER_CAST: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:as\s+\*(?:mut|const)\s+[A-Za-z_\[\]][A-Za-z0-9_:<>,\[\];\s]*|\.\s*cast\s*(?:::\s*<[^(){}]+>)?\s*\(\s*\))?\s*$").unwrap()
+});
+static OWNERSHIP_UNSIZING_CAST: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^as\s+\*(?:mut|const)\s+(?:dyn\s+[A-Za-z_][A-Za-z0-9_:<>+,'()\s]*|\(\s*dyn\s+[A-Za-z_][A-Za-z0-9_:<>+,'()\s]*\))$").unwrap()
+});
+static TRANSPARENT_LAYOUT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:transparent\s+wrapper|repr\s*\(\s*transparent\s*\))").unwrap()
+});
+static STRUCT_UPDATE_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*\$?[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*\s*\{\s*\.\.\s*$").unwrap()
+});
+static STRUCT_MATCH_ARM_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*\s*\{[^{};]*\}\s*=>\s*$").unwrap()
+});
+static RUST_MACRO_EXPRESSION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*!\s*[\(\[{]").unwrap());
 static IMPL_KEYWORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bimpl\b").unwrap());
 static MANUAL_SEND_SYNC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?s)\bunsafe\s+impl(?:\s*<[^>{}]*>)?[^{};]*?\b(Send|Sync)\s+for\s+([A-Za-z_]\w*)")
@@ -2030,8 +2545,9 @@ static PANIC_SITE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static CATCH_UNWIND: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bcatch_unwind\s*\(").unwrap());
-static RUST_LOOP: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b(?:(?:for|while)\b[^;{}]*|loop)\s*\{").unwrap());
+static RUST_LOOP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:for\b[^;{}]*\bin\b[^;{}]*|while\b[^;{}]*|loop)\s*\{").unwrap()
+});
 static REGEX_CONSTRUCTOR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:(?:regex(?:::bytes)?::)?(?:Regex|RegexBuilder))::new\s*\(").unwrap()
 });
@@ -2090,13 +2606,22 @@ static BLOCKING_CALL: LazyLock<Regex> = LazyLock::new(|| {
 });
 static OFFLOAD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"\b(?:tokio::task::spawn_blocking|async_std::task::spawn_blocking|smol::unblock|(?:[A-Za-z_]\w*::)*asyncify)\s*\(",
+        r"\b(?:tokio::task::spawn_blocking|async_std::task::spawn_blocking|smol::unblock|(?:deno_core::unsync|deno_unsync)::spawn_blocking|(?:[A-Za-z_]\w*::)*asyncify|([A-Za-z_]\w*))\s*\(",
     )
     .unwrap()
 });
+static OFFLOAD_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\buse\s+(?:(?:tokio::task|async_std::task|deno_core::unsync|deno_unsync)::(spawn_blocking)|smol::(unblock))(?:\s+as\s+([A-Za-z_]\w*))?\s*;").unwrap()
+});
+static OFFLOAD_SHADOW_BINDING: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:let\s+(?:mut\s+)?|fn\s+)([A-Za-z_]\w*)\b|\b([A-Za-z_]\w*)\s*:[^:]").unwrap()
+});
+static EXPLICIT_GUARD_DROP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:std::mem::)?drop\s*\(\s*(?P<guard>[A-Za-z_]\w*)\s*\)").unwrap()
+});
 static SYNC_LOCK_GUARD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"\blet\s+(?:mut\s+)?(?P<guard>[A-Za-z_]\w*)\s*=\s*[^;\n]*?\.lock\s*\(\s*\)\s*(?:\.\s*(?:unwrap|expect)\s*\([^;\n]*\))?\s*;",
+        r"\blet\s+(?:mut\s+)?(?P<guard>[A-Za-z_]\w*)\s*=\s*[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*\.\s*lock\s*\(\s*\)\s*(?:\.\s*(?P<poison>unwrap|expect)\s*\([^;]*?\))?\s*;",
     )
     .unwrap()
 });
@@ -2174,6 +2699,49 @@ async fn refresh() {
     }
 
     #[test]
+    fn preserves_source_positions_while_masking_multiline_literals_and_nested_comments() {
+        let source = r##"fn real<'a>(text: &'a str) {
+    let message = "header
+PRAGMA mmap_size=6000000; é
+tail";
+    let raw = r#"/* literal */ 7000000"#;
+    let byte = b'\n'; /* outer /* inner */ 8000000 */
+    let character = '字';
+    let byte_escape = b'\x7f';
+    let scalar_escape = '\u{1f642}';
+    let actual = 9000000;
+}
+"##;
+        let masked = super::source_lexical_mask(source);
+        assert_eq!(masked.len(), source.len());
+        assert_eq!(
+            masked
+                .match_indices('\n')
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>(),
+            source
+                .match_indices('\n')
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>(),
+        );
+        assert!(masked.starts_with("fn real<'a>(text: &'a str) {"));
+        assert!(masked.contains("let actual = 9000000;"));
+        for literal in [
+            "PRAGMA",
+            "6000000",
+            "7000000",
+            "8000000",
+            "é",
+            "'\\n'",
+            "'字'",
+            "'\\x7f'",
+            "'\\u{1f642}'",
+        ] {
+            assert!(!masked.contains(literal), "{masked}");
+        }
+    }
+
+    #[test]
     fn excludes_tests_allowed_lints_comments_and_literals() {
         let source = r##"#![allow(clippy::unwrap_used)]
 fn production() {
@@ -2206,7 +2774,7 @@ fn allowed() { value.expect("allowed"); }
             })
             .map(|finding| format!("{}:{}", finding.code, finding.line))
             .collect::<Vec<_>>();
-        assert_eq!(selected, vec!["rust-expect:3"]);
+        assert_eq!(selected, vec!["rust-expect:3", "rust-expect:4"]);
     }
 
     #[test]
@@ -2273,6 +2841,30 @@ fn connect() {
                     "hardcoded string assigned to credential-like `password`".to_owned(),
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn quote_characters_do_not_hide_later_hardcoded_secrets() {
+        let source = r#"const PASSWORD: char = '"';
+const API_KEY: u8 = b'"';
+const CLIENT_SECRET: char = '\"';
+fn connect() {
+    let password = "actual-production-password";
+}
+"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-hardcoded-secret")
+            .map(|finding| (finding.line, finding.message))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected,
+            vec![(
+                5,
+                "hardcoded string assigned to credential-like `password`".to_owned(),
+            )],
         );
     }
 
@@ -2881,6 +3473,60 @@ impl Into<Output> for Input {}"#;
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
     #[test]
+    fn distinguishes_trait_implementations_from_repeated_loop_bodies() {
+        let source = r##"impl Render for Window {
+    fn once(mut queue: Vec<u8>, text: &str, index: usize) {
+        queue.contains(&1);
+        queue.remove(0);
+        queue.insert(0, 1);
+        Regex::new("once");
+        text.chars().nth(index);
+        let example = "for value in values { queue.contains(&value); }";
+        // for value in values { queue.insert(0, value); }
+    }
+    fn repeated(mut queue: Vec<u8>) {
+        for value in 0..10 {
+            while ready() {
+                queue.contains(&value);
+                queue.insert(0, value);
+            }
+        }
+    }
+}"##;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-linear-membership-in-loop"
+                        | "rust-vec-front-removal-in-loop"
+                        | "rust-vec-front-insertion-in-loop"
+                        | "rust-regex-created-in-loop"
+                        | "rust-chars-nth-in-loop"
+                )
+            })
+            .map(|finding| (finding.code, finding.path, finding.line, finding.confidence))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                (
+                    "rust-linear-membership-in-loop".to_owned(),
+                    "src/lib.rs".to_owned(),
+                    14,
+                    "high".to_owned(),
+                ),
+                (
+                    "rust-vec-front-insertion-in-loop".to_owned(),
+                    "src/lib.rs".to_owned(),
+                    15,
+                    "high".to_owned(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn reports_constant_regex_and_linear_membership_inside_loops() {
         let source = r#"fn scan(blocked: Vec<String>, values: Vec<String>) {
     for value in values {
@@ -3072,5 +3718,974 @@ fn render(mut values: Vec<u8>, key: String, mut labels: HashMap<String, String>)
             })
             .collect::<Vec<_>>();
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
+    }
+    #[test]
+    fn honors_documented_panic_contracts_without_leaking_to_other_functions() {
+        let source = r#"/// # Panics
+/// If the caller provides an unknown field or invalid index.
+fn new_unchecked(
+    field: &str,
+) -> Self {
+    info.index_of(field).expect("Field name should exist");
+    field.parse().expect("Field name should be a valid tuple index");
+    values.get(index).unwrap();
+    fn nested() { external.unwrap(); }
+    value.unwrap();
+}
+fn external() {
+    let documentation = "/// # Panics";
+    value.unwrap();
+}
+/// An ordinary function, not a panic contract.
+fn sibling() { value.expect("always present by construction"); }
+"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-unwrap".to_owned(), 9),
+                ("rust-unwrap".to_owned(), 14),
+                ("rust-expect".to_owned(), 17),
+            ]
+        );
+    }
+
+    #[test]
+    fn honors_literal_doc_attributes_without_leaking_panic_policy() {
+        let source = r##"macro_rules! taskpool {
+    () => {
+        #[doc = concat!("Gets the global instance.")]
+        #[doc = ""]
+        #[doc = " # Panics"]
+        #[doc = " Panics if the global instance has not been initialized yet."]
+        #[cfg_attr(
+            target_arch = "wasm32",
+            expect(unused_mut, reason = "not mutated on this target")
+        )]
+        pub fn get() {
+            value.expect("initialize the pool first");
+            value.unwrap();
+            panic!("pool not initialized");
+            fn nested() { value.expect("required"); }
+        }
+        fn sibling() { value.unwrap(); panic!("mismatched values"); }
+    };
+}"##;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-unwrap" | "rust-expect" | "rust-panic-macro"
+                )
+            })
+            .map(|finding| {
+                assert_eq!(finding.path, "src/lib.rs");
+                (finding.code, finding.line)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-unwrap".to_owned(), 17),
+                ("rust-expect".to_owned(), 15),
+                ("rust-panic-macro".to_owned(), 17),
+            ]
+        );
+    }
+
+    #[test]
+    fn attaches_panic_docs_across_multiline_attributes_and_qualifiers() {
+        let source = r##"/// # Panics
+/// If the caller supplies a mismatched value.
+#[expect(
+    clippy::match_same_arms,
+    // This comment belongs to the attribute, not a neighboring function.
+    reason = "the variants have different semantics"
+)]
+#[inline]
+pub(crate) unsafe fn checked() {
+    value.unwrap();
+    panic!("mismatched values");
+}
+/**
+ * # Panics
+ * If the global instance is not initialized.
+ */
+pub async fn initialized() { value.expect("initialize first"); }
+#[
+    doc = r#" # Panics
+If the requested value is missing."#
+]
+fn raw_documented() { value.unwrap(); }
+fn sibling() { value.unwrap(); }
+"##;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-unwrap" | "rust-expect" | "rust-panic-macro"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![("rust-unwrap".to_owned(), 23)]);
+    }
+
+    #[test]
+    fn rejects_unattached_quoted_and_nonliteral_panic_documentation() {
+        let source = r###"#[doc = "# Panics"]
+struct DocumentedType;
+fn sibling() { value.unwrap(); }
+#[deprecated(note = "Panics if the value is missing")]
+fn unrelated_attribute() { value.expect("required"); }
+#[doc = concat!("# Panics", " if input is invalid")]
+fn unresolved_documentation() { panic!("invalid input"); }
+// #[doc = "# Panics"]
+fn comment() { value.unwrap(); }
+const EXAMPLE: &str = r##"#[doc = "# Panics"]
+fn quoted() {}"##;
+fn quoted_neighbor() { value.unwrap(); }
+//// # Panics
+fn ordinary_comment() { value.unwrap(); }
+/// # Panics
+trait Contract { fn required(); }
+fn after_trait() { value.unwrap(); }
+"###;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-unwrap" | "rust-expect" | "rust-panic-macro"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-unwrap".to_owned(), 3),
+                ("rust-unwrap".to_owned(), 9),
+                ("rust-unwrap".to_owned(), 12),
+                ("rust-unwrap".to_owned(), 14),
+                ("rust-unwrap".to_owned(), 17),
+                ("rust-expect".to_owned(), 5),
+                ("rust-panic-macro".to_owned(), 7),
+            ]
+        );
+
+        let malformed = "#[doc = \"# Panics\"\nfn runtime() { value.unwrap(); }";
+        assert_eq!(
+            findings(malformed)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-unwrap")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+    }
+
+    #[test]
+    fn honors_multiline_lint_allowances_on_the_attributed_item_only() {
+        let source = r##"fn ffi() {
+    #[allow(
+        clippy::undocumented_unsafe_blocks,
+        reason = "safety comment on the containing block (see docs)"
+    )]
+    unsafe { invoke(); }
+    unsafe { undocumented(); }
+}
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "caller contract"
+)]
+#[inline]
+fn unchecked(
+    value: Option<u8>,
+) -> u8 {
+    other.expect("required");
+    value.unwrap()
+}
+fn checked(value: Option<u8>) { value.unwrap(); }
+// #![allow(clippy::undocumented_unsafe_blocks)]
+const EXAMPLE: &str = "#![allow(clippy::expect_used)]";
+fn runtime() { value.expect("required"); }
+"##;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-undocumented-unsafe-block" | "rust-unwrap" | "rust-expect"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-unwrap".to_owned(), 21),
+                ("rust-expect".to_owned(), 24),
+                ("rust-undocumented-unsafe-block".to_owned(), 7),
+            ]
+        );
+    }
+
+    #[test]
+    fn attaches_safety_comments_to_multiline_containing_expressions() {
+        let source = r#"fn access() {
+    // SAFETY: the row was bounds-checked.
+    self.get_column(component_id)
+        .map(|column| unsafe { column.get_unchecked(row) });
+    /* SAFETY: pointer is valid. */ unsafe { pointer.read(); }
+    // SAFETY: applies only to the first call.
+    unsafe { first(); }
+    unsafe { second(); }
+    // SAFETY: an unrelated completed statement is not a rationale.
+    consume();
+    values.map(|value| unsafe { third(value) });
+    let sample = "// SAFETY: not a source comment";
+    unsafe { fourth(); }
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![8, 11, 13]);
+    }
+
+    #[test]
+    fn distinguishes_lock_guards_from_copied_and_extracted_values() {
+        let source = r#"use parking_lot::Mutex;
+async fn copied() {
+    let id = *self.id.lock();
+    consume(id).await;
+}
+async fn extracted() {
+    let mut examples =
+        std::mem::take(&mut *finished.lock().unwrap());
+    consume(&mut examples).await;
+}
+async fn retained() {
+    let guard =
+        self.values
+            .lock();
+    consume(&guard).await;
+}
+async fn standard() {
+    let guard = values.lock().unwrap();
+    consume(&guard).await;
+}
+"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-sync-lock-across-await")
+            .map(|finding| (finding.line, finding.confidence))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![(12, "high".to_owned()), (18, "high".to_owned())]
+        );
+    }
+
+    #[test]
+    fn does_not_count_nested_future_awaits_as_guard_suspension() {
+        let source = r#"use parking_lot::Mutex;
+async fn spawn_tasks() {
+    let mut tasks = self.tasks.lock();
+    tasks.push(spawn(async move {
+        work().await;
+    }));
+}
+async fn retained() {
+    let guard = self.values.lock();
+    let task = async { work().await; };
+    consume(&guard).await;
+}
+async fn nested_guard() {
+    spawn(async move {
+        let guard = self.values.lock();
+        work(&guard).await;
+    });
+}
+"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-sync-lock-across-await")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![9, 15]);
+    }
+
+    #[test]
+    fn reports_nested_async_blocking_calls_once_and_keeps_filesystem_risks() {
+        let source = r#"async fn work() {
+    let nested = async {
+        std::fs::read(path);
+        std::fs::create_dir_all(path);
+    };
+    tokio::task::spawn_blocking(|| {
+        std::fs::read(other_path);
+    }).await;
+    smol::unblock(|| std::fs::write(path, bytes)).await;
+    let example = "std::thread::sleep(delay)";
+    // std::fs::remove_file(path);
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-blocking-call-in-async")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![("src/lib.rs".to_owned(), 3), ("src/lib.rs".to_owned(), 4)]
+        );
+    }
+
+    #[test]
+    fn resolves_imported_offloads_without_hiding_async_tasks_or_eager_arguments() {
+        let source = r#"use deno_core::unsync::spawn_blocking;
+use tokio::task::spawn_blocking as blocking;
+async fn work() {
+    spawn_blocking(move || {
+        std::fs::read(path);
+    });
+    blocking(|| std::fs::write(path, bytes));
+    tokio::task::spawn_blocking({
+        std::fs::remove_file(path);
+        || {}
+    });
+    spawn_blocking(|| async {
+        std::fs::create_dir_all(path);
+    });
+    spawn_subcommand(async {
+        std::fs::remove_dir_all(path);
+    });
+    let example = "spawn_blocking(|| std::fs::read(path))";
+    // std::fs::read(path);
+}"#;
+        let mut selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-blocking-call-in-async")
+            .map(|finding| (finding.path, finding.line, finding.confidence))
+            .collect::<Vec<_>>();
+        selected.sort();
+        assert_eq!(
+            selected,
+            vec![
+                ("src/lib.rs".to_owned(), 9, "high".to_owned()),
+                ("src/lib.rs".to_owned(), 13, "high".to_owned()),
+                ("src/lib.rs".to_owned(), 16, "high".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_unknown_shadowed_and_out_of_scope_offload_names_reportable() {
+        for source in [
+            r#"use custom::spawn_blocking;
+async fn work() { spawn_blocking(|| std::fs::read(path)); }"#,
+            r#"use tokio::task::spawn_blocking;
+async fn work(spawn_blocking: Callback) { spawn_blocking(|| std::fs::read(path)); }"#,
+            r#"mod other { use tokio::task::spawn_blocking; }
+async fn work() { spawn_blocking(|| std::fs::read(path)); }"#,
+            r#"const EXAMPLE: &str = "use tokio::task::spawn_blocking;";
+async fn work() { spawn_blocking(|| std::fs::read(path)); }"#,
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-blocking-call-in-async")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>();
+            assert_eq!(selected, vec![2], "{source}");
+        }
+    }
+
+    #[test]
+    fn excludes_nested_function_items_but_not_executing_closures_or_async_functions() {
+        let source = r#"async fn compile() {
+    struct Cleanup;
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            std::fs::remove_file(path);
+        }
+    }
+    fn helper() { std::fs::read(path); }
+    async fn nested() { std::fs::write(path, bytes); }
+    let callback = || std::fs::create_dir_all(path);
+    callback();
+    std::fs::copy(from, to);
+}"#;
+        let mut selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-blocking-call-in-async")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        selected.sort();
+        assert_eq!(selected, vec![9, 10, 12]);
+    }
+
+    #[test]
+    fn scopes_inner_lint_allowances_and_multiline_conversion_attributes() {
+        let source = r#"mod internal {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "internal caller contract"
+    )]
+    fn run() {
+        value.unwrap();
+        unsafe { invoke(); }
+    }
+}
+fn outside() {
+    value.unwrap();
+    unsafe { undocumented(); }
+}
+#[allow(
+    clippy::from_over_into,
+    reason = "conversion ownership"
+)]
+impl
+    Into<Output>
+    for Input
+{
+    fn into(self) -> Output { Output }
+}
+impl Into<Other> for Input {}
+"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-unwrap"
+                        | "rust-undocumented-unsafe-block"
+                        | "rust-impl-into-instead-of-from"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-unwrap".to_owned(), 13),
+                ("rust-undocumented-unsafe-block".to_owned(), 14),
+                ("rust-impl-into-instead-of-from".to_owned(), 26),
+            ]
+        );
+    }
+
+    #[test]
+    fn lint_allowances_do_not_hide_unrelated_calls_on_the_same_line() {
+        let source = r#"#[allow(clippy::unwrap_used)] fn allowed() { value.unwrap(); } fn other() { value.unwrap(); }
+fn ffi() { #[allow(clippy::undocumented_unsafe_blocks)] unsafe { allowed(); } unsafe { undocumented(); } }
+/* SAFETY: all fields are thread-safe. */ unsafe impl Send for Handle {}
+unsafe impl Sync for Other {}
+"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-unwrap" | "rust-undocumented-unsafe-block" | "rust-manual-send-sync-impl"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-unwrap".to_owned(), 1),
+                ("rust-undocumented-unsafe-block".to_owned(), 2),
+                ("rust-manual-send-sync-impl".to_owned(), 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_documented_utf8_reconstruction_but_not_arbitrary_expect_messages() {
+        let source = r#"fn reconstruct(bytes: Vec<u8>) {
+    String::from_utf8(bytes).expect("masking preserves UTF-8");
+    String::from_utf8(self.masked).expect("masked Rust must remain UTF-8");
+    String::from_utf8(normalized).expect("normalized source must remain UTF-8");
+    String::from_utf8(structured).expect("structured source must remain UTF-8");
+    String::from_utf8(stripped).expect("stripped source must remain UTF-8");
+    String::from_utf8(input).expect("input is always valid UTF-8");
+    String::from_utf8(input).expect("invalid UTF-8 data");
+    read_network().expect("masking preserves UTF-8");
+    dynamic.expect("always present by construction");
+    (String::from_utf8(mask).expect("mask preserves UTF-8"), dynamic.expect("failure"));
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-expect")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![7, 8, 9, 10, 11]);
+    }
+
+    #[test]
+    fn attaches_safety_rationales_to_fields_match_arms_and_conditions() {
+        let source = r#"fn access() {
+    let value = Pair {
+        // SAFETY: the referenced cell remains uniquely borrowed.
+        field: unsafe { cell.read() },
+    };
+    match status {
+        // SAFETY: the row and pointer satisfy the caller contract.
+        (Added, _) => unsafe { initialize(); },
+        _ => {}
+    }
+    // SAFETY: only a borrowed backend handle is retrieved.
+    if unsafe { device.raw_handle() }.is_some() {}
+    // SAFETY: this applies to the copied field only.
+    *unsafe { pointer.field() };
+    unsafe { undocumented(); }
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![15]);
+    }
+
+    #[test]
+    fn accepts_fresh_same_owner_roundtrips_and_trait_object_unsizing_only() {
+        let source = r#"fn convert() {
+    unsafe { Box::from_raw(Box::into_raw(owner)) };
+    unsafe { Rc::from_raw(Rc::into_raw(owner) as *const dyn Service) };
+    unsafe {
+        Arc::from_raw(
+            Arc::into_raw(callback) as *const (dyn Fn() + Send + Sync + 'static)
+        )
+    };
+    unsafe { Box::from_raw(Box::into_raw(owner) as *mut dyn Service) };
+    unsafe { Box::from_raw(pointer) };
+    unsafe { Arc::from_raw(Rc::into_raw(owner) as *const dyn Service) };
+    unsafe { Arc::from_raw(Arc::into_raw(owner) as *const Other) };
+    unsafe { Arc::from_raw(Arc::into_raw(owner).add(1) as *const dyn Service) };
+    unsafe { Arc::from_raw(custom::Arc::into_raw(owner) as *const dyn Service) };
+    unsafe { Arc::from_raw(Arc::into_raw(owner).cast::<Other>()) };
+    unsafe { Vec::from_raw_parts(pointer, len, capacity) };
+    // Arc::from_raw(Arc::into_raw(owner) as *const dyn Service)
+    let example = "Box::from_raw(pointer)";
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-raw-ownership-reconstruction")
+            .map(|finding| (finding.path, finding.line, finding.confidence))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            (10..=16)
+                .map(|line| ("src/lib.rs".to_owned(), line, "high".to_owned()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn retains_undocumented_platform_calls_and_quoted_unsafe_review() {
+        let source = r#"fn platform(signal: i32) {
+    let signame = unsafe { libc::strsignal(signal) };
+    if !signame.is_null() {
+        let text = unsafe { std::ffi::CStr::from_ptr(signame) };
+    }
+    quote! { unsafe { emitted_pointer.read() } };
+    // SAFETY: returned by the platform API and checked for null above.
+    let text = unsafe { std::ffi::CStr::from_ptr(signame) };
+    // Perform the platform operation.
+    unsafe { windows_call() };
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| (finding.path, finding.line, finding.confidence))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            [2, 4, 6, 10].map(|line| ("src/lib.rs".to_owned(), line, "high".to_owned()))
+        );
+    }
+
+    #[test]
+    fn accepts_only_documented_matching_direct_owner_roundtrips() {
+        let source = r#"fn convert(owner: Box<Inner>, arc: Arc<Inner>, pointer: *mut Inner) {
+    // SAFETY: Wrapper is a transparent wrapper around Inner.
+    unsafe { Box::from_raw(Box::into_raw(owner) as *mut Wrapper) };
+    // SAFETY: Wrapper is repr(transparent) around Inner.
+    unsafe {
+        Arc::from_raw(
+            Arc::into_raw(arc).cast::<Wrapper>()
+        )
+    };
+    // SAFETY: pointer is valid and ownership is documented elsewhere.
+    unsafe { Box::from_raw(pointer) };
+    // SAFETY: Wrapper is a transparent wrapper around Inner.
+    unsafe { Box::from_raw(Rc::into_raw(rc) as *mut Wrapper) };
+    // SAFETY: Wrapper is a transparent wrapper around Inner.
+    unsafe { Box::from_raw(Box::into_raw(owner).add(1)) };
+    // SAFETY: Wrapper is a transparent wrapper around Inner.
+    completed();
+    unsafe { Box::from_raw(Box::into_raw(owner).cast()) };
+    // SAFETY: Wrapper is a transparent wrapper around Inner.
+    unsafe { Vec::from_raw_parts(pointer, len, capacity) };
+    unsafe { std::slice::from_raw_parts(pointer, len) };
+    custom::Box::from_raw(pointer);
+    custom::Arc::from_raw(pointer);
+    custom::Slice::from_raw_parts(pointer, len);
+    // Box::from_raw(pointer);
+    let example = "Box::from_raw(pointer)";
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-raw-ownership-reconstruction")
+            .map(|finding| (finding.path, finding.line, finding.confidence))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            [11, 13, 15, 18, 20].map(|line| ("src/lib.rs".to_owned(), line, "high".to_owned()))
+        );
+    }
+
+    #[test]
+    fn honors_targeted_expect_policies_without_leaking_to_neighbors() {
+        let source = r##"fn transfer() {
+    #[expect(
+        clippy::mem_forget,
+        reason = "the moving pointer must not run its destructor (ownership transfer)"
+    )]
+    std::mem::forget(
+        owner
+    );
+    std::mem::forget(other);
+    #[expect(clippy::borrowed_box)]
+    unsafe { undocumented(); }
+    #[expect(clippy::undocumented_unsafe_blocks)]
+    unsafe { invoke(); }
+    unsafe { undocumented_again(); }
+    #[expect(clippy::unwrap_used)]
+    value.unwrap();
+    another.unwrap();
+    // #[expect(clippy::mem_forget)]
+    let example = "#![expect(clippy::undocumented_unsafe_blocks)]";
+    mem::forget(last);
+}
+mod internal {
+    #![expect(clippy::mem_forget)]
+    fn leak() { mem::forget(owner); }
+}
+fn outside() { mem::forget(owner); }
+"##;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-mem-forget" | "rust-undocumented-unsafe-block" | "rust-unwrap"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-unwrap".to_owned(), 17),
+                ("rust-mem-forget".to_owned(), 9),
+                ("rust-mem-forget".to_owned(), 20),
+                ("rust-mem-forget".to_owned(), 26),
+                ("rust-undocumented-unsafe-block".to_owned(), 11),
+                ("rust-undocumented-unsafe-block".to_owned(), 14),
+            ]
+        );
+    }
+
+    #[test]
+    fn inherits_unsafe_policy_only_through_unambiguous_declared_modules() {
+        let sources = BTreeMap::from([
+            ("ffi/lib.rs", r#"#![allow(clippy::undocumented_unsafe_blocks)]
+pub mod api;
+mod denied;
+mod ambiguous;
+mod inline { mod unreachable; }
+// mod commented;
+const EXAMPLE: &str = "mod quoted;";
+"#),
+            ("ffi/api.rs", "pub mod child;\nfn api() { unsafe { invoke(); } }\n"),
+            ("ffi/api/child.rs", "fn child() { unsafe { invoke(); } }\n"),
+            ("ffi/denied.rs", "#![deny(clippy::undocumented_unsafe_blocks)]\nmod child;\nfn api() { unsafe { invoke(); } }\n"),
+            ("ffi/denied/child.rs", "fn child() { unsafe { invoke(); } }\n"),
+            ("ffi/ambiguous.rs", "fn flat() { unsafe { invoke(); } }\n"),
+            ("ffi/ambiguous/mod.rs", "fn nested() { unsafe { invoke(); } }\n"),
+            ("ffi/unreachable.rs", "fn sibling() { unsafe { invoke(); } }\n"),
+            ("ffi/commented.rs", "fn sibling() { unsafe { invoke(); } }\n"),
+            ("ffi/quoted.rs", "fn sibling() { unsafe { invoke(); } }\n"),
+            ("elsewhere/lib.rs", "fn unrelated() { unsafe { invoke(); } }\n"),
+        ]).into_iter().map(|(path, source)| (path.to_owned(), source.to_owned())).collect();
+        let selected = analyze(&sources)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("elsewhere/lib.rs".to_owned(), 1),
+                ("ffi/ambiguous.rs".to_owned(), 1),
+                ("ffi/ambiguous/mod.rs".to_owned(), 1),
+                ("ffi/commented.rs".to_owned(), 1),
+                ("ffi/denied.rs".to_owned(), 3),
+                ("ffi/denied/child.rs".to_owned(), 1),
+                ("ffi/quoted.rs".to_owned(), 1),
+                ("ffi/unreachable.rs".to_owned(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_inherit_unsafe_policy_across_custom_or_shared_crate_roots() {
+        let sources = BTreeMap::from([
+            (
+                "custom/lib.rs",
+                "#![expect(clippy::undocumented_unsafe_blocks)]\n#[path = \"other.rs\"] mod api;\n",
+            ),
+            ("custom/api.rs", "fn api() { unsafe { invoke(); } }\n"),
+            ("custom/other.rs", "fn other() { unsafe { invoke(); } }\n"),
+            (
+                "shared/lib.rs",
+                "#![allow(clippy::undocumented_unsafe_blocks)]\nmod api;\n",
+            ),
+            ("shared/main.rs", "mod api;\nfn main() {}\n"),
+            ("shared/api.rs", "fn api() { unsafe { invoke(); } }\n"),
+        ])
+        .into_iter()
+        .map(|(path, source)| (path.to_owned(), source.to_owned()))
+        .collect();
+        let selected = analyze(&sources)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| finding.path)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec!["custom/api.rs", "custom/other.rs", "shared/api.rs"]
+        );
+    }
+
+    #[test]
+    fn keeps_unsafe_function_contracts_separate_from_block_rationales() {
+        let source = r#"/// # Safety
+/// The pointer must remain valid for this call.
+unsafe fn read(pointer: *mut Value) {
+    unsafe { pointer.read(); }
+}
+fn generated() {
+    // SAFE: the generated wrapper has the same representation.
+    unsafe { convert(); }
+    // SAFETY: this expression is never evaluated.
+    Wrapper { ..unsafe { pointer.read() } };
+    match state {
+        // SAFETY: the caller upholds this operation's requirements.
+        State::Ready { value, .. } => unsafe { invoke(value) },
+        _ => {}
+    }
+    // SAFETY: an unrelated completed block must not donate its rationale.
+    if ready { prepare(); }
+    unsafe { undocumented(); }
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![4, 18]);
+    }
+
+    #[test]
+    fn honors_expect_for_panic_and_conversion_policy_only_on_its_item() {
+        let source = r#"#[expect(clippy::panic, reason = "explicit abort policy")]
+fn intentional() { panic!("abort"); }
+fn unexpected() { panic!("runtime failure"); }
+#[expect(
+    clippy::from_over_into,
+    reason = "conversion policy is explicit"
+)]
+impl Into<Target> for Source { fn into(self) -> Target { Target } }
+impl Into<Other> for Different { fn into(self) -> Other { Other } }
+"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "rust-panic-macro" | "rust-impl-into-instead-of-from"
+                )
+            })
+            .map(|finding| (finding.code, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("rust-panic-macro".to_owned(), 3),
+                ("rust-impl-into-instead-of-from".to_owned(), 9),
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_mistake_custom_multiline_or_borrowed_raw_apis_for_owners() {
+        let source = r#"fn borrow(pointer: *const u8, len: usize) {
+    unsafe { custom ::
+        Box::from_raw(pointer) };
+    unsafe { custom::Slice::from_raw_parts(pointer, len) };
+    unsafe { std::slice::from_raw_parts(pointer, len) };
+    // SAFETY: The custom transfer is intentional.
+    unsafe { ::std::boxed::Box::from_raw(pointer) };
+    // SAFETY: pointer is valid, but provenance is not local.
+    unsafe { Box::from_raw(pointer) };
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-raw-ownership-reconstruction")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![7, 9]);
+    }
+
+    #[test]
+    fn deny_and_forbid_prevent_unsafe_allowance_inheritance() {
+        let sources = BTreeMap::from([
+            ("ffi/lib.rs", "#![allow(clippy::undocumented_unsafe_blocks)]\nmod denied;\nmod forbidden;\n"),
+            ("ffi/denied.rs", "#![expect(clippy::undocumented_unsafe_blocks)]\n#[deny(clippy::undocumented_unsafe_blocks)]\nfn api() { unsafe { invoke(); } }\n"),
+            ("ffi/forbidden.rs", "#![forbid(clippy::undocumented_unsafe_blocks)]\nfn api() { unsafe { invoke(); } }\n"),
+        ]).into_iter().map(|(path, source)| (path.to_owned(), source.to_owned())).collect();
+        let selected = analyze(&sources)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("ffi/denied.rs".to_owned(), 3),
+                ("ffi/forbidden.rs".to_owned(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_qualified_standard_owner_reconstructions_with_arbitrary_provenance() {
+        let source = r#"fn reclaim(pointer: *mut Value) {
+    unsafe { std::boxed::Box::from_raw(pointer) };
+    unsafe { alloc::boxed::Box::from_raw(pointer) };
+    unsafe { ::std::sync::Arc::from_raw(pointer) };
+    unsafe { std::vec::Vec::from_raw_parts(pointer, len, capacity) };
+    unsafe { alloc::rc::Rc::from_raw(pointer) };
+    unsafe { custom::boxed::Box::from_raw(pointer) };
+}"#;
+        let selected = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-raw-ownership-reconstruction")
+            .map(|finding| finding.line)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn scopes_declared_module_denials_without_disabling_sibling_policy() {
+        let sources = BTreeMap::from([
+            ("ffi/lib.rs", "#![allow(clippy::undocumented_unsafe_blocks)]\n#[deny(clippy::undocumented_unsafe_blocks)]\nmod denied;\nmod allowed;\n"),
+            ("ffi/denied.rs", "mod child;\nfn api() { unsafe { invoke(); } }\n"),
+            ("ffi/denied/child.rs", "fn api() { unsafe { invoke(); } }\n"),
+            ("ffi/allowed.rs", "#[forbid(clippy::undocumented_unsafe_blocks)]\nmod forbidden;\nmod child;\nfn api() { unsafe { invoke(); } }\n"),
+            ("ffi/allowed/forbidden.rs", "fn api() { unsafe { invoke(); } }\n"),
+            ("ffi/allowed/child.rs", "fn api() { unsafe { invoke(); } }\n"),
+        ]).into_iter().map(|(path, source)| (path.to_owned(), source.to_owned())).collect();
+        let selected = analyze(&sources)
+            .into_iter()
+            .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                ("ffi/allowed/forbidden.rs".to_owned(), 1),
+                ("ffi/denied.rs".to_owned(), 2),
+                ("ffi/denied/child.rs".to_owned(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn attaches_invariant_comments_to_multiline_panic_expressions() {
+        for source in [
+            "fn domain() {\n// The non-emptiness invariant guarantees success.\nInterval::new(0.0, self.length())\n    .expect(\"invalid curve\");\n}",
+            "fn domain() {\n/* The constructor guarantees this invariant.\n   The collection cannot be empty. */\nself.values\n    .first()\n    .unwrap();\n}",
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+                .collect::<Vec<_>>();
+            assert!(selected.is_empty(), "{source}");
+        }
+        for source in [
+            "fn f() {\n// The invariant covers this operation only.\ncomplete();\nvalue\n    .unwrap();\n}",
+            "fn f() {\n// The invariant covers this nested operation only.\nif ready { complete(); }\nvalue\n    .unwrap();\n}",
+            "fn f() {\nlet example = \"// The invariant guarantees success.\";\nvalue\n    .unwrap();\n}",
+            "fn f() {\n// The call may fail on invalid input.\nvalue\n    .expect(\"value\");\n}",
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| matches!(finding.code.as_str(), "rust-unwrap" | "rust-expect"))
+                .collect::<Vec<_>>();
+            assert_eq!(selected.len(), 1, "{source}");
+            assert_eq!(selected[0].path, "src/lib.rs");
+            assert_eq!(selected[0].confidence, "high");
+            assert!(selected[0].related_files.is_empty());
+            let offset = source.rfind('.').unwrap();
+            assert_eq!(selected[0].line, source[..offset].lines().count());
+        }
+    }
+
+    #[test]
+    fn attaches_safety_rationales_to_containing_macro_expressions() {
+        for source in [
+            "fn emit() {\n// SAFETY: generated fields have the declared offsets and types.\nquote! {{\n    let fields = &[#(#fields),*];\n    Kind::Struct(unsafe { Struct::new(fields) })\n}};\n}",
+            "fn emit() {\n// SAFETY: layout and vtable are generated from Self.\nOk(quote! {\n    unsafe impl Typed for Target {\n        const TYPE: Type = { unsafe { Type::new() } };\n    }\n})\n}",
+            "fn emit() {\nmatch &implementation {\n    // SAFETY (all cases below): caller guarantees a valid pointer.\n    Custom(callback, span) => quote_spanned! {span=>\n        (|ptr| { unsafe { callback(ptr) } })\n    },\n}\n}",
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+                .collect::<Vec<_>>();
+            assert!(selected.is_empty(), "{source}");
+        }
+        for source in [
+            "fn emit() {\n// SAFETY: applies to the completed macro only.\nquote! { valid() };\nquote! { unsafe { undocumented() } };\n}",
+            "fn emit() {\n// SAFETY: applies to the completed expression only.\ncomplete();\nquote! { unsafe { undocumented() } };\n}",
+            "fn emit() {\nlet example = \"// SAFETY: not a real comment\";\nquote! { unsafe { undocumented() } };\n}",
+            "/// # Safety\n/// The caller must provide a valid pointer.\nunsafe fn read() {\n    quote! { unsafe { undocumented() } };\n}",
+            "fn emit() {\n// SAFETY: a match-level comment is not attached to a nested arm.\nmatch &implementation {\n    Custom(callback, span) => quote_spanned! {span=> unsafe { callback() } },\n}\n}",
+        ] {
+            let selected = findings(source)
+                .into_iter()
+                .filter(|finding| finding.code == "rust-undocumented-unsafe-block")
+                .collect::<Vec<_>>();
+            assert_eq!(selected.len(), 1, "{source}");
+            assert_eq!(selected[0].path, "src/lib.rs");
+            assert_eq!(selected[0].confidence, "high");
+            assert!(selected[0].related_files.is_empty());
+            let offset = source.rfind("unsafe {").unwrap();
+            assert_eq!(selected[0].line, source[..offset].lines().count());
+        }
     }
 }

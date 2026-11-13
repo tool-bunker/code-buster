@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "GitHub expands expressions before invoking the shell, so attacker-controlled event or dispatch values can inject commands into a generated script.",
   "suggestion": "Assign the expression to an env value, validate it where appropriate, and reference the quoted shell variable from run.",
-  "version": 5,
+  "version": 6,
   "semanticMaturity": "project",
   "securityKind": "vulnerability",
   "taxonomy": [
@@ -27,7 +27,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only direct run commands in checked-in .github/workflows YAML files are inspected.",
-    "String inputs, github.event fields, and github.head_ref are treated as untrusted contexts; typed boolean, choice, and number workflow inputs plus GitHub's guaranteed numeric pull-request number and workflow-run head SHA are excluded. Only the complete github.event.repository.default_branch expression is also excluded because it identifies the trusted base repository's default branch; pull-request head repository fields, property extensions, and mixed expressions remain untrusted. The rule does not perform cross-step data-flow analysis."
+    "Only direct run commands in checked-in .github/workflows YAML files are inspected; sibling env mappings and non-run block-scalar contents are not shell commands.",
+    "String and choice inputs, github.event fields, and github.head_ref are treated as untrusted. Complete boolean and number input expressions declared under on.workflow_dispatch or on.workflow_call are excluded; github.event.inputs aliases require workflow_dispatch declarations. Choice declarations do not prove shell-safe values or API-side option validation. Complete event.number, event.before, event.after, pull-request number and head/base SHA, workflow-run head SHA, and the trusted base repository default-branch expressions are excluded. Names, refs, titles, property extensions, and expressions mixing safe and untrusted values remain reportable.",
+    "The rule does not perform cross-step data-flow analysis or fully parse GitHub expression syntax."
   ]
 }

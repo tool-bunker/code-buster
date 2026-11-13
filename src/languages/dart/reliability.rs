@@ -154,18 +154,12 @@ fn scope_range(source: &str, marker: regex::Match<'_>) -> Option<(usize, usize)>
 
 fn expression_end(source: &str, start: usize) -> usize {
     let bytes = source.as_bytes();
-    let mut depths = [0usize; 3];
+    let mut depth = super::DelimiterDepth::default();
     for (index, byte) in bytes.iter().enumerate().skip(start) {
-        match *byte {
-            b'(' => depths[0] += 1,
-            b')' if depths[0] > 0 => depths[0] -= 1,
-            b'[' => depths[1] += 1,
-            b']' if depths[1] > 0 => depths[1] -= 1,
-            b'{' => depths[2] += 1,
-            b'}' if depths[2] > 0 => depths[2] -= 1,
-            b',' | b';' if depths == [0, 0, 0] => return index,
-            _ => {}
+        if matches!(*byte, b',' | b';') && depth.is_top_level() {
+            return index;
         }
+        depth.consume(*byte);
     }
     source.len()
 }

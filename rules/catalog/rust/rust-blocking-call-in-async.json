@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Blocking an executor thread delays unrelated tasks and can exhaust the runtime under load.",
   "suggestion": "Use the runtime-native async API or move blocking work to spawn_blocking, unblock, or a dedicated thread.",
-  "version": 3,
+  "version": 5,
   "semanticMaturity": "ast",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,10 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only fully qualified known-blocking APIs are recognized; conventional asyncify wrappers are recognized, while other aliases and wrappers require type resolution.",
-    "Runtime scheduling and actual operation cost are not inferred."
+    "Only fully qualified known-blocking APIs are recognized. Conventional asyncify wrappers and direct root imports or aliases of known Tokio, async-std, smol, and Deno blocking offloads are recognized; grouped, glob, nested-module imports and arbitrary wrappers require resolution.",
+    "Offloading applies only to the submitted synchronous closure body, not eager argument evaluation or a nested async task. Ambiguous imported names with local bindings remain reportable.",
+    "Runtime scheduling and actual operation cost are not inferred. A generic executor spawn, CLI entry point, or synchronous filesystem adapter does not prove blocking work is offloaded.",
+    "Nested function item bodies are not executed merely by declaring them in async code; nested async functions are analyzed independently. Closures are not broadly suppressed.",
+    "Nested async scopes produce one finding per blocking call source location, not one finding per containing async scope."
   ]
 }

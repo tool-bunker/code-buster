@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Reconstructing an owner from a raw pointer requires matching provenance, allocator, layout, and exactly-once ownership.",
   "suggestion": "Keep the transfer local and document the originating into_raw contract, allocator, layout, and unique ownership.",
-  "version": 2,
+  "version": 4,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule cannot prove pointer provenance, allocator compatibility, uniqueness, or lifetime correctness.",
-    "Aliases and wrapper functions around ownership reconstruction are not resolved."
+    "The rule cannot prove pointer provenance, allocator compatibility, uniqueness, or lifetime correctness in general.",
+    "Direct matching Box, Rc, or Arc into_raw/from_raw transfers are excluded with no pointer conversion or a direct compiler-checked cast to a dyn trait-object pointer. Other pointer casts require an attached transparent-wrapper layout rationale. The original pointer must feed the same owner immediately and exactly once; pointer arithmetic, intermediate storage, owner-family changes, Vec raw-parts reconstruction, and arbitrary SAFETY comments do not establish this proof.",
+    "Borrowed slice and custom-qualified from_raw APIs are not ownership evidence. Locally shadowed standard type names, aliases, generic-qualified constructors, and wrapper functions are not resolved."
   ]
 }

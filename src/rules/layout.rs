@@ -174,7 +174,8 @@ fn should_report_long_line(
 }
 
 fn is_unwrappable_line(trimmed: &str) -> bool {
-    trimmed.starts_with("//")
+    trimmed.is_empty()
+        || trimmed.starts_with("//")
         || trimmed.starts_with("/*")
         || trimmed.starts_with('*')
         || trimmed.starts_with('#')
@@ -335,10 +336,49 @@ fn unescaped_backtick_count(line: &str) -> usize {
 }
 
 fn generic_line_limit(source_path: &str, root: &Path) -> usize {
-    biome_line_limit(source_path, root)
-        .or_else(|| prettier_line_limit(source_path, root))
-        .or_else(|| editor_config_line_limit(source_path, root))
-        .unwrap_or(0)
+    if web_formatter_source(source_path) {
+        return biome_line_limit(source_path, root)
+            .or_else(|| prettier_line_limit(source_path, root))
+            .or_else(|| editor_config_line_limit(source_path, root))
+            .unwrap_or(0);
+    }
+    editor_config_line_limit(source_path, root).unwrap_or(0)
+}
+
+fn web_formatter_source(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension,
+                "js" | "jsx"
+                    | "mjs"
+                    | "cjs"
+                    | "ts"
+                    | "tsx"
+                    | "mts"
+                    | "cts"
+                    | "css"
+                    | "less"
+                    | "scss"
+                    | "html"
+                    | "htm"
+                    | "vue"
+                    | "svelte"
+                    | "astro"
+                    | "gql"
+                    | "graphql"
+                    | "json"
+                    | "jsonc"
+                    | "yaml"
+                    | "yml"
+                    | "md"
+                    | "mdx"
+                    | "hbs"
+                    | "handlebars"
+            )
+        })
 }
 
 fn prettier_line_limit(source_path: &str, root: &Path) -> Option<usize> {
@@ -838,20 +878,30 @@ mod tests {
     }
 
     #[test]
-    fn applies_biome_prettier_and_editorconfig_line_policies() {
+    fn applies_web_widths_only_to_supported_syntax_and_keeps_explicit_editor_policies() {
         let root = TempRoot::new();
         root.write("plain/.prettierrc", r#"{"printWidth": 10}"#);
+        root.write("native/biome.json", r#"{"formatter": {"lineWidth": 10}}"#);
         root.write(
             "disabled/biome.json",
             r#"{"formatter": {"enabled": false}}"#,
         );
-        root.write("editor/.editorconfig", "[*.ts]\nmax_line_length = 12\n");
+        root.write(
+            "editor/.editorconfig",
+            "[*.{ts,rs}]\nmax_line_length = 12\n",
+        );
         let config = Config::defaults(root.path().to_path_buf());
         let findings = long_lines(
             &sources(&[
                 ("disabled/main.ts", "abcdefghijklmnopqrst"),
+                ("editor/main.rs", "abcdefghijklm"),
                 ("editor/main.ts", "abcdefghijklm"),
+                ("native/main.rs", "abcdefghijklmnopqrst"),
+                ("native/main.ts", "abcdefghijklmnopqrst"),
+                ("plain/main.rs", "abcdefghijklmnopqrst"),
                 ("plain/main.py", "abcdefghijklmnopqrst"),
+                ("plain/query.sql", "abcdefghijklmnopqrst"),
+                ("plain/script", "abcdefghijklmnopqrst"),
                 ("plain/main.ts", "abcdefghijklmnopqrst"),
             ]),
             &config,
@@ -860,12 +910,13 @@ mod tests {
         assert_eq!(
             findings
                 .iter()
-                .map(|finding| (finding.path.as_str(), finding.message.as_str()))
+                .map(|finding| (finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
             vec![
-                ("editor/main.ts", "line length 13 > 12"),
-                ("plain/main.py", "line length 20 > 10"),
-                ("plain/main.ts", "line length 20 > 10"),
+                ("editor/main.rs", 1),
+                ("editor/main.ts", 1),
+                ("native/main.ts", 1),
+                ("plain/main.ts", 1),
             ]
         );
     }
@@ -895,6 +946,33 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![6]
         );
+    }
+
+    #[test]
+    fn ignores_test_mask_padding_but_keeps_long_production_code() {
+        let root = TempRoot::new();
+        root.write(".editorconfig", "[*.rs]\nmax_line_length = 40\n");
+        let config = Config::defaults(root.path().to_path_buf());
+        let raw_sources = sources(&[(
+            "src/lib.rs",
+            "fn production() { process(first_argument, second_argument); }\n\
+             #[cfg(test)]\n\
+             mod tests {\n\
+                 fn fixture() { process(first_argument, second_argument); }\n\
+             }\n",
+        )]);
+        let context =
+            crate::source_analysis_context::SourceAnalysisContext::unchanged(&raw_sources);
+        let findings = long_lines(context.sources(), &config);
+
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![("src/lib.rs", 1)]
+        );
+        assert!(long_lines(&sources(&[("src/blank.rs", &" ".repeat(80))]), &config,).is_empty());
     }
 
     #[test]

@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Architecture boundaries keep dependency direction and ownership explicit.",
   "suggestion": "Move, invert, or extract the dependency to satisfy declared policy.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [

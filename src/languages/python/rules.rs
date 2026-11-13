@@ -1154,11 +1154,11 @@ fn report_printed_exception(
     if !is_exception || current.index + 1 >= lines.len() {
         return;
     }
-    let handler_output = strip_quoted_strings(lines[current.index + 1])
-        .trim()
-        .to_owned();
+    let handler_call = continued_call(lines, current.index + 1);
+    let handler_output = mask_strings(&handler_call);
+    let handler_output = handler_output.trim();
     if !handler_output.starts_with("print(")
-        || STDERR_PRINT_TARGET.is_match(&handler_output)
+        || prints_to_stderr(handler_output)
         || exception_handler_terminates(lines, current.index)
     {
         return;
@@ -1171,6 +1171,22 @@ fn report_printed_exception(
         current.index + 2,
         "exception handler prints instead of logging",
     );
+}
+
+fn prints_to_stderr(call: &str) -> bool {
+    let Some(mut arguments) = parenthesized_body(call, "print".len()) else {
+        return false;
+    };
+    loop {
+        let argument = first_call_argument(arguments);
+        if STDERR_PRINT_TARGET.is_match(argument) {
+            return true;
+        }
+        let Some(remaining) = arguments[argument.len()..].strip_prefix(',') else {
+            return false;
+        };
+        arguments = remaining;
+    }
 }
 
 fn report_async_blocking_call(
@@ -1686,6 +1702,7 @@ fn has_linear_list_membership(line: &str, state: &PythonScanState) -> bool {
         && !line.starts_with("async for ")
         && PYTHON_MEMBERSHIP.captures_iter(line).any(|capture| {
             state.list_variables.contains(&capture[1])
+                && sequence_declared_before_loop(state, &capture[1])
                 && !is_iteration_clause(line, capture.get(0).unwrap().start())
         })
 }
@@ -2082,28 +2099,37 @@ fn exception_handler_retries_without_exit(
         if let Some(suite) = inline_suite(line) {
             return suite == "continue";
         }
-        let handler_indent = leading_indent(lines[handler]);
-        let handler_end = indented_block_end(lines, sanitized, handler, handler_indent).min(end);
-        let mut direct_indent = None;
-        let mut retries = false;
-        let mut exits = false;
-        for candidate in handler + 1..handler_end {
-            let statement = sanitized[candidate].trim();
-            if statement.is_empty() {
-                continue;
-            }
-            let indent = leading_indent(lines[candidate]);
-            if indent != *direct_indent.get_or_insert(indent) {
-                continue;
-            }
-            match statement.split_whitespace().next() {
-                Some("continue") => retries = true,
-                Some("break" | "return" | "raise") => exits = true,
-                _ => {}
-            }
-        }
-        retries && !exits
+        handler_body_retries_without_exit(lines, sanitized, handler, end)
     })
+}
+
+fn handler_body_retries_without_exit(
+    lines: &[&str],
+    sanitized: &[String],
+    handler: usize,
+    end: usize,
+) -> bool {
+    let handler_indent = leading_indent(lines[handler]);
+    let handler_end = indented_block_end(lines, sanitized, handler, handler_indent).min(end);
+    let mut direct_indent = None;
+    let mut retries = false;
+    let mut exits = false;
+    for candidate in handler + 1..handler_end {
+        let statement = sanitized[candidate].trim();
+        if statement.is_empty() {
+            continue;
+        }
+        let indent = leading_indent(lines[candidate]);
+        if indent != *direct_indent.get_or_insert(indent) {
+            continue;
+        }
+        match statement.split_whitespace().next() {
+            Some("continue") => retries = true,
+            Some("break" | "return" | "raise") => exits = true,
+            _ => {}
+        }
+    }
+    retries && !exits
 }
 
 fn is_interactive_validation_handler(
@@ -2766,8 +2792,25 @@ fn has_naming_contract_decorator(
     method_indent: usize,
     method_name: &str,
 ) -> bool {
+    let mut end = lines.sanitized.len();
+    while let Some((index, decorator)) = preceding_decorator(lines, end, method_indent) {
+        match naming_contract_decorator(decorator, method_name) {
+            Some(true) => return true,
+            None => return false,
+            Some(false) => {}
+        }
+        end = index;
+    }
+    false
+}
+
+fn preceding_decorator<'a>(
+    lines: &'a PythonSourceLines<'_>,
+    end: usize,
+    method_indent: usize,
+) -> Option<(usize, &'a str)> {
     let mut continuation_depth = 0;
-    for (index, code) in lines.sanitized.iter().enumerate().rev() {
+    for (index, code) in lines.sanitized[..end].iter().enumerate().rev() {
         let raw = lines.raw[index];
         let candidate = code.trim();
         if candidate.is_empty() {
@@ -2775,7 +2818,7 @@ fn has_naming_contract_decorator(
             {
                 continue;
             }
-            return false;
+            return None;
         }
         continuation_depth -= bracket_delta(candidate);
         if continuation_depth > 0 {
@@ -2785,15 +2828,11 @@ fn has_naming_contract_decorator(
             || leading_indent(raw) != method_indent
             || !candidate.starts_with('@')
         {
-            return false;
+            return None;
         }
-        match naming_contract_decorator(&candidate[1..], method_name) {
-            Some(true) => return true,
-            None => return false,
-            Some(false) => {}
-        }
+        return Some((index, &candidate[1..]));
     }
-    false
+    None
 }
 
 fn naming_contract_decorator(decorator: &str, method_name: &str) -> Option<bool> {
@@ -3509,7 +3548,7 @@ static OPEN_CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^\w.])op
 static BINARY_OPEN_MODE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?i)["'][rwa+x]*b[rwa+x]*["']"#).unwrap());
 static STDERR_PRINT_TARGET: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bfile\s*=\s*sys\.stderr\b").unwrap());
+    LazyLock::new(|| Regex::new(r"^\s*file\s*=\s*sys\.stderr\s*$").unwrap());
 static ASYNC_BLOCKING_CALL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:time\.sleep|requests\.(?:get|post)|subprocess\.run)\(").unwrap()
 });
@@ -3671,6 +3710,55 @@ mod tests {
                 ("py-subprocess-shell", 28),
                 ("py-subprocess-run-unchecked", 28),
             ]
+        );
+    }
+
+    #[test]
+    fn distinguishes_multiline_stderr_diagnostics_from_stdout_exception_prints() {
+        let cases = [
+            (
+                "stderr.py",
+                "try:\n    run()\nexcept ValueError as error:\n    print(\n        f'Invalid value: {error}',\n        file=sys.stderr,\n    )\n",
+            ),
+            (
+                "stderr_single.py",
+                "try:\n    run()\nexcept ValueError as error:\n    print(error, file = sys.stderr)\n",
+            ),
+            (
+                "stdout.py",
+                "try:\n    run()\nexcept ValueError as error:\n    print(\n        error,\n        file=sys.stdout,\n    )\n",
+            ),
+            (
+                "nested.py",
+                "try:\n    run()\nexcept ValueError as error:\n    print(render(error, file=sys.stderr))\n",
+            ),
+            (
+                "string.py",
+                "try:\n    run()\nexcept ValueError as error:\n    print('file=sys.stderr', error)\n",
+            ),
+            (
+                "neighbor.py",
+                "try:\n    run()\nexcept ValueError as error:\n    print(error)\n    print('diagnostic', file=sys.stderr)\n",
+            ),
+        ];
+        let sources = cases
+            .into_iter()
+            .map(|(path, source)| (path.to_owned(), source.to_owned()))
+            .collect::<BTreeMap<_, _>>();
+        let selected = analyze(&SourceAnalysisContext::unchanged(&sources))
+            .into_iter()
+            .filter(|finding| finding.code == "py-logging-exception")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected,
+            vec![
+                ("neighbor.py".to_owned(), 4),
+                ("nested.py".to_owned(), 4),
+                ("stdout.py".to_owned(), 4),
+                ("string.py".to_owned(), 4),
+            ],
         );
     }
 
@@ -4233,6 +4321,37 @@ examples = {"example": '{"password": "password_for_server"}'}
                 ("py-linear-membership-in-loop".to_owned(), 5),
                 ("py-string-concat-in-loop".to_owned(), 6),
             ]
+        );
+    }
+
+    #[test]
+    fn membership_advice_requires_a_list_reused_by_the_repeating_loop() {
+        let source = r#"def scan(items, blocked: list[str]):
+    for item in items:
+        labels = [entry.name for entry in item.labels]
+        if "hold" in labels:
+            continue
+        for candidate in item.candidates:
+            if candidate in labels:
+                consume(candidate)
+        if item.name in blocked:
+            consume(item)
+    # if "hold" in labels:
+    example = 'if "hold" in labels:'
+"#;
+        let sources = BTreeMap::from([("membership.py".to_owned(), source.to_owned())]);
+        let selected = analyze(&SourceAnalysisContext::unchanged(&sources))
+            .into_iter()
+            .filter(|finding| finding.code == "py-linear-membership-in-loop")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected,
+            vec![
+                ("membership.py".to_owned(), 7),
+                ("membership.py".to_owned(), 9),
+            ],
         );
     }
 

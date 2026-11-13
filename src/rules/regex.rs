@@ -357,13 +357,6 @@ struct CommentScan {
     in_block_comment: bool,
 }
 
-#[derive(Clone, Copy)]
-enum CommentScanState {
-    Code,
-    Quoted { delimiter: u8, escaped: bool },
-    BlockComment,
-}
-
 fn without_comments(
     line: &str,
     in_block_comment: bool,
@@ -371,79 +364,52 @@ fn without_comments(
     dash_comments: bool,
 ) -> CommentScan {
     let bytes = line.as_bytes();
-    let mut code = String::with_capacity(bytes.len());
-    let mut state = match in_block_comment {
-        true => CommentScanState::BlockComment,
-        false => CommentScanState::Code,
+    let mut scan = CommentScan {
+        code: String::with_capacity(bytes.len()),
+        in_block_comment,
     };
+    let mut quote = QuoteMaskState::Code;
     let mut copy_start = 0usize;
     let mut index = 0usize;
 
     while index < bytes.len() {
-        let byte = bytes[index];
-        let next = bytes.get(index + 1).copied();
-        match state {
-            CommentScanState::BlockComment => match (byte, next) {
-                (b'*', Some(b'/')) => {
-                    code.push(' ');
-                    index += 2;
-                    copy_start = index;
-                    state = CommentScanState::Code;
-                }
-                _ => {
-                    code.push(' ');
-                    index += 1;
-                    copy_start = index;
-                }
-            },
-            CommentScanState::Quoted { delimiter, escaped } => {
-                state = match (escaped, byte) {
-                    (true, _) => CommentScanState::Quoted {
-                        delimiter,
-                        escaped: false,
-                    },
-                    (false, b'\\') => CommentScanState::Quoted {
-                        delimiter,
-                        escaped: true,
-                    },
-                    (false, current) => match current == delimiter {
-                        true => CommentScanState::Code,
-                        false => CommentScanState::Quoted {
-                            delimiter,
-                            escaped: false,
-                        },
-                    },
-                };
-                index += 1;
-            }
-            CommentScanState::Code => match (byte, next, hash_comments, dash_comments) {
-                (b'"' | b'\'' | b'`', _, _, _) => {
-                    state = CommentScanState::Quoted {
-                        delimiter: byte,
-                        escaped: false,
-                    };
-                    index += 1;
-                }
-                (b'/', Some(b'*'), _, _) => {
-                    code.push_str(&line[copy_start..index]);
-                    code.push(' ');
-                    index += 2;
-                    copy_start = index;
-                    state = CommentScanState::BlockComment;
-                }
-                (b'/', Some(b'/'), _, _) | (b'#', _, true, _) | (b'-', Some(b'-'), _, true) => {
-                    code.push_str(&line[copy_start..index]);
-                    copy_start = bytes.len();
-                    break;
-                }
-                _ => index += 1,
-            },
+        if scan.in_block_comment {
+            index = scan.mask_block_comment(line, index);
+            copy_start = index;
+        } else if quote.consume_quoted(bytes[index]) {
+            index += 1;
+        } else if bytes[index..].starts_with(b"/*") {
+            scan.code.push_str(&line[copy_start..index]);
+            scan.code.push(' ');
+            index += 2;
+            copy_start = index;
+            scan.in_block_comment = true;
+        } else if bytes[index..].starts_with(b"//")
+            || (hash_comments && bytes[index] == b'#')
+            || (dash_comments && bytes[index..].starts_with(b"--"))
+        {
+            scan.code.push_str(&line[copy_start..index]);
+            copy_start = bytes.len();
+            break;
+        } else {
+            index += 1;
         }
     }
-    code.push_str(&line[copy_start..]);
-    CommentScan {
-        code,
-        in_block_comment: matches!(state, CommentScanState::BlockComment),
+    scan.code.push_str(&line[copy_start..]);
+    scan
+}
+
+impl CommentScan {
+    fn mask_block_comment(&mut self, line: &str, start: usize) -> usize {
+        if let Some(end) = line[start..].find("*/") {
+            self.code.extend(std::iter::repeat_n(' ', end + 1));
+            self.in_block_comment = false;
+            start + end + 2
+        } else {
+            self.code
+                .extend(std::iter::repeat_n(' ', line.len() - start));
+            line.len()
+        }
     }
 }
 
@@ -460,7 +426,7 @@ enum QuoteMaskTransition {
 }
 
 impl QuoteMaskState {
-    fn transition(&mut self, byte: u8, next: Option<u8>) -> QuoteMaskTransition {
+    fn consume_quoted(&mut self, byte: u8) -> bool {
         match *self {
             Self::Quoted { delimiter, escaped } => {
                 let next_escaped = !escaped && byte == b'\\';
@@ -472,17 +438,26 @@ impl QuoteMaskState {
                         escaped: next_escaped,
                     };
                 }
-                QuoteMaskTransition::Mask
+                true
             }
             Self::Code if matches!(byte, b'"' | b'\'' | b'`') => {
                 *self = Self::Quoted {
                     delimiter: byte,
                     escaped: false,
                 };
-                QuoteMaskTransition::Mask
+                true
             }
-            Self::Code if byte == b'/' && next == Some(b'/') => QuoteMaskTransition::MaskRemainder,
-            Self::Code => QuoteMaskTransition::Preserve,
+            Self::Code => false,
+        }
+    }
+
+    fn transition(&mut self, byte: u8, next: Option<u8>) -> QuoteMaskTransition {
+        if self.consume_quoted(byte) {
+            QuoteMaskTransition::Mask
+        } else if byte == b'/' && next == Some(b'/') {
+            QuoteMaskTransition::MaskRemainder
+        } else {
+            QuoteMaskTransition::Preserve
         }
     }
 }
@@ -518,34 +493,20 @@ fn has_runtime_interpolation(pattern: &str) -> bool {
 }
 
 fn is_valid_dart_pattern(pattern: &str) -> bool {
-    let bytes = pattern.as_bytes();
+    let mut lexical = PatternLexicalState::default();
     let mut parentheses = 0usize;
-    let mut in_class = false;
-    let mut escaped = false;
-    for byte in bytes {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if *byte == b'\\' {
-            escaped = true;
-            continue;
-        }
-        if in_class {
-            if *byte == b']' {
-                in_class = false;
-            }
+    for byte in pattern.bytes() {
+        if !lexical.consume_syntax(byte) {
             continue;
         }
         match byte {
-            b'[' => in_class = true,
             b'(' => parentheses += 1,
             b')' if parentheses == 0 => return false,
             b')' => parentheses -= 1,
             _ => {}
         }
     }
-    !escaped && !in_class && parentheses == 0
+    !lexical.escaped && !lexical.in_class && parentheses == 0
 }
 
 fn looks_validation(line: &str, site: &PatternSite) -> bool {
@@ -587,24 +548,41 @@ fn has_ambiguous_nested_repetition(pattern: &str) -> bool {
 }
 
 #[derive(Default)]
-struct QuantifiedGroupScanner {
-    starts: Vec<usize>,
+struct PatternLexicalState {
     escaped: bool,
     in_class: bool,
 }
 
-impl QuantifiedGroupScanner {
-    fn close_group(&mut self, index: usize, byte: u8) -> Option<usize> {
+impl PatternLexicalState {
+    fn consume_syntax(&mut self, byte: u8) -> bool {
         if self.escaped {
             self.escaped = false;
-            return None;
+            return false;
         }
         match byte {
             b'\\' => self.escaped = true,
             b'[' if !self.in_class => self.in_class = true,
             b']' if self.in_class => self.in_class = false,
-            b'(' if !self.in_class => self.starts.push(index),
-            b')' if !self.in_class => return self.starts.pop(),
+            _ => return !self.in_class,
+        }
+        false
+    }
+}
+
+#[derive(Default)]
+struct QuantifiedGroupScanner {
+    starts: Vec<usize>,
+    lexical: PatternLexicalState,
+}
+
+impl QuantifiedGroupScanner {
+    fn close_group(&mut self, index: usize, byte: u8) -> Option<usize> {
+        if !self.lexical.consume_syntax(byte) {
+            return None;
+        }
+        match byte {
+            b'(' => self.starts.push(index),
+            b')' => return self.starts.pop(),
             _ => {}
         }
         None
@@ -823,6 +801,46 @@ final validationEmail = RegExp('.*(a+)+|');"#;
                 "regex-single-literal".to_owned(),
                 "regex-unanchored-validation".to_owned(),
             ])
+        );
+    }
+
+    #[test]
+    fn preserves_comment_scan_quotes_unicode_and_continuations() {
+        let scan = without_comments(r#"é "a\"//b" `#--`/**/next //tail"#, false, true, true);
+        assert_eq!(scan.code, r#"é "a\"//b" `#--`  next "#);
+        assert!(!scan.in_block_comment);
+        let scan = without_comments("/*naïve\r", false, true, true);
+        assert_eq!(scan.code, " ".repeat(8));
+        assert!(scan.in_block_comment);
+        let scan = without_comments("*/é\r", scan.in_block_comment, true, true);
+        assert_eq!(scan.code, " é\r");
+        assert!(!scan.in_block_comment);
+        assert_eq!(
+            without_comments("é -- hidden", false, false, true).code,
+            "é "
+        );
+        assert_eq!(
+            without_comments("é # hidden", false, true, false).code,
+            "é "
+        );
+    }
+
+    #[test]
+    fn preserves_pattern_escape_and_character_class_boundaries() {
+        for (pattern, valid) in [
+            (r"\(", true),
+            (r"[\]()]", true),
+            ("([()])", true),
+            (r"[\]", false),
+            (r"é\", false),
+            ("é)", false),
+            ("(é", false),
+        ] {
+            assert_eq!(is_valid_dart_pattern(pattern), valid, "{pattern}");
+        }
+        assert_eq!(
+            quantified_groups(r"(\(é\))+[()](a)+"),
+            vec![(r"\(é\)", "+"), ("a", "+")]
         );
     }
 

@@ -305,6 +305,8 @@ fn is_auxiliary_metadata_file(relative: &str) -> bool {
             "Cargo.lock",
             "Cargo.toml",
             "analysis_options.yaml",
+            "deno.json",
+            "deno.jsonc",
             "feature-flags.json",
             "feature_flags.json",
             "l10n.yaml",

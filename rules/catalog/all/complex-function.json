@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A function exceeds configured complexity thresholds.",
   "suggestion": "Split or simplify the function, or document a local suppression when one cohesive parser or traversal must retain shared state.",
-  "version": 12,
+  "version": 15,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -28,14 +28,17 @@
   "languageVersions": [],
   "limitations": [
     "JavaScript and TypeScript extraction covers named declarations, methods, and block-bodied variable arrow functions.",
-    "Anonymous callbacks and expression-bodied arrow functions are not measured.",
-    "Cyclomatic complexity counts each logical operator, while cognitive complexity counts a consecutive chain of the same logical operator once.",
+    "JavaScript and TypeScript anonymous callbacks and expression-bodied arrow functions are not measured; executable Rust closure branches remain charged to their enclosing named function.",
+    "Cyclomatic complexity counts each logical operator. Cognitive complexity counts a consecutive chain of the same logical operator once; Rust chains span line breaks and reset at expression boundaries.",
     "Complex localization implementations are grouped into one repository finding with related locations.",
     "Python comments and single-line or triple-quoted string contents are excluded from complexity signals.",
     "Rust complexity measurement excludes nested named callable bodies and local impl declarations from their enclosing function without changing extracted sources or locations.",
-    "Recognized empty Rust closure delimiters are not boolean OR operators; executable branches inside closures and ordinary runtime macros remain part of their enclosing function.",
-    "Rust quote-crate quote! token templates are excluded when a direct qualified call or an explicit direct/grouped import establishes the macro binding; simple imported aliases are supported and local macro_rules shadowing is retained conservatively.",
-    "Unresolved or re-exported quote aliases, wildcard imports, quote_spanned! and other macros are retained; macro expansion and full Rust name resolution are not performed.",
-    "Rust callable boundaries are lexical; inline declarations not recognized by extraction may not be separated. Cognitive nesting remains a brace-depth approximation that includes ordinary scopes, match arms and closures."
+    "Recognized empty Rust closure delimiters are not boolean OR operators; executable branches inside closures, async blocks and ordinary runtime macros remain measured.",
+    "Rust quote!/quote_spanned! and syn parse_quote!/parse_quote_spanned! templates are excluded for direct qualified calls or explicit direct/grouped imports, including simple aliases. Evaluated span expressions remain measured; lexical macro_rules shadowing and block-scoped imports are respected conservatively.",
+    "Single-arm local macro_rules wrappers can exclude one token-tree capture forwarded exactly once directly to a proven unspanned quote macro. Bounded identifier/token-tree matchers and terminal identifier-list repetitions are supported; other arguments remain measured. Explicit sibling imports and aliases require conventional, unambiguous module declarations and an explicit provider re-export.",
+    "Custom wrappers with runtime reuse of the quoted capture, branching setup, nested macro invocations, multiple arms, unsupported fragments, spanned forwarding or more than 32 token-tree nesting levels remain measured. Wildcards, path-mapped modules, transitive re-exports, qualified custom-wrapper calls and unresolved macro names are not expanded; full Rust name resolution is not performed.",
+    "Rust match contributes one nested cognitive control and arms minus one cyclomatic alternatives; guards and executable arm bodies remain measured, without treating pattern, struct or arm braces as extra control nesting.",
+    "Rust functions consisting solely of one unguarded match that maps simple patterns to literals, conventionally uppercase constant paths or borrowed literal arrays do not receive refactoring advice; their cyclomatic and cognitive metrics are unchanged. Guards, calls, nested matches, executable blocks and surrounding statements remain advisory candidates. Unsupported literal and pattern syntax is retained conservatively.",
+    "Rust nesting follows recognized control, closure and async bodies rather than arbitrary braces. Callable boundaries and pending control headers are lexical; unsupported inline declarations, complex nested header expressions and unresolved macro syntax can remain approximate."
   ]
 }

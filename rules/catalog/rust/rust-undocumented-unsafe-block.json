@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Unsafe blocks transfer memory, aliasing, and lifetime obligations from the compiler to maintainers.",
   "suggestion": "Add an attached SAFETY comment that states the invariants making the block sound.",
-  "version": 5,
+  "version": 8,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,8 +29,10 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule verifies that a nonempty SAFETY rationale, with or without a colon or uppercase spelling, is attached; it does not prove soundness.",
-    "A rationale may precede up to six lines of local `let` setup or attributes used by the unsafe expression.",
-    "Macro-generated unsafe blocks are not visible in source text."
+    "The rule verifies an attached nonempty SAFETY rationale (or explicit SAFE: label), not the operation's soundness. Function-level Safety contracts do not automatically document nested blocks.",
+    "A rationale may precede up to six lines of local let setup or attributes, or attach to the containing expression, struct field, condition, struct update, or destructured match arm. Unrelated completed statements and blocks do not donate rationales.",
+    "Targeted allow and expect attributes are honored, including multiline reasons and scoped inner attributes. Comments and strings cannot introduce policies. A targeted deny or forbid prevents allowance suppression within its attributed scope; nested allow overrides of deny are conservatively not resolved.",
+    "Crate-root inner policies propagate only along unambiguous conventional top-level out-of-line module declarations. Custom path attributes, inline-module external declarations, shared lib/main roots, and deny/forbid boundaries prevent inheritance. Declaration-level denials affect only that module and its descendants, not siblings. Cargo target configuration and conditional compilation are not resolved.",
+    "Macro-expanded unsafe blocks are not visible in source text; unsafe tokens explicitly written inside macros are analyzed. An attached rationale on a containing macro expression also documents explicitly written unsafe blocks inside that expression, including nested generated functions and callbacks. Completed macros, unrelated statements, and comments outside a containing match do not donate rationales."
   ]
 }

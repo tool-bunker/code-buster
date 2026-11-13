@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "performance",
-  "why": "Awaiting each iteration serializes independent work and can make total latency grow with the item count.",
-  "suggestion": "Use Promise.all with an explicit concurrency limit when iterations are independent; keep sequential awaits when ordering or backpressure is required.",
-  "version": 6,
+  "why": "Starting independent asynchronous work one iteration at a time can increase latency. Awaiting promises that have already started does not serialize their execution; ordering, backpressure, or isolated measurements may require sequential awaits.",
+  "suggestion": "Use bounded concurrency only when iterations start independent work. Keep intentional ordering and backpressure; Promise.all aggregates promises but does not itself impose a concurrency limit.",
+  "version": 8,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,8 +29,9 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only lines beginning with await inside braced loops are reported.",
-    "Explicit wait, backoff, delay, pause, sleep, and Promise-based setTimeout calls are excluded.",
-    "Other data dependencies, rate limits, ordering requirements, and deliberate sequential backpressure are not inferred. Repeated evidence is grouped once per file."
+    "Only lines beginning with await inside recognized braced loops are reported, with nested callback boundaries respected.",
+    "Infinite while (true) service loops, for-await stream consumers, explicit wait/backoff/delay/pause/sleep and Promise-based setTimeout calls, and direct once imports or const destructuring requires from events/node:events are excluded as sequential wait/backpressure contexts.",
+    "Other dependencies, ordering requirements and rate limits remain advisory review decisions. Event-wait suppression requires a real lexical import and only awaited direct uses outside that binding; any other same-name use, including shadowing, reassignment or an indirect reference, conservatively disables suppression throughout the file. Namespace aliases and arbitrary wrappers are not resolved. A nested finite loop is reviewed independently of an enclosing service loop; repeated evidence is grouped per file.",
+    "Collecting already-started promises does not start additional parallel work; benchmark isolation, shared graph traversal, protocol framing and wrapper-based stream waits can also require serialization. These remain contextual advice unless a recognized sequential form proves the intent."
   ]
 }

@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
+use semver::{Op, VersionReq};
 use toml::Value;
 
 use crate::findings::Finding;
@@ -44,6 +45,24 @@ fn discover_workspaces<'a>(manifests: &'a [CargoManifest<'a>]) -> Vec<Workspace<
                 .collect(),
         })
         .collect()
+}
+
+pub(super) fn owning_workspace<'a>(
+    candidate: &CargoManifest<'_>,
+    manifests: &'a [CargoManifest<'_>],
+) -> Option<&'a CargoManifest<'a>> {
+    if candidate.value.get("package")?.get("workspace").is_some() {
+        return None;
+    }
+    let root = manifests
+        .iter()
+        .filter(|manifest| manifest.value.get("workspace").is_some())
+        .filter(|manifest| {
+            manifest.path == candidate.path
+                || relative_manifest_directory(manifest.path, candidate.path).is_some()
+        })
+        .max_by_key(|manifest| manifest.path.len())?;
+    is_workspace_member(root, candidate).then_some(root)
 }
 
 fn is_workspace_member(root: &CargoManifest<'_>, candidate: &CargoManifest<'_>) -> bool {
@@ -376,7 +395,7 @@ fn append_dependency_policy(workspace: &Workspace<'_>, findings: &mut Vec<Findin
     for member in workspace
         .members
         .iter()
-        .filter(|member| package_is_internal(member))
+        .filter(|member| package_is_internal(member, workspace.root))
     {
         let Some(table) = member.value.get("dependencies").and_then(Value::as_table) else {
             continue;
@@ -399,7 +418,7 @@ fn append_dependency_policy(workspace: &Workspace<'_>, findings: &mut Vec<Findin
             .iter()
             .map(|declaration| declaration.version)
             .collect::<BTreeSet<_>>();
-        if versions.len() > 1 {
+        if versions.len() > 1 && !equivalent_requirements(&versions) {
             let rendered = versions.iter().copied().collect::<Vec<_>>().join(", ");
             let mut result = dependency_finding(
                 "rust-workspace-dependency-version-drift",
@@ -428,18 +447,44 @@ fn append_dependency_policy(workspace: &Workspace<'_>, findings: &mut Vec<Findin
     }
 }
 
-fn package_is_internal(manifest: &CargoManifest<'_>) -> bool {
+fn equivalent_requirements(versions: &BTreeSet<&str>) -> bool {
+    let Some(first) = versions
+        .first()
+        .and_then(|version| normalized_requirement(version))
+    else {
+        return false;
+    };
+    versions.iter().skip(1).all(|version| {
+        normalized_requirement(version).is_some_and(|requirement| requirement == first)
+    })
+}
+
+fn normalized_requirement(version: &str) -> Option<VersionReq> {
+    let mut requirement = VersionReq::parse(version).ok()?;
+    for comparator in &mut requirement.comparators {
+        if comparator.op != Op::Caret {
+            continue;
+        }
+        if comparator.major != 0 {
+            comparator.minor.get_or_insert(0);
+        }
+        if comparator.major != 0 || comparator.minor.is_some_and(|minor| minor != 0) {
+            comparator.patch.get_or_insert(0);
+        }
+    }
+    Some(requirement)
+}
+
+fn package_is_internal(manifest: &CargoManifest<'_>, root: &CargoManifest<'_>) -> bool {
     let Some(package) = manifest.value.get("package").and_then(Value::as_table) else {
         return false;
     };
-    if package.get("publish").and_then(Value::as_bool) == Some(false)
-        || package
-            .get("publish")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
-        || package.get("version").and_then(Value::as_str) == Some("0.0.0")
-        || package
-            .get("description")
+    let publish = super::package_field(manifest, Some(root), "publish");
+    if publish.and_then(Value::as_bool) == Some(false)
+        || publish.and_then(Value::as_array).is_some_and(Vec::is_empty)
+        || super::package_field(manifest, Some(root), "version").and_then(Value::as_str)
+            == Some("0.0.0")
+        || super::package_field(manifest, Some(root), "description")
             .and_then(Value::as_str)
             .is_some_and(|description| INTERNAL_CRATE_DESCRIPTION.is_match(description))
     {
@@ -616,7 +661,7 @@ mod tests {
             vec![
                 "rust-ignored-workspace-member-section",
                 "rust-partial-workspace-ci",
-                "rust-workspace-dependency-version-drift",
+                "rust-repeated-workspace-dependency",
                 "rust-redundant-member-lockfile",
             ]
         );
@@ -659,6 +704,48 @@ mod tests {
     }
 
     #[test]
+    fn compares_cargo_requirements_without_conflating_different_version_floors() {
+        for (left, right, drift) in [
+            ("1", "1.0", false),
+            ("^1.0", "1.0.0", false),
+            ("0.2", "^0.2.0", false),
+            ("0", "^0", false),
+            ("0", "0.0", true),
+            ("0.0", "0.0.0", true),
+            ("1.2", "1.2.3", true),
+            ("2", "2.0.12", true),
+            ("~1", "~1.0", true),
+            ("=1", "=1.0", true),
+            ("1", "2", true),
+        ] {
+            let member = |name, version| {
+                format!(
+                    "[package]\nname = \"{name}\"\npublish = false\n\
+                     [dependencies]\nserde = \"{version}\""
+                )
+            };
+            let a = member("a", left);
+            let b = member("b", right);
+            let findings = analyze_project([
+                (
+                    "Cargo.toml",
+                    "[workspace]\nresolver = \"3\"\nmembers = [\"a\", \"b\"]",
+                ),
+                ("a/Cargo.toml", a.as_str()),
+                ("b/Cargo.toml", b.as_str()),
+            ]);
+            assert_eq!(findings.len(), usize::from(drift), "{left} / {right}");
+            if drift {
+                assert_eq!(findings[0].code, "rust-workspace-dependency-version-drift");
+                assert_eq!(findings[0].path, "a/Cargo.toml");
+                assert_eq!(findings[0].line, 5);
+                assert_eq!(findings[0].confidence, "high");
+                assert_eq!(findings[0].related_files, ["b/Cargo.toml"]);
+            }
+        }
+    }
+
+    #[test]
     fn accepts_explicit_workspace_policy_and_independent_nested_projects() {
         let findings = analyze_project([
             (
@@ -681,6 +768,60 @@ mod tests {
         ]);
 
         assert!(findings.is_empty(), "unexpected findings: {findings:?}");
+    }
+
+    #[test]
+    fn applies_inherited_publication_policy_to_workspace_dependency_advice() {
+        for (root_policy, member_policy, should_report) in [
+            ("false", "publish.workspace=true", true),
+            ("true", "publish.workspace=true", false),
+            ("false", "publish=true", false),
+            ("true", "publish=false", true),
+        ] {
+            let root = format!(
+                "[workspace]\nresolver='3'\nmembers=['a','b','c']\n\
+                 [workspace.package]\npublish={root_policy}\n"
+            );
+            let member = |name, version| {
+                format!(
+                    "[package]\nname='{name}'\nversion='1.0.0'\n{member_policy}\n\
+                 description='Reusable library'\nlicense='MIT'\n\
+                 [dependencies]\nserde='{version}'\nlog='0.4'\n"
+                )
+            };
+            let a = member("a", "1");
+            let b = member("b", "2");
+            let c = member("c", "1");
+            let findings = analyze_project([
+                ("Cargo.toml", root.as_str()),
+                ("a/Cargo.toml", a.as_str()),
+                ("b/Cargo.toml", b.as_str()),
+                ("c/Cargo.toml", c.as_str()),
+            ]);
+            let policy_findings = findings
+                .iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "rust-workspace-dependency-version-drift"
+                            | "rust-repeated-workspace-dependency"
+                    )
+                })
+                .collect::<Vec<_>>();
+            if should_report {
+                assert_eq!(policy_findings.len(), 2, "{root_policy}/{member_policy}");
+                assert!(policy_findings.iter().all(|finding| {
+                    finding.path == "a/Cargo.toml"
+                        && finding
+                            .related_files
+                            .iter()
+                            .map(String::as_str)
+                            .eq(["b/Cargo.toml", "c/Cargo.toml"])
+                }));
+            } else {
+                assert!(policy_findings.is_empty(), "{root_policy}/{member_policy}");
+            }
+        }
     }
 
     #[test]

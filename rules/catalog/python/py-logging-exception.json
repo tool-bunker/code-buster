@@ -2,15 +2,15 @@
   "id": "py-logging-exception",
   "language": "python",
   "group": "style",
-  "listingTitle": "Py logging exception",
-  "title": "Review logging exception",
+  "listingTitle": "Review printed exception diagnostics",
+  "title": "Review printed exception diagnostics",
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
-  "semanticMaturity": "text",
+  "why": "Printing a caught exception to ordinary output can mix diagnostics with program results and omit traceback or structured logging context.",
+  "suggestion": "Use appropriate exception logging in reusable code, or send intentional command-line diagnostics explicitly to stderr.",
+  "version": 2,
+  "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
     "style"
@@ -28,5 +28,9 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Only a print call immediately following an exception header is checked; unconditional handler termination is retained as an intentional error boundary.",
+    "Direct file=sys.stderr arguments are recognized across multiline calls. String contents, nested calls' file arguments and following print statements do not establish the outer call's output target.",
+    "Aliased or dynamically selected streams, custom print replacements, and application-specific logging policy are not resolved."
+  ]
 }

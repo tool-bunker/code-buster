@@ -35,6 +35,13 @@ is cleared before the final report. It is disabled for redirected streams,
 machine formats, `--ci`, `--output`, `CI`, `NO_COLOR`, and `TERM=dumb`.
 Human-readable reports use ANSI color only when stdout is interactive.
 
+Human-only finding wording belongs in `src/reporting/finding_message.rs`, shared
+by terminal and Markdown reports. Keep canonical finding messages unchanged
+unless intentionally changing the machine contract: they participate in finding
+identity and persistent controls. Recognize the emitter's message shape before
+reformatting it; unfamiliar or imported messages must retain their original
+information. Supporting evidence belongs behind `--verbose`, not in the headline.
+
 `dead-export` and `re-export` are command-scoped rules: `cb dead` invokes `src/graph/export_analysis.rs`. They must not run in the default summary pack because explicit dead-code analysis can be substantially noisier than the default review surface.
 
 ## Adding a rule to an existing family
@@ -124,19 +131,82 @@ Every new rule should cover:
 
 Prefer parsed or semantic evidence when text matching cannot distinguish safe and unsafe cases reliably.
 
+Keep compiler fixtures out of default production scans: underscore-separated test-case
+and test-fixture directories, exact `compile_fail`/`compile-fail` directories, Rust
+`tests_*.rs` modules, and Rust `ui/` cases paired with `.stderr` expectations are test code.
+Ordinary application UI, `compile_failure` directories, and production `compile_fail.rs`
+modules stay production. Preserve `--include-tests`, `--all`, explicit classification
+overrides, and `cb inspect`.
+
+Respect explicit existing lint decisions. TypeScript rules consume Deno file and
+next-node directives plus explicit `lint.rules.include`/`exclude` settings in
+`deno.json` or `deno.jsonc`; unhandled tags and dynamic configuration are not inferred.
+Scope comments to real syntax, not lookalike directives inside strings.
+
+### Reviewing advisory evidence
+
+Classify source-backed samples as a confirmed detector error, a real construct
+whose trade-off needs context, or unresolved evidence. A threshold crossing or
+performance pattern is not proof of a defect or slowdown. Keep legitimate
+positives when tightening a detector; check grouped related locations as well
+as the primary finding. Capped duplicate groups can be replaced by other groups,
+so an unchanged total does not mean the false evidence remains.
+
+Rust complexity excludes recognized quoted syntax, not evaluated span expressions
+or ordinary runtime macro bodies. `match` alternatives remain measured. A function
+containing only one unguarded literal/constant lookup map can be excluded from
+refactoring advice without changing its metrics. Single-arm macro forwarding is
+recognized only when one captured token tree goes exclusively to a proven quote
+macro, with no branching setup or runtime reuse. Explicit declared-sibling imports
+and aliases require a matching provider export. Other forwarding, ambiguous modules,
+path-mapped modules, and unresolved imports remain conservative, not certified.
+
+Review CB's own advisory findings too. Prefer a useful simplification, but do not
+scatter cohesive dispatch or parser state solely to lower a counter, increase
+thresholds, or add blanket ignores. Record the reason when retaining contextual
+advice or an intentional invariant panic.
+
 ### Rust panic-rule precision
 
-`rust-unwrap` and `rust-expect` analyze production code. Discovery excludes conventional Rust test modules named `test.rs` or `tests.rs`; inline `#[test]` items and `#[cfg(test)]` modules are also excluded. A targeted `#[allow(clippy::unwrap_used)]` or `#[allow(clippy::expect_used)]` is the explicit escape hatch for a project-specific invariant.
+`rust-unwrap` and `rust-expect` analyze production code. Inline `#[test]`, established namespaced test harnesses, and cfg branches limited to tests or explicit test-support features are excluded. Unknown feature alternatives and debug code remain production candidates. Targeted `#[allow(...)]` and `#[expect(...)]` lint attributes are explicit escape hatches for project-specific invariants; keep them attached to the intended scope.
 
-The detector ignores only invariants it can establish from source structure: literal regexes, formatted regexes whose dynamic arguments all use `regex::escape`, regex capture group zero, generated catalog lookups, catalog severity parsing, and UTF-8 reconstruction whose message documents the byte-preserving invariant. Dynamic regexes, optional or unchecked capture groups, and runtime `Option` or `Result` values remain reportable.
+The detector recognizes literal regexes, formatted regexes whose dynamic arguments all use `regex::escape`, regex capture group zero (including proven chained capture iterators), generated catalog lookups, catalog severity parsing, and direct UTF-8 reconstruction with an explicit byte-preservation rationale. Attached function `# Panics` contracts are treated as intentional panic policy, not as proof that calls cannot fail. Arbitrary expectation messages, dynamic regexes, optional or unchecked capture groups, and unproven runtime values remain reportable.
+Panic policy may use outer line/block documentation or literal `doc` attributes,
+with intervening multiline attributes. Computed documentation is not evaluated,
+and policies do not extend into nested or neighboring functions.
 
-Local flow proofs also accept matching, uninvalidated `Option` guards (including
-`else if`), first-character access after an exact character-count check, and fresh
-case-mapping iterators from locally established `char` values. `CString::new`
-accepts NUL-free literals and unambiguous root `const &str` literals; dynamic
-values, ambiguous names, and unsupported literal escapes remain reportable.
+Local flow proofs accept matching, uninvalidated `Option`/`Result` guards and
+unconditional failure returns, including logging before returning. Supported
+short-circuit conditions and direct same-scope `Some` assignments can establish
+presence; terminal `break`/`continue` guards must exit the same direct loop body.
+An exact standalone `is_none()` branch that initializes the same receiver to
+`Some(...)` also proves fallthrough presence, not success of an inner `Result`.
+Nonempty or singleton collection guards can prove direct element access and fresh
+iteration, including guarded match arms, early-return `let Some` checks of
+non-consuming first/last access, and presence-preserving reference adapters.
+Nonempty `while` conditions reestablish collection presence at direct body entry,
+including `pop_front`, but mutation or consumption before access invalidates it.
+Fresh `split`/`rsplit` iterators have a first and last segment, even for empty text;
+filtering, terminating splits, and previously consumed iterators do not gain this proof.
+Mutation, shadowing, nested callbacks, filtering, and unknown indexing invalidate
+collection proofs. First-character access after an exact character-count check and fresh
+case-mapping iterators from locally established `char` values are also recognized.
+`CString::new` accepts NUL-free literals and unambiguous root `const &str` literals;
+dynamic values, ambiguous names, and unsupported literal escapes remain reportable.
 These checks do not resolve arbitrary Rust types or infer safety from an
 unconditional public module merely being named `test`.
+
+Keep lint allowances and expectations attached to the intended item or expression;
+multiline attributes and their `reason` fields must not affect neighboring code.
+Explicit unsafe-documentation policies propagate only through unambiguous declared
+Rust modules; deny/forbid boundaries and unsupported module layouts remain conservative.
+Unsafe-operation checks accept attached SAFETY/SAFE rationale on containing expressions,
+including macro expressions, but do not inherit comments across completed statements or
+reuse function Safety contracts as block rationale. Documented direct Box/Rc/Arc ownership
+roundtrips are distinguished
+from reconstruction of arbitrary raw pointers and unrelated custom APIs. Fresh
+same-owner roundtrips may include compiler-checked trait-object unsizing; arbitrary
+concrete-layout conversions do not gain that exemption.
 
 ### Rust repository-policy rules
 
@@ -163,6 +233,9 @@ inheritance, and registry dependencies should use reviewed version ranges
 rather than `*`. Test, fuzz, example, benchmark, generated, and vendored
 manifests follow the shared path classification and are excluded. Manifests
 that opt into unstable `cargo-features` are exempt from the stable MSRV check.
+Compiler-private library plugins require both explicit `rustc_private` metadata
+and an unconditional matching feature gate in their actual crate root. A private
+package or a pinned nightly toolchain alone is not an exemption.
 
 Workspace analysis resolves production members from `members` and `exclude`
 patterns while treating nested `[workspace]` manifests independently. Virtual
@@ -171,6 +244,10 @@ Cargo root-only profile, patch, and replace tables must stay at the owning
 workspace root, as must the effective lockfile. Non-virtual multi-package
 workspaces should make CI scope explicit with `--workspace`, complete
 `default-members`, or per-package commands.
+
+Explicit inherited `package.publish`, `version`, and `description` fields resolve
+through the owning workspace; local values take precedence. An unresolved inherited
+publication policy is not evidence that a library is publishable.
 
 Code Buster groups dependency policy by crate instead of emitting one finding per
 member: differing direct registry requirements in internal or private members

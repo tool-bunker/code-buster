@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Array.shift moves every remaining element, so repeatedly consuming an array from the front can produce quadratic work.",
   "suggestion": "Advance an index through the array or use a deque implementation for front-removal semantics.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only variables with an array type annotation or array-literal assignment shifted inside braced loops are reported.",
-    "Aliases, reassignment, collection size, and bounded loop counts are not inferred."
+    "Aliases, reassignment, collection size, and bounded loop counts are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

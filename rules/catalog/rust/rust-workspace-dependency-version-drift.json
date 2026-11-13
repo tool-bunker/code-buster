@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Different version requirements for the same registry crate make workspace dependency policy inconsistent and can resolve duplicate major versions.",
   "suggestion": "Choose one reviewed requirement in workspace.dependencies and inherit it from production members unless version divergence is intentional.",
-  "version": 1,
+  "version": 3,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": ["maintainability"],
@@ -20,7 +20,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Direct production dependencies in internal or private workspace packages are compared textually; Cargo's complete semantic-version intersection is not resolved.",
-    "Published package manifests, and renamed, path, Git, build, development, target-specific, or inherited dependencies are excluded."
+    "Direct production dependencies in internal or private workspace packages are compared using parsed Cargo requirements, with equivalent omitted-zero caret forms normalized. Different minimum versions and zero-major compatibility boundaries remain distinct; complete range intersection and equivalence are not resolved.",
+    "Published package manifests, and renamed, path, Git, build, development, target-specific, or inherited dependencies are excluded. Explicitly inherited workspace publication, version, and description policy participates in determining whether a member is internal."
   ]
 }

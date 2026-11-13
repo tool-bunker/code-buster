@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 /// Returns zero-based source lines belonging to items that are unconditionally
-/// test-only according to an attached `test` or `cfg` attribute.
+/// test-only according to a test-harness attribute or test-support `cfg`.
 pub(crate) fn test_lines(source: &str, masked: &str) -> BTreeSet<usize> {
     if source.len() != masked.len() {
         return BTreeSet::new();
@@ -90,19 +90,14 @@ fn attribute_implies_test(content: &str) -> bool {
     let Some(name) = parser.identifier() else {
         return false;
     };
-    if name == "test" {
-        return parser.finished();
+    match name {
+        "test" => parser.finished(),
+        "cfg" => parser.cfg_attribute(),
+        "tokio" | "async_std" | "actix_rt" | "actix_web" | "gpui" => {
+            parser.namespaced_test_attribute()
+        }
+        _ => false,
     }
-    if name != "cfg" || !parser.consume(b'(') {
-        return false;
-    }
-    let Ok(implies_test) = parser.cfg_expression() else {
-        return false;
-    };
-    if parser.consume(b',') && parser.peek() != Some(b')') {
-        return false;
-    }
-    parser.consume(b')') && parser.finished() && implies_test
 }
 
 struct Parser<'a> {
@@ -116,6 +111,26 @@ impl<'a> Parser<'a> {
             source: source.as_bytes(),
             cursor: 0,
         }
+    }
+
+    fn namespaced_test_attribute(&mut self) -> bool {
+        self.consume(b':')
+            && self.consume(b':')
+            && self.identifier() == Some("test")
+            && self.attribute_arguments()
+    }
+
+    fn cfg_attribute(&mut self) -> bool {
+        if !self.consume(b'(') {
+            return false;
+        }
+        let Ok(implies_test) = self.cfg_expression() else {
+            return false;
+        };
+        if self.consume(b',') && self.peek() != Some(b')') {
+            return false;
+        }
+        self.consume(b')') && self.finished() && implies_test
     }
 
     fn cfg_expression(&mut self) -> Result<bool, ()> {
@@ -146,7 +161,11 @@ impl<'a> Parser<'a> {
     fn cfg_atom(&mut self, name: &str) -> Result<bool, ()> {
         if self.consume(b'=') {
             let value = self.string_literal()?;
-            return Ok(name == "feature" && value == "test");
+            return Ok(name == "feature"
+                && matches!(
+                    value,
+                    "test" | "test-support" | "test_support" | "bench-support" | "bench_support"
+                ));
         }
         Ok(name == "test")
     }
@@ -172,6 +191,24 @@ impl<'a> Parser<'a> {
                 return Ok(result);
             }
         }
+    }
+
+    fn attribute_arguments(&mut self) -> bool {
+        if self.finished() {
+            return true;
+        }
+        self.skip_whitespace();
+        if self.peek() != Some(b'(') {
+            return false;
+        }
+        let Ok(source) = std::str::from_utf8(self.source) else {
+            return false;
+        };
+        let Some(close) = matching_delimiter(source, self.cursor) else {
+            return false;
+        };
+        self.cursor = close + 1;
+        self.finished()
     }
 
     fn identifier(&mut self) -> Option<&'a str> {
@@ -285,34 +322,43 @@ fn item_kind(source: &str, start: usize) -> Option<ItemKind> {
             "async" | "unsafe" | "default" => {}
             "const" => saw_const = true,
             "extern" => {
-                cursor = skip_quoted_string(bytes, cursor)?;
-                cursor = skip_whitespace(bytes, cursor);
-                if bytes.get(cursor) == Some(&b'{') {
-                    return Some(ItemKind::Body);
-                }
-                let (next, next_end) = word_at(source, cursor)?;
-                return match next {
-                    "crate" => Some(ItemKind::Semicolon),
-                    "fn" => Some(ItemKind::Body),
-                    _ => {
-                        cursor = next_end;
-                        macro_kind(source, start, cursor)
-                    }
-                };
+                return extern_item_kind(source, start, cursor);
             }
-            "fn" | "mod" | "struct" | "enum" | "union" | "trait" | "impl" => {
-                return Some(ItemKind::Body);
-            }
-            "type" | "use" | "static" => return Some(ItemKind::Semicolon),
-            "macro_rules" => return Some(ItemKind::Macro),
-            "macro" => return Some(ItemKind::Body),
             "auto" => {
                 let (next, _) = word_at(source, cursor)?;
                 return (next == "trait").then_some(ItemKind::Body);
             }
-            _ if saw_const => return Some(ItemKind::Semicolon),
-            _ => return macro_kind(source, start, cursor),
+            _ => {
+                return declared_item_kind(word)
+                    .or_else(|| saw_const.then_some(ItemKind::Semicolon))
+                    .or_else(|| macro_kind(source, start, cursor));
+            }
         }
+    }
+}
+
+fn declared_item_kind(word: &str) -> Option<ItemKind> {
+    match word {
+        "fn" | "mod" | "struct" | "enum" | "union" | "trait" | "impl" | "macro" => {
+            Some(ItemKind::Body)
+        }
+        "type" | "use" | "static" => Some(ItemKind::Semicolon),
+        "macro_rules" => Some(ItemKind::Macro),
+        _ => None,
+    }
+}
+
+fn extern_item_kind(source: &str, start: usize, cursor: usize) -> Option<ItemKind> {
+    let cursor = skip_quoted_string(source.as_bytes(), cursor)?;
+    let cursor = skip_whitespace(source.as_bytes(), cursor);
+    if source.as_bytes().get(cursor) == Some(&b'{') {
+        return Some(ItemKind::Body);
+    }
+    let (next, end) = word_at(source, cursor)?;
+    match next {
+        "crate" => Some(ItemKind::Semicolon),
+        "fn" => Some(ItemKind::Body),
+        _ => macro_kind(source, start, end),
     }
 }
 
@@ -460,19 +506,15 @@ fn macro_item_end(source: &str, start: usize) -> Option<usize> {
 
 fn matching_delimiter(source: &str, open: usize) -> Option<usize> {
     let bytes = source.as_bytes();
-    let closing = match bytes.get(open)? {
-        b'(' => b')',
-        b'[' => b']',
-        b'{' => b'}',
-        _ => return None,
-    };
+    let closing = closing_delimiter(*bytes.get(open)?)?;
     let mut stack = vec![closing];
     let mut cursor = open + 1;
     while cursor < bytes.len() {
         match bytes[cursor] {
-            b'(' => stack.push(b')'),
-            b'[' => stack.push(b']'),
-            b'{' => stack.push(b'}'),
+            b'"' => {
+                cursor = skip_quoted_string(bytes, cursor)?;
+                continue;
+            }
             b')' | b']' | b'}' => {
                 if stack.pop() != Some(bytes[cursor]) {
                     return None;
@@ -481,7 +523,11 @@ fn matching_delimiter(source: &str, open: usize) -> Option<usize> {
                     return Some(cursor);
                 }
             }
-            _ => {}
+            opening => {
+                if let Some(closing) = closing_delimiter(opening) {
+                    stack.push(closing);
+                }
+            }
         }
         cursor += 1;
     }
@@ -563,6 +609,57 @@ mod tests {
         let source = "#[cfg(all(windows, feature = \"test\"))]\nmod support;\n#[cfg(any(unix, feature = \"test\"))]\nmod mixed;\n";
 
         assert_eq!(test_lines(source, source), set([0, 1]));
+    }
+
+    #[test]
+    fn recognizes_framework_test_attributes_with_nested_arguments() {
+        let source = "#[tokio::test]\nasync fn async_case() {\n    value.unwrap();\n}\n#[gpui::test(\n    iterations = 10,\n    retries = nested(2),\n)]\nfn ui_case() {}\nfn production() { value.unwrap(); }";
+
+        assert_eq!(test_lines(source, source), set(0..=8));
+        for namespace in ["async_std", "actix_rt", "actix_web"] {
+            let source = format!("#[{namespace}::test]\nasync fn case() {{}}\nfn live() {{}}");
+            assert_eq!(test_lines(&source, &source), set([0, 1]), "{namespace}");
+        }
+    }
+
+    #[test]
+    fn recognizes_test_support_features_without_assuming_unknown_branches() {
+        let source = "#[cfg(any(test, feature = \"test-support\"))]\nmod fixtures {\n    fn helper() { value.unwrap(); }\n}\n#[cfg(all(unix, feature = \"test_support\"))]\nfn helper() {}\n#[cfg(any(test, feature = \"debug\"))]\nfn debug_or_test() {}\n#[cfg(not(feature = \"test-support\"))]\nfn production() {}\n#[cfg(any(feature = \"test-support\", custom))]\nfn unknown_branch() {}";
+
+        assert_eq!(test_lines(source, source), set(0..=5));
+    }
+
+    #[test]
+    fn excludes_explicit_benchmark_support_without_excluding_runtime_alternatives() {
+        let source = r#"#[cfg(any(test, feature = "bench-support", feature = "test-support"))]
+fn headless_support() { value.unwrap(); }
+#[cfg(all(unix, feature = "bench_support"))]
+fn bench_helper() { value.unwrap(); }
+#[cfg(any(feature = "bench-support", feature = "runtime"))]
+fn runtime_alternative() { value.unwrap(); }
+#[cfg(not(feature = "bench-support"))]
+fn production() { value.unwrap(); }
+"#;
+
+        assert_eq!(test_lines(source, source), set(0..=3));
+    }
+
+    #[test]
+    fn preserves_unknown_attributes_and_production_framework_entrypoints() {
+        let source = "#[custom::test]\nfn unknown() {}\n#[tokio::main]\nasync fn main() {}\n#[gpui::test_helper]\nfn helper() {}\n#[tokio::test = \"not an attribute invocation\"]\nfn malformed() {}\n#[test(extra)]\nfn malformed_builtin() {}";
+
+        assert!(test_lines(source, source).is_empty());
+    }
+
+    #[test]
+    fn ignores_framework_attributes_in_comments_and_strings() {
+        let source = "// #[gpui::test]\nfn live() { value.unwrap(); }\nconst TEXT: &str = \"#[tokio::test] fn fake() {}\";\n#[gpui::test(iterations = 10)]\nfn actual() {\n    let text = \"braces { and }\";\n    value.unwrap();\n}\nfn after() { value.unwrap(); }";
+        let (_, lines) = crate::languages::rust::rules::function_lexical_facts(source);
+
+        assert_eq!(lines, set(3..=7));
+        let source = "#[tokio::test(flavor = \"(\")]\nasync fn case() {}\nfn live() {}";
+        let (_, lines) = crate::languages::rust::rules::function_lexical_facts(source);
+        assert_eq!(lines, set([0, 1]));
     }
 
     #[test]

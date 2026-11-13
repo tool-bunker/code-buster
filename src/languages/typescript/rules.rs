@@ -13,14 +13,14 @@ use crate::source_analysis_context::SourceAnalysisContext;
 
 pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     let script_entrypoints = package_script_entrypoints(context);
-    let biome_policies = biome_policies(context);
+    let style_policies = style_policies(context);
     let mut findings = Vec::new();
     for (path, source) in context
         .sources()
         .iter()
         .filter(|(path, _)| is_javascript(path))
     {
-        let style_policy = style_policy_for_path(path, &biome_policies);
+        let style_policy = style_policy_for_path(path, &style_policies);
         let command_line = script_entrypoints.contains(path);
         findings.extend(node_fs_constant_imports(path, source));
         findings.extend(source_findings(path, source, style_policy, command_line));
@@ -90,12 +90,15 @@ fn console_group_key(path: &str) -> &str {
 struct TypeScriptStylePolicy {
     suppress_explicit_any: bool,
     suppress_non_null_assertion: bool,
+    suppress_console: bool,
 }
 
-struct BiomePolicy {
+struct StylePolicy {
     directory: String,
+    deno: bool,
     explicit_any_off: Option<bool>,
     non_null_assertion_off: Option<bool>,
+    console_off: Option<bool>,
 }
 
 struct SourceLine<'a> {
@@ -103,6 +106,7 @@ struct SourceLine<'a> {
     raw: &'a str,
     line: &'a str,
     syntax_line: &'a str,
+    runtime_line: &'a str,
     sink_line: &'a str,
     uncommented_line: &'a str,
     code_line: &'a str,
@@ -111,6 +115,8 @@ struct SourceLine<'a> {
     sink_lines: &'a [&'a str],
     index: usize,
     inside_loop: bool,
+    sequential_loop: bool,
+    event_wait: bool,
     tooling: bool,
     command_line: bool,
     console_suppressed: bool,
@@ -118,20 +124,76 @@ struct SourceLine<'a> {
     inside_async: bool,
 }
 
+fn imported_event_waits(source: &str, syntax: &str) -> BTreeMap<String, std::ops::Range<usize>> {
+    let mut names = event_wait_import_bindings(source, syntax);
+    // Fail closed for any use other than the import binding or an awaited
+    // direct call. Parameters, local declarations, assignments and indirect
+    // references can shadow or replace the imported runtime API.
+    for identifier in JAVASCRIPT_IDENTIFIERS.find_iter(syntax) {
+        let name = identifier.as_str();
+        let Some(binding) = names.get(name) else {
+            continue;
+        };
+        if binding.contains(&identifier.start()) {
+            continue;
+        }
+        let awaited = syntax[..identifier.start()].split_whitespace().next_back() == Some("await");
+        let called = syntax[identifier.end()..].trim_start().starts_with('(');
+        if !awaited || !called {
+            names.remove(name);
+        }
+    }
+    names
+}
+
+fn event_wait_import_bindings(
+    source: &str,
+    syntax: &str,
+) -> BTreeMap<String, std::ops::Range<usize>> {
+    let mut names = BTreeMap::new();
+    for (pattern, separator) in [
+        (&*EVENTS_IMPORT, &*AS_ALIAS),
+        (&*EVENTS_REQUIRE, &*COLON_ALIAS),
+    ] {
+        for capture in pattern.captures_iter(source) {
+            let whole = capture.get(0).expect("event binding match exists");
+            let binding_syntax = syntax[whole.range()].trim_start();
+            if !binding_syntax.starts_with("import") && !binding_syntax.starts_with("const") {
+                continue;
+            }
+            for binding in capture[1].split(',') {
+                let mut parts = separator.split(binding.trim());
+                let imported = parts.next().unwrap_or("").trim();
+                let local = parts.next().unwrap_or(imported).trim();
+                if imported == "once" && JAVASCRIPT_IDENTIFIER.is_match(local) {
+                    names
+                        .entry(local.to_owned())
+                        .or_insert_with(|| whole.range());
+                }
+            }
+        }
+    }
+    names
+}
+
 #[derive(Default)]
 struct PerformanceFacts {
     arrays: BTreeSet<String>,
     outer_arrays: BTreeSet<String>,
-    strings: BTreeSet<String>,
+    string_concat_lines: BTreeSet<usize>,
     direct_sync_fs: BTreeSet<String>,
     fs_namespaces: BTreeSet<String>,
 }
 
 impl PerformanceFacts {
-    fn from_source(source: &str, inside_loop: &[bool]) -> Self {
+    fn from_source(source: &str, syntax: &str, inside_loop: &[bool]) -> Self {
         let mut arrays = BTreeSet::new();
         let mut outer_arrays = BTreeSet::new();
         for capture in ARRAY_DECLARATION.captures_iter(source) {
+            let name_match = capture.get(1).expect("array declaration has a name");
+            if syntax[name_match.range()] != capture[1] {
+                continue;
+            }
             let name = capture[1].to_owned();
             arrays.insert(name.clone());
             if capture.get(0).is_some_and(|whole| {
@@ -141,10 +203,7 @@ impl PerformanceFacts {
                 outer_arrays.insert(name);
             }
         }
-        let strings = STRING_DECLARATION
-            .captures_iter(source)
-            .map(|capture| capture[1].to_owned())
-            .collect();
+        let string_concat_lines = growing_string_concat_lines(source, syntax);
         let mut direct_sync_fs = BTreeSet::new();
         for capture in NODE_FS_IMPORT.captures_iter(source) {
             collect_sync_fs_names(&capture[1], &mut direct_sync_fs);
@@ -164,7 +223,7 @@ impl PerformanceFacts {
         Self {
             arrays,
             outer_arrays,
-            strings,
+            string_concat_lines,
             direct_sync_fs,
             fs_namespaces,
         }
@@ -190,6 +249,149 @@ fn collect_sync_fs_names(imports: &str, output: &mut BTreeSet<String>) {
             output.insert(local.to_owned());
         }
     }
+}
+
+enum StringConcatEvent<'a> {
+    Open(usize),
+    Close,
+    Binding(&'a str, bool),
+    Append(&'a str),
+}
+
+fn string_concat_events<'a>(source: &str, syntax: &'a str) -> Vec<(usize, StringConcatEvent<'a>)> {
+    if !syntax.contains("+=") {
+        return Vec::new();
+    }
+    let string_bindings = STRING_DECLARATION
+        .captures_iter(source)
+        .filter_map(|capture| capture.get(1))
+        .filter(|name| &syntax[name.range()] == name.as_str())
+        .map(|name| name.start())
+        .collect::<BTreeSet<_>>();
+    if string_bindings.is_empty() {
+        return Vec::new();
+    }
+    let mut events = syntax
+        .char_indices()
+        .filter_map(|(offset, character)| match character {
+            '{' => Some((offset, StringConcatEvent::Open(offset))),
+            '}' => Some((offset, StringConcatEvent::Close)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    events.extend(
+        LOCAL_VARIABLE_BINDING
+            .captures_iter(syntax)
+            .filter_map(|capture| {
+                let name = capture.get(1)?;
+                Some((
+                    name.start(),
+                    StringConcatEvent::Binding(
+                        name.as_str(),
+                        string_bindings.contains(&name.start()),
+                    ),
+                ))
+            }),
+    );
+    events.extend(IN_PLACE_CONCAT.captures_iter(syntax).filter_map(|capture| {
+        let name = capture.get(1)?;
+        // A field with the same name as a local string is not that binding.
+        if syntax[..name.start()].trim_end().ends_with(['.', '#']) {
+            return None;
+        }
+        Some((name.start(), StringConcatEvent::Append(name.as_str())))
+    }));
+    events.sort_unstable_by_key(|(offset, _)| *offset);
+    events
+}
+
+struct StringConcatScope<'a> {
+    block: Block,
+    bindings: BTreeMap<&'a str, bool>,
+}
+
+impl<'a> StringConcatScope<'a> {
+    fn from_opening(syntax: &'a str, open: usize) -> Self {
+        let line_start = syntax[..open].rfind('\n').map_or(0, |index| index + 1);
+        let prefix = &syntax[line_start..open];
+        let previous = syntax[..line_start].trim_end().rsplit('\n').next();
+        let mut block = block_for_opening_brace(prefix, prefix.len(), previous);
+        let header_start = syntax[..open]
+            .rfind([';', '{', '}'])
+            .map_or(0, |index| index + 1);
+        let header = &syntax[header_start..open];
+        block.function |= Block::from_prefix(header).function;
+        block.function |= CONCAT_FUNCTION_HEADER
+            .captures(header.trim())
+            .is_some_and(|capture| {
+                !matches!(
+                    &capture[1],
+                    "if" | "for" | "while" | "switch" | "catch" | "with"
+                )
+            });
+        let mut bindings = BTreeMap::new();
+        if block.function {
+            for identifier in JAVASCRIPT_IDENTIFIERS.find_iter(header) {
+                bindings.insert(identifier.as_str(), false);
+            }
+        }
+        Self { block, bindings }
+    }
+}
+
+fn appends_to_surviving_string(scopes: &[StringConcatScope<'_>], name: &str) -> bool {
+    let mut loop_scope = None;
+    for (index, scope) in scopes.iter().enumerate().rev() {
+        if let Some(string) = scope.bindings.get(name) {
+            return *string && loop_scope.is_some_and(|loop_index| index < loop_index);
+        }
+        if scope.block.function && loop_scope.is_none() {
+            return false;
+        }
+        if scope.block.loop_block && loop_scope.is_none() {
+            loop_scope = Some(index);
+        }
+    }
+    false
+}
+
+fn growing_string_concat_lines(source: &str, syntax: &str) -> BTreeSet<usize> {
+    let events = string_concat_events(source, syntax);
+    let mut scopes = vec![StringConcatScope {
+        block: Block::from_prefix(""),
+        bindings: BTreeMap::new(),
+    }];
+    let mut lines = BTreeSet::new();
+    let mut line = 0;
+    let mut previous_offset = 0;
+    for (offset, event) in events {
+        line += syntax[previous_offset..offset]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count();
+        previous_offset = offset;
+        match event {
+            StringConcatEvent::Open(open) => {
+                scopes.push(StringConcatScope::from_opening(syntax, open));
+            }
+            StringConcatEvent::Close => {
+                if scopes.len() > 1 {
+                    scopes.pop();
+                }
+            }
+            StringConcatEvent::Binding(name, string) => {
+                if let Some(scope) = scopes.last_mut() {
+                    scope.bindings.insert(name, string);
+                }
+            }
+            StringConcatEvent::Append(name) => {
+                if appends_to_surviving_string(&scopes, name) {
+                    lines.insert(line);
+                }
+            }
+        }
+    }
+    lines
 }
 
 impl SourceLine<'_> {
@@ -223,9 +425,16 @@ fn source_findings(
     let sink_lines = sink_source.split('\n').collect::<Vec<_>>();
     let syntax_source = mask_javascript_strings_and_comments(source);
     let syntax_lines = syntax_source.split('\n').collect::<Vec<_>>();
-    let console_suppressions = eslint_no_console_suppressions(source, &raw_lines);
-    let (inside_loop, inside_async) = scopes_by_line(&code_lines);
-    let performance = PerformanceFacts::from_source(&uncommented_source, &inside_loop);
+    let runtime_source = mask_javascript_strings_and_comments(&sink_source);
+    let runtime_lines = runtime_source.split('\n').collect::<Vec<_>>();
+    let comment_source = source_comments(source, &uncommented_source);
+    let comment_lines = comment_source.split('\n').collect::<Vec<_>>();
+    let console_suppressions = eslint_no_console_suppressions(&comment_source, &comment_lines);
+    let deno_suppressions = deno_lint_suppressions(&comment_lines, &syntax_lines);
+    let (inside_loop, inside_async, sequential_loop) = scopes_by_line(&syntax_lines);
+    let performance =
+        PerformanceFacts::from_source(&uncommented_source, &syntax_source, &inside_loop);
+    let event_waits = imported_event_waits(&uncommented_source, &syntax_source);
     let mut findings = Vec::new();
     findings.extend(async_foreach_findings(path, &sink_source));
     findings.extend(child_process_shell_findings(path, &uncommented_source));
@@ -255,6 +464,7 @@ fn source_findings(
             raw: raw_lines[index],
             line: stripped_code.trim(),
             syntax_line: syntax_lines[index].trim(),
+            runtime_line: runtime_lines[index].trim(),
             sink_line: stripped_sink.trim(),
             uncommented_line: uncommented_lines[index],
             code_line: code_lines[index],
@@ -263,13 +473,32 @@ fn source_findings(
             sink_lines: &sink_lines,
             index,
             inside_loop: inside_loop[index],
+            sequential_loop: sequential_loop[index],
+            event_wait: syntax_lines[index]
+                .trim()
+                .strip_prefix("await ")
+                .and_then(|expression| CALL_EXPRESSION.captures(expression))
+                .is_some_and(|call| {
+                    call.get(0).is_some_and(|whole| whole.start() == 0)
+                        && call.get(2).is_none()
+                        && event_waits.contains_key(&call[1])
+                }),
             inside_async: inside_async[index],
             tooling,
             command_line,
-            console_suppressed: console_suppressions[index],
+            console_suppressed: console_suppressions[index]
+                || deno_suppressions[index].suppress_console
+                || style_policy.suppress_console,
             typescript,
         };
-        analyze_style(&line, style_policy, &mut findings);
+        let line_policy = TypeScriptStylePolicy {
+            suppress_explicit_any: style_policy.suppress_explicit_any
+                || deno_suppressions[index].suppress_explicit_any,
+            suppress_non_null_assertion: style_policy.suppress_non_null_assertion
+                || deno_suppressions[index].suppress_non_null_assertion,
+            suppress_console: line.console_suppressed,
+        };
+        analyze_style(&line, line_policy, &mut findings);
         analyze_execution_sinks(&line, &mut findings);
         analyze_async_usage(&line, &mut findings);
         analyze_hardcoded_secret(&line, &mut findings);
@@ -959,7 +1188,7 @@ fn analyze_style(
 }
 
 fn uses_explicit_any(line: &str) -> bool {
-    line.contains(": any") || line.contains("<any>") || line.contains(" as any")
+    EXPLICIT_ANY.is_match(line)
 }
 
 fn uses_non_null_assertion(line: &str) -> bool {
@@ -970,7 +1199,88 @@ fn leaves_console_logging(line: &SourceLine<'_>) -> bool {
     !line.tooling
         && !line.command_line
         && !line.console_suppressed
-        && (line.line.contains("console.log(") || line.line.contains("console.debug("))
+        && CONSOLE_CALL.is_match(line.runtime_line)
+}
+
+fn source_comments(source: &str, uncommented: &str) -> String {
+    let mut comments = String::with_capacity(source.len());
+    for (offset, character) in source.char_indices() {
+        let end = offset + character.len_utf8();
+        if source[offset..end] != uncommented[offset..end] || character == '\n' {
+            comments.push(character);
+        } else {
+            CommentMaskState::push_mask(character, &mut comments);
+        }
+    }
+    comments
+}
+
+fn deno_lint_suppressions(comments: &[&str], syntax: &[&str]) -> Vec<TypeScriptStylePolicy> {
+    let mut suppressed = vec![TypeScriptStylePolicy::default(); syntax.len()];
+    for (index, comment) in comments.iter().enumerate() {
+        let Some((file, policy)) = parse_deno_lint_directive(comment) else {
+            continue;
+        };
+        let Some(range) = deno_directive_range(syntax, index, file) else {
+            continue;
+        };
+        for line in &mut suppressed[range] {
+            line.suppress_explicit_any |= policy.suppress_explicit_any;
+            line.suppress_non_null_assertion |= policy.suppress_non_null_assertion;
+            line.suppress_console |= policy.suppress_console;
+        }
+    }
+    suppressed
+}
+
+fn parse_deno_lint_directive(comment: &str) -> Option<(bool, TypeScriptStylePolicy)> {
+    let directive = comment.trim().strip_prefix("//")?.trim();
+    let capture = DENO_LINT_DIRECTIVE.captures(directive)?;
+    let rules = capture[2].split_whitespace();
+    let all = rules.clone().next().is_none();
+    let has_rule = |name| rules.clone().any(|rule| rule == name);
+    let policy = TypeScriptStylePolicy {
+        suppress_explicit_any: all || has_rule("no-explicit-any"),
+        suppress_non_null_assertion: all || has_rule("no-non-null-assertion"),
+        suppress_console: all || has_rule("no-console"),
+    };
+    Some((capture.get(1).is_some(), policy))
+}
+
+fn deno_directive_range(
+    syntax: &[&str],
+    index: usize,
+    file: bool,
+) -> Option<std::ops::Range<usize>> {
+    if file {
+        return syntax[..index]
+            .iter()
+            .all(|line| line.trim().is_empty())
+            .then_some(0..syntax.len());
+    }
+    if !syntax[index].trim().is_empty() {
+        return None;
+    }
+    let start = (index + 1..syntax.len()).find(|next| !syntax[*next].trim().is_empty())?;
+    Some(start..deno_directive_node_end(syntax, start))
+}
+
+fn deno_directive_node_end(syntax: &[&str], start: usize) -> usize {
+    let mut depth = 0_i32;
+    for (index, line) in syntax.iter().enumerate().skip(start) {
+        for character in line.chars() {
+            match character {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        let trimmed = line.trim_end();
+        if depth <= 0 && !trimmed.ends_with(['=', ',', ':', '|', '&']) {
+            return index + 1;
+        }
+    }
+    syntax.len()
 }
 
 fn eslint_no_console_suppressions(source: &str, lines: &[&str]) -> Vec<bool> {
@@ -1029,15 +1339,16 @@ fn analyze_execution_sinks(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
 }
 
 fn uses_direct_eval(line: &SourceLine<'_>) -> bool {
-    line.sink_line.contains("eval")
-        && (DIRECT_EVAL_CALL.is_match(line.sink_line) || GLOBAL_EVAL_CALL.is_match(line.sink_line))
-        && !EVAL_FUNCTION_DECLARATION.is_match(line.sink_line)
-        && !EVAL_METHOD_DECLARATION.is_match(line.sink_line)
+    line.runtime_line.contains("eval")
+        && (DIRECT_EVAL_CALL.is_match(line.runtime_line)
+            || GLOBAL_EVAL_CALL.is_match(line.runtime_line))
+        && !EVAL_FUNCTION_DECLARATION.is_match(line.runtime_line)
+        && !EVAL_METHOD_DECLARATION.is_match(line.runtime_line)
 }
 
 fn uses_dynamic_function_constructor(line: &SourceLine<'_>) -> bool {
-    line.sink_line.contains("Function")
-        && NEW_FUNCTION.is_match(line.sink_line)
+    line.runtime_line.contains("Function")
+        && NEW_FUNCTION.is_match(line.runtime_line)
         && !is_static_function_constructor(line.uncommented_lines, line.index)
 }
 
@@ -1072,7 +1383,11 @@ fn analyze_async_usage(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
 }
 
 fn is_reportable_loop_await(line: &SourceLine<'_>) -> bool {
-    line.line.starts_with("await ") && line.inside_loop && !is_intentional_loop_wait(line.line)
+    line.line.starts_with("await ")
+        && line.inside_loop
+        && !line.sequential_loop
+        && !line.event_wait
+        && !is_intentional_loop_wait(line.line)
 }
 
 fn is_intentional_loop_wait(line: &str) -> bool {
@@ -1157,7 +1472,7 @@ fn analyze_repeated_performance(
     facts: &PerformanceFacts,
     findings: &mut Vec<Finding>,
 ) {
-    if REGEXP_CONSTRUCTOR.is_match(line.sink_line)
+    if REGEXP_CONSTRUCTOR.is_match(line.runtime_line)
         && CONSTANT_REGEXP.is_match(line.uncommented_line)
     {
         line.add(
@@ -1167,7 +1482,7 @@ fn analyze_repeated_performance(
         );
     }
     if ARRAY_MEMBERSHIP
-        .captures_iter(line.line)
+        .captures_iter(line.runtime_line)
         .any(|capture| facts.arrays.contains(&capture[1]))
     {
         line.add(
@@ -1176,17 +1491,14 @@ fn analyze_repeated_performance(
             "linear array membership is checked inside a loop",
         );
     }
-    if IN_PLACE_CONCAT
-        .captures(line.sink_line)
-        .is_some_and(|capture| facts.strings.contains(&capture[1]))
-    {
+    if facts.string_concat_lines.contains(&line.index) {
         line.add(
             findings,
             "js-string-concat-in-loop",
             "immutable string is concatenated inside a loop",
         );
     }
-    if repeatedly_copies_growing_array(line.sink_line, facts) {
+    if repeatedly_copies_growing_array(line.runtime_line, facts) {
         line.add(
             findings,
             "js-growing-array-copy-in-loop",
@@ -1194,7 +1506,7 @@ fn analyze_repeated_performance(
         );
     }
     if ARRAY_SHIFT
-        .captures_iter(line.line)
+        .captures_iter(line.runtime_line)
         .any(|capture| facts.arrays.contains(&capture[1]))
     {
         line.add(
@@ -1204,7 +1516,7 @@ fn analyze_repeated_performance(
         );
     }
     if ARRAY_UNSHIFT
-        .captures_iter(line.line)
+        .captures_iter(line.runtime_line)
         .any(|capture| facts.arrays.contains(&capture[1]))
     {
         line.add(
@@ -1353,27 +1665,62 @@ fn script_entrypoint(token: &str, directory: &str) -> Option<String> {
         format!("{directory}/{candidate}")
     })
 }
-fn biome_policies(context: &SourceAnalysisContext<'_>) -> Vec<BiomePolicy> {
+fn style_policies(context: &SourceAnalysisContext<'_>) -> Vec<StylePolicy> {
     let mut policies = context
         .auxiliary_files()
         .iter()
         .filter(|(path, _)| {
             !path.starts_with("@base/")
-                && matches!(path.rsplit('/').next(), Some("biome.json" | "biome.jsonc"))
+                && matches!(
+                    path.rsplit('/').next(),
+                    Some("biome.json" | "biome.jsonc" | "deno.json" | "deno.jsonc")
+                )
         })
         .filter_map(|(path, source)| {
             let document = serde_json::from_str::<Value>(&strip_jsonc_comments(source)).ok()?;
-            Some(BiomePolicy {
+            let deno = matches!(path.rsplit('/').next(), Some("deno.json" | "deno.jsonc"));
+            Some(StylePolicy {
                 directory: path
                     .rsplit_once('/')
                     .map_or_else(String::new, |(directory, _)| directory.to_owned()),
-                explicit_any_off: biome_rule_off(&document, "suspicious", "noExplicitAny"),
-                non_null_assertion_off: biome_rule_off(&document, "style", "noNonNullAssertion"),
+                deno,
+                explicit_any_off: if deno {
+                    deno_rule_off(&document, "no-explicit-any")
+                } else {
+                    biome_rule_off(&document, "suspicious", "noExplicitAny")
+                },
+                non_null_assertion_off: if deno {
+                    deno_rule_off(&document, "no-non-null-assertion")
+                } else {
+                    biome_rule_off(&document, "style", "noNonNullAssertion")
+                },
+                console_off: if deno {
+                    deno_rule_off(&document, "no-console")
+                } else {
+                    None
+                },
             })
         })
         .collect::<Vec<_>>();
-    policies.sort_unstable_by_key(|policy| std::cmp::Reverse(policy.directory.len()));
     policies
+        .sort_unstable_by_key(|policy| std::cmp::Reverse((policy.directory.len(), policy.deno)));
+    policies
+}
+
+fn deno_rule_off(document: &Value, rule: &str) -> Option<bool> {
+    let rules = document.get("lint")?.get("rules")?;
+    if rules
+        .get("exclude")
+        .and_then(Value::as_array)
+        .is_some_and(|excluded| excluded.iter().any(|value| value.as_str() == Some(rule)))
+    {
+        return Some(true);
+    }
+    rules
+        .get("include")
+        .and_then(Value::as_array)
+        .filter(|included| included.iter().any(|value| value.as_str() == Some(rule)))
+        .map(|_| false)
 }
 
 fn biome_rule_off(document: &Value, group: &str, rule: &str) -> Option<bool> {
@@ -1394,7 +1741,7 @@ fn biome_rule_off(document: &Value, group: &str, rule: &str) -> Option<bool> {
         .map(|level| level.eq_ignore_ascii_case("off"))
 }
 
-fn style_policy_for_path(path: &str, policies: &[BiomePolicy]) -> TypeScriptStylePolicy {
+fn style_policy_for_path(path: &str, policies: &[StylePolicy]) -> TypeScriptStylePolicy {
     let matching = || {
         policies.iter().filter(|policy| {
             policy.directory.is_empty()
@@ -1409,6 +1756,9 @@ fn style_policy_for_path(path: &str, policies: &[BiomePolicy]) -> TypeScriptStyl
             .unwrap_or(false),
         suppress_non_null_assertion: matching()
             .find_map(|policy| policy.non_null_assertion_off)
+            .unwrap_or(false),
+        suppress_console: matching()
+            .find_map(|policy| policy.console_off)
             .unwrap_or(false),
     }
 }
@@ -1630,6 +1980,7 @@ fn continued_expression(lines: &[&str], start: usize) -> String {
 struct Block {
     function: bool,
     loop_block: bool,
+    sequential_loop: bool,
     async_function: bool,
 }
 
@@ -1639,6 +1990,7 @@ impl Block {
         Self {
             function: FUNCTION_PREFIX.is_match(prefix) || async_function,
             loop_block: LOOP_PREFIX.is_match(prefix) || DO_PREFIX.is_match(prefix),
+            sequential_loop: SEQUENTIAL_LOOP_PREFIX.is_match(prefix),
             async_function,
         }
     }
@@ -1656,6 +2008,15 @@ impl LoopLineState {
             .rev()
             .take_while(|block| !block.function)
             .any(|block| block.loop_block)
+    }
+
+    fn is_inside_sequential_loop(&self) -> bool {
+        self.blocks
+            .iter()
+            .rev()
+            .take_while(|block| !block.function)
+            .find(|block| block.loop_block)
+            .is_some_and(|block| block.sequential_loop)
     }
 
     fn is_inside_async(&self) -> bool {
@@ -1691,20 +2052,22 @@ fn block_for_opening_brace(code: &str, offset: usize, previous_line: Option<&str
     Block::from_prefix(previous.as_deref().map(str::trim_end).unwrap_or(prefix))
 }
 
-fn scopes_by_line(lines: &[&str]) -> (Vec<bool>, Vec<bool>) {
+fn scopes_by_line(lines: &[&str]) -> (Vec<bool>, Vec<bool>, Vec<bool>) {
     let mut state = LoopLineState::default();
     let mut loops = Vec::with_capacity(lines.len());
     let mut async_scopes = Vec::with_capacity(lines.len());
+    let mut sequential_loops = Vec::with_capacity(lines.len());
     for (line_index, line) in lines.iter().enumerate() {
         loops.push(state.is_inside_loop());
         async_scopes.push(state.is_inside_async());
+        sequential_loops.push(state.is_inside_sequential_loop());
         let previous_line = line_index
             .checked_sub(1)
             .and_then(|index| lines.get(index))
             .copied();
         state.consume_line(line, previous_line);
     }
-    (loops, async_scopes)
+    (loops, async_scopes, sequential_loops)
 }
 
 fn is_inside_handled_try(lines: &[&str], index: usize) -> bool {
@@ -2622,9 +2985,14 @@ static ARRAY_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static LOCAL_VARIABLE_BINDING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b").unwrap());
+static CONCAT_FUNCTION_HEADER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:(?:export|default|async|public|private|protected|static|override|abstract|get|set)\s+)*(?:function\s*\*?\s*)?([A-Za-z_$][\w$]*)\s*\([^{}]*\)\s*(?::[^{}]+)?$").unwrap()
+});
 static STRING_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\b(?:\s*=[^;\n]+)?|=\s*(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))"#,
+        r#"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\b(?:\s*=[^;\n]+)?|=\s*(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`))"#,
     )
     .unwrap()
 });
@@ -2694,6 +3062,14 @@ static SYNC_FUNCTION_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*function(?:\s*\*)?\s+[A-Za-z_$][\w$]*\s*\(").unwrap());
 static NON_NULL_ASSERTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[A-Za-z0-9_$)\]}]!\s*(?:\.|\)|;|,|\])").unwrap());
+static EXPLICIT_ANY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?::\s*|<\s*|\bas\s+)any\b").unwrap());
+static CONSOLE_CALL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[^\w$.])(?:(?:globalThis|window)\s*\.\s*)?console\s*\.\s*(?:log|debug)\s*\(")
+        .unwrap()
+});
+static DENO_LINT_DIRECTIVE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^deno-lint-ignore(-file)?(?:[ \t]+|$)(.*)$").unwrap());
 static ESLINT_NO_CONSOLE_OFF: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\beslint\s+no-console\s*:\s*(?:"off"|'off'|off|0)"#)
         .expect("ESLint no-console policy regex must compile")
@@ -2789,6 +3165,9 @@ static FUNCTION_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 });
 static LOOP_PREFIX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:for\s*(?:await\s*)?|while\s*)\(").unwrap());
+static SEQUENTIAL_LOOP_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:while\s*\(\s*true\s*\)|for\s+await\s*\([^{}]*\))\s*$").unwrap()
+});
 static DO_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bdo\s*$").unwrap());
 static TRY_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btry\s*$").unwrap());
 static CATCH_SUFFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*catch\b").unwrap());
@@ -2849,7 +3228,17 @@ static NODE_SHEBANG: LazyLock<Regex> = LazyLock::new(|| {
 static NODE_FS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?s)import\s*\{([^}]*)\}\s*from\s*[\"'](?:node:)?fs[\"']"#).unwrap()
 });
+static EVENTS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?s)\bimport\s*\{([^}]*)\}\s*from\s*["'](?:node:)?events["']"#).unwrap()
+});
+static EVENTS_REQUIRE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?s)\bconst\s*\{([^}]*)\}\s*=\s*require\s*\(\s*["'](?:node:)?events["']\s*\)"#)
+        .unwrap()
+});
+static COLON_ALIAS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*:\s*").unwrap());
 static AS_ALIAS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+as\s+").unwrap());
+static JAVASCRIPT_IDENTIFIERS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[A-Za-z_$][\w$]*").unwrap());
 
 #[cfg(test)]
 mod tests {
@@ -2860,6 +3249,335 @@ mod tests {
     use crate::source_analysis_context::SourceAnalysisContext;
     use std::collections::{BTreeMap, BTreeSet};
 
+    #[test]
+    fn honors_deno_file_and_balanced_node_directives_without_leaking() {
+        let sources = BTreeMap::from([
+            (
+                "src/scoped.ts".to_owned(),
+                "// deno-lint-ignore no-explicit-any\n\
+                 const reviewed = call(\n\
+                   input as any,\n\
+                 );\n\
+                 const unreviewed: any = input;\n\
+                 // deno-lint-ignore no-console\n\
+                 if (debug) {\n\
+                   console.log(input);\n\
+                 }\n\
+                 console.log(input);\n\
+                 // deno-lint-ignore no-non-null-assertion\n\
+                 consume(input!.value);\n\
+                 consume(other!.value);\n"
+                    .to_owned(),
+            ),
+            (
+                "src/reviewed.ts".to_owned(),
+                "// deno-lint-ignore-file no-explicit-any no-console\n\
+                 const value: any = input;\n\
+                 console.log(value);\n\
+                 value!.save();\n\
+                 eval(input);\n"
+                    .to_owned(),
+            ),
+            (
+                "src/unrelated.ts".to_owned(),
+                "// deno-lint-ignore-file no-var\nconst value: any = input;\n".to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.code.as_str(),
+                    "ts-any" | "ts-console" | "ts-non-null-assertion" | "ts-eval"
+                )
+            })
+            .map(|finding| {
+                (
+                    finding.path,
+                    finding.code,
+                    finding.line,
+                    finding.related_files,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![
+                (
+                    "src/reviewed.ts".to_owned(),
+                    "ts-non-null-assertion".to_owned(),
+                    4,
+                    vec![]
+                ),
+                (
+                    "src/reviewed.ts".to_owned(),
+                    "ts-eval".to_owned(),
+                    5,
+                    vec![]
+                ),
+                ("src/scoped.ts".to_owned(), "ts-any".to_owned(), 5, vec![]),
+                (
+                    "src/scoped.ts".to_owned(),
+                    "ts-console".to_owned(),
+                    10,
+                    vec![]
+                ),
+                (
+                    "src/scoped.ts".to_owned(),
+                    "ts-non-null-assertion".to_owned(),
+                    13,
+                    vec![]
+                ),
+                (
+                    "src/unrelated.ts".to_owned(),
+                    "ts-any".to_owned(),
+                    2,
+                    vec![]
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_directive_text_in_literals_and_misplaced_deno_file_directives() {
+        let sources = BTreeMap::from([(
+            "src/app.ts".to_owned(),
+            "const text = '// deno-lint-ignore-file no-console';\n\
+             const template = `// eslint-disable no-console`;\n\
+             const regex = /console.log(input);eval(input)/;\n\
+             // deno-lint-ignore-file no-console\n\
+             console.log(input);\n\
+             const typed: anything = input;\n\
+             const cast = input as anyValue;\n\
+             const actual: any = input;\n\
+             // deno-lint-ignore no-console-extra\n\
+             console.log(other);\n\
+             eval(input);\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context);
+        let console = findings
+            .iter()
+            .find(|finding| finding.code == "ts-console")
+            .unwrap();
+        assert_eq!(console.line, 5);
+        assert_eq!(console.related_files, ["src/app.ts:10"]);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "ts-any")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [8]
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "ts-eval")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [11]
+        );
+    }
+
+    #[test]
+    fn honors_nearest_deno_rule_policy_and_explicit_enabling_over_biome() {
+        let sources = BTreeMap::from([
+            (
+                "src/reviewed.ts".to_owned(),
+                "const value: any = input;\nconsole.log(value);\nvalue!.save();".to_owned(),
+            ),
+            (
+                "strict/app.ts".to_owned(),
+                "const value: any = input;\nconsole.log(value);\nvalue!.save();".to_owned(),
+            ),
+        ]);
+        let auxiliary = BTreeMap::from([
+            ("biome.json".to_owned(), r#"{"linter":{"rules":{"suspicious":{"noExplicitAny":"off"}}}}"#.to_owned()),
+            ("deno.jsonc".to_owned(), r#"{"lint":{"rules":{"exclude":["no-explicit-any","no-console","no-non-null-assertion"]}}}"#.to_owned()),
+            ("strict/deno.json".to_owned(), r#"{"lint":{"rules":{"include":["no-explicit-any","no-console","no-non-null-assertion"]}}}"#.to_owned()),
+            ("strict/biome.json".to_owned(), r#"{"linter":{"rules":{"suspicious":{"noExplicitAny":"off"}}}}"#.to_owned()),
+        ]);
+        let base = BTreeMap::new();
+        let changed = BTreeSet::new();
+        let context =
+            SourceAnalysisContext::with_auxiliary(&sources, &base, &changed, false, &auxiliary);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .map(|finding| (finding.path, finding.code))
+                .collect::<Vec<_>>(),
+            [
+                ("strict/app.ts".to_owned(), "ts-any".to_owned()),
+                ("strict/app.ts".to_owned(), "ts-console".to_owned()),
+                (
+                    "strict/app.ts".to_owned(),
+                    "ts-non-null-assertion".to_owned()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_stream_backpressure_separate_from_finite_iteration_advice() {
+        let sources = BTreeMap::from([(
+            "src/stream.ts".to_owned(),
+            "while (true) {\n\
+               await sendFrame(connection);\n\
+               for (const item of pending) {\n\
+                 await save(item);\n\
+               }\n\
+             }\n\
+             for await (const chunk of stream) {\n\
+               await write(chunk);\n\
+             }\n\
+             for (const item of items) {\n\
+               register(async () => {\n\
+                 await deferred(item);\n\
+               });\n\
+             }\n"
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-await-in-loop")
+                .map(|finding| (finding.line, finding.related_files))
+                .collect::<Vec<_>>(),
+            [(4, vec![])]
+        );
+    }
+
+    #[test]
+    fn distinguishes_imported_event_waits_from_unrelated_once_calls() {
+        let sources = BTreeMap::from([
+            ("src/events.js".to_owned(),
+             "const { once: onEvent } = require('node:events');\nwhile (buffer.length < size) {\nawait onEvent(input, 'readable');\n}\n".to_owned()),
+            ("src/events.ts".to_owned(),
+             "import { once } from 'events';\nfor (const item of items) {\nawait once(item, 'ready');\nawait save(item);\n}\n".to_owned()),
+            ("src/unrelated.ts".to_owned(),
+             "const example = \"import { once } from 'events'\";\nfor (const item of items) {\nawait once(item);\n}\n".to_owned()),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-await-in-loop")
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("src/events.ts".to_owned(), 4),
+                ("src/unrelated.ts".to_owned(), 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn retains_loop_awaits_when_event_bindings_are_fake_shadowed_or_reassigned() {
+        let sources = BTreeMap::from([
+            (
+                "src/shadowed.ts".to_owned(),
+                "import { once } from 'node:events';\n\
+                 async function process(once: (item: string) => Promise<void>) {\n\
+                   for (const item of items) {\n\
+                     await once(item);\n\
+                   }\n\
+                 }\n"
+                .to_owned(),
+            ),
+            (
+                "src/reassigned.ts".to_owned(),
+                "import { once } from 'events';\n\
+                 once = customAsyncWork;\n\
+                 for (const item of items) {\n\
+                   await once(item);\n\
+                 }\n"
+                .to_owned(),
+            ),
+            (
+                "src/local.js".to_owned(),
+                "const { once: onEvent } = require('events');\n\
+                 async function process() {\n\
+                   const onEvent = customAsyncWork;\n\
+                   for (const item of items) {\n\
+                     await onEvent(item);\n\
+                   }\n\
+                 }\n"
+                .to_owned(),
+            ),
+            (
+                "src/comment.js".to_owned(),
+                "// import { once } from 'events'\n\
+                 const work = customAsyncWork;\n\
+                 for (const item of items) {\n\
+                   await once(item);\n\
+                 }\n"
+                .to_owned(),
+            ),
+            (
+                "src/literal.js".to_owned(),
+                "const example = \"import { once } from 'events'\"\n\
+                 const work = customAsyncWork;\n\
+                 for (const item of items) {\n\
+                   await once(item);\n\
+                 }\n"
+                .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-await-in-loop")
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("src/comment.js".to_owned(), 4),
+                ("src/literal.js".to_owned(), 4),
+                ("src/local.js".to_owned(), 5),
+                ("src/reassigned.ts".to_owned(), 4),
+                ("src/shadowed.ts".to_owned(), 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_execution_inside_template_interpolations_and_masks_fake_array_evidence() {
+        let sources = BTreeMap::from([(
+            "src/templates.ts".to_owned(),
+            "const text = `literal eval(input) ${eval(input)} tail`;\n\
+             const nested = `tail ${`inner ${console.log(input)}`} done`;\n\
+             const sample = 'const fake = []';\n\
+             const real: string[] = [];\n\
+             for (const item of items) {\n\
+               if (fake.includes(item)) consume(item);\n\
+               if (real.includes(item)) consume(item);\n\
+               const fakeMatch = /real.includes(item)/;\n\
+               const fakeConsole = /console.log(input)/;\n\
+               const fakeEval = /eval(input)/;\n\
+             }\n"
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| matches!(
+                    finding.code.as_str(),
+                    "ts-eval" | "ts-console" | "js-linear-membership-in-loop"
+                ))
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("ts-eval".to_owned(), 1),
+                ("ts-console".to_owned(), 2),
+                ("js-linear-membership-in-loop".to_owned(), 7),
+            ]
+        );
+    }
     #[test]
     fn reports_all_javascript_and_typescript_source_rules() {
         let sources = BTreeMap::from([(
@@ -3870,5 +4588,109 @@ JSON.parse();\n"
         ));
         assert!(!is_static_string_literal(""));
         assert!(!is_static_string_literal("\""));
+    }
+
+    #[test]
+    fn reports_only_string_bindings_that_survive_the_repeating_loop() {
+        let sources = BTreeMap::from([(
+            "src/format.ts".to_owned(),
+            r#"function format(rows: string[][]) {
+  let output = `rows:`;
+  for (const values of rows) {
+    let row: string = "";
+    for (const value of values) {
+      output += value;
+      row += value;
+    }
+    output += row;
+  }
+  function append(values: string[]) {
+    for (const value of values) {
+      output += value;
+    }
+  }
+  return output;
+}
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let selected = analyze(&context)
+            .into_iter()
+            .filter(|finding| finding.code == "js-string-concat-in-loop")
+            .map(|finding| {
+                (
+                    finding.path,
+                    finding.line,
+                    finding.confidence,
+                    finding.related_files,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected,
+            vec![(
+                "src/format.ts".to_owned(),
+                6,
+                "medium".to_owned(),
+                vec![
+                    "src/format.ts:7".to_owned(),
+                    "src/format.ts:9".to_owned(),
+                    "src/format.ts:13".to_owned(),
+                ],
+            )]
+        );
+    }
+
+    #[test]
+    fn accepts_loop_local_strings_and_unrelated_or_shadowed_bindings() {
+        let sources = BTreeMap::from([(
+            "src/parse.ts".to_owned(),
+            r#"function parse(values: string[]) {
+  for (const value of values) {
+    let parameterValue: string | null = null;
+    parameterValue = value;
+    if (value.endsWith("\\")) parameterValue += "\\";
+  }
+}
+function text() {
+  let total = "";
+  return total;
+}
+function count(values: number[]) {
+  let total = 0;
+  for (const value of values) {
+    total += value;
+  }
+}
+let output = "";
+function shadowed(
+  output: number,
+  values: number[],
+) {
+  for (const value of values) {
+    output += value;
+  }
+}
+for (const value of values) {
+  let output = 0;
+  output += value;
+  target.output += value;
+  // let total = ""; total += value;
+  const example = "let total = ''; total += value;";
+  const pattern = /let total = ""; total += value;/;
+  function deferred() {
+    output += value;
+  }
+}
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert!(
+            analyze(&context)
+                .into_iter()
+                .all(|finding| finding.code != "js-string-concat-in-loop")
+        );
     }
 }

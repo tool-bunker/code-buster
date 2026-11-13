@@ -359,18 +359,12 @@ fn deferred_parent(prefix: &str) -> bool {
 
 fn arrow_expression_end(source: &str, start: usize) -> usize {
     let bytes = source.as_bytes();
-    let mut depths = [0usize; 3];
+    let mut depth = super::DelimiterDepth::default();
     for (index, byte) in bytes.iter().enumerate().skip(start) {
-        match *byte {
-            b'(' => depths[0] += 1,
-            b')' if depths[0] > 0 => depths[0] -= 1,
-            b'[' => depths[1] += 1,
-            b']' if depths[1] > 0 => depths[1] -= 1,
-            b'{' => depths[2] += 1,
-            b'}' if depths[2] > 0 => depths[2] -= 1,
-            b',' | b';' if depths == [0, 0, 0] => return index,
-            _ => {}
+        if matches!(*byte, b',' | b';') && depth.is_top_level() {
+            return index;
         }
+        depth.consume(*byte);
     }
     source.len()
 }
@@ -387,18 +381,12 @@ fn brace_depth(source: &str, start: usize, end: usize) -> usize {
 
 fn statement_end(source: &str, start: usize, limit: usize) -> Option<usize> {
     let bytes = source.as_bytes();
-    let mut depths = [0usize; 3];
+    let mut depth = super::DelimiterDepth::default();
     for (index, byte) in bytes.iter().enumerate().take(limit).skip(start) {
-        match *byte {
-            b'(' => depths[0] += 1,
-            b')' => depths[0] = depths[0].saturating_sub(1),
-            b'[' => depths[1] += 1,
-            b']' => depths[1] = depths[1].saturating_sub(1),
-            b'{' => depths[2] += 1,
-            b'}' => depths[2] = depths[2].saturating_sub(1),
-            b';' if depths == [0, 0, 0] => return Some(index),
-            _ => {}
+        if *byte == b';' && depth.is_top_level() {
+            return Some(index);
         }
+        depth.consume(*byte);
     }
     None
 }

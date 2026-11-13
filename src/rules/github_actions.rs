@@ -19,12 +19,13 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
         .iter()
         .filter(|(path, _)| is_github_workflow(path))
     {
-        findings.extend(template_injections(path, source));
-        if let Some(finding) = mutable_action_references(path, source) {
+        let structure = workflow_structure(source);
+        findings.extend(template_injections(path, source, &structure));
+        if let Some(finding) = mutable_action_references(path, &structure) {
             findings.push(finding);
         }
-        if workflow_uses_pull_request_target(source) {
-            findings.extend(pull_request_target_checkouts(path, source));
+        if workflow_uses_pull_request_target(&structure) {
+            findings.extend(pull_request_target_checkouts(path, source, &structure));
         }
     }
     findings
@@ -42,73 +43,88 @@ fn is_github_workflow(path: &str) -> bool {
 #[derive(Clone, Copy)]
 struct RunBlock {
     indentation: usize,
-    reported: bool,
+    start: usize,
+    line: usize,
 }
 
-// code-buster-ignore complex-function: YAML run-block tracking keeps indentation and report state in one pass.
-fn template_injections(path: &str, source: &str) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    let safe_inputs = typed_safe_inputs(source);
-    let mut block: Option<RunBlock> = None;
+#[derive(Default)]
+struct SafeInputs {
+    direct: BTreeSet<String>,
+    event: BTreeSet<String>,
+}
 
-    for (index, line) in source.lines().enumerate() {
-        let line_number = index + 1;
-        if let Some(active) = block.as_mut() {
-            if line.trim().is_empty() {
+fn template_injections(path: &str, source: &str, structure: &[&str]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let safe_inputs = typed_safe_inputs(structure);
+    let mut block: Option<RunBlock> = None;
+    let mut offset = 0;
+
+    for (index, segment) in source.split_inclusive('\n').enumerate() {
+        let line = segment.trim_end_matches(['\r', '\n']);
+        let start = offset;
+        offset += segment.len();
+        if let Some(active) = block {
+            if line.trim().is_empty() || indentation(line) > active.indentation {
                 continue;
             }
-            if indentation(line) > active.indentation {
-                if !active.reported && contains_untrusted_expression(line, &safe_inputs) {
-                    findings.push(finding(
-                        TEMPLATE_INJECTION,
-                        path,
-                        line_number,
-                        "Untrusted GitHub Actions data is interpolated directly into a shell command"
-                            .to_owned(),
-                    ));
-                    active.reported = true;
-                }
-                continue;
-            }
+            report_template_injection(
+                &mut findings,
+                path,
+                &source[active.start..start],
+                active.line,
+                &safe_inputs,
+            );
             block = None;
         }
-
-        let Some(value) = yaml_value(line, "run") else {
+        let Some(value) = yaml_value(structure[index], "run") else {
             continue;
         };
         if is_block_scalar(value) {
             block = Some(RunBlock {
-                indentation: indentation(line),
-                reported: false,
+                indentation: mapping_indentation(line),
+                start: offset,
+                line: index + 2,
             });
-        } else if contains_untrusted_expression(value, &safe_inputs) {
-            findings.push(finding(
-                TEMPLATE_INJECTION,
-                path,
-                line_number,
-                "Untrusted GitHub Actions data is interpolated directly into a shell command"
-                    .to_owned(),
-            ));
+        } else {
+            report_template_injection(&mut findings, path, value, index + 1, &safe_inputs);
         }
     }
-
+    if let Some(active) = block {
+        report_template_injection(
+            &mut findings,
+            path,
+            &source[active.start..],
+            active.line,
+            &safe_inputs,
+        );
+    }
     findings
 }
 
-fn mutable_action_references(path: &str, source: &str) -> Option<Finding> {
-    let mut run_block_indentation = None;
+fn report_template_injection(
+    findings: &mut Vec<Finding>,
+    path: &str,
+    script: &str,
+    line: usize,
+    safe_inputs: &SafeInputs,
+) {
+    if let Some(offset) = untrusted_expression_offset(script, safe_inputs) {
+        findings.push(finding(
+            TEMPLATE_INJECTION,
+            path,
+            line + script[..offset]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count(),
+            "Untrusted GitHub Actions data is interpolated directly into a shell command"
+                .to_owned(),
+        ));
+    }
+}
+
+fn mutable_action_references(path: &str, structure: &[&str]) -> Option<Finding> {
     let mut mutable = Vec::new();
-    for (index, line) in source.lines().enumerate() {
-        if let Some(active_indentation) = run_block_indentation {
-            if line.trim().is_empty() || indentation(line) > active_indentation {
-                continue;
-            }
-            run_block_indentation = None;
-        }
-        if yaml_value(line, "run").is_some_and(is_block_scalar) {
-            run_block_indentation = Some(indentation(line));
-            continue;
-        }
+    for (index, line) in structure.iter().enumerate() {
         if mutable_action_reference(line).is_some() {
             mutable.push(index + 1);
         }
@@ -173,37 +189,117 @@ fn indentation(line: &str) -> usize {
         .count()
 }
 
-fn contains_untrusted_expression(value: &str, safe_inputs: &BTreeSet<String>) -> bool {
-    let value = SAFE_EVENT_EXPRESSION.replace_all(value, "");
-    UNTRUSTED_EVENT_EXPRESSION.is_match(&value)
-        || INPUT_EXPRESSION.captures_iter(&value).any(|capture| {
-            capture
-                .get(1)
-                .or_else(|| capture.get(2))
-                .is_some_and(|name| !safe_inputs.contains(name.as_str()))
-        })
+fn mapping_indentation(line: &str) -> usize {
+    let sequence_offset = if line.trim_start().starts_with("- ") {
+        2
+    } else {
+        0
+    };
+    indentation(line) + sequence_offset
 }
 
-fn typed_safe_inputs(source: &str) -> BTreeSet<String> {
-    let lines = source.lines().collect::<Vec<_>>();
-    let mut safe = BTreeSet::new();
+// Preserve line numbers and mapping headers, but do not mistake script, env,
+// description, or other block-scalar contents for workflow structure.
+fn workflow_structure(source: &str) -> Vec<&str> {
+    let mut scalar_indentation = None;
+    source
+        .lines()
+        .map(|line| {
+            if let Some(active) = scalar_indentation {
+                if line.trim().is_empty() || indentation(line) > active {
+                    return "";
+                }
+                scalar_indentation = None;
+            }
+            if !line.trim_start().starts_with('#')
+                && line
+                    .split_once(':')
+                    .is_some_and(|(_, value)| is_block_scalar(value.trim_start()))
+            {
+                scalar_indentation = Some(mapping_indentation(line));
+            }
+            line
+        })
+        .collect()
+}
+
+fn untrusted_expression_offset(value: &str, safe_inputs: &SafeInputs) -> Option<usize> {
+    let complete = WORKFLOW_EXPRESSION
+        .captures_iter(value)
+        .find_map(|capture| {
+            let expression = capture[1].trim();
+            if SAFE_EVENT_EXPRESSION.is_match(expression) {
+                return None;
+            }
+            if let Some(input) = INPUT_EXPRESSION.captures(expression) {
+                let complete = input
+                    .get(0)
+                    .is_some_and(|matched| matched.as_str() == expression);
+                let typed = input.get(1).or_else(|| input.get(2)).is_some_and(|name| {
+                    let safe = if expression.starts_with("github.event.") {
+                        &safe_inputs.event
+                    } else {
+                        &safe_inputs.direct
+                    };
+                    safe.contains(name.as_str())
+                });
+                if complete && typed {
+                    return None;
+                }
+            }
+            (UNTRUSTED_EVENT_EXPRESSION.is_match(expression)
+                || INPUT_EXPRESSION.is_match(expression))
+            .then(|| {
+                capture
+                    .get(0)
+                    .expect("expression capture must exist")
+                    .start()
+            })
+        });
+    complete.or_else(|| {
+        // Quoted YAML scalars can continue on the next line. Preserve evidence
+        // already visible on the run header even when its closing delimiter is
+        // outside the line-oriented structural parser.
+        let start = value.rfind("${{")?;
+        let tail = &value[start + 3..];
+        (!tail.contains("}}")
+            && (UNTRUSTED_EVENT_EXPRESSION.is_match(tail) || INPUT_EXPRESSION.is_match(tail)))
+        .then_some(start)
+    })
+}
+
+fn typed_safe_inputs(lines: &[&str]) -> SafeInputs {
+    let mut safe = SafeInputs::default();
     for (index, line) in lines.iter().enumerate() {
         let Some(kind) = yaml_value(line, "type").and_then(scalar_value) else {
             continue;
         };
-        if !matches!(kind, "boolean" | "choice" | "number") {
+        if !matches!(kind, "boolean" | "number") {
             continue;
         }
         let Some((input_index, input_indent, input)) =
-            parent_mapping(&lines, index, indentation(line))
+            parent_mapping(lines, index, indentation(line))
         else {
             continue;
         };
-        let Some((_, _, parent)) = parent_mapping(&lines, input_index, input_indent) else {
+        let Some((inputs_index, inputs_indent, parent)) =
+            parent_mapping(lines, input_index, input_indent)
+        else {
             continue;
         };
-        if parent == "inputs" {
-            safe.insert(input.to_owned());
+        let Some((event_index, event_indent, event)) =
+            parent_mapping(lines, inputs_index, inputs_indent)
+        else {
+            continue;
+        };
+        let event_is_workflow_input = matches!(event, "workflow_dispatch" | "workflow_call")
+            && parent_mapping(lines, event_index, event_indent)
+                .is_some_and(|(_, indent, key)| indent == 0 && key == "on");
+        if parent == "inputs" && event_is_workflow_input {
+            safe.direct.insert(input.to_owned());
+            if event == "workflow_dispatch" {
+                safe.event.insert(input.to_owned());
+            }
         }
     }
     safe
@@ -228,8 +324,7 @@ fn parent_mapping<'a>(
 }
 
 // code-buster-ignore complex-function: YAML event nesting is resolved by one indentation-aware scan.
-fn workflow_uses_pull_request_target(source: &str) -> bool {
-    let lines = source.lines().collect::<Vec<_>>();
+fn workflow_uses_pull_request_target(lines: &[&str]) -> bool {
     for (index, line) in lines.iter().enumerate() {
         let Some(value) = yaml_value(line, "on") else {
             continue;
@@ -264,20 +359,31 @@ fn yaml_token(value: &str, expected: &str) -> bool {
         .any(|token| token == expected)
 }
 
-fn pull_request_target_checkouts(path: &str, source: &str) -> Vec<Finding> {
+fn pull_request_target_checkouts(path: &str, source: &str, structure: &[&str]) -> Vec<Finding> {
     let lines = source.lines().collect::<Vec<_>>();
     let mut findings = Vec::new();
-    for (start, end) in job_ranges(&lines) {
+    let ranges = job_ranges(structure);
+    let global_end = ranges.first().map_or(structure.len(), |(start, _)| *start);
+    let global_overrides =
+        has_execution_configuration(&lines[..global_end], &structure[..global_end]);
+    for (start, end) in ranges {
+        let allow_metadata = !global_overrides
+            && !has_execution_configuration(&lines[start..end], &structure[start..end]);
         for index in start..end {
-            let Some(action) = yaml_value(lines[index], "uses").and_then(scalar_value) else {
+            let Some(action) = yaml_value(structure[index], "uses").and_then(scalar_value) else {
                 continue;
             };
             if !action.starts_with("actions/checkout@") {
                 continue;
             }
-            let step_end = step_end(&lines, index, end);
-            if checkout_uses_untrusted_head(&lines[index + 1..step_end])
-                && job_executes_checkout(&lines[step_end..end])
+            let step_end = step_end(structure, index, end);
+            if checkout_uses_untrusted_head(&structure[index + 1..step_end])
+                && job_executes_checkout(
+                    &lines[step_end..end],
+                    &structure[step_end..end],
+                    checkout_path(&structure[index + 1..step_end]),
+                    allow_metadata,
+                )
             {
                 findings.push(finding(
                     PULL_REQUEST_TARGET_CHECKOUT,
@@ -367,20 +473,188 @@ fn checkout_uses_untrusted_head(lines: &[&str]) -> bool {
     lines.iter().any(|line| {
         ["ref", "repository"].iter().any(|key| {
             yaml_value(line, key).is_some_and(|value| {
-                value.contains("${{ github.event.pull_request.head.")
-                    || value.contains("${{ github.head_ref")
+                WORKFLOW_EXPRESSION.captures_iter(value).any(|capture| {
+                    capture[1].contains("github.event.pull_request.head.")
+                        || capture[1].contains("github.head_ref")
+                })
             })
         })
     })
 }
 
-fn job_executes_checkout(lines: &[&str]) -> bool {
+fn checkout_path<'a>(lines: &[&'a str]) -> Option<&'a str> {
+    let path = lines
+        .iter()
+        .find_map(|line| yaml_value(line, "path").and_then(scalar_value))
+        .unwrap_or(".");
+    (!path.contains("${{")).then_some(path)
+}
+
+fn has_execution_configuration(lines: &[&str], structure: &[&str]) -> bool {
     lines.iter().any(|line| {
-        yaml_value(line, "run").is_some()
-            || yaml_value(line, "uses")
-                .and_then(scalar_value)
-                .is_some_and(|action| action.starts_with("./"))
+        line.contains("git config ")
+            || [
+                "GIT_EXTERNAL_DIFF",
+                "GIT_CONFIG",
+                "GIT_EXEC_PATH",
+                "GIT_SSH",
+                "GIT_PROXY_COMMAND",
+                "BASH_ENV",
+                "SHELLOPTS",
+                "BASHOPTS",
+            ]
+            .iter()
+            .any(|key| line.contains(key))
+    }) || structure.iter().any(|line| {
+        yaml_value(line, "shell")
+            .is_some_and(|shell| !matches!(shell.trim(), "bash" | "sh" | "bash {0}" | "sh {0}"))
     })
+}
+
+fn job_executes_checkout(
+    lines: &[&str],
+    structure: &[&str],
+    path: Option<&str>,
+    allow_metadata: bool,
+) -> bool {
+    for (index, line) in structure.iter().enumerate() {
+        let action = yaml_value(line, "uses").and_then(scalar_value);
+        if action.is_some_and(|action| action.starts_with("./")) {
+            return true;
+        }
+        if action.is_some_and(|action| action.starts_with("actions/checkout@"))
+            && clean_checkout_replaces_path(structure, index, path)
+        {
+            return false;
+        }
+        if let Some(value) = yaml_value(line, "run") {
+            let end = step_end(structure, index, structure.len());
+            if !allow_metadata || !run_only_inspects_metadata(&lines[index..end], value) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn clean_checkout_replaces_path(structure: &[&str], index: usize, path: Option<&str>) -> bool {
+    let Some(path) = path else {
+        return false;
+    };
+    let start = structure[..=index]
+        .iter()
+        .rposition(|line| line.trim_start().starts_with("- "))
+        .unwrap_or(index);
+    let end = step_end(structure, index, structure.len());
+    let step = &structure[start..end];
+    if checkout_path(step) != Some(path) {
+        return false;
+    }
+    !step.iter().any(|line| {
+        yaml_value(line, "if").is_some()
+            || yaml_value(line, "clean")
+                .and_then(scalar_value)
+                .is_some_and(|value| value != "true")
+    })
+}
+
+fn run_only_inspects_metadata(lines: &[&str], value: &str) -> bool {
+    if is_block_scalar(value) {
+        let run_indentation = mapping_indentation(lines[0]);
+        lines[1..]
+            .iter()
+            .take_while(|line| line.trim().is_empty() || indentation(line) > run_indentation)
+            .all(|line| metadata_only_command(line.trim()))
+    } else {
+        let value = value.trim();
+        let value = if value.starts_with(['\'', '"']) {
+            &value[1..value.len().saturating_sub(1)]
+        } else {
+            value
+        };
+        metadata_only_command(value)
+    }
+}
+
+// A narrow command allowlist proves that a run step reads Git metadata rather
+// than executing the checkout. Unknown shell syntax and execution options remain
+// findings; in particular, command substitution is never a harmless echo.
+fn metadata_only_command(command: &str) -> bool {
+    if command.is_empty() || command.starts_with('#') {
+        return true;
+    }
+    if has_unsupported_shell_syntax(command) {
+        return false;
+    }
+    if let Some(message) = command.strip_prefix("echo ") {
+        return metadata_only_echo(message);
+    }
+    if command.contains(['<', '>']) {
+        return false;
+    }
+    if let Some(arguments) = command.strip_prefix("git fetch ") {
+        return METADATA_FETCH_ARGUMENTS.is_match(arguments);
+    }
+    command
+        .strip_prefix("git diff ")
+        .is_some_and(|arguments| arguments.split_whitespace().all(metadata_diff_argument))
+}
+
+fn has_unsupported_shell_syntax(command: &str) -> bool {
+    const UNSUPPORTED_TOKENS: &[&str] = &[
+        ";", "|", "&", "`", "\\", "\n", "\r", "$(", "<(", ">(", "${{", "$[",
+    ];
+    if UNSUPPORTED_TOKENS
+        .iter()
+        .any(|token| command.contains(token))
+    {
+        return true;
+    }
+    command
+        .match_indices("${")
+        .any(|(start, _)| !plain_shell_parameter(&command[start + 2..]))
+}
+
+fn plain_shell_parameter(tail: &str) -> bool {
+    let Some((name, _)) = tail.split_once('}') else {
+        return false;
+    };
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn metadata_only_echo(message: &str) -> bool {
+    if !message.contains(['<', '>']) {
+        return true;
+    }
+    let Some((message, target)) = message.rsplit_once(">>") else {
+        return false;
+    };
+    if message.contains(['<', '>']) {
+        return false;
+    }
+    matches!(
+        target.trim(),
+        "$GITHUB_OUTPUT" | "\"$GITHUB_OUTPUT\"" | "${GITHUB_OUTPUT}" | "\"${GITHUB_OUTPUT}\""
+    )
+}
+
+fn metadata_diff_argument(argument: &str) -> bool {
+    matches!(
+        argument,
+        "--" | "--exit-code"
+            | "--quiet"
+            | "--name-only"
+            | "--name-status"
+            | "--stat"
+            | "--no-ext-diff"
+            | "--no-textconv"
+    ) || (!argument.starts_with('-')
+        && argument
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_$}{/.-".contains(&byte)))
 }
 
 fn finding(code: &str, path: &str, line: usize, message: String) -> Finding {
@@ -402,21 +676,30 @@ fn finding(code: &str, path: &str, line: usize, message: String) -> Finding {
     }
 }
 
+static WORKFLOW_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?s)\$\{\{(.*?)\}\}").expect("GitHub Actions expression regex must compile")
+});
 static UNTRUSTED_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$\{\{\s*(?:github\.event(?:\.|\[)|github\.head_ref\b)")
+    Regex::new(r"\b(?:github\.event(?:\.|\[)|github\.head_ref\b)")
         .expect("GitHub Actions event expression regex must compile")
 });
-// Only complete expressions qualify: repository.default_branch belongs to the
-// trusted base repository, unlike pull_request.head.repo or mixed expressions.
+// Only complete expressions qualify. Hashes and numeric event identifiers have
+// constrained values; names, refs, titles, and fallbacks do not.
 static SAFE_EVENT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"\$\{\{\s*(?:github\.event\.pull_request\.number|github\.event\.workflow_run\.head_sha|github\.event\.repository\.default_branch)\s*\}\}",
+        r"^(?:github\.event\.(?:number|after|before|pull_request\.(?:number|(?:base|head)\.sha)|workflow_run\.head_sha|repository\.default_branch))$",
     )
     .expect("safe GitHub event expression regex must compile")
 });
 static INPUT_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\$\{\{\s*inputs(?:\.([A-Za-z_][A-Za-z0-9_-]*)|\[\s*['"]([^'"]+)['"]\s*\])"#)
-        .expect("GitHub Actions input expression regex must compile")
+    Regex::new(
+        r#"\b(?:github\.event\.)?inputs(?:\.([A-Za-z_][A-Za-z0-9_-]*)|\[\s*['"]([^'"]+)['"]\s*\])"#,
+    )
+    .expect("GitHub Actions input expression regex must compile")
+});
+static METADATA_FETCH_ARGUMENTS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:--depth=[0-9]+ )?origin [A-Za-z0-9_$}{/.-]+$")
+        .expect("Git metadata fetch argument regex must compile")
 });
 
 #[cfg(test)]
@@ -545,7 +828,7 @@ jobs:
     }
 
     #[test]
-    fn accepts_typed_non_string_workflow_inputs_in_shell_commands() {
+    fn accepts_boolean_and_number_inputs_but_keeps_choice_and_string_inputs() {
         let findings = analyze_auxiliary([(
             ".github/workflows/release.yml",
             r#"on:
@@ -563,7 +846,8 @@ jobs:
 jobs:
   publish:
     steps:
-      - run: echo "${{ inputs.dry_run }} ${{ inputs.channel }} ${{ inputs.retries }}"
+      - run: echo "${{ inputs.dry_run }} ${{ inputs.retries }}"
+      - run: echo "${{ inputs.channel }}"
       - run: echo "${{ inputs.release_name }}"
 "#,
         )]);
@@ -574,7 +858,7 @@ jobs:
                 .filter(|finding| finding.code == TEMPLATE_INJECTION)
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
-            vec![17]
+            vec![17, 18]
         );
     }
 
@@ -697,6 +981,351 @@ jobs:
                 .all(|finding| finding.code != PULL_REQUEST_TARGET_CHECKOUT),
             "unexpected findings: {findings:?}"
         );
+    }
+
+    #[test]
+    fn accepts_event_numbers_and_commit_hashes_but_keeps_names_refs_and_mixed_expressions() {
+        let path = ".github/workflows/ci.yml";
+        let findings = analyze_auxiliary([(
+            path,
+            r#"jobs:
+  inspect:
+    steps:
+      - run: echo ${{ github.event.number }}
+      - run: git log -n 1 ${{github.event.after}}
+      - run: git diff ${{ github.event.before }} HEAD
+      - run: git fetch origin ${{ github.event.pull_request.base.sha }}
+      - run: git show ${{ github.event.pull_request.head.sha }}
+      - run: echo "${{ github.event.pull_request.head.ref }}"
+      - run: echo "${{ github.event.pull_request.title }}"
+      - run: echo "${{ format('{0}', github.event.pull_request.title) }}"
+      - run: echo "${{ github.event.number || github.event.pull_request.title }}"
+      - run: echo "${{ github.event.after }} ${{ github.head_ref }}"
+      - run: echo "${{ github.event.number_suffix }}"
+      - run: echo "${{ github.event.pull_request.head.repo.full_name }}"
+"#,
+        )]);
+        let injections = findings
+            .iter()
+            .filter(|finding| finding.code == TEMPLATE_INJECTION)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            injections
+                .iter()
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [9, 10, 11, 12, 13, 14, 15]
+        );
+        for finding in injections {
+            assert_eq!(finding.path, path);
+            assert_eq!(finding.confidence, "high");
+        }
+    }
+
+    #[test]
+    fn retains_untrusted_expressions_started_in_multiline_quoted_run_scalars() {
+        let findings = analyze_auxiliary([(
+            ".github/workflows/quoted.yml",
+            r#"jobs:
+  inspect:
+    steps:
+      - run: "echo '${{ github.event.pull_request.title
+          }}'"
+      - run: 'echo "${{ inputs.version
+          }}"'
+"#,
+        )]);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == TEMPLATE_INJECTION)
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [4, 6]
+        );
+    }
+
+    #[test]
+    fn handles_multiline_expressions_and_crlf_without_extending_into_sibling_env() {
+        let source = r#"jobs:
+  inspect:
+    steps:
+      - run: |
+          echo "${{
+            github.event.after
+          }}"
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+      - run: >-
+          echo "${{
+            github.event.number
+            || github.event.pull_request.title
+          }}"
+          echo "${{ github.head_ref }}"
+      - run: |
+          echo "${{ github.event.pull_request.title
+          }}"
+"#;
+        let crlf_source = source.replace('\n', "\r\n");
+        for source in [source, crlf_source.as_str()] {
+            let findings = analyze_auxiliary([(".github/workflows/multiline.yml", source)]);
+            assert_eq!(
+                findings
+                    .iter()
+                    .filter(|finding| finding.code == TEMPLATE_INJECTION)
+                    .map(|finding| finding.line)
+                    .collect::<Vec<_>>(),
+                [11, 17]
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_boolean_and_number_event_input_aliases_but_keeps_choice_and_mixed_expressions() {
+        let findings = analyze_auxiliary([(
+            ".github/workflows/promote.yml",
+            r#"on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        type: choice
+        options: [rc, lts]
+      count:
+        type: number
+      dry_run:
+        type: boolean
+      commitHash:
+        type: string
+jobs:
+  release:
+    steps:
+      - run: echo "${{ github.event.inputs.kind }}"
+      - run: echo "${{ github.event.inputs['kind'] }}"
+      - run: echo "${{ inputs.dry_run }}"
+      - run: echo "${{ github.event.inputs.count }}"
+      - run: echo "${{ github.event.inputs.commitHash }}"
+      - run: echo "${{ inputs.kind || github.event.inputs.commitHash }}"
+      - run: echo "${{ format('{0}', github.event.pull_request.title) }}"
+      - run: echo "${{ true && inputs.commitHash }}"
+      - run: echo "${{ github.event.inputs.kind || github.head_ref }}"
+"#,
+        )]);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == TEMPLATE_INJECTION)
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [16, 17, 20, 21, 22, 23, 24]
+        );
+    }
+
+    #[test]
+    fn reports_malicious_choice_options_and_mixed_choice_string_expressions() {
+        let findings = analyze_auxiliary([(
+            ".github/workflows/choice.yml",
+            r#"on:
+  workflow_dispatch:
+    inputs:
+      command:
+        type: choice
+        options:
+          - safe
+          - '$(./untrusted)'
+      suffix:
+        type: string
+jobs:
+  inspect:
+    steps:
+      - run: echo "${{ inputs.command }}"
+      - run: echo "${{ github.event.inputs.command }}"
+      - run: echo "${{ inputs.command || inputs.suffix }}"
+      - run: echo "${{ inputs.suffix && github.event.inputs.command }}"
+      - run: echo "${{ inputs.command == 'safe' && 'safe' || inputs.suffix }}"
+"#,
+        )]);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == TEMPLATE_INJECTION)
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [14, 15, 16, 17, 18]
+        );
+    }
+
+    #[test]
+    fn does_not_infer_dispatch_types_from_unrelated_or_reusable_workflow_mappings() {
+        let findings = analyze_auxiliary([(
+            ".github/workflows/call.yml",
+            r#"on:
+  workflow_call:
+    inputs:
+      count:
+        type: number
+jobs:
+  inspect:
+    env:
+      inputs:
+        version:
+          type: boolean
+    steps:
+      - run: echo "${{ inputs.count }}"
+      - run: echo "${{ github.event.inputs.count }}"
+      - run: echo "${{ inputs.version }}"
+"#,
+        )]);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == TEMPLATE_INJECTION)
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [14, 15]
+        );
+    }
+
+    #[test]
+    fn respects_run_sibling_env_and_non_run_block_scalar_boundaries() {
+        let findings = analyze_auxiliary([(
+            ".github/workflows/blocks.yml",
+            r#"env:
+  EXAMPLE: |-
+    run: echo "${{ inputs.example }}"
+    uses: owner/example@main
+jobs:
+  inspect:
+    steps:
+      - run: |-
+          echo ready
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+      - name: Descriptive scalar
+        env:
+          DESCRIPTION: >-
+            run: echo "${{ inputs.description }}"
+            uses: owner/example@main
+        run: echo ready
+      - uses: owner/real-action@v1
+      - run: >-
+          echo "${{ github.event.pull_request.title }}"
+          echo "${{ inputs.second }}"
+"#,
+        )]);
+        let injections = findings
+            .iter()
+            .filter(|finding| finding.code == TEMPLATE_INJECTION)
+            .collect::<Vec<_>>();
+        assert_eq!(injections.len(), 1);
+        assert_eq!(injections[0].line, 20);
+        let mutable = findings
+            .iter()
+            .filter(|finding| finding.code == MUTABLE_ACTION_REFERENCE)
+            .collect::<Vec<_>>();
+        assert_eq!(mutable.len(), 1);
+        assert_eq!(mutable[0].line, 18);
+        assert_eq!(
+            mutable[0].message,
+            "1 external action reference in this workflow is not pinned to full commit SHAs"
+        );
+    }
+
+    #[test]
+    fn accepts_privileged_checkout_metadata_inspection_and_clean_replacement() {
+        let prefix = r#"on: pull_request_target
+jobs:
+  inspect:
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{github.event.pull_request.head.sha}}
+"#;
+        for suffix in [
+            r#"      - name: Get changes
+        shell: bash {0}
+        run: |
+          git fetch --depth=1 origin $BASE_SHA
+          git diff --exit-code $BASE_SHA $HEAD_SHA -- ./release-notes
+          echo "found_changes=$?" >> $GITHUB_OUTPUT
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+"#,
+            r#"      - uses: actions/checkout@v5
+      - run: cargo test
+"#,
+            r#"      - run: 'git diff --quiet HEAD -- ./release-notes'
+"#,
+        ] {
+            let source = format!("{prefix}{suffix}");
+            let findings = analyze_auxiliary([(".github/workflows/inspect.yml", &source)]);
+            assert!(
+                findings
+                    .iter()
+                    .all(|finding| finding.code != PULL_REQUEST_TARGET_CHECKOUT),
+                "unexpected checkout execution for {suffix}: {findings:?}"
+            );
+        }
+        let findings = analyze_auxiliary([(
+            ".github/workflows/order.yml",
+            r#"on: pull_request_target
+jobs:
+  inspect:
+    steps:
+      - run: cargo test
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+"#,
+        )]);
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.code != PULL_REQUEST_TARGET_CHECKOUT),
+            "execution before the checkout is not execution of that checkout: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn keeps_privileged_source_execution_and_unsafe_shell_construction_reportable() {
+        let prefix = r#"on: pull_request_target
+jobs:
+  inspect:
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{github.event.pull_request.head.sha}}
+"#;
+        for suffix in [
+            "      - run: cargo test\n",
+            "      - uses: ./.github/actions/review\n",
+            "      - run: echo \"$(./checked-out-script)\"\n",
+            "      - run: echo \"${VALUE@P}\"\n",
+            "      - run: git diff --ext-diff HEAD\n",
+            "      - run: git fetch --upload-pack=./script origin HEAD\n",
+            "      - shell: ./.github/custom-shell {0}\n        run: git diff --quiet HEAD\n",
+            "      - run: git diff --quiet HEAD\n        env:\n          GIT_EXTERNAL_DIFF: ./script\n",
+            "      - run: git diff --quiet HEAD\n        env:\n          BASH_ENV: ./script\n",
+            "      - run: |\n          git diff --quiet HEAD\n          ./script\n",
+            "      - uses: actions/checkout@v5\n        if: success()\n      - run: cargo test\n",
+            "      - uses: actions/checkout@v5\n        with:\n          path: trusted\n      - run: cargo test\n",
+            "      - uses: actions/checkout@v5\n        with:\n          clean: false\n      - run: cargo test\n",
+        ] {
+            let source = format!("{prefix}{suffix}");
+            let findings = analyze_auxiliary([(".github/workflows/review.yml", &source)]);
+            let risky = findings
+                .iter()
+                .filter(|finding| finding.code == PULL_REQUEST_TARGET_CHECKOUT)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                risky.len(),
+                1,
+                "lost checkout execution for {suffix}: {findings:?}"
+            );
+            assert_eq!(risky[0].path, ".github/workflows/review.yml");
+            assert_eq!(risky[0].line, 5);
+            assert_eq!(risky[0].confidence, "high");
+        }
     }
 
     fn analyze_auxiliary<const N: usize>(files: [(&str, &str); N]) -> Vec<Finding> {

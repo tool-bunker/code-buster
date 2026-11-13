@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A source file is not reachable from configured entry points.",
   "suggestion": "Remove the file, add an entry point, or add the missing dependency edge.",
-  "version": 9,
+  "version": 10,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [

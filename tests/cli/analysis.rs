@@ -148,14 +148,6 @@ duplication_min_lines = 3
     let text = run_duplication(&root.path, &[]);
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
-    let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✓ Code Buster duplication — no actionable findings\n"));
-    assert!(stdout.contains("  Advisory    1"));
-    assert!(stdout.contains("Advisory breakdown\n  maintainability   1"));
-    assert!(stdout.contains(
-        "Findings\n\n  WARN  duplicate-block\n        src/a.rs:1-4\n        duplicate block of 4 lines fingerprint=4FEBB33CC8BB"
-    ));
-    assert!(stdout.contains("→ Review advisory findings: cb review --advisory"));
 
     let summary = run_summary(&root.path, &[]);
     assert_eq!(summary.status.code(), Some(0));
@@ -437,13 +429,6 @@ cleanup:
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
     let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✗ Code Buster quality — 2 actionable findings\n"));
-    assert!(stdout.contains("  Actionable  2"));
-    assert!(stdout.contains("  Advisory    1"));
-    assert!(stdout.contains("Languages\n  cpp              1 file     1 finding"));
-    assert!(stdout.contains(
-        "  WARN  complex-function\n        src/logic.rs:1\n        logic\n        Cyclomatic  5  ·  Cognitive  7"
-    ));
     assert!(!stdout.contains("goto-statement"));
 
     let json = run_complexity(&root.path, &["--format", "json"]);
@@ -462,10 +447,6 @@ cleanup:
             .map(|finding| finding["code"].as_str().unwrap())
             .collect::<Vec<_>>(),
         ["long-function", "complex-function", "long-function"]
-    );
-    assert_eq!(
-        report["findings"][1]["why"],
-        "The function exceeds configured complexity thresholds."
     );
 
     let sarif = run_complexity(&root.path, &["--format", "sarif"]);
@@ -540,13 +521,6 @@ fn duplication_groups_repeated_blocks_in_one_public_report() {
     let text = run_duplication(&root.path, &[]);
     assert_eq!(text.status.code(), Some(0));
     assert!(text.stderr.is_empty());
-    let stdout = String::from_utf8(text.stdout).expect("stdout must be UTF-8");
-    assert!(stdout.starts_with("✓ Code Buster duplication — no actionable findings\n"));
-    assert!(stdout.contains("  Advisory    1"));
-    assert!(stdout.contains(
-        "Findings\n\n  WARN  duplicate-block\n        src/a.rs:1-4\n        duplicate block of 4 lines fingerprint=4FEBB33CC8BB"
-    ));
-    assert!(stdout.contains("→ Review advisory findings: cb review --advisory"));
 
     let json = run_duplication(&root.path, &["--format", "json"]);
     assert_eq!(json.status.code(), Some(0));

@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A manual Send or Sync implementation asserts thread-safety properties the compiler could not derive.",
   "suggestion": "Attach a SAFETY rationale covering every field, generic bound, aliasing invariant, and thread-affinity constraint.",
-  "version": 3,
+  "version": 5,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule verifies documentation presence and cannot prove the implementation is sound.",
-    "Adjacent Send and Sync implementations for the same type may share one attached SAFETY rationale; implementations separated by unrelated items are reported independently."
+    "The rule verifies documentation presence, including explicit SAFE: labels as well as SAFETY rationales, and cannot prove the implementation is sound.",
+    "Adjacent Send and Sync implementations for the same type may share one attached SAFETY rationale; implementations separated by unrelated items are reported independently. An inline block comment can attach directly to an unsafe implementation."
   ]
 }

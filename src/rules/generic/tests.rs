@@ -172,6 +172,39 @@ int order = (_a == _a) ? -1 : (_b == _b) ? 1 : 0;
     }
 
     #[test]
+    fn distinguishes_byte_literal_prefixes_from_compared_identifiers() {
+        let findings = analyze(
+            &sources(&[
+                (
+                    "bytes.rs",
+                    r#"fn newline(b: u8) -> bool { b == b'\n' }
+fn matching_bytes(b: &[u8]) -> bool { b == b"ok" }
+fn same_byte(b: u8) -> bool { b == b }
+// b == b
+fn example() { let text = "b == b"; }
+"#,
+                ),
+                (
+                    "bytes.py",
+                    "def matches_bytes(b): return b == b'ok'\n\
+                     def matches_uppercase(B): return B == B'ok'\n\
+                     def same_value(b): return b == b\n",
+                ),
+            ]),
+            &config(),
+        );
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "operation-on-same-value")
+                .map(|finding| (finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![("bytes.py", 3), ("bytes.rs", 3)]
+        );
+    }
+
+    #[test]
     fn preserves_large_number_language_and_context_exclusions() {
         let findings = analyze(
             &sources(&[
@@ -273,6 +306,39 @@ static const int rows[][13] = {\n\
                 .map(|finding| (finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
             vec![("kernel.ts", 2)]
+        );
+    }
+
+    #[test]
+    fn excludes_rust_use_trees_and_typescript_declarations_from_runtime_collections() {
+        let findings = analyze(
+            &sources(&[
+                (
+                    "src/imports.rs",
+                    "use crate::{A,B,C,D,E,F,G,H,I,J,K,L,M};\n\
+                     struct Fields { a: u8,b: u8,c: u8,d: u8,e: u8,f: u8,g: u8,h: u8,i: u8,j: u8,k: u8,l: u8,m: u8 }\n\
+                     const VALUES: [u8; 13] = [0,1,2,3,4,5,6,7,8,9,10,11,12];",
+                ),
+                (
+                    "src/runtime.ts",
+                    "const values = [0,1,2,3,4,5,6,7,8,9,10,11,12];",
+                ),
+                (
+                    "types/api.d.ts",
+                    "import {A,B,C,D,E,F,G,H,I,J,K,L,M} from 'api';\n\
+                     type Tuple = [A,B,C,D,E,F,G,H,I,J,K,L,M];",
+                ),
+            ]),
+            &config(),
+        );
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "large-inline-list")
+                .map(|finding| (finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![("src/imports.rs", 3), ("src/runtime.ts", 1)]
         );
     }
 
@@ -389,6 +455,45 @@ bool nested(bool ready) {
     }
 
     #[test]
+    fn reports_numeric_tokens_without_rewriting_digit_bearing_identifiers() {
+        let findings = analyze(
+            &sources(&[
+                ("src/format.rs", "let format = ZetaFormat::V0114180EditableRegion;\nmod v0114180_editable_region {}\nlet 模型12345678 = value;\nlet timeout = 12345678u64;\nlet grouped = 12_345_678;\n"),
+                ("src/format.ts", "const model12345678 = input;\nconst $12345678 = input;\nconst timeout = 12345678n;\n"),
+            ]),
+            &config(),
+        );
+        assert_eq!(
+            findings.iter().filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| (finding.path.as_str(), finding.line)).collect::<Vec<_>>(),
+            [("src/format.rs", 4), ("src/format.ts", 3)]
+        );
+    }
+
+    #[test]
+    fn excludes_multiline_rust_text_but_keeps_following_numeric_code() {
+        let source = r####"fn query<'a>(name: &'a str) {
+    let sql = "PRAGMA journal_mode=WAL;\
+               PRAGMA mmap_size=6000000;\
+               CREATE TABLE messages (value TEXT);";
+    let sample = r###"inner "quote"
+12345678 // still text
+"###;
+    let bytes = b"multi
+23456789";
+    let character = '字';
+    let size = 34567890u64;
+}
+"####;
+        let findings = analyze(&sources(&[("src/query.rs", source)]), &config());
+        assert_eq!(
+            findings.iter().filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| finding.line).collect::<Vec<_>>(),
+            [11]
+        );
+    }
+
+    #[test]
     fn excludes_shell_where_digit_separators_are_not_portable_syntax() {
         let findings = analyze(
             &sources(&[
@@ -455,6 +560,65 @@ auto raw = 10000000;",
             vec![("Timeout.cs".to_owned(), 1)]
         );
     }
+    #[test]
+    fn preserves_comment_scanner_quotes_unicode_and_continuations() {
+        let syntax = CommentSyntax::for_path("source.dart");
+        let mut state = CommentState::default();
+        assert_eq!(
+            extract_comments("π = \"// TODO\"; /* first */ // second\r", syntax, &mut state),
+            " first \n second\r"
+        );
+        assert_eq!(extract_comments("/* café", syntax, &mut state), " café");
+        assert_eq!(
+            extract_comments(" encore */ \"// hidden\" // visible\r", syntax, &mut state),
+            " encore \n visible\r"
+        );
+        assert_eq!(extract_comments("π = \"\"\"// hidden", syntax, &mut state), "");
+        assert_eq!(
+            extract_comments("é \"\"\" // visible", syntax, &mut state),
+            " visible"
+        );
+        assert_eq!(extract_comments("'unterminated // hidden", syntax, &mut state), "");
+        assert_eq!(extract_comments("// visible", syntax, &mut state), " visible");
+    }
+
+    #[test]
+    fn preserves_language_specific_line_comment_boundaries() {
+        for (path, source) in [
+            ("script.py", "π = '# hidden'; # visible\r"),
+            ("query.sql", "SELECT '-- hidden'; -- visible\r"),
+            ("source.lisp", "\"; hidden\" ; visible\r"),
+            ("source.tex", "\"% hidden\" % visible\r"),
+        ] {
+            assert_eq!(
+                extract_comments(
+                    source,
+                    CommentSyntax::for_path(path),
+                    &mut CommentState::default(),
+                ),
+                " visible\r",
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_command_quotes_and_block_comment_spacing() {
+        let mut in_block = false;
+        assert_eq!(
+            strip_command_comments(r#"run("é // # /* \"")/**/next # ignored"#, &mut in_block),
+            r#"run("é // # /* \"")  next "#
+        );
+        assert_eq!(strip_command_comments("/*é\r", &mut in_block), "    ");
+        assert!(in_block);
+        assert_eq!(strip_command_comments("*/next\r", &mut in_block), " next\r");
+        assert!(!in_block);
+        assert_eq!(
+            strip_command_comments("'unterminated # //", &mut in_block),
+            "'unterminated # //"
+        );
+    }
+
     fn config() -> Config {
         Config::defaults(".".into())
     }

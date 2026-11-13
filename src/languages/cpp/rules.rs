@@ -290,10 +290,16 @@ fn record_mutable_reference(
     {
         return;
     }
+    if !reference_target_is_const(&declaration[..reference]) {
+        lines.insert(line_at_offset(code, offset + reference));
+    }
+}
+
+fn reference_target_is_const(declaration: &str) -> bool {
     let mut depth = 0usize;
     let mut qualifier_start = 0;
     let mut is_const = false;
-    for (index, character) in declaration[..reference].char_indices() {
+    for (index, character) in declaration.char_indices() {
         match character {
             '<' => depth += 1,
             '>' => depth = depth.saturating_sub(1),
@@ -308,10 +314,7 @@ fn record_mutable_reference(
             _ => {}
         }
     }
-    is_const |= declaration[qualifier_start..reference].trim() == "const";
-    if !is_const {
-        lines.insert(line_at_offset(code, offset + reference));
-    }
+    is_const || declaration[qualifier_start..].trim() == "const"
 }
 
 fn has_c_style_cast(line: &str) -> bool {
@@ -400,12 +403,8 @@ fn mask_cpp_source_non_code(source: &str) -> String {
     while let Some((offset, character)) = characters.next() {
         if matches!(state, MaskState::Code)
             && character == 'R'
-            && let Some(end) = cpp_raw_string_end(source, offset)
+            && try_mask_cpp_raw_string(source, offset, &mut characters, &mut result)
         {
-            result.push(' ');
-            while let Some((_, character)) = characters.next_if(|(offset, _)| *offset < end) {
-                result.push(if character == '\n' { '\n' } else { ' ' });
-            }
             continue;
         }
         let next = characters.peek().map(|(_, character)| *character);
@@ -425,6 +424,22 @@ fn mask_cpp_source_non_code(source: &str) -> String {
         }
     }
     result
+}
+
+fn try_mask_cpp_raw_string(
+    source: &str,
+    start: usize,
+    characters: &mut std::iter::Peekable<impl Iterator<Item = (usize, char)>>,
+    result: &mut String,
+) -> bool {
+    let Some(end) = cpp_raw_string_end(source, start) else {
+        return false;
+    };
+    result.push(' ');
+    while let Some((_, character)) = characters.next_if(|(offset, _)| *offset < end) {
+        result.push(if character == '\n' { '\n' } else { ' ' });
+    }
+    true
 }
 
 fn mask_cpp_line_comment(

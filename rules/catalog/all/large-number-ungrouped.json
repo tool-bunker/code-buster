@@ -9,7 +9,7 @@
   "legacyGroup": "suspicious",
   "why": "Long decimal literals are hard to verify visually and easy to mistype.",
   "suggestion": "Group decimal digits with the language's separator syntax so scale and transpositions are easier to review.",
-  "version": 11,
+  "version": 12,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Strings, comments, C++ apostrophe-grouped decimals, prefixed hexadecimal and binary literals, dense protocol enum value catalogs, and Shell sources without portable decimal digit-grouping syntax are excluded."
+    "Strings, comments, C++ apostrophe-grouped decimals, prefixed hexadecimal and binary literals, dense protocol enum value catalogs, and Shell sources without portable decimal digit-grouping syntax are excluded.",
+    "Digits embedded in identifiers are not numeric literals. Rust ordinary multiline, raw, byte, and character literals use the shared Rust lexer; genuine decimal tokens with supported suffixes remain eligible."
   ]
 }

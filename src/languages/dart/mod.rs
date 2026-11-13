@@ -156,36 +156,38 @@ pub(crate) fn quote_aware_matching_delimiter(
     matching_delimiter_in(QuoteAwareCodeBytes::new(source, open), opening, closing)
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DelimiterDepth([usize; 3]);
+
+impl DelimiterDepth {
+    pub(crate) fn is_top_level(&self) -> bool {
+        self.0 == [0, 0, 0]
+    }
+
+    pub(crate) fn consume(&mut self, byte: u8) -> bool {
+        match byte {
+            b'(' => self.0[0] += 1,
+            b')' => self.0[0] = self.0[0].saturating_sub(1),
+            b'[' => self.0[1] += 1,
+            b']' => self.0[1] = self.0[1].saturating_sub(1),
+            b'{' => self.0[2] += 1,
+            b'}' => self.0[2] = self.0[2].saturating_sub(1),
+            _ => return false,
+        }
+        true
+    }
+}
+
 pub(crate) fn top_level_arrow(source: &str) -> Option<usize> {
     let bytes = source.as_bytes();
-    let mut depths = [0usize; 3];
-    let mut quote = None;
-    let mut index = 0usize;
-    while index + 1 < bytes.len() {
-        if let Some(current_quote) = quote {
-            if bytes[index] == b'\\' {
-                index += 2;
-                continue;
-            }
-            if bytes[index] == current_quote {
-                quote = None;
-            }
-        } else {
-            match bytes[index] {
-                b'\'' | b'"' => quote = Some(bytes[index]),
-                b'(' => depths[0] += 1,
-                b')' => depths[0] = depths[0].saturating_sub(1),
-                b'[' => depths[1] += 1,
-                b']' => depths[1] = depths[1].saturating_sub(1),
-                b'{' => depths[2] += 1,
-                b'}' => depths[2] = depths[2].saturating_sub(1),
-                b'=' if depths == [0, 0, 0] && bytes[index + 1] == b'>' => {
-                    return Some(index);
-                }
-                _ => {}
-            }
+    let mut depth = DelimiterDepth::default();
+    for (index, byte) in QuoteAwareCodeBytes::new(source, 0) {
+        if depth.consume(byte) {
+            continue;
         }
-        index += 1;
+        if byte == b'=' && depth.is_top_level() && bytes.get(index + 1) == Some(&b'>') {
+            return Some(index);
+        }
     }
     None
 }
@@ -197,22 +199,23 @@ fn split_code_bytes<const TRACK_ANGLES: bool>(
 ) -> Vec<&str> {
     let mut result = Vec::new();
     let mut start = 0usize;
-    let mut depths = [0usize; 4];
+    let mut depth = DelimiterDepth::default();
+    let mut angles = 0usize;
     for (index, byte) in code_bytes {
-        match byte {
-            b'(' => depths[0] += 1,
-            b')' => depths[0] = depths[0].saturating_sub(1),
-            b'[' => depths[1] += 1,
-            b']' => depths[1] = depths[1].saturating_sub(1),
-            b'{' => depths[2] += 1,
-            b'}' => depths[2] = depths[2].saturating_sub(1),
-            b'<' if TRACK_ANGLES => depths[3] += 1,
-            b'>' if TRACK_ANGLES => depths[3] = depths[3].saturating_sub(1),
-            value if value == separator && depths == [0, 0, 0, 0] => {
-                result.push(&source[start..index]);
-                start = index + 1;
+        let delimiter = match byte {
+            b'<' if TRACK_ANGLES => {
+                angles += 1;
+                true
             }
-            _ => {}
+            b'>' if TRACK_ANGLES => {
+                angles = angles.saturating_sub(1);
+                true
+            }
+            _ => depth.consume(byte),
+        };
+        if !delimiter && byte == separator && depth.is_top_level() && angles == 0 {
+            result.push(&source[start..index]);
+            start = index + 1;
         }
     }
     result.push(&source[start..]);

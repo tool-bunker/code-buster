@@ -7,8 +7,8 @@
   "mvvm": false,
   "defaultSeverity": "info",
   "legacyGroup": "nim-style",
-  "why": "This scripting construct can weaken correctness, security, or runtime performance.",
-  "suggestion": "Use the safer explicit pattern described by the rule.",
+  "why": "Parsing dynamic JSON can throw on malformed text, and successful parsing alone does not validate the resulting value's shape.",
+  "suggestion": "Handle malformed input at the appropriate boundary and validate dynamic values before use; keep intentional exception propagation or trusted-producer contracts explicit.",
   "version": 7,
   "semanticMaturity": "text",
   "securityKind": "none",
@@ -29,6 +29,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Direct round trips and variables assigned from JSON.stringify before parsing are excluded."
+    "Direct round trips and variables assigned from JSON.stringify before parsing are excluded, as are recognized lexical try/catch blocks and tooling paths.",
+    "This is local lexical advice, not proof of an unsafe boundary. Validation after parsing, callers that handle parser errors, native or subprocess producers and schema contracts are not resolved. A type annotation or successful HTTP status does not establish JSON syntax or result shape."
   ]
 }

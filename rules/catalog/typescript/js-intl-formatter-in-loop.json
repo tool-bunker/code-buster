@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Intl formatter construction resolves locale data and options, so rebuilding an equivalent formatter on every iteration repeats avoidable setup work.",
   "suggestion": "Create the formatter once outside the loop and reuse its format or compare method.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only direct DateTimeFormat, NumberFormat, and Collator construction with no arguments or literal locale and simple literal options inside recognized braced loops is reported.",
-    "Formatter aliases, dynamic locale data, nested option values, wrapper factories, and hot-path frequency are not inferred."
+    "Formatter aliases, dynamic locale data, nested option values, wrapper factories, and hot-path frequency are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }

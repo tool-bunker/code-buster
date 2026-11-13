@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A line exceeds the recommended style length.",
   "suggestion": "Wrap the expression using the language formatter.",
-  "version": 2,
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Dart is excluded because dart format may intentionally exceed its page width."
+    "Dart is excluded because dart format may intentionally exceed its page width.",
+    "Whitespace-only lines, including padding left by excluded inline test regions, are not wrappable code.",
+    "Prettier and Biome widths apply only to supported web syntax. Other languages require an explicit matching EditorConfig width; custom formatter-plugin languages are not inferred."
   ]
 }

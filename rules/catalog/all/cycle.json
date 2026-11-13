@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "A circular dependency exists in the module graph.",
   "suggestion": "Extract shared code into a third module or invert one dependency.",
-  "version": 8,
+  "version": 9,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [

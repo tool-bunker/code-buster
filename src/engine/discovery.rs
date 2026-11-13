@@ -451,7 +451,7 @@ impl Discovery {
         };
 
         let exclusion_reason = (!forced_production)
-            .then(|| self.exclusion_reason(relative, git_rules))
+            .then(|| self.exclusion_reason(path, relative, git_rules))
             .flatten();
         let unchanged = self.config.changed_base.is_some() && !self.changed.contains(relative);
         if forced_generated || exclusion_reason.is_some() || unchanged {
@@ -475,7 +475,7 @@ impl Discovery {
 
         let bytes = fs::read(path)
             .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-        if self.should_exclude_bundled_vendor(forced_production, &bytes) {
+        if self.should_exclude_bundled_vendor(relative, forced_production, &bytes) {
             self.record("vendored");
             return Ok(());
         }
@@ -510,7 +510,12 @@ impl Discovery {
         }
     }
 
-    fn should_exclude_bundled_vendor(&self, forced_production: bool, bytes: &[u8]) -> bool {
+    fn should_exclude_bundled_vendor(
+        &self,
+        relative: &str,
+        forced_production: bool,
+        bytes: &[u8],
+    ) -> bool {
         !forced_production
             && excludes_source_role(
                 SourceRole::Vendored,
@@ -519,7 +524,8 @@ impl Discovery {
                 self.config.include_examples,
                 self.config.include_vendored,
             )
-            && has_bundled_vendor_header(bytes)
+            && (has_bundled_vendor_header(bytes)
+                || has_bundled_typescript_library_header(relative, bytes))
     }
 
     fn should_exclude_generated(
@@ -557,17 +563,21 @@ impl Discovery {
 
     fn exclusion_reason(
         &self,
+        path: &Path,
         relative: &str,
         git_rules: &[GitIgnoreRule],
     ) -> Option<&'static str> {
         if is_git_ignored(relative, false, git_rules) {
             return Some("git_ignored");
         }
-        let role = if matches_any(relative, &self.classified_test) {
+        let mut role = if matches_any(relative, &self.classified_test) {
             SourceRole::Test
         } else {
             classify_file_role(relative, &self.policy)
         };
+        if role == SourceRole::Production && is_rust_ui_fixture(path, relative) {
+            role = SourceRole::Test;
+        }
         let ignored_by_role = excludes_source_role(
             role,
             self.config.include_all,
@@ -694,38 +704,7 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
     let name = segments.last().copied().unwrap_or_default();
     match role {
         SourceRole::Example if !is_example_path(&segments) => SourceRole::Production,
-        SourceRole::Vendored
-            if !(VERSIONED_VENDOR_ASSET.is_match(name)
-                || (policy.bundled_toolchain && is_bundled_toolchain_path(&segments))
-                || [
-                    "vendor",
-                    "vendored",
-                    "_vendor",
-                    "_vendored",
-                    "externals",
-                    "third_party",
-                    "thirdparty",
-                    "3rdparty",
-                    "thirdparty_files",
-                    "compiled",
-                    "cargokit",
-                    "libfreetype",
-                    "libharfbuzz",
-                    "libpipewire",
-                    "upstream",
-                    "zlib",
-                    "libjavajpeg",
-                    "liblcms",
-                    "libpng",
-                    "giflib",
-                ]
-                .iter()
-                .any(|candidate| {
-                    segments
-                        .iter()
-                        .any(|segment| segment.eq_ignore_ascii_case(candidate))
-                })) =>
-        {
+        SourceRole::Vendored if !is_vendored_file_path(name, &segments, policy) => {
             SourceRole::Production
         }
         SourceRole::Generated
@@ -737,12 +716,58 @@ fn classify_file_role(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
     }
 }
 
+const VENDORED_PATH_SEGMENTS: &[&str] = &[
+    "vendor",
+    "vendored",
+    "_vendor",
+    "_vendored",
+    "externals",
+    "third_party",
+    "thirdparty",
+    "3rdparty",
+    "thirdparty_files",
+    "compiled",
+    "cargokit",
+    "libfreetype",
+    "libharfbuzz",
+    "libpipewire",
+    "upstream",
+    "zlib",
+    "libjavajpeg",
+    "liblcms",
+    "libpng",
+    "giflib",
+];
+
+fn is_vendored_file_path(name: &str, segments: &[&str], policy: &RepositoryPolicy) -> bool {
+    VERSIONED_VENDOR_ASSET.is_match(name)
+        || (policy.bundled_toolchain && is_bundled_toolchain_path(segments))
+        || VENDORED_PATH_SEGMENTS.iter().any(|candidate| {
+            segments
+                .iter()
+                .any(|segment| segment.eq_ignore_ascii_case(candidate))
+        })
+}
+
 fn has_bundled_vendor_header(bytes: &[u8]) -> bool {
     let prefix = &bytes[..bytes.len().min(1024)];
     std::str::from_utf8(prefix).is_ok_and(|header| {
         header.contains("Highlight.js v")
             && header.contains("Josh Goebel")
             && header.contains("License:")
+    })
+}
+
+fn has_bundled_typescript_library_header(relative: &str, bytes: &[u8]) -> bool {
+    let name = relative.rsplit(['/', '\\']).next().unwrap_or(relative);
+    if !TYPESCRIPT_STANDARD_LIBRARY.is_match(name) {
+        return false;
+    }
+    let prefix = &bytes[..bytes.len().min(1024)];
+    std::str::from_utf8(prefix).is_ok_and(|header| {
+        header.starts_with("/*!")
+            && header.contains("Copyright (c) Microsoft Corporation. All rights reserved.")
+            && header.contains("Licensed under the Apache License, Version 2.0")
     })
 }
 
@@ -823,25 +848,18 @@ pub fn classify_target(
     relative: &str,
     config: &Config,
 ) -> Result<TargetClassification, String> {
-    let overrides = [
-        ("production", &config.classification_production),
-        ("test", &config.classification_test),
-        ("generated", &config.classification_generated),
-    ];
-    for (classification, patterns) in overrides.into_iter().rev() {
-        let compiled = compile_patterns(patterns)?;
-        if let Some(pattern) = compiled
-            .iter()
-            .find(|pattern| pattern.matcher.is_match(relative))
-        {
-            return Ok(TargetClassification {
-                classification,
-                source: "code-buster.toml",
-                matched: Some(pattern.normalized.clone()),
-            });
-        }
+    if let Some(classification) = configured_target_classification(relative, config)? {
+        return Ok(classification);
     }
-    let classification = match classify_path(relative, &RepositoryPolicy::infer(root)) {
+    let mut role = classify_path(relative, &RepositoryPolicy::infer(root));
+    if role == SourceRole::Production
+        && relative.ends_with(".rs")
+        && relative.split('/').any(|segment| segment == "ui")
+        && is_rust_ui_fixture(&root.join(relative), relative)
+    {
+        role = SourceRole::Test;
+    }
+    let classification = match role {
         SourceRole::Production => "production",
         SourceRole::Test => "test",
         SourceRole::Example => "example",
@@ -853,6 +871,31 @@ pub fn classify_target(
         source: "built-in language/framework defaults",
         matched: None,
     })
+}
+
+fn configured_target_classification(
+    relative: &str,
+    config: &Config,
+) -> Result<Option<TargetClassification>, String> {
+    let overrides = [
+        ("production", &config.classification_production),
+        ("test", &config.classification_test),
+        ("generated", &config.classification_generated),
+    ];
+    for (classification, patterns) in overrides.into_iter().rev() {
+        let compiled = compile_patterns(patterns)?;
+        if let Some(pattern) = compiled
+            .iter()
+            .find(|pattern| pattern.matcher.is_match(relative))
+        {
+            return Ok(Some(TargetClassification {
+                classification,
+                source: "code-buster.toml",
+                matched: Some(pattern.normalized.clone()),
+            }));
+        }
+    }
+    Ok(None)
 }
 
 fn coverage_reason(role: SourceRole) -> &'static str {
@@ -903,30 +946,9 @@ fn classify_path(relative: &str, policy: &RepositoryPolicy) -> SourceRole {
     if is_example_path(&segments) {
         return SourceRole::Example;
     }
-    if [
-        "vendor",
-        "vendored",
-        "_vendor",
-        "_vendored",
-        "externals",
-        "third_party",
-        "thirdparty",
-        "3rdparty",
-        "thirdparty_files",
-        "compiled",
-        "cargokit",
-        "libfreetype",
-        "libharfbuzz",
-        "libpipewire",
-        "upstream",
-        "zlib",
-        "libjavajpeg",
-        "liblcms",
-        "libpng",
-        "giflib",
-    ]
-    .iter()
-    .any(|candidate| segments.contains(candidate))
+    if VENDORED_PATH_SEGMENTS
+        .iter()
+        .any(|candidate| segments.contains(candidate))
     {
         return SourceRole::Vendored;
     }
@@ -977,11 +999,18 @@ fn has_camel_case_test_name(segment: &str) -> bool {
     })
 }
 
+fn is_rust_ui_fixture(path: &Path, relative: &str) -> bool {
+    relative.ends_with(".rs")
+        && relative.split('/').any(|segment| segment == "ui")
+        && path.with_extension("stderr").is_file()
+}
+
 fn is_test_file_name(name: &str) -> bool {
     matches!(
         name,
         "conftest.py" | "pytest.py" | "testing.py" | "testutils.py"
     ) || (name.starts_with("test_") && name.ends_with(".py"))
+        || (name.starts_with("tests_") && name.ends_with(".rs"))
         || TEST_SETUP_FILE_REGEX.is_match(name)
         || TEST_FILE_REGEX.is_match(name)
 }
@@ -1014,6 +1043,12 @@ const TEST_PATH_SEGMENTS: &[&str] = &[
     "test_fixes",
     "testcase",
     "testcases",
+    "test_case",
+    "test_cases",
+    "test_fixture",
+    "test_fixtures",
+    "compile_fail",
+    "compile-fail",
     "__testfixtures__",
     "test_profile",
     "test_release",
@@ -1049,6 +1084,10 @@ const TEST_SEGMENT_PREFIXES: &[&str] = &[
     "fixtures-",
     "pytest-",
     "pytest_",
+    "test_case_",
+    "test_cases_",
+    "test_fixture_",
+    "test_fixtures_",
 ];
 const TEST_SEGMENT_SUFFIXES: &[&str] = &[
     "-test",
@@ -1105,6 +1144,9 @@ fn is_resource_test_corpus(segments: &[&str]) -> bool {
         .any(|parts| parts == ["resources", "corpus"])
         || segments.windows(3).any(|parts| {
             parts[0] == "resources" && parts[1] == "inline" && matches!(parts[2], "err" | "ok")
+        })
+        || segments.windows(2).any(|parts| {
+            parts[0].ends_with("_testing") && matches!(parts[1], "integration" | "unit")
         })
 }
 
@@ -1781,6 +1823,11 @@ const GENERATED_HEADER_MARKER_GROUPS: &[&[&str]] = &[
     &["generated by ", "do not edit"],
     &["generated by ", "do not modify"],
     &[
+        "static const unsigned char llparse_blob0[] = {",
+        "static const unsigned char llparse_blob1[] = {",
+        "__internal__span_cb)(",
+    ],
+    &[
         "#include \"tree_sitter/parser.h\"",
         "#define language_version ",
         "#define state_count ",
@@ -1872,6 +1919,12 @@ fn has_compiled_javascript_markers(sample: &[u8], file_length: u64) -> bool {
     {
         return true;
     }
+    if source.contains("var __getOwnPropNames = Object.getOwnPropertyNames;")
+        && source.contains("var __commonJS = ")
+        && BUNDLED_NODE_MODULE_BOUNDARY.is_match(&source)
+    {
+        return true;
+    }
     file_length >= 32 * 1024 && javascript_helper_count(&source) >= 4
 }
 
@@ -1918,6 +1971,15 @@ static HASHED_WEB_REGEX: LazyLock<Regex> =
 static VERSIONED_VENDOR_ASSET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^[a-z0-9_-]+@\d+(?:\.\d+){0,2}(?:\.min)?\.(?:css|js)$").unwrap()
 });
+static TYPESCRIPT_STANDARD_LIBRARY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^lib(?:\.(?:es(?:5|6|20[0-9]{2}|next)(?:\.[a-z0-9]+)*|dom(?:\.iterable|\.asynciterable)?|webworker(?:\.[a-z0-9]+)*|scripthost|decorators(?:\.legacy)?))?\.d\.ts$",
+    )
+    .unwrap()
+});
+static BUNDLED_NODE_MODULE_BOUNDARY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^// node_modules/[^\r\n]+\r?\nvar [a-zA-Z0-9_$]+ = __commonJS\(\{").unwrap()
+});
 static GENERATED_HEADER_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(?://|/\*)\s*(?:generated (?:code )?with\b|note:\s*this is generated code\b|do not change[,;:]?\s+this code is generated\b)").unwrap()
 });
@@ -1939,8 +2001,9 @@ mod tests {
     use std::fs;
 
     use super::{
-        RepositoryPolicy, SourceRole, classify_file_role, classify_path, has_bundled_vendor_header,
-        is_generated_header, language_from_shebang,
+        RepositoryPolicy, SourceRole, classify_file_role, classify_path,
+        has_bundled_typescript_library_header, has_bundled_vendor_header, is_generated_header,
+        language_from_shebang,
     };
     use crate::languages;
 
@@ -2010,6 +2073,305 @@ mod tests {
         ));
         let late_raw_marker = format!("{}// <auto-generated/>", "\n".repeat(12));
         assert!(!is_generated_header(&late_raw_marker));
+    }
+
+    #[test]
+    fn recognizes_llparse_output_without_excluding_handwritten_parser_code() {
+        assert!(is_generated_header(
+            "typedef int (*parser__internal__span_cb)(void*);\n\
+             static const unsigned char llparse_blob0[] = { 'a' };\n\
+             static const unsigned char llparse_blob1[] = { 'b' };"
+        ));
+        assert!(!is_generated_header(
+            "static const unsigned char llparse_blob0[] = { 'a' };"
+        ));
+        assert!(!is_generated_header(
+            "typedef int (*parser__internal__span_cb)(void*);\n\
+             int parser_execute(void* parser) { return 0; }"
+        ));
+    }
+
+    #[test]
+    fn recognizes_readable_bundles_from_helpers_and_dependency_boundaries() {
+        let source = "var __getOwnPropNames = Object.getOwnPropertyNames;\n\
+            var __commonJS = (cb, mod) => function __require() {};\n\
+            // node_modules/package/dist/index.js\n\
+            var require_package = __commonJS({\n\
+            \"node_modules/package/dist/index.js\"(exports) {}\n\
+            });\n";
+        let bundle = format!("{source}{}", "const padding = 1;\n".repeat(128));
+        assert!(super::is_minified_bundle_bytes(bundle.as_bytes(), "js"));
+        assert!(!super::is_minified_bundle_bytes(bundle.as_bytes(), "ts"));
+        let handwritten =
+            bundle.replace("// node_modules/package/dist/index.js", "// local helper");
+        assert!(!super::is_minified_bundle_bytes(
+            handwritten.as_bytes(),
+            "js"
+        ));
+        let unbundled = bundle.replace("var __commonJS = ", "var commonJS = ");
+        assert!(!super::is_minified_bundle_bytes(unbundled.as_bytes(), "js"));
+    }
+
+    #[test]
+    fn recognizes_only_licensed_bundled_typescript_standard_libraries() {
+        let licensed =
+            b"/*! *****************************************************************************\n\
+            Copyright (c) Microsoft Corporation. All rights reserved.\n\
+            Licensed under the Apache License, Version 2.0 (the \"License\");\n\
+            ***************************************************************************** */\n";
+        for path in ["compiler/dts/lib.es2015.core.d.ts", "types/lib.dom.d.ts"] {
+            assert!(
+                has_bundled_typescript_library_header(path, licensed),
+                "{path}"
+            );
+        }
+        for path in [
+            "src/api.d.ts",
+            "types/lib.custom.d.ts",
+            "types/lib.deno.ns.d.ts",
+        ] {
+            assert!(
+                !has_bundled_typescript_library_header(path, licensed),
+                "{path}"
+            );
+        }
+        assert!(!has_bundled_typescript_library_header(
+            "types/lib.dom.d.ts",
+            b"// Project-owned DOM declarations\ninterface Window {}"
+        ));
+    }
+
+    #[test]
+    fn classifies_testing_package_corpora_without_ignoring_integration_code() {
+        for path in [
+            "libs/runtime_testing/integration/worker_spawn/main.ts",
+            "packages/runtime_testing/unit/basic.ts",
+        ] {
+            assert_eq!(
+                classify_file_role(path, &RepositoryPolicy::default()),
+                SourceRole::Test,
+                "{path}"
+            );
+        }
+        for path in [
+            "src/integration/payment.ts",
+            "libs/runtime_testing/api.ts",
+            "src/common_testing/runtime.py",
+        ] {
+            assert_eq!(
+                classify_file_role(path, &RepositoryPolicy::default()),
+                SourceRole::Production,
+                "{path}"
+            );
+        }
+        assert!(super::excludes_source_role(
+            SourceRole::Test,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(!super::excludes_source_role(
+            SourceRole::Test,
+            false,
+            true,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn preserves_discovery_counts_and_explicit_source_role_inclusion() {
+        let root = tempfile::tempdir().expect("temporary repository must be created");
+        for directory in ["types", "libs/runtime_testing/integration"] {
+            fs::create_dir_all(root.path().join(directory)).expect("fixture directory");
+        }
+        for (path, source) in [
+            ("main.rs", "fn main() {}"),
+            (
+                "types/application.d.ts",
+                "declare const application: unknown;",
+            ),
+            (
+                "types/lib.es2015.core.d.ts",
+                "/*! Copyright (c) Microsoft Corporation. All rights reserved.\nLicensed under the Apache License, Version 2.0 */",
+            ),
+            (
+                "libs/runtime_testing/integration/case.ts",
+                "console.log('fixture');",
+            ),
+            (
+                "parser.c",
+                "typedef int (*parser__internal__span_cb)(void*);\nstatic const unsigned char llparse_blob0[] = { 'a' };\nstatic const unsigned char llparse_blob1[] = { 'b' };",
+            ),
+        ] {
+            fs::write(root.path().join(path), source).expect("source fixture");
+        }
+        let bundle = format!(
+            "var __getOwnPropNames = Object.getOwnPropertyNames;\n\
+             var __commonJS = (cb, mod) => function __require() {{}};\n\
+             // node_modules/package/index.js\n\
+             var require_package = __commonJS({{}});\n{}",
+            "const padding = 1;\n".repeat(128)
+        );
+        fs::write(root.path().join("bundle.js"), bundle).expect("bundle fixture");
+        let mut options = crate::options::PreviewOptions {
+            root: root.path().to_owned(),
+            ..Default::default()
+        };
+        let default = super::prepare(&options).expect("default discovery");
+        assert_eq!(default.files.len(), 2);
+        assert_eq!(default.coverage.get("selected"), Some(&2));
+        assert_eq!(default.coverage.get("test"), Some(&1));
+        assert_eq!(default.coverage.get("vendored"), Some(&1));
+        assert_eq!(default.coverage.get("generated"), Some(&2));
+        assert_eq!(default.excluded_source_files.len(), 1);
+        assert_eq!(default.generated_provenance.len(), 2);
+
+        options.include_tests = true;
+        options.include_vendored = true;
+        let included = super::prepare(&options).expect("included test and vendor discovery");
+        assert_eq!(included.files.len(), 4);
+        assert_eq!(included.coverage.get("generated"), Some(&2));
+        assert!(included.excluded_source_files.is_empty());
+
+        fs::write(
+            root.path().join("code-buster.toml"),
+            "[classification]\nproduction = [\"parser.c\", \"bundle.js\"]\n",
+        )
+        .expect("classification override");
+        let overridden = super::prepare(&options).expect("explicit production discovery");
+        assert_eq!(overridden.files.len(), 6);
+        assert!(overridden.generated_provenance.is_empty());
+    }
+
+    #[test]
+    fn keeps_application_ui_and_honors_explicit_compiler_fixture_inclusion() {
+        let root = tempfile::tempdir().expect("temporary repository");
+        for directory in ["ui", "src", "test_cases_fail", "test_fixture"] {
+            fs::create_dir_all(root.path().join(directory)).expect("source directory");
+        }
+        for relative in [
+            "ui/compile_error.rs",
+            "ui/application.rs",
+            "src/application.rs",
+            "src/test_service.rs",
+            "src/tests_full.rs",
+            "test_cases_fail/invalid.rs",
+            "test_fixture/helper.rs",
+        ] {
+            fs::write(root.path().join(relative), "fn sample() {}").expect("source fixture");
+        }
+        for relative in ["ui/compile_error.stderr", "src/application.stderr"] {
+            fs::write(root.path().join(relative), "error: expected diagnostic")
+                .expect("diagnostic fixture");
+        }
+        let mut options = crate::options::PreviewOptions {
+            root: root.path().to_owned(),
+            ..Default::default()
+        };
+        let selected = super::prepare(&options).expect("default discovery");
+        assert_eq!(
+            selected
+                .sources
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            [
+                "src/application.rs",
+                "src/test_service.rs",
+                "ui/application.rs"
+            ]
+        );
+        assert!(
+            selected
+                .excluded_source_files
+                .iter()
+                .any(|file| { file.path == "ui/compile_error.rs" })
+        );
+
+        options.include_tests = true;
+        let included = super::prepare(&options).expect("explicit test inclusion");
+        assert!(included.sources.contains_key("ui/compile_error.rs"));
+        assert!(included.sources.contains_key("src/tests_full.rs"));
+        assert!(included.sources.contains_key("test_cases_fail/invalid.rs"));
+        assert!(included.sources.contains_key("test_fixture/helper.rs"));
+
+        options.include_tests = false;
+        fs::write(
+            root.path().join("code-buster.toml"),
+            "[classification]\nproduction = ['ui/compile_error.rs', 'test_fixture/helper.rs']\n",
+        )
+        .expect("classification override");
+        let overridden = super::prepare(&options).expect("production override");
+        assert!(overridden.sources.contains_key("ui/compile_error.rs"));
+        assert!(overridden.sources.contains_key("test_fixture/helper.rs"));
+        assert!(!overridden.sources.contains_key("src/tests_full.rs"));
+    }
+
+    #[test]
+    fn treats_compile_failure_corpora_as_tests_without_hiding_compiler_source() {
+        let root = tempfile::tempdir().expect("temporary repository");
+        let fixtures = [
+            "compiler/compile_fail/src/lib.rs",
+            "compiler/compile-fail/invalid.rs",
+            "compiler/compile_failure/report.rs",
+            "compiler/src/compile_fail.rs",
+        ];
+        for relative in fixtures {
+            let path = root.path().join(relative);
+            fs::create_dir_all(path.parent().expect("source parent")).expect("source directory");
+            fs::write(path, "fn compiler_case() {}").expect("source fixture");
+        }
+        let mut options = crate::options::PreviewOptions {
+            root: root.path().to_owned(),
+            ..Default::default()
+        };
+        let selected = super::prepare(&options).expect("default discovery");
+        assert_eq!(
+            selected
+                .sources
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            [
+                "compiler/compile_failure/report.rs",
+                "compiler/src/compile_fail.rs"
+            ],
+        );
+        assert!(!super::is_builtin_production_path(
+            "compiler/compile_fail/Cargo.toml"
+        ));
+        assert!(!super::is_builtin_production_path(
+            "compiler/compile-fail/Cargo.toml"
+        ));
+        assert!(super::is_builtin_production_path(
+            "compiler/compile_failure/Cargo.toml"
+        ));
+
+        options.include_tests = true;
+        let included = super::prepare(&options).expect("explicit test inclusion");
+        for path in fixtures {
+            assert!(included.sources.contains_key(path), "{path}");
+        }
+
+        options.include_tests = false;
+        fs::write(
+            root.path().join("code-buster.toml"),
+            "[classification]\nproduction = ['compiler/compile_fail/**']\n",
+        )
+        .expect("classification override");
+        let overridden = super::prepare(&options).expect("production override");
+        assert!(
+            overridden
+                .sources
+                .contains_key("compiler/compile_fail/src/lib.rs")
+        );
+        assert!(
+            !overridden
+                .sources
+                .contains_key("compiler/compile-fail/invalid.rs")
+        );
     }
 
     #[test]

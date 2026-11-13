@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A changed function added several decision points and crossed a high-complexity threshold.",
   "suggestion": "Split independent decisions or simplify the changed control flow before it becomes harder to test.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -26,7 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Runs only with changed-base source snapshots and compares brace-delimited named functions.",
+    "Runs only with changed-base source snapshots and compares brace-delimited named functions after masking comments and supported language string literals, including Rust raw strings.",
     "Macro expansion, generated functions, overload identity, and parser recovery are not resolved."
   ]
 }

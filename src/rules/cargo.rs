@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
@@ -63,6 +64,23 @@ fn parse_manifests<'a>(context: &'a SourceAnalysisContext<'_>) -> Vec<CargoManif
         .collect()
 }
 
+pub(super) fn package_field<'a>(
+    manifest: &'a CargoManifest<'_>,
+    workspace_root: Option<&'a CargoManifest<'_>>,
+    name: &str,
+) -> Option<&'a Value> {
+    let local = manifest.value.get("package")?.get(name)?;
+    if local.get("workspace").and_then(Value::as_bool) == Some(true) {
+        workspace_root?
+            .value
+            .get("workspace")?
+            .get("package")?
+            .get(name)
+    } else {
+        Some(local)
+    }
+}
+
 fn append_dependency_findings(
     path: &str,
     source: &str,
@@ -112,7 +130,10 @@ fn append_manifest_policy_findings(
         return;
     };
     let line = section_line(source, "package");
-    if !package.contains_key("rust-version") && !requires_unstable_cargo_features(manifest) {
+    if !package.contains_key("rust-version")
+        && !requires_unstable_cargo_features(manifest)
+        && !requires_private_compiler(context, path, manifest)
+    {
         findings.push(finding(
             "rust-missing-rust-version",
             path,
@@ -136,6 +157,93 @@ fn requires_unstable_cargo_features(manifest: &Value) -> bool {
         .get("cargo-features")
         .and_then(Value::as_array)
         .is_some_and(|features| !features.is_empty())
+}
+
+fn requires_private_compiler(
+    context: &SourceAnalysisContext<'_>,
+    manifest_path: &str,
+    manifest: &Value,
+) -> bool {
+    if manifest
+        .get("package")
+        .and_then(|package| package.get("metadata"))
+        .and_then(|metadata| metadata.get("rust-analyzer"))
+        .and_then(|metadata| metadata.get("rustc_private"))
+        .and_then(Value::as_bool)
+        != Some(true)
+    {
+        return false;
+    }
+    // Editor metadata alone can be stale; require the actual library crate's feature gate too.
+    if manifest.get("lib").is_none()
+        && manifest
+            .get("package")
+            .and_then(|package| package.get("autolib"))
+            .and_then(Value::as_bool)
+            == Some(false)
+    {
+        return false;
+    }
+    let relative = manifest
+        .get("lib")
+        .and_then(|library| library.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or("src/lib.rs");
+    let directory = manifest_directory(manifest_path);
+    let path = if directory.is_empty() {
+        Cow::Borrowed(relative)
+    } else {
+        Cow::Owned(format!("{directory}/{relative}"))
+    };
+    crate_enables_private_compiler(context.masked_lines(&path))
+}
+
+fn crate_enables_private_compiler(lines: &[String]) -> bool {
+    let mut tokens = lines
+        .iter()
+        .flat_map(|line| line.bytes().chain(std::iter::once(b'\n')))
+        .filter(|byte| !byte.is_ascii_whitespace());
+    // Only leading inner attributes belong to this crate rather than a nested module.
+    while tokens.by_ref().take(3).eq(*b"#![") {
+        let mut depth = 1usize;
+        let mut attribute = tokens.by_ref().take_while(|&token| {
+            match token {
+                b'[' => depth += 1,
+                b']' => depth -= 1,
+                _ => {}
+            }
+            depth > 0
+        });
+        let enabled = private_compiler_feature(&mut attribute);
+        attribute.for_each(drop);
+        if enabled && depth == 0 {
+            return true;
+        }
+    }
+    false
+}
+
+fn private_compiler_feature(tokens: &mut impl Iterator<Item = u8>) -> bool {
+    if !tokens.by_ref().take(8).eq(*b"feature(") {
+        return false;
+    }
+    let mut identifier = 0usize;
+    let mut matched = false;
+    while let Some(token) = tokens.next() {
+        match token {
+            b')' => {
+                return (matched || identifier == b"rustc_private".len())
+                    && tokens.next().is_none();
+            }
+            b',' => {
+                matched |= identifier == b"rustc_private".len();
+                identifier = 0;
+            }
+            byte if b"rustc_private".get(identifier) == Some(&byte) => identifier += 1,
+            _ => identifier = usize::MAX,
+        }
+    }
+    false
 }
 
 fn append_project_policy_findings(
@@ -1111,6 +1219,167 @@ mod tests {
         )]);
 
         assert!(findings.is_empty(), "unexpected findings: {findings:?}");
+    }
+
+    #[test]
+    fn excludes_compiler_private_plugins_only_with_matching_crate_root_evidence() {
+        let findings = analyze_project(
+            [
+                (
+                    "Cargo.toml",
+                    "[workspace]\nresolver='3'\nmembers=['plugin','custom','ordinary']\n",
+                ),
+                (
+                    "plugin/Cargo.toml",
+                    "[package]\nname='plugin'\npublish=false\n[package.metadata.rust-analyzer]\nrustc_private=true\n[workspace]\n",
+                ),
+                (
+                    "custom/Cargo.toml",
+                    "[package]\nname='custom'\n[lib]\npath='compiler.rs'\n[package.metadata.rust-analyzer]\nrustc_private=true\n",
+                ),
+                (
+                    "ordinary/Cargo.toml",
+                    "[package]\nname='ordinary'\npublish=false\n[package.metadata.rust-analyzer]\nrustc_private=true\n",
+                ),
+                (
+                    "plugin/rust-toolchain.toml",
+                    "[toolchain]\nchannel='nightly-2026-03-21'\n",
+                ),
+                (
+                    "ordinary/rust-toolchain.toml",
+                    "[toolchain]\nchannel='nightly-2026-03-21'\n",
+                ),
+            ],
+            [
+                (
+                    "plugin/src/lib.rs",
+                    "#![feature(rustc_private)]\nextern crate rustc_hir;\n",
+                ),
+                (
+                    "custom/compiler.rs",
+                    "#![warn(unused)]\n#![feature(\n  other_feature,\n  rustc_private,\n)]\nextern crate rustc_hir;\n",
+                ),
+                ("ordinary/src/lib.rs", "pub fn ordinary() {}\n"),
+            ],
+        );
+        let msrv = findings
+            .iter()
+            .filter(|finding| finding.code == "rust-missing-rust-version")
+            .collect::<Vec<_>>();
+        assert_eq!(msrv.len(), 1);
+        assert_eq!(msrv[0].path, "ordinary/Cargo.toml");
+        assert_eq!(msrv[0].line, 1);
+        assert_eq!(msrv[0].confidence, "high");
+        assert!(msrv[0].related_files.is_empty());
+    }
+
+    #[test]
+    fn preserves_msrv_advice_for_conditional_quoted_nested_or_unresolved_compiler_evidence() {
+        for source in [
+            "// #![feature(rustc_private)]\npub fn ordinary() {}",
+            "const EXAMPLE: &str = \"#![feature(rustc_private)]\";",
+            "#![cfg_attr(feature=\"nightly\", feature(rustc_private))]\npub fn ordinary() {}",
+            "mod inner { #![feature(rustc_private)] }",
+            "#![feature(rustc_private_lookalike)]",
+            "#![feature(other_feature)]",
+            "#![feature(rustc_private)",
+        ] {
+            let findings = analyze_project(
+                [(
+                    "Cargo.toml",
+                    "[package]\nname='ordinary'\n[package.metadata.rust-analyzer]\nrustc_private=true\n",
+                )],
+                [("src/lib.rs", source)],
+            );
+            assert_eq!(findings.len(), 1, "{source}");
+            assert_eq!(findings[0].code, "rust-missing-rust-version", "{source}");
+            assert_eq!(findings[0].path, "Cargo.toml", "{source}");
+        }
+        for metadata in [
+            "",
+            "[package.metadata.rust-analyzer]\nrustc_private=false\n",
+            "autolib=false\n[package.metadata.rust-analyzer]\nrustc_private=true\n",
+        ] {
+            let manifest = format!("[package]\nname='ordinary'\n{metadata}");
+            let findings = analyze_project(
+                [("Cargo.toml", manifest.as_str())],
+                [("src/lib.rs", "#![feature(rustc_private)]\n")],
+            );
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].code, "rust-missing-rust-version");
+        }
+        let missing_root = analyze_project(
+            [(
+                "Cargo.toml",
+                "[package]\nname='plugin'\n[lib]\npath='unavailable.rs'\n[package.metadata.rust-analyzer]\nrustc_private=true\n",
+            )],
+            [("src/lib.rs", "#![feature(rustc_private)]\n")],
+        );
+        assert_eq!(missing_root.len(), 1);
+        assert_eq!(missing_root[0].code, "rust-missing-rust-version");
+    }
+
+    #[test]
+    fn does_not_infer_msrv_from_privacy_toolchains_or_unrequested_workspace_defaults() {
+        let findings = analyze_auxiliary([
+            (
+                "Cargo.toml",
+                "[package]\nname='root'\nrust-version='1.95'\n[workspace]\nresolver='3'\nmembers=['missing','inherited','override','unresolved']\n[workspace.package]\nrust-version='1.85'\n",
+            ),
+            ("rust-toolchain.toml", "[toolchain]\nchannel='1.98.1'\n"),
+            (
+                "missing/Cargo.toml",
+                "[package]\nname='missing'\npublish=false\n",
+            ),
+            (
+                "inherited/Cargo.toml",
+                "[package]\nname='inherited'\nrust-version.workspace=true\n",
+            ),
+            (
+                "override/Cargo.toml",
+                "[package]\nname='override'\nrust-version='1.90'\n",
+            ),
+            (
+                "unresolved/Cargo.toml",
+                "[package]\nname='unresolved'\nrust-version.workspace=true\n[workspace]\n",
+            ),
+        ]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "rust-missing-rust-version");
+        assert_eq!(findings[0].path, "missing/Cargo.toml");
+        assert_eq!(findings[0].line, 1);
+    }
+
+    #[test]
+    fn compiler_private_policy_does_not_leak_to_nested_packages() {
+        let findings = analyze_project(
+            [
+                (
+                    "Cargo.toml",
+                    "[package]\nname='plugin'\n[package.metadata.rust-analyzer]\nrustc_private=true\n[workspace]\nresolver='3'\nmembers=['member','nested']\n",
+                ),
+                ("member/Cargo.toml", "[package]\nname='member'\n"),
+                (
+                    "nested/Cargo.toml",
+                    "[package]\nname='nested'\n[workspace]\n",
+                ),
+            ],
+            [
+                ("src/lib.rs", "#![feature(rustc_private)]\n"),
+                ("member/src/lib.rs", "pub fn ordinary() {}\n"),
+                ("nested/src/lib.rs", "pub fn ordinary() {}\n"),
+            ],
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.path.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("rust-missing-rust-version", "member/Cargo.toml"),
+                ("rust-missing-rust-version", "nested/Cargo.toml"),
+            ]
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "pull_request_target runs with base-repository privileges and secrets, so executing code checked out from an untrusted pull request can compromise the repository.",
   "suggestion": "Keep the base revision checked out in pull_request_target jobs, or move untrusted code execution to a pull_request workflow with read-only permissions and no secrets.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "vulnerability",
   "taxonomy": [
@@ -27,7 +27,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule requires direct pull_request_target, checkout of a pull-request head expression, and a later run or local-action step in the same job.",
-    "Reusable-workflow and cross-job data flow are not followed."
+    "The rule requires direct pull_request_target, checkout of a pull-request head expression, and a later run or local-action step in the same job. Execution before the checkout does not count; an unconditional clean checkout replacing the same literal path ends its execution window.",
+    "Simple git fetch from origin, git diff metadata inspection, and echo output without command substitution or other unsupported shell syntax do not establish checkout execution under standard Git and shell behavior. Explicit custom shells or execution-related Git/shell configuration prevent this exclusion. Other run commands are conservatively treated as possible execution.",
+    "Reusable-workflow and cross-job data flow are not followed. Conditional checkouts, dynamic paths, and checkout replacement with clean disabled do not prove that untrusted code has been removed."
   ]
 }

@@ -406,7 +406,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
     if arguments.iter().any(|argument| argument == "--version") {
         return Ok(Command::Version);
     }
-    let parsed =
+    let mut parsed =
         ParsedArguments::try_parse_from(std::iter::once(OsString::from("cb")).chain(arguments))
             .map_err(|error| error.to_string().trim_end().to_owned())?;
     let cache_enabled = analysis_cache_enabled(&parsed)?;
@@ -415,47 +415,9 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
     let quality_view = quality_view(&parsed);
     let inspect_view = inspect_view(&parsed);
     let config_files = parsed.files;
-    let command = parsed.command;
-    let targets = parsed.targets;
-    let changed_base = if parsed.pr {
-        Some(resolve_pull_request_base(Path::new(&parsed.root))?)
-    } else if parsed.changed {
-        Some("HEAD".to_owned())
-    } else {
-        parsed.changed_base
-    };
-    let mut options = PreviewOptions {
-        root: PathBuf::from(parsed.root),
-        language: parsed.language,
-        languages: parsed.languages,
-        format,
-        top: parsed.top.parse().unwrap_or(0),
-        includes: parsed.include,
-        excludes: parsed.exclude,
-        changed_base,
-        verbose: parsed.verbose,
-        profile: parsed.profile,
-        include_all: parsed.include_all,
-        include_tests: parsed.include_tests,
-        include_examples: parsed.include_examples,
-        include_vendored: parsed.include_vendored,
-        only: parsed.only.unwrap_or_default(),
-        dry_run: parsed.dry_run,
-        changed_lines: parsed.changed_lines,
-        ci: parsed.ci,
-        force: parsed.force,
-        allow_empty: parsed.allow_empty,
-        fail_on_issues: parsed.fail_on_issues || parsed.ci,
-        include_advisory: parsed.advisory,
-        all_findings: parsed.all_findings,
-        inactive_rules: parsed.inactive,
-        finding_group: parsed.group.unwrap_or_default(),
-        baseline: parsed.baseline.map(PathBuf::from),
-        output: parsed.output.map(PathBuf::from),
-        cache_enabled,
-        cache_directory: parsed.cache_dir.map(PathBuf::from),
-        ingest_sarif: parsed.ingest_sarif,
-    };
+    let command = parsed.command.take();
+    let targets = std::mem::take(&mut parsed.targets);
+    let mut options = preview_options(parsed, format, cache_enabled)?;
     validate_analysis_options(&options, command.as_deref())?;
 
     match command.as_deref() {
@@ -518,6 +480,52 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Command, S
         Some(value) => Err(format!("Unknown Code Buster command: {value}")),
         None => Ok(Command::Summary(options)),
     }
+}
+
+fn preview_options(
+    parsed: ParsedArguments,
+    format: ReportFormat,
+    cache_enabled: bool,
+) -> Result<PreviewOptions, String> {
+    let changed_base = if parsed.pr {
+        Some(resolve_pull_request_base(Path::new(&parsed.root))?)
+    } else if parsed.changed {
+        Some("HEAD".to_owned())
+    } else {
+        parsed.changed_base
+    };
+    Ok(PreviewOptions {
+        root: PathBuf::from(parsed.root),
+        language: parsed.language,
+        languages: parsed.languages,
+        format,
+        top: parsed.top.parse().unwrap_or(0),
+        includes: parsed.include,
+        excludes: parsed.exclude,
+        changed_base,
+        verbose: parsed.verbose,
+        profile: parsed.profile,
+        include_all: parsed.include_all,
+        include_tests: parsed.include_tests,
+        include_examples: parsed.include_examples,
+        include_vendored: parsed.include_vendored,
+        only: parsed.only.unwrap_or_default(),
+        dry_run: parsed.dry_run,
+        changed_lines: parsed.changed_lines,
+        ci: parsed.ci,
+        force: parsed.force,
+        allow_empty: parsed.allow_empty,
+        fail_on_issues: parsed.fail_on_issues || parsed.ci,
+        include_advisory: parsed.advisory,
+        all_findings: parsed.all_findings,
+        inactive_rules: parsed.inactive,
+        finding_group: parsed.group.unwrap_or_default(),
+        baseline: parsed.baseline.map(PathBuf::from),
+        output: parsed.output.map(PathBuf::from),
+        cache_enabled,
+        cache_directory: parsed.cache_dir.map(PathBuf::from),
+        ingest_sarif: parsed.ingest_sarif,
+    })
 }
 
 fn init_options(root: PathBuf, targets: Vec<String>, force: bool) -> Result<InitOptions, String> {

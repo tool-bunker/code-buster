@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A lone naming-style outlier makes related files harder to scan and discover.",
   "suggestion": "Rename the file to the dominant convention used by its peers.",
-  "version": 8,
+  "version": 9,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Peers are compared within the same directory and broad file role so components, named type modules, utility modules, native headers, native implementation files, and localized Java resources do not establish conventions for one another. Conventional role and metadata files, PascalCase compound partial-file names, single-word lowercase names in lowercase naming families, and PascalCase script files matching a directly exported declaration are excluded."
+    "Peers are compared within the same directory and broad file role so components, named type modules, utility modules, native headers, native implementation files, and localized Java resources do not establish conventions for one another. Conventional role and metadata files, PascalCase compound partial-file names, single-word lowercase names in lowercase naming families, and PascalCase script files matching a directly exported declaration are excluded.",
+    "Python files imported directly by sibling sources are compared as importable modules, not executable-script peers: their identifier-compatible filenames are API boundaries. Simple `from module import` and `import module` forms are recognized; dynamic imports, package re-exports, and import-path configuration are not resolved."
   ]
 }

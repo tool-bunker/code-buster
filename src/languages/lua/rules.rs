@@ -247,16 +247,20 @@ fn open_lua_scope(line: &str, completes_pending: bool, state: &mut LuaScanState)
         state.local_scopes.push(scope);
     }
     if let Some(declaration) = block_declaration {
-        let terminator = match &declaration[1] {
-            "if" => Some("then"),
-            "for" | "while" => Some("do"),
-            _ => None,
-        };
-        if let Some(terminator) = terminator
-            && !contains_word(line, terminator)
-        {
-            state.pending_block_terminator = Some(terminator);
-        }
+        record_pending_lua_block_terminator(line, &declaration[1], state);
+    }
+}
+
+fn record_pending_lua_block_terminator(line: &str, block: &str, state: &mut LuaScanState) {
+    let terminator = match block {
+        "if" => Some("then"),
+        "for" | "while" => Some("do"),
+        _ => None,
+    };
+    if let Some(terminator) = terminator
+        && !contains_word(line, terminator)
+    {
+        state.pending_block_terminator = Some(terminator);
     }
 }
 

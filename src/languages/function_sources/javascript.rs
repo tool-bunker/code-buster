@@ -136,11 +136,16 @@ fn javascript_function_candidate(source: &str, keyword: usize) -> Option<(usize,
         offset += 1;
     }
     let name = if offset == name_start {
-        "<anonymous>".to_owned()
+        "<anonymous>"
     } else {
-        source[name_start..offset].to_owned()
+        &source[name_start..offset]
     };
-    offset = skip_javascript_whitespace(bytes, offset, limit);
+    let opening = javascript_function_body(bytes, offset, limit)?;
+    Some((opening, name.to_owned()))
+}
+
+fn javascript_function_body(bytes: &[u8], offset: usize, limit: usize) -> Option<usize> {
+    let mut offset = skip_javascript_whitespace(bytes, offset, limit);
     if bytes.get(offset) != Some(&b'(') {
         return None;
     }
@@ -159,7 +164,7 @@ fn javascript_function_candidate(source: &str, keyword: usize) -> Option<(usize,
     }
     while offset < limit {
         match bytes[offset] {
-            b'{' => return Some((offset, name)),
+            b'{' => return Some(offset),
             b';' | b'=' => return None,
             _ => offset += 1,
         }

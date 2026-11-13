@@ -222,67 +222,84 @@ pub(super) fn strip_jsonc_comments(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut output = Vec::with_capacity(source.len());
     let mut index = 0;
-    let mut quote = None;
+    let mut quote = JsoncQuote::default();
     while index < bytes.len() {
-        let byte = bytes[index];
-        if let Some(active) = quote {
-            output.push(byte);
-            if byte == b'\\' && index + 1 < bytes.len() {
-                index += 1;
-                output.push(bytes[index]);
-            } else if byte == active {
-                quote = None;
-            }
+        if quote.consume(bytes[index]) {
+            output.push(bytes[index]);
             index += 1;
-            continue;
-        }
-        if matches!(byte, b'\'' | b'\"') {
-            quote = Some(byte);
-            output.push(byte);
-            index += 1;
-        } else if byte == b'/' && bytes.get(index + 1) == Some(&b'/') {
-            while index < bytes.len() && bytes[index] != b'\n' {
-                output.push(b' ');
-                index += 1;
-            }
-        } else if byte == b'/' && bytes.get(index + 1) == Some(&b'*') {
-            output.extend_from_slice(b"  ");
-            index += 2;
-            while index < bytes.len() {
-                if bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/') {
-                    output.extend_from_slice(b"  ");
-                    index += 2;
-                    break;
-                }
-                output.push(if bytes[index] == b'\n' { b'\n' } else { b' ' });
-                index += 1;
-            }
+        } else if let Some(width) = jsonc_comment_width(&bytes[index..]) {
+            output.extend(
+                bytes[index..index + width]
+                    .iter()
+                    .map(|byte| if *byte == b'\n' { b'\n' } else { b' ' }),
+            );
+            index += width;
         } else {
-            output.push(byte);
+            output.push(bytes[index]);
             index += 1;
         }
     }
     String::from_utf8(output).expect("masked JSONC must preserve UTF-8")
 }
 
+fn jsonc_comment_width(remaining: &[u8]) -> Option<usize> {
+    if remaining.starts_with(b"//") {
+        Some(
+            remaining
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .unwrap_or(remaining.len()),
+        )
+    } else if remaining.starts_with(b"/*") {
+        Some(
+            remaining[2..]
+                .windows(2)
+                .position(|pair| pair == b"*/")
+                .map_or(remaining.len(), |end| end + 4),
+        )
+    } else {
+        None
+    }
+}
+
+#[derive(Default)]
+struct JsoncQuote {
+    active: Option<u8>,
+    escaped: bool,
+}
+
+impl JsoncQuote {
+    fn consume(&mut self, byte: u8) -> bool {
+        if let Some(active) = self.active {
+            if self.escaped {
+                self.escaped = false;
+            } else if byte == b'\\' {
+                self.escaped = true;
+            } else if byte == active {
+                self.active = None;
+            }
+            true
+        } else if matches!(byte, b'\'' | b'"') {
+            self.active = Some(byte);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 fn matching_brace(source: &str, open: usize) -> Option<usize> {
     let bytes = source.as_bytes();
     let mut depth = 0;
-    let mut quote = None;
+    let mut quote = JsoncQuote::default();
     let mut index = open;
     while index < bytes.len() {
         let byte = bytes[index];
-        if let Some(active) = quote {
-            if byte == b'\\' {
-                index += 2;
-                continue;
-            }
-            if byte == active {
-                quote = None;
-            }
-        } else if matches!(byte, b'\'' | b'\"') {
-            quote = Some(byte);
-        } else if byte == b'{' {
+        if quote.consume(byte) {
+            index += 1;
+            continue;
+        }
+        if byte == b'{' {
             depth += 1;
         } else if byte == b'}' {
             depth -= 1;
@@ -298,6 +315,34 @@ fn matching_brace(source: &str, open: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_jsonc_strings_unicode_crlf_and_unterminated_comments() {
+        for (source, expected) in [
+            (
+                "{\"url\":\"é // /* \\\"\",'label':'# --'}//é\r\n",
+                "{\"url\":\"é // /* \\\"\",'label':'# --'}     \n",
+            ),
+            ("é/*é\r\n*/x", "é     \n  x"),
+            ("é/*é", "é    "),
+            ("\"unterminated //é\\", "\"unterminated //é\\"),
+        ] {
+            assert_eq!(strip_jsonc_comments(source), expected);
+            assert_eq!(strip_jsonc_comments(source).len(), source.len());
+        }
+    }
+
+    #[test]
+    fn matches_jsonc_braces_outside_escaped_strings() {
+        let source = r#"{"é":"}\"{",'other':'{'}tail"#;
+        assert_eq!(
+            matching_brace(source, 0),
+            Some(source.find("tail").unwrap() - 1)
+        );
+        assert_eq!(matching_brace(r#"{"nested":{"é":"}"}}"#, 0), Some(20));
+        assert_eq!(matching_brace("{'unterminated }\\", 0), None);
+        assert_eq!(matching_brace("{/* masked first */", 0), None);
+    }
 
     #[test]
     fn reports_explicitly_disabled_safety_options_inside_compiler_options() {

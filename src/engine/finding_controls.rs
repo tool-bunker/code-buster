@@ -14,6 +14,24 @@ pub struct ControlledFindings {
     pub advisory_summary: BTreeMap<String, usize>,
 }
 
+impl ControlledFindings {
+    fn record(&mut self, finding: Finding, mode: &str, group: &str) {
+        match mode {
+            "off" => {}
+            "count" => {
+                *self.advisory_summary.entry(group.to_owned()).or_insert(0) += 1;
+                self.active.push(finding.enrich());
+            }
+            _ => {
+                let finding = finding.enrich();
+                self.actionable_count += 1;
+                self.actionable.push(finding.clone());
+                self.active.push(finding);
+            }
+        }
+    }
+}
+
 pub fn apply(
     findings: Vec<Finding>,
     options: &PreviewOptions,
@@ -24,10 +42,12 @@ pub fn apply(
     let baseline = read_baseline(options.baseline.as_deref())?;
     let has_baseline = !baseline.is_empty();
     let mut suppressions = SuppressionIndex::new(sources);
-    let mut active = Vec::new();
-    let mut actionable = Vec::new();
-    let mut actionable_count = 0;
-    let mut advisory_summary = BTreeMap::new();
+    let mut controlled = ControlledFindings {
+        active: Vec::new(),
+        actionable: Vec::new(),
+        actionable_count: 0,
+        advisory_summary: BTreeMap::new(),
+    };
     for mut finding in findings {
         if !options.only.is_empty() && finding.code != options.only {
             continue;
@@ -47,26 +67,10 @@ pub fn apply(
             finding.severity = severity;
         }
         let group = taxonomy_group(&finding.code);
-        match mode_for_code(&finding.code, config, group) {
-            "off" => {}
-            "count" => {
-                *advisory_summary.entry(group.to_owned()).or_insert(0) += 1;
-                active.push(finding.enrich());
-            }
-            _ => {
-                let finding = finding.enrich();
-                actionable_count += 1;
-                actionable.push(finding.clone());
-                active.push(finding);
-            }
-        }
+        let mode = mode_for_code(&finding.code, config, group);
+        controlled.record(finding, mode, group);
     }
-    Ok(ControlledFindings {
-        active,
-        actionable,
-        actionable_count,
-        advisory_summary,
-    })
+    Ok(controlled)
 }
 
 pub fn detailed(

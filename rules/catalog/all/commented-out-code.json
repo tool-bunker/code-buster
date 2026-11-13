@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Disabled source in comments rots, obscures current behavior, and duplicates version-control history.",
   "suggestion": "Delete the disabled code and recover it from version control if it is needed later.",
-  "version": 5,
+  "version": 7,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -26,6 +26,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Recognizes likely disabled statements in single-line slash and hash comments, reports one representative location per file, and excludes documented examples and common mathematical notation."
+    "Recognizes likely disabled statements in real single-line slash and hash comments and reports one representative location per file. Keyword boundaries and qualified statement shapes distinguish prose from source; string contents, documentation comments, fenced examples, ASN.1 specifications, explicit API illustrations and narrated situations, formula definitions, explicitly proposed simplifications, annotation-prefixed prose, common mathematical notation, and foreign declaration syntax in Rust comments are excluded.",
+    "Unlabelled syntax illustrations can remain ambiguous. Development-only debug calls, TODO-disabled implementations, and abandoned alternatives remain reviewable rather than being exempted merely because their intent is documented."
   ]
 }

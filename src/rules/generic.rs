@@ -7,7 +7,7 @@ use regex::Regex;
 
 use crate::config::Config;
 use crate::findings::{Finding, Severity};
-use crate::languages::rust::rules::function_lexical_facts;
+use crate::languages::rust::rules::{function_lexical_facts, source_lexical_mask};
 use crate::rule_catalog;
 
 const RULE_ORDER: &[&str] = &[
@@ -132,14 +132,11 @@ fn parse_large_number_candidate<'a>(
     number: regex::Match<'a>,
 ) -> Option<LargeNumberCandidate<'a>> {
     let literal = number.as_str();
-    let previous = number
-        .start()
-        .checked_sub(1)
-        .and_then(|offset| code.as_bytes().get(offset))
-        .copied();
+    let previous = code[..number.start()].chars().next_back();
     let next = code.as_bytes().get(number.end()).copied();
-    if matches!(previous, Some(b'0'..=b'9' | b'.'))
-        || matches!(next, Some(b'0'..=b'9' | b'.'))
+    if previous.is_some_and(|character| {
+        character.is_alphanumeric() || matches!(character, '_' | '.' | '$')
+    }) || matches!(next, Some(b'0'..=b'9' | b'.'))
         || is_legacy_octal(literal)
         || has_non_decimal_base_prefix(code, number.start())
     {
@@ -471,59 +468,10 @@ fn character_width(line: &str, index: usize) -> usize {
 }
 
 fn mask_rust_strings(lines: &[String]) -> Vec<String> {
-    let mut result = Vec::with_capacity(lines.len());
-    let mut raw_terminator: Option<String> = None;
-    for line in lines {
-        let mut masked = line.as_bytes().to_vec();
-        let mut index = 0;
-        while index < line.len() {
-            if let Some(terminator) = &raw_terminator {
-                if let Some(relative_end) = line[index..].find(terminator) {
-                    let end = index + relative_end + terminator.len();
-                    masked[index..end].fill(b' ');
-                    index = end;
-                    raw_terminator = None;
-                } else {
-                    masked[index..].fill(b' ');
-                    index = line.len();
-                }
-                continue;
-            }
-            if let Some(start) = RUST_RAW_STRING_START.find_at(line, index)
-                && start.start() == index
-            {
-                let hashes = start.as_str().bytes().filter(|byte| *byte == b'#').count();
-                raw_terminator = Some(format!("\"{}", "#".repeat(hashes)));
-                masked[start.start()..start.end()].fill(b' ');
-                index = start.end();
-                continue;
-            }
-            if matches!(line.as_bytes()[index], b'\"' | b'\'') {
-                let delimiter = line.as_bytes()[index];
-                let mut end = index + 1;
-                let mut escaped = false;
-                while end < line.len() {
-                    let byte = line.as_bytes()[end];
-                    end += 1;
-                    if escaped {
-                        escaped = false;
-                    } else if byte == b'\\' {
-                        escaped = true;
-                    } else if byte == delimiter {
-                        break;
-                    }
-                }
-                if end <= line.len() && line.as_bytes()[end - 1] == delimiter {
-                    masked[index..end].fill(b' ');
-                    index = end;
-                    continue;
-                }
-            }
-            index += line[index..].chars().next().unwrap().len_utf8();
-        }
-        result.push(String::from_utf8(masked).expect("masked Rust source must remain UTF-8"));
-    }
-    result
+    source_lexical_mask(&lines.join("\n"))
+        .split('\n')
+        .map(str::to_owned)
+        .collect()
 }
 
 fn inside_url(line: &str, start: usize, end: usize) -> bool {
@@ -598,13 +546,7 @@ fn uses_html_text_syntax(path: &str) -> bool {
 fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, source) in sources {
-        if (uses_c_family_braced_collections(path)
-            && !path.ends_with(".m")
-            && !path.ends_with(".mm"))
-            || Path::new(path)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
-        {
+        if skips_inline_lists(path) {
             continue;
         }
         let lines = source.split('\n').collect::<Vec<_>>();
@@ -627,27 +569,11 @@ fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
             }
             let stripped = strip_generic_strings(line);
             let code = strip_comments(&stripped, &mut in_block_comment);
-            let Some(collection) = COLLECTION.captures(&code) else {
-                continue;
-            };
-            if uses_c_family_braced_collections(path)
-                && collection
-                    .get(0)
-                    .is_some_and(|value| value.as_str().starts_with('{'))
-            {
-                continue;
-            }
             if is_java_constant_collection(path, &lines, index) {
                 continue;
             }
-            if collection
-                .name("contents")
-                .unwrap()
-                .as_str()
-                .matches(',')
-                .count()
-                >= 12
-            {
+            let large_collection = has_large_collection(path, &code);
+            if large_collection {
                 findings.push(finding(
                     "large-inline-list",
                     path,
@@ -659,6 +585,28 @@ fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
         }
     }
     findings
+}
+
+fn skips_inline_lists(path: &str) -> bool {
+    (uses_c_family_braced_collections(path) && !path.ends_with(".m") && !path.ends_with(".mm"))
+        || Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
+        || [".d.ts", ".d.mts", ".d.cts"]
+            .iter()
+            .any(|suffix| path.ends_with(suffix))
+}
+
+fn has_large_collection(path: &str, code: &str) -> bool {
+    COLLECTION.captures_iter(code).any(|collection| {
+        let brace_delimited = collection
+            .get(0)
+            .is_some_and(|value| value.as_str().starts_with('{'));
+        !(brace_delimited && (uses_c_family_braced_collections(path) || path.ends_with(".rs")))
+            && collection
+                .name("contents")
+                .is_some_and(|contents| contents.as_str().matches(',').count() >= 12)
+    })
 }
 
 fn is_java_constant_collection(path: &str, lines: &[&str], line_index: usize) -> bool {
@@ -769,8 +717,6 @@ fn strip_comments(line: &str, in_block_comment: &mut bool) -> String {
 fn strip_command_comments(line: &str, in_block_comment: &mut bool) -> String {
     let bytes = line.as_bytes();
     let mut code = Vec::with_capacity(bytes.len());
-    let mut quote = None;
-    let mut escaped = false;
     let mut index = 0;
     while index < bytes.len() {
         let byte = bytes[index];
@@ -783,20 +729,10 @@ fn strip_command_comments(line: &str, in_block_comment: &mut bool) -> String {
                 code.push(b' ');
                 index += 1;
             }
-        } else if let Some(delimiter) = quote {
-            code.push(byte);
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == delimiter {
-                quote = None;
-            }
-            index += 1;
         } else if matches!(byte, b'\'' | b'\"') {
-            quote = Some(byte);
-            code.push(byte);
-            index += 1;
+            let end = index + quoted_end(&bytes[index..]);
+            code.extend_from_slice(&bytes[index..end]);
+            index = end;
         } else if bytes[index..].starts_with(b"/*") {
             *in_block_comment = true;
             code.push(b' ');
@@ -809,6 +745,21 @@ fn strip_command_comments(line: &str, in_block_comment: &mut bool) -> String {
         }
     }
     String::from_utf8(code).expect("stripped command source must remain UTF-8")
+}
+
+fn quoted_end(bytes: &[u8]) -> usize {
+    let quote = bytes[0];
+    let mut escaped = false;
+    for (index, byte) in bytes.iter().enumerate().skip(1) {
+        if escaped {
+            escaped = false;
+        } else if *byte == b'\\' {
+            escaped = true;
+        } else if *byte == quote {
+            return index + 1;
+        }
+    }
+    bytes.len()
 }
 
 #[derive(Clone, Copy, Default)]
@@ -898,91 +849,96 @@ impl CommentSyntax {
 #[derive(Default)]
 struct CommentState {
     in_block_comment: bool,
-    multiline_string: Option<String>,
+    multiline_string: Option<&'static str>,
 }
 
 fn extract_comments(line: &str, syntax: CommentSyntax, state: &mut CommentState) -> String {
     let mut comments = String::new();
-    let mut index = 0;
-    while index < line.len() {
-        if let Some(delimiter) = state.multiline_string.as_deref() {
-            if let Some(end) = line[index..].find(delimiter) {
-                index += end + delimiter.len();
-                state.multiline_string = None;
-                continue;
-            }
-            break;
+    let mut remaining = line;
+    while let Some(character) = remaining.chars().next() {
+        if state.multiline_string.is_some() {
+            let Some(after) = state.finish_multiline_string(remaining) else {
+                break;
+            };
+            remaining = after;
+            continue;
         }
         if state.in_block_comment {
-            if let Some(end) = line[index..].find("*/") {
-                append_comment(&mut comments, &line[index..index + end]);
-                state.in_block_comment = false;
-                index += end + 2;
-                continue;
-            }
-            append_comment(&mut comments, &line[index..]);
-            break;
-        }
-
-        let delimiter = if line[index..].starts_with("\"\"\"") {
-            Some("\"\"\"")
-        } else if line[index..].starts_with("'''") {
-            Some("'''")
-        } else if line[index..].starts_with('`') {
-            Some("`")
-        } else {
-            None
-        };
-        if let Some(delimiter) = delimiter {
-            let after = index + delimiter.len();
-            if let Some(end) = line[after..].find(delimiter) {
-                index = after + end + delimiter.len();
-            } else {
-                state.multiline_string = Some(delimiter.to_owned());
+            let Some(after) = state.finish_block_comment(remaining, &mut comments) else {
                 break;
-            }
+            };
+            remaining = after;
             continue;
         }
-
-        let byte = line.as_bytes()[index];
-        if matches!(byte, b'\'' | b'\"') {
-            let quote = byte;
-            index += 1;
-            let mut escaped = false;
-            while index < line.len() {
-                let current = line.as_bytes()[index];
-                index += 1;
-                if escaped {
-                    escaped = false;
-                } else if current == b'\\' {
-                    escaped = true;
-                } else if current == quote {
-                    break;
-                }
-            }
-            continue;
-        }
-        let remaining = &line.as_bytes()[index..];
-        if syntax.slash_block && remaining.starts_with(b"/*") {
+        if let Some(after) = state.start_string(remaining) {
+            remaining = after;
+        } else if syntax.slash_block && remaining.starts_with("/*") {
             state.in_block_comment = true;
-            index += 2;
-        } else if syntax.slash_line && remaining.starts_with(b"//") {
-            append_comment(&mut comments, &line[index + 2..]);
-            break;
-        } else if syntax.hash_line && byte == b'#' {
-            append_comment(&mut comments, &line[index + 1..]);
-            break;
-        } else if syntax.dash_line && remaining.starts_with(b"--") {
-            append_comment(&mut comments, &line[index + 2..]);
-            break;
-        } else if (syntax.semicolon_line && byte == b';') || (syntax.percent_line && byte == b'%') {
-            append_comment(&mut comments, &line[index + 1..]);
+            remaining = &remaining[2..];
+        } else if let Some(comment) = syntax.line_comment(remaining) {
+            append_comment(&mut comments, comment);
             break;
         } else {
-            index += line[index..].chars().next().unwrap().len_utf8();
+            remaining = &remaining[character.len_utf8()..];
         }
     }
     comments
+}
+
+impl CommentState {
+    fn start_string<'a>(&mut self, remaining: &'a str) -> Option<&'a str> {
+        if let Some(delimiter) = ["\"\"\"", "'''", "`"]
+            .into_iter()
+            .find(|delimiter| remaining.starts_with(delimiter))
+        {
+            self.multiline_string = Some(delimiter);
+            Some(&remaining[delimiter.len()..])
+        } else if matches!(remaining.as_bytes().first(), Some(b'\'' | b'"')) {
+            Some(&remaining[quoted_end(remaining.as_bytes())..])
+        } else {
+            None
+        }
+    }
+
+    fn finish_multiline_string<'a>(&mut self, remaining: &'a str) -> Option<&'a str> {
+        let delimiter = self.multiline_string?;
+        let end = remaining.find(delimiter)?;
+        self.multiline_string = None;
+        Some(&remaining[end + delimiter.len()..])
+    }
+
+    fn finish_block_comment<'a>(
+        &mut self,
+        remaining: &'a str,
+        comments: &mut String,
+    ) -> Option<&'a str> {
+        let Some(end) = remaining.find("*/") else {
+            append_comment(comments, remaining);
+            return None;
+        };
+        append_comment(comments, &remaining[..end]);
+        self.in_block_comment = false;
+        Some(&remaining[end + 2..])
+    }
+}
+
+impl CommentSyntax {
+    fn line_comment(self, remaining: &str) -> Option<&str> {
+        let prefixes = [
+            ("//", self.slash_line),
+            ("#", self.hash_line),
+            ("--", self.dash_line),
+            (";", self.semicolon_line),
+            ("%", self.percent_line),
+        ];
+        prefixes.into_iter().find_map(|(prefix, enabled)| {
+            if enabled {
+                remaining.strip_prefix(prefix)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 fn append_comment(comments: &mut String, comment: &str) {
@@ -1020,7 +976,8 @@ static TODO_MARKER: LazyLock<Regex> =
 static FIXME_MARKER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^\s*\*?\s*fixme(?:$|[\s:(])").unwrap());
 static QUOTED_LITERAL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"#).unwrap()
+    Regex::new(r#"(?:\b[bB])?(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')|`(?:\\.|[^`\\])*`"#)
+        .unwrap()
 });
 static COMPARISON: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -1064,8 +1021,6 @@ static PREPROCESSOR_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
 static FALSE_PREPROCESSOR_EXPRESSION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*(?:\(\s*)*0+[uUlL]*(?:\s*\))*\s*(?:(?://.*)|(?:/\*.*\*/\s*))?$").unwrap()
 });
-static RUST_RAW_STRING_START: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r##"(?:br|r)(#*)\""##).unwrap());
 static GENERATED_HEADER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bcode generated\b.*\bdo not edit\b").unwrap());
 static COLLECTION: LazyLock<Regex> =

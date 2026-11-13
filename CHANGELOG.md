@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+## 0.14.4
+
+### Changed
+
+- Lead text and Markdown complexity findings with the control-flow concern instead of raw counters. Show cyclomatic and cognitive measurements with their configured limits only under `--verbose`, dimmed in terminal output, while preserving machine-readable findings, fingerprints, and localization grouping.
+- Give file/function length, duplicate-block, Dart serialization, YAGNI concentration, and Python/Nim broad-exception findings descriptive human-facing headlines. Keep counts, limits, duplicate fingerprints, field lists, and rule breakdowns in verbose supporting detail without changing machine messages, evidence, or finding identity.
+
+### Fixed
+
+- Recognize established namespaced Rust test harnesses and explicit test-support features without excluding unknown feature alternatives or production entrypoints.
+- Exclude licensed bundled TypeScript standard libraries, readable CommonJS dependency bundles, llparse-generated C, and conventional integration/unit corpora under testing-support packages from default production analysis, while preserving explicit scope overrides.
+- Stop reporting space-padded inline test regions as long lines, inheriting unrelated web-formatter widths for native/non-web source, and treating ordinary byte-literal prefixes as self-comparisons.
+- Honor attached Rust panic contracts, structurally scoped multiline lint allowances with reasons, and SAFETY comments on containing expressions. Retain dynamic failures when an arbitrary expectation message is the only claimed invariant.
+- Distinguish synchronous lock guards from copied or extracted values, avoid treating nested-future awaits as suspension of an outer guard, and report nested async blocking calls once.
+- Keep Rust use trees, record bodies, TypeScript declaration-only collections, and ambient TypeScript parameter contracts out of unrelated runtime-data advisories; inspect subsequent collection literals when a preceding array type shares the line.
+- Resolve Python script entrypoints through the most-specific declared setuptools package-directory mapping. Accept exported Rust procedural test-attribute implementations and workflow tooling without hiding ordinary runtime imports of test helpers.
+- Resolve child declarations from a named Rust module's own directory rather than an unrelated sibling file, while preserving `mod.rs` and custom crate-entry layouts.
+- Tighten GitHub Actions analysis around actual run scalars, complete typed/hash expressions, metadata-only checkout inspection, and clean checkout replacement. Continue reporting string/choice inputs and mixed untrusted expressions rather than assuming their names or UI options make shell interpolation safe.
+- Exclude underscore-separated compiler test corpora, Rust `tests_*.rs` modules, and `ui/` cases with matching compiler-diagnostic golden files from production scans, while retaining ordinary application UI and explicit scope overrides.
+- Extend Rust panic proofs to uninvalidated Result guards, unconditional failure returns, singleton/nonempty collections, fresh iterators, and guarded match arms. Honor scoped lint expectations and explicit unsafe-documentation policies through unambiguous module declarations.
+- Distinguish documented direct Box/Rc/Arc ownership transfers and unrelated custom APIs from arbitrary raw-pointer reconstruction; preserve unsafe rationale across supported multiline expressions without borrowing unrelated comments or function contracts.
+- Honor Deno lint directives and explicit JSON/JSONC rule settings for console logging, `any`, and non-null assertions. Keep regex/template text out of runtime evidence, and avoid parallelization advice for service loops, asynchronous streams, and proven imported event waits.
+- Keep raw/multiline strings, template text, licenses, specifications, rationale, and documented examples out of misleading comment advisories. Preserve comment-density thresholds and genuine disabled-code/narration findings.
+- Avoid conflating duration units, arithmetic, comments, and named constants in repeated-policy advice. Refine external-boundary evidence, callable TypeScript declarations, and imported Python helper naming without hiding actual mutable state or mixed responsibilities.
+- Correct Rust complexity accounting for `match` arms, control-flow nesting, multiline boolean chains, and imported or aliased quoting macros. Keep strict literal/constant lookup maps out of refactoring advice without altering their measured metrics; retain executable branches and unresolved custom macro syntax.
+- Exclude declarative Rust duplication, ambient TypeScript overload bodies, and explicit Rust benchmark-support regions from unrelated runtime advice. Keep executable duplicated algorithms and unknown feature alternatives reportable.
+- Resolve Cargo publication policy through the owning workspace, including explicit member overrides, before checking public error APIs and private dependency consistency.
+- Distinguish Rust trait implementations from `for ... in` loops, recognize supported imported blocking-pool closures, and avoid charging nested synchronous declarations to their enclosing async function.
+- Track JavaScript string accumulators by lexical binding and loop lifetime instead of borrowing unrelated same-name initializers. Clarify that awaiting already-started promises does not serialize their execution and that `Promise.all` does not bound concurrency.
+- Keep identifier digits and embedded multiline-string data out of numeric readability advice. Preserve UTF-8 and escaped character-literal boundaries, and avoid a panic when a quote character reaches credential-string inspection.
+- Recognize proven single-arm Rust quote-forwarding macros and explicit sibling imports or aliases when measuring generator complexity. Mask only the exclusively quoted payload; preserve evaluated arguments, generator branches, shadowing, and unresolved macro behavior.
+- Extend Rust panic proofs to short-circuit Option presence, same-loop terminal guards, and direct same-scope `Some` assignments without accepting intervening mutation or unknown control flow.
+- Accept fresh same-owner raw-pointer roundtrips through compiler-checked trait-object unsizing while retaining arbitrary layout casts and unknown ownership reconstruction.
+- Distinguish documented mathematical formulas, illustrative alternatives, annotation prose, and causal or failure constraints from disabled code and implementation narration.
+- Keep enclosing Rust generic parameters out of claims that a helper is instantiated with only one concrete type.
+- Recognize multiline Python exception diagnostics sent explicitly to stderr without borrowing nested or following calls' arguments. Avoid repeated-membership advice for a list freshly rebuilt for one check per outer iteration.
+- Exclude conventional `compile_fail`/`compile-fail` corpora from default production analysis, preserving explicit source-role overrides and test inclusion. Avoid stable-MSRV advice for explicitly declared compiler-private plugins with matching unconditional crate-root feature evidence.
+- Stop reading digits in Rust duration-constructor and policy-identifier names as repeated numeric policy values. Compare equivalent Cargo caret requirements such as `1`, `1.0`, and `^1.0.0` consistently without conflating different minimum versions or zero-major compatibility ranges.
+- Recognize attached multiline Rust invariant comments, uninvalidated `let Some` collection guards, and nonempty fresh `split`/`rsplit` tails before panic calls. Honor SAFETY rationale attached to containing macro expressions without borrowing comments from completed statements or neighboring macros.
+- Honor attached literal Rust `doc`-attribute panic contracts and recognize exact missing-Option initialization and nonempty `while`-body element access, while preserving warnings after mutation or unknown control flow. Keep explanatory comment paragraphs together across whitespace-only lines and recognize explicit “this allows/enables us to” rationale without borrowing explanations across executable or quoted statements.
+
 ## 0.14.3
 
 ### Added

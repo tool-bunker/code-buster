@@ -289,24 +289,29 @@ impl<'a> MarkupTagScanner<'a> {
 
     fn tag_end(&self, mut index: usize) -> Option<usize> {
         let mut braces = 0usize;
-        let mut quoted = None;
         while let Some(&byte) = self.bytes.get(index) {
-            if let Some(delimiter) = quoted {
-                if byte == b'\\' {
-                    index += usize::from(index + 1 < self.bytes.len());
-                } else if byte == delimiter {
-                    quoted = None;
+            match byte {
+                delimiter @ (b'"' | b'\'' | b'`') => {
+                    index = self.quoted_end(index + 1, delimiter)?;
+                    continue;
                 }
-            } else {
-                match byte {
-                    delimiter @ (b'"' | b'\'' | b'`') => quoted = Some(delimiter),
-                    b'{' => braces += 1,
-                    b'}' => braces = braces.saturating_sub(1),
-                    b'>' if braces == 0 => return Some(index + 1),
-                    _ => {}
-                }
+                b'{' => braces += 1,
+                b'}' => braces = braces.saturating_sub(1),
+                b'>' if braces == 0 => return Some(index + 1),
+                _ => {}
             }
             index += 1;
+        }
+        None
+    }
+
+    fn quoted_end(&self, mut index: usize, delimiter: u8) -> Option<usize> {
+        while let Some(&byte) = self.bytes.get(index) {
+            match byte {
+                b'\\' => index += 2,
+                byte if byte == delimiter => return Some(index + 1),
+                _ => index += 1,
+            }
         }
         None
     }

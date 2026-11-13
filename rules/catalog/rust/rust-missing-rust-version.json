@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Without rust-version, Cargo cannot reject unsupported compilers or apply MSRV-aware dependency resolution for the package.",
   "suggestion": "Set package.rust-version directly or inherit it from workspace.package.rust-version.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -29,7 +29,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "The rule checks declaration presence but does not run the declared minimum toolchain.",
-    "Virtual workspaces, non-production manifests, and manifests that require unstable Cargo features are excluded."
+    "The rule checks declaration presence, including explicit workspace inheritance, but does not resolve or validate an inherited minimum or run the declared toolchain. Workspace defaults are not inherited without a member declaration.",
+    "Virtual workspaces, non-production manifests, and manifests that require unstable Cargo features are excluded. Private packages and pinned toolchains alone are not excluded.",
+    "Compiler-internal library plugins are excluded only when package.metadata.rust-analyzer.rustc_private is true and the available library crate root unconditionally enables feature(rustc_private). Conditional features, unavailable roots, binary targets, and other unstable compiler features are not inferred."
   ]
 }

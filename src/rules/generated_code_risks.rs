@@ -23,10 +23,11 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
 }
 
 #[derive(Clone)]
-struct LineFacts {
+pub(super) struct LineFacts {
     code: String,
-    comment: String,
-    documentation: bool,
+    pub(super) comment: String,
+    pub(super) documentation: bool,
+    commented: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -35,13 +36,16 @@ struct CommentSyntax {
     dash: bool,
     shell: bool,
     triple_quotes: bool,
+    rust: bool,
+    multiline_strings: bool,
 }
 
 #[derive(Default)]
 struct CommentScanState {
     in_block: bool,
     in_documentation_block: bool,
-    multiline_quote: Option<&'static str>,
+    multiline_quote: Option<String>,
+    multiline_escapes: bool,
 }
 
 enum CommentStart {
@@ -50,7 +54,7 @@ enum CommentStart {
     Break,
 }
 
-fn scan_lines(path: &str, source: &str) -> Vec<LineFacts> {
+pub(super) fn scan_lines(path: &str, source: &str) -> Vec<LineFacts> {
     let lower_path = path.to_ascii_lowercase();
     let shell = crate::languages::shell::is_shell_source(path, source);
     let syntax = CommentSyntax {
@@ -58,6 +62,11 @@ fn scan_lines(path: &str, source: &str) -> Vec<LineFacts> {
         dash: DASH_COMMENT_PATH.is_match(&lower_path),
         triple_quotes: lower_path.ends_with(".dart") || lower_path.ends_with(".py"),
         shell,
+        rust: lower_path.ends_with(".rs"),
+        multiline_strings: matches!(
+            lower_path.rsplit('.').next(),
+            Some("rs" | "js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx")
+        ),
     };
     let mut state = CommentScanState::default();
     let mut result = source
@@ -74,12 +83,17 @@ fn scan_line(line: &str, syntax: CommentSyntax, state: &mut CommentScanState) ->
     let mut code = String::new();
     let mut comment = String::new();
     let mut documentation = false;
+    let mut commented = state.in_block;
     let mut index = 0usize;
     while index < line.len() {
         if consume_multiline_quote(line, &mut index, state) {
             continue;
         }
         if consume_block_comment(line, &mut index, &mut comment, &mut documentation, state) {
+            continue;
+        }
+        if syntax.rust && consume_rust_raw_string(line, &mut index, state) {
+            code.push(' ');
             continue;
         }
         match consume_comment_start(
@@ -90,8 +104,14 @@ fn scan_line(line: &str, syntax: CommentSyntax, state: &mut CommentScanState) ->
             syntax,
             state,
         ) {
-            CommentStart::Continue => continue,
-            CommentStart::Break => break,
+            CommentStart::Continue => {
+                commented = true;
+                continue;
+            }
+            CommentStart::Break => {
+                commented = true;
+                break;
+            }
             CommentStart::None => {}
         }
         let Some(character) = line[index..].chars().next() else {
@@ -108,19 +128,47 @@ fn scan_line(line: &str, syntax: CommentSyntax, state: &mut CommentScanState) ->
         code,
         comment,
         documentation,
+        commented,
     }
 }
 
 fn consume_multiline_quote(line: &str, index: &mut usize, state: &mut CommentScanState) -> bool {
-    let Some(quote) = state.multiline_quote else {
+    let Some(quote) = state.multiline_quote.as_deref() else {
         return false;
     };
-    if let Some(relative) = line[*index..].find(quote) {
+    let closing = line[*index..].match_indices(quote).find(|(relative, _)| {
+        !state.multiline_escapes
+            || line.as_bytes()[*index..*index + *relative]
+                .iter()
+                .rev()
+                .take_while(|byte| **byte == b'\\')
+                .count()
+                % 2
+                == 0
+    });
+    if let Some((relative, _)) = closing {
         *index += relative + quote.len();
         state.multiline_quote = None;
     } else {
         *index = line.len();
     }
+    true
+}
+
+fn consume_rust_raw_string(line: &str, index: &mut usize, state: &mut CommentScanState) -> bool {
+    if !matches!(line.as_bytes()[*index], b'r' | b'b' | b'c')
+        || (*index > 0 && line.as_bytes()[*index - 1].is_ascii_alphanumeric())
+    {
+        return false;
+    }
+    let Some(captures) = RUST_RAW_QUOTE.captures(&line[*index..]) else {
+        return false;
+    };
+    let opening = captures.get(0).unwrap();
+    let hashes = captures.name("hashes").unwrap().as_str();
+    state.multiline_quote = Some(format!("\"{hashes}"));
+    state.multiline_escapes = false;
+    *index += opening.end();
     true
 }
 
@@ -254,44 +302,73 @@ fn shell_comment_starts_at(line: &str, index: usize) -> bool {
 
 fn mask_comment_scanner_quote(
     line: &str,
-    mut index: usize,
+    index: usize,
     character: char,
     syntax: CommentSyntax,
     state: &mut CommentScanState,
     code: &mut String,
 ) -> usize {
-    let triple = match character {
+    if let Some(end) = mask_triple_quoted_literal(line, index, character, syntax, state) {
+        return end;
+    }
+    code.push(' ');
+    if syntax.rust && character == '\'' && RUST_LIFETIME.is_match(&line[index..]) {
+        code.push('\'');
+        return index + 1;
+    }
+    if let Some(end) = mask_quoted_body(line, index + character.len_utf8(), character, code) {
+        return end;
+    }
+    if syntax.multiline_strings && (syntax.rust || character == '`') {
+        state.multiline_quote = Some(character.to_string());
+        state.multiline_escapes = true;
+    }
+    line.len()
+}
+
+fn mask_triple_quoted_literal(
+    line: &str,
+    index: usize,
+    character: char,
+    syntax: CommentSyntax,
+    state: &mut CommentScanState,
+) -> Option<usize> {
+    if !syntax.triple_quotes {
+        return None;
+    }
+    let delimiter = match character {
         '"' => "\"\"\"",
         '\'' => "'''",
         '`' => "```",
         _ => unreachable!(),
     };
-    if syntax.triple_quotes && line[index..].starts_with(triple) {
-        index += triple.len();
-        if let Some(relative) = line[index..].find(triple) {
-            return index + relative + triple.len();
-        }
-        state.multiline_quote = Some(triple);
-        return line.len();
+    let remainder = line[index..].strip_prefix(delimiter)?;
+    if let Some(relative) = remainder.find(delimiter) {
+        return Some(index + delimiter.len() + relative + delimiter.len());
     }
-    code.push(' ');
-    index += character.len_utf8();
+    state.multiline_quote = Some(delimiter.to_owned());
+    Some(line.len())
+}
+
+fn mask_quoted_body(
+    line: &str,
+    mut index: usize,
+    delimiter: char,
+    code: &mut String,
+) -> Option<usize> {
     let mut escaped = false;
-    while index < line.len() {
-        let Some(current) = line[index..].chars().next() else {
-            break;
-        };
+    for character in line[index..].chars() {
         code.push(' ');
-        index += current.len_utf8();
+        index += character.len_utf8();
         if escaped {
             escaped = false;
-        } else if current == '\\' {
+        } else if character == '\\' {
             escaped = true;
-        } else if current == character {
-            break;
+        } else if character == delimiter {
+            return Some(index);
         }
     }
-    index
+    None
 }
 
 #[derive(Default)]
@@ -390,6 +467,7 @@ fn summarize_comment_file<'a>(
     };
     let header_end =
         leading_license_end(facts).max(leading_shell_contract_end(path, source, facts));
+    let informative = informative_comment_lines(facts, source);
     for (index, fact) in facts.iter().enumerate().skip(header_end) {
         if !fact.code.trim().is_empty() {
             file.code += 1;
@@ -401,6 +479,7 @@ fn summarize_comment_file<'a>(
         if !fact.documentation
             && fact.code.trim().is_empty()
             && !is_density_comment_noise(&fact.comment)
+            && !informative[index]
         {
             file.comments += 1;
             if file.first == 0 {
@@ -460,7 +539,7 @@ fn emit_density_finding(file: &CommentFile<'_>, ratio: f64, median: f64) -> Find
 fn leading_license_end(facts: &[LineFacts]) -> usize {
     let mut header = String::new();
     let mut end = 0usize;
-    for (index, fact) in facts.iter().take(40).enumerate() {
+    for (index, fact) in facts.iter().enumerate() {
         if !fact.code.trim().is_empty() {
             break;
         }
@@ -472,13 +551,18 @@ fn leading_license_end(facts: &[LineFacts]) -> usize {
         }
     }
     let text = header.to_ascii_lowercase();
-    if text.contains("copyright")
-        && (text.contains("licensed under")
-            || text.contains("license information")
-            || text.contains("permission is hereby granted")
-            || text.contains("gnu general public license")
-            || text.contains("gnu lesser general public license"))
-    {
+    let license_markers = [
+        "licensed under",
+        "license information",
+        "mit license",
+        "mit licence",
+        "spdx-license-identifier",
+        "permission to copy",
+        "permission is hereby granted",
+        "gnu general public license",
+        "gnu lesser general public license",
+    ];
+    if text.contains("copyright") && license_markers.iter().any(|marker| text.contains(marker)) {
         end
     } else {
         0
@@ -530,16 +614,14 @@ fn narrating_implementation_comments(
     facts_by_path: &BTreeMap<String, Vec<LineFacts>>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
-    for path in context.sources().keys() {
+    for (path, source) in context.sources() {
         if excluded_comment_path(path) {
             continue;
         }
         let facts = &facts_by_path[path];
+        let informative = informative_comment_lines(facts, source);
         for (index, fact) in facts.iter().enumerate() {
-            if !fact.documentation
-                && NARRATION.is_match(&fact.comment)
-                && !comment_block_explains_tradeoff(facts, index)
-            {
+            if !fact.documentation && NARRATION.is_match(&fact.comment) && !informative[index] {
                 findings.push(finding(
                     "narrating-implementation-comment",
                     path,
@@ -554,25 +636,36 @@ fn narrating_implementation_comments(
     findings
 }
 
-fn comment_block_explains_tradeoff(facts: &[LineFacts], index: usize) -> bool {
-    let start = (0..index)
-        .rev()
-        .take_while(|previous| comment_only_line(&facts[*previous]))
-        .take(4)
-        .last()
-        .unwrap_or(index);
-    let end = (index + 1..facts.len())
-        .take_while(|next| comment_only_line(&facts[*next]))
-        .take(4)
-        .last()
-        .unwrap_or(index);
-    facts[start..=end]
-        .iter()
-        .any(|fact| COMMENT_RATIONALE.is_match(&fact.comment))
+fn informative_comment_lines(facts: &[LineFacts], source: &str) -> Vec<bool> {
+    let mut informative = vec![false; facts.len()];
+    let mut lines = facts.iter().zip(source.split('\n')).enumerate().peekable();
+    while let Some((start, (fact, _))) = lines.next() {
+        if !comment_only_line(fact) {
+            informative[start] = comment_explains_intent(&fact.comment);
+            continue;
+        }
+        let mut end = start + 1;
+        let mut explains_intent = comment_explains_intent(&fact.comment);
+        while let Some((index, (fact, line))) = lines.peek()
+            && (comment_only_line(fact) || line.trim().is_empty())
+        {
+            end = *index + 1;
+            explains_intent |= comment_explains_intent(&fact.comment);
+            lines.next();
+        }
+        if explains_intent {
+            informative[start..end].fill(true);
+        }
+    }
+    informative
+}
+
+fn comment_explains_intent(comment: &str) -> bool {
+    COMMENT_RATIONALE.is_match(comment) || COMMENT_CONTRACT.is_match(comment)
 }
 
 fn comment_only_line(fact: &LineFacts) -> bool {
-    fact.code.trim().is_empty() && !fact.comment.trim().is_empty()
+    fact.code.trim().is_empty() && fact.commented
 }
 
 struct CommentRestatement<'a> {
@@ -919,7 +1012,7 @@ static COMMENT_DENSITY_MANIFEST_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(^|/)(?:go\.mod|package(?:-lock)?\.json|pubspec\.ya?ml|cargo\.toml)$").unwrap()
 });
 static HASH_COMMENT_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\.(?:py|pyi|rb|sh|bash|zsh|fish|pl|pm|r|jl|nim|toml|ya?ml)$").unwrap()
+    Regex::new(r"(?i)\.(?:py|pyi|rb|sh|bash|zsh|fish|pl|pm|r|jl|nim|mojo|php|toml|ya?ml)$").unwrap()
 });
 static DASH_COMMENT_PATH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\.(?:lua|luau|sql|hs)$").unwrap());
@@ -939,12 +1032,22 @@ static SHELL_USAGE_HEADER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(?:usage|synopsis)\s*:\s*(.*)$").unwrap());
 static SHELL_USAGE_ARGUMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[[^\]]+\]|<[^>]+>|--[A-Za-z]|\$\{?0\b").unwrap());
+static RUST_RAW_QUOTE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^(?:br|cr|r)(?P<hashes>#{0,255})""#).unwrap());
+static RUST_LIFETIME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^'[A-Za-z_]\w*(?:\b|$)(?:[^']|$)").unwrap());
 static NARRATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(?:(?:first|next|now|then|finally),?\s+(?:we|i)(?:\s+will|\s+need\s+to|\s+can|\s+should)?|(?:we|i)\s+(?:will|need\s+to|are\s+going\s+to)\s+(?:first|next|now|then))\b").unwrap()
 });
 static COMMENT_RATIONALE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(?:because|otherwise|instead|when|unless|if|could|but|trade[- ]?off|in order to|such that|so that|to ensure|specified in|see the (?:doc|documentation|comment|section|issue))\b",
+        r"(?i)\b(?:because|otherwise|instead|when|unless|if|could|but|so|(?:this|that|which|it)\s+(?:allows?|enables?)\s+(?:us\s+)?to|to avoid|without|trade[- ]?off|in order to|such that|to ensure|specified in|see the (?:doc|documentation|comment|section|issue))\b",
+    )
+    .unwrap()
+});
+static COMMENT_CONTRACT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(?:equations?|formulas?|specification|spec-mandated|invariants?|compatibility|SAFETY|required|requires|must|guarantees?|return values|examples?)\b|\bRFC\s*\d+|https?://|```|::=",
     )
     .unwrap()
 });
@@ -954,7 +1057,7 @@ static COMMENT_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
 static IDENTIFIER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z_]\w*$").unwrap());
 static COMMENT_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)^(?:@ts-|cspell|coverage:|eslint(?:-|\s)|fmt:|mypy:|noqa\b|noinspection\b|pylint:|region\b|spellchecker|type:\s*ignore\b)",
+        r"(?i)^(?:@ts-|cspell|coverage:|deno-lint-ignore(?:-file)?\b|eslint(?:-|\s)|fmt:|mypy:|noqa\b|noinspection\b|pylint:|region\b|spellchecker|type:\s*ignore\b)",
     )
     .unwrap()
 });
@@ -1343,6 +1446,225 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].path, "lib/request.dart");
         assert_eq!(findings[0].related_files, vec!["lib/response.dart:1"]);
+    }
+
+    #[test]
+    fn excludes_raw_samples_and_template_contents_from_comment_advice() {
+        let sources = BTreeMap::from([
+            (
+                "src/sample.rs".to_owned(),
+                r####"fn sample(value: &'static str) {
+    let embedded = r###"
+// First, we load the cache.
+// Return result.
+"##
+// Next, we save the result.
+"###;
+    let bytes = br#"
+// Then we return the bytes.
+"#;
+}
+"####
+                    .to_owned(),
+            ),
+            (
+                "src/sample.mjs".to_owned(),
+                "const sample = `\n// First, we load the cache.\n// Return result.\n`;\n"
+                    .to_owned(),
+            ),
+            (
+                "src/live.rs".to_owned(),
+                "// First, we load the cache.\nload();\n// Return result.\nreturn result;"
+                    .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context);
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (
+                    finding.code.as_str(),
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.confidence.as_str(),
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("narrating-implementation-comment", "src/live.rs", 1, "high"),
+                ("trivial-comment-restatement", "src/live.rs", 3, "high"),
+            ]
+        );
+    }
+
+    #[test]
+    fn protects_derivations_and_complete_contract_blocks_without_hiding_narration() {
+        let mut sources = ordinary_sources("rs");
+        let contract = (0..16)
+            .map(|line| format!("// Constraint detail {line}."))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let code = (0..24)
+            .map(|line| format!("let value{line} = {line};"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sources.insert(
+            "src/contract.rs".to_owned(),
+            format!(
+                "// First, we establish the clipping plane.\n//\n{contract}\n// This must match the projection specification.\n{code}\n// Finally, we have the revised equation (10), M3 = M4 - aC.\n// This simplifies to the homogeneous plane.\nlet plane = m4 - c * a;"
+            ),
+        );
+        sources.insert(
+            "src/narrated.rs".to_owned(),
+            format!("// First, we load the cache.\nload();\n{code}"),
+        );
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "narrating-implementation-comment");
+        assert_eq!(findings[0].path, "src/narrated.rs");
+        assert_eq!(findings[0].line, 1);
+    }
+
+    #[test]
+    fn excludes_long_reuse_licenses_and_embedded_samples_from_density() {
+        let mut sources = ordinary_sources("rs");
+        let legal = (0..48)
+            .map(|line| format!("// License condition {line}."))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let code = (0..24)
+            .map(|line| format!("let value{line} = {line};"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sources.insert(
+            "src/licensed.rs".to_owned(),
+            format!("// Copyright Authors\n// Permission to copy and distribute this work.\n{legal}\n{code}"),
+        );
+        sources.insert(
+            "src/sample.rs".to_owned(),
+            format!("let sample = r###\"\n{legal}\n\"###;\n{code}"),
+        );
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
+    }
+
+    #[test]
+    fn excludes_repeated_linter_directives_from_density() {
+        let mut sources = ordinary_sources("ts");
+        sources.insert(
+            "src/compatibility.ts".to_owned(),
+            (0..16)
+                .flat_map(|line| {
+                    [
+                        "// deno-lint-ignore no-explicit-any".to_owned(),
+                        format!("let value{line}: any = {line};"),
+                    ]
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert!(excessive_comment_density(&context, &facts(&context)).is_empty());
+    }
+
+    #[test]
+    fn protects_causal_and_failure_constraints_without_hiding_adjacent_narration() {
+        let mut sources = ordinary_sources("rs");
+        let details = (0..12)
+            .map(|line| format!("// Constraint detail {line}."))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let code = (0..24)
+            .map(|line| format!("let value{line} = {line};"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for (name, rationale) in [
+            (
+                "causal",
+                "The flag only applies to binaries, so we emit separate library flags.",
+            ),
+            (
+                "avoid",
+                "Port numbers include the user ID to avoid conflicts.",
+            ),
+            (
+                "failure",
+                "Without hiding these symbols, interposition aborts the runtime.",
+            ),
+            (
+                "allows",
+                "This allows us to normalize vertex normals efficiently.",
+            ),
+            (
+                "enables",
+                "This enables us to reuse the normalized coordinates.",
+            ),
+        ] {
+            sources.insert(
+                format!("src/{name}.rs"),
+                format!("// First, we calculate the value.\n\n{details}\n\n// {rationale}\n{code}"),
+            );
+        }
+        sources.insert(
+            "src/live.rs".to_owned(),
+            format!("// First, we load the cache.\nload();\n{code}"),
+        );
+        sources.insert(
+            "tests/narrated.rs".to_owned(),
+            "// First, we load the cache.\nload();".to_owned(),
+        );
+        sources.insert(
+            "src/sample.rs".to_owned(),
+            "let sample = r###\"\n// First, we load the cache.\n\"###;".to_owned(),
+        );
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "narrating-implementation-comment");
+        assert_eq!(findings[0].path, "src/live.rs");
+        assert_eq!(findings[0].line, 1);
+        assert_eq!(findings[0].confidence, "high");
+    }
+
+    #[test]
+    fn preserves_rationale_across_blank_lines_but_not_code_or_quoted_statements() {
+        let sources = BTreeMap::from([
+            (
+                "src/geometry.rs".to_owned(),
+                "// Now we build the lateral surface.\n \n// The normal is perpendicular to the surface.\n// This allows us to normalize vertex normals efficiently.\nfn build() {}".to_owned(),
+            ),
+            (
+                "src/relative.rs".to_owned(),
+                "// First we prepare the cached inputs.\n//\n\n// This enables us to reuse the normalized coordinates.\nfn prepare() {}".to_owned(),
+            ),
+            (
+                "src/no_rationale.rs".to_owned(),
+                "// Next we create a list.\n\n// The list stores entries.\nfn create() {}".to_owned(),
+            ),
+            (
+                "src/quoted.py".to_owned(),
+                "# First we prepare the state.\n'not a blank line'\n# This allows us to reuse the coordinates.\nprepare()".to_owned(),
+            ),
+            (
+                "src/unrelated.rs".to_owned(),
+                "// First we prepare the state.\nfn prepare() {}\n// This allows us to reuse the coordinates.\nfn reuse() {}".to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context);
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("narrating-implementation-comment", "src/no_rationale.rs", 1),
+                ("narrating-implementation-comment", "src/quoted.py", 1),
+                ("narrating-implementation-comment", "src/unrelated.rs", 1),
+            ]
+        );
+        assert!(findings.iter().all(|finding| finding.confidence == "high"));
     }
 
     fn ordinary_sources(extension: &str) -> BTreeMap<String, String> {

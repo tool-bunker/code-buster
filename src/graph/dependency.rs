@@ -378,11 +378,12 @@ fn rust_graph(sources: Option<&BTreeMap<String, String>>) -> BTreeMap<String, BT
         };
         by_stem.entry(module).or_default().push(path.clone());
     }
+    let module_files = rust_declared_module_files(&production_sources, &known);
     production_sources
         .iter()
         .map(|(path, source)| {
             let declared_modules = rust_module_candidates(source).flat_map(|module| {
-                resolve_rust_module(path, module, &known)
+                resolve_rust_module(path, module, &known, module_files.contains(path))
                     .into_iter()
                     .flatten()
             });
@@ -393,6 +394,25 @@ fn rust_graph(sources: Option<&BTreeMap<String, String>>) -> BTreeMap<String, BT
             (path.clone(), dependencies)
         })
         .collect()
+}
+
+fn rust_declared_module_files(
+    sources: &BTreeMap<String, String>,
+    known: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    let mut files = BTreeSet::new();
+    for (path, source) in sources {
+        for module in rust_module_candidates(source) {
+            for named_module in [false, true] {
+                files.extend(
+                    resolve_rust_module(path, module, known, named_module)
+                        .into_iter()
+                        .flatten(),
+                );
+            }
+        }
+    }
+    files
 }
 
 fn rust_production_code(source: &str) -> String {
@@ -423,10 +443,20 @@ fn rust_use_candidates(code: &str) -> impl Iterator<Item = (&str, bool)> {
     })
 }
 
-fn resolve_rust_module(path: &str, module: &str, known: &BTreeSet<String>) -> [Option<String>; 2] {
+fn resolve_rust_module(
+    path: &str,
+    module: &str,
+    known: &BTreeSet<String>,
+    named_module: bool,
+) -> [Option<String>; 2] {
+    let base = if named_module && stem(path) != "mod" {
+        path.strip_suffix(".rs").unwrap_or_else(|| dirname(path))
+    } else {
+        dirname(path)
+    };
     [
-        normalize_join(dirname(path), &format!("{module}.rs")),
-        normalize_join(dirname(path), &format!("{module}/mod.rs")),
+        normalize_join(base, &format!("{module}.rs")),
+        normalize_join(base, &format!("{module}/mod.rs")),
     ]
     .map(|candidate| (candidate != path && known.contains(&candidate)).then_some(candidate))
 }
@@ -1488,6 +1518,52 @@ mod tests {
         assert!(
             graph["workspace/app/src/lib.rs"].is_empty(),
             "crate-relative imports must not resolve into another workspace crate"
+        );
+    }
+
+    #[test]
+    fn rust_graph_resolves_named_module_children_without_sibling_edges() {
+        let sources = BTreeMap::from([
+            ("src/lib.rs".to_owned(), "mod ordinary;".to_owned()),
+            (
+                "src/ordinary.rs".to_owned(),
+                "mod test;\nmod nested;".to_owned(),
+            ),
+            ("src/ordinary/test.rs".to_owned(), String::new()),
+            ("src/test.rs".to_owned(), String::new()),
+            (
+                "src/ordinary/nested/mod.rs".to_owned(),
+                "mod leaf;".to_owned(),
+            ),
+            ("src/ordinary/nested/leaf.rs".to_owned(), String::new()),
+            (
+                "crates/custom/src/custom.rs".to_owned(),
+                "mod support;".to_owned(),
+            ),
+            ("crates/custom/src/support.rs".to_owned(), String::new()),
+        ]);
+        let graph = rust_graph(Some(&sources));
+
+        assert_eq!(
+            graph["src/ordinary.rs"],
+            [
+                "src/ordinary/nested/mod.rs".to_owned(),
+                "src/ordinary/test.rs".to_owned(),
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert_eq!(
+            graph["src/ordinary/nested/mod.rs"],
+            ["src/ordinary/nested/leaf.rs".to_owned()]
+                .into_iter()
+                .collect()
+        );
+        assert_eq!(
+            graph["crates/custom/src/custom.rs"],
+            ["crates/custom/src/support.rs".to_owned()]
+                .into_iter()
+                .collect()
         );
     }
 

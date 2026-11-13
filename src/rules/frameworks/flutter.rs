@@ -6,6 +6,7 @@ use crate::dart_core_rules::mask_comments;
 use crate::dart_null_assertion::dart_source_with_interpolations;
 use crate::dart_reliability::unguarded_context_uses;
 use crate::findings::{Finding, Severity};
+use crate::languages::dart::{DelimiterDepth, split_top_level};
 use crate::rule_catalog;
 use crate::source_analysis_context::SourceAnalysisContext;
 
@@ -736,18 +737,12 @@ fn named_argument<'a>(arguments: &[&'a str], name: &str) -> Option<&'a str> {
 }
 
 fn top_level_colon(source: &str) -> Option<usize> {
-    let mut depth = [0usize; 3];
+    let mut depth = DelimiterDepth::default();
     for (index, byte) in source.bytes().enumerate() {
-        match byte {
-            b'(' => depth[0] += 1,
-            b')' => depth[0] = depth[0].saturating_sub(1),
-            b'[' => depth[1] += 1,
-            b']' => depth[1] = depth[1].saturating_sub(1),
-            b'{' => depth[2] += 1,
-            b'}' => depth[2] = depth[2].saturating_sub(1),
-            b':' if depth == [0, 0, 0] => return Some(index),
-            _ => {}
+        if byte == b':' && depth.is_top_level() {
+            return Some(index);
         }
+        depth.consume(byte);
     }
     None
 }
@@ -778,29 +773,6 @@ fn spacing_expression<'a>(expression: &'a str, dimension: &str) -> Option<&'a st
     STABLE_SPACING.is_match(value).then_some(value)
 }
 
-fn split_top_level(source: &str, separator: u8) -> Vec<&str> {
-    let mut result = Vec::new();
-    let mut start = 0usize;
-    let mut depth = [0usize; 3];
-    for (index, byte) in source.bytes().enumerate() {
-        match byte {
-            b'(' => depth[0] += 1,
-            b')' => depth[0] = depth[0].saturating_sub(1),
-            b'[' => depth[1] += 1,
-            b']' => depth[1] = depth[1].saturating_sub(1),
-            b'{' => depth[2] += 1,
-            b'}' => depth[2] = depth[2].saturating_sub(1),
-            value if value == separator && depth == [0, 0, 0] => {
-                result.push(&source[start..index]);
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    result.push(&source[start..]);
-    result
-}
-
 fn skip_whitespace(source: &str, mut offset: usize) -> usize {
     while source
         .as_bytes()
@@ -813,18 +785,12 @@ fn skip_whitespace(source: &str, mut offset: usize) -> usize {
 }
 
 fn expression_end(source: &str, start: usize) -> usize {
-    let mut depth = [0usize; 3];
+    let mut depth = DelimiterDepth::default();
     for (index, byte) in source.bytes().enumerate().skip(start) {
-        match byte {
-            b'(' => depth[0] += 1,
-            b')' if depth[0] > 0 => depth[0] -= 1,
-            b'[' => depth[1] += 1,
-            b']' if depth[1] > 0 => depth[1] -= 1,
-            b'{' => depth[2] += 1,
-            b'}' if depth[2] > 0 => depth[2] -= 1,
-            b',' | b';' if depth == [0, 0, 0] => return index,
-            _ => {}
+        if matches!(byte, b',' | b';') && depth.is_top_level() {
+            return index;
         }
+        depth.consume(byte);
     }
     source.len()
 }

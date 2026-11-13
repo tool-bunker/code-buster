@@ -9,7 +9,7 @@
   "legacyGroup": "suspicious",
   "why": "Tags and branches can move after review, allowing a workflow to execute different third-party code without a repository change.",
   "suggestion": "Pin each external action or reusable workflow to a full 40-character commit SHA and retain the release tag in a comment for update tooling.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,6 +28,6 @@
   "languageVersions": [],
   "limitations": [
     "One grouped advisory is emitted per checked-in .github/workflows YAML file.",
-    "Local actions and docker:// references are excluded; organization-level action policies are not inspected."
+    "Local actions, docker:// references, and action-shaped text inside YAML block scalars are excluded; organization-level action policies are not inspected."
   ]
 }

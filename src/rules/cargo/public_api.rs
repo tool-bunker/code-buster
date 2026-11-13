@@ -15,7 +15,7 @@ pub(super) fn analyze(
 ) -> Vec<Finding> {
     let libraries = manifests
         .iter()
-        .filter(|manifest| is_library_manifest(context, manifest))
+        .filter(|manifest| is_library_manifest(context, manifest, manifests))
         .collect::<Vec<_>>();
     if libraries.is_empty() {
         return Vec::new();
@@ -38,11 +38,18 @@ pub(super) fn analyze(
     findings
 }
 
-fn is_library_manifest(context: &SourceAnalysisContext<'_>, manifest: &CargoManifest<'_>) -> bool {
+fn is_library_manifest(
+    context: &SourceAnalysisContext<'_>,
+    manifest: &CargoManifest<'_>,
+    manifests: &[CargoManifest<'_>],
+) -> bool {
     let Some(package) = manifest.value.get("package").and_then(Value::as_table) else {
         return false;
     };
-    if !has_publication_intent(package) || package_has_binary_target(context, manifest) {
+    let workspace = super::workspace::owning_workspace(manifest, manifests);
+    if !has_publication_intent(manifest, workspace, package)
+        || package_has_binary_target(context, manifest)
+    {
         return false;
     }
     if manifest
@@ -58,17 +65,23 @@ fn is_library_manifest(context: &SourceAnalysisContext<'_>, manifest: &CargoMani
         .contains_key(&default_source_path(manifest.path, "lib.rs"))
 }
 
-fn has_publication_intent(package: &toml::Table) -> bool {
-    if package.get("publish").and_then(Value::as_bool) == Some(false)
-        || package
-            .get("publish")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
-        || package.get("version").and_then(Value::as_str) == Some("0.0.0")
+fn has_publication_intent(
+    manifest: &CargoManifest<'_>,
+    workspace: Option<&CargoManifest<'_>>,
+    package: &toml::Table,
+) -> bool {
+    let publish = super::package_field(manifest, workspace, "publish");
+    if package.contains_key("publish") && publish.is_none()
+        || publish.and_then(Value::as_bool) == Some(false)
+        || publish.and_then(Value::as_array).is_some_and(Vec::is_empty)
+        || super::package_field(manifest, workspace, "version").and_then(Value::as_str)
+            == Some("0.0.0")
     {
         return false;
     }
-    let Some(description) = package.get("description").and_then(Value::as_str) else {
+    let Some(description) =
+        super::package_field(manifest, workspace, "description").and_then(Value::as_str)
+    else {
         return false;
     };
     if INTERNAL_CRATE_DESCRIPTION.is_match(description) {
@@ -319,6 +332,108 @@ mod tests {
         );
 
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn resolves_workspace_publication_policy_without_overriding_local_choices() {
+        for policy in ["false", "[]", "true"] {
+            let root = format!(
+                "[workspace]\nmembers = ['inherited', 'public', 'private']\n\
+                 [workspace.package]\npublish = {policy}\nversion = '1.2.3'\n\
+                 description = 'Reusable library'\nlicense = 'MIT'\n"
+            );
+            let findings = analyze_project(
+                [
+                    ("Cargo.toml", root.as_str()),
+                    (
+                        "inherited/Cargo.toml",
+                        "[package]\nname='inherited'\npublish.workspace=true\nversion.workspace=true\ndescription.workspace=true\nlicense.workspace=true\n",
+                    ),
+                    (
+                        "public/Cargo.toml",
+                        "[package]\nname='public'\npublish=true\nversion.workspace=true\ndescription.workspace=true\nlicense.workspace=true\n",
+                    ),
+                    (
+                        "private/Cargo.toml",
+                        "[package]\nname='private'\npublish=false\nversion.workspace=true\ndescription.workspace=true\nlicense.workspace=true\n",
+                    ),
+                    (
+                        "orphan/Cargo.toml",
+                        "[package]\nname='orphan'\npublish.workspace=true\nversion='1.0.0'\ndescription='Unresolved library'\nlicense='MIT'\n",
+                    ),
+                ],
+                [
+                    (
+                        "inherited/src/lib.rs",
+                        "pub fn load() -> anyhow::Result<()> { Ok(()) }",
+                    ),
+                    (
+                        "public/src/lib.rs",
+                        "pub fn load() -> anyhow::Result<()> { Ok(()) }",
+                    ),
+                    (
+                        "private/src/lib.rs",
+                        "pub fn load() -> anyhow::Result<()> { Ok(()) }",
+                    ),
+                    (
+                        "orphan/src/lib.rs",
+                        "pub fn load() -> anyhow::Result<()> { Ok(()) }",
+                    ),
+                ],
+            );
+            let paths = findings
+                .iter()
+                .map(|finding| finding.path.as_str())
+                .collect::<Vec<_>>();
+            let expected = if policy == "true" {
+                vec!["inherited/src/lib.rs", "public/src/lib.rs"]
+            } else {
+                vec!["public/src/lib.rs"]
+            };
+            assert_eq!(paths, expected, "{policy}");
+            assert!(findings.iter().all(|finding| finding.line == 1));
+        }
+    }
+
+    #[test]
+    fn keeps_nested_workspace_publication_boundaries_independent() {
+        let findings = analyze_project(
+            [
+                (
+                    "Cargo.toml",
+                    "[workspace]\nmembers=['nested/*']\n[workspace.package]\npublish=true\n",
+                ),
+                (
+                    "nested/Cargo.toml",
+                    "[workspace]\nmembers=['member']\n[workspace.package]\npublish=false\n",
+                ),
+                (
+                    "nested/member/Cargo.toml",
+                    "[package]\nname='member'\npublish.workspace=true\nversion='1.0.0'\ndescription='Nested library'\nlicense='MIT'\n",
+                ),
+                (
+                    "nested/independent/Cargo.toml",
+                    "[package]\nname='independent'\npublish=true\nversion='1.0.0'\ndescription='Independent library'\nlicense='MIT'\n[workspace]\n",
+                ),
+            ],
+            [
+                (
+                    "nested/member/src/lib.rs",
+                    "pub fn load() -> anyhow::Result<()> { Ok(()) }",
+                ),
+                (
+                    "nested/independent/src/lib.rs",
+                    "pub fn load() -> anyhow::Result<()> { Ok(()) }",
+                ),
+            ],
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| finding.path.as_str())
+                .collect::<Vec<_>>(),
+            ["nested/independent/src/lib.rs"]
+        );
     }
 
     fn analyze_project<const A: usize, const S: usize>(

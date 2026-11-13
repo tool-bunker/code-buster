@@ -1,10 +1,10 @@
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{Display, Write as _};
+use std::fmt::{self, Display, Write as _};
 use std::process::Command;
 
-use super::{source_metrics, terminal};
+use super::{finding_message, source_metrics, terminal};
 use crate::config::{Config, PatternRule};
 use crate::discovery::{AnalysisProfile, PreparedPreview, ProcessingDiagnostic, RulePackTiming};
 use crate::finding_controls;
@@ -411,14 +411,19 @@ fn write_text_findings(output: &mut String, report: &FindingReport<'_>, palette:
     output.push_str("\n\n");
     palette.write(output, "1", "Findings");
     for finding in report.findings {
-        write_text_finding(output, finding, palette);
+        write_text_finding(output, finding, report, palette);
         if report.verbose {
             write_text_finding_details(output, finding, palette);
         }
     }
 }
 
-fn write_text_finding(output: &mut String, finding: &Finding, palette: TerminalPalette) {
+fn write_text_finding(
+    output: &mut String,
+    finding: &Finding,
+    report: &FindingReport<'_>,
+    palette: TerminalPalette,
+) {
     let (severity, severity_style) = match finding.severity {
         Severity::Error => ("ERROR", "1;31"),
         Severity::Warn => ("WARN", "33"),
@@ -441,39 +446,32 @@ fn write_text_finding(output: &mut String, finding: &Finding, palette: TerminalP
             format_args!("{}:{}", finding.path, finding.line),
         );
     }
-    write_text_finding_message(output, finding, palette);
+    write_text_finding_message(output, finding, report, palette);
 }
 
-fn write_text_finding_message(output: &mut String, finding: &Finding, palette: TerminalPalette) {
+fn write_text_finding_message(
+    output: &mut String,
+    finding: &Finding,
+    report: &FindingReport<'_>,
+    palette: TerminalPalette,
+) {
     output.push_str("\n        ");
-    let Some((name, cyclomatic, cognitive)) = complexity_metrics(finding) else {
-        output.push_str(&finding.message);
-        return;
-    };
-    output.push_str(name);
-    output.push_str("\n        ");
-    palette.write(output, "2", "Cyclomatic");
-    output.push_str("  ");
-    palette.write(output, "1;33", cyclomatic);
-    output.push_str("  ·  ");
-    palette.write(output, "2", "Cognitive");
-    output.push_str("  ");
-    palette.write(output, "1;33", cognitive);
-}
-
-fn complexity_metrics(finding: &Finding) -> Option<(&str, &str, &str)> {
-    if finding.code != "complex-function" {
-        return None;
+    let message = finding_message::describe(finding, &report.prepared.config);
+    if !message.subject.is_empty() {
+        palette.write(output, "1", message.subject);
+        output.push(' ');
     }
-    let (prefix, cognitive) = finding.message.rsplit_once(" cognitive=")?;
-    let (name, cyclomatic) = prefix.rsplit_once(" complexity=")?;
-    if name.is_empty()
-        || cyclomatic.parse::<usize>().is_err()
-        || cognitive.parse::<usize>().is_err()
+    output.push_str(message.concern);
+    if !message.grouping.is_empty() {
+        output.push_str("; ");
+        output.push_str(message.grouping);
+    }
+    if report.verbose
+        && let Some(detail) = message.detail
     {
-        return None;
+        output.push_str("\n        ");
+        palette.write(output, "2;90", detail);
     }
-    Some((name, cyclomatic, cognitive))
 }
 
 fn write_text_finding_details(output: &mut String, finding: &Finding, palette: TerminalPalette) {
@@ -684,14 +682,43 @@ fn markdown(report: &FindingReport<'_>) -> String {
         } else {
             format!("{}:{}", finding.path, finding.line)
         };
-        output.push_str(&format!(
-            "| {} | `{}` | `{location}` | {} |\n",
+        let _ = write!(
+            output,
+            "| {} | `{}` | `{location}` | ",
             finding.severity.as_str(),
             finding.code,
-            finding.message.replace('|', "\\|")
-        ));
+        );
+        let message = finding_message::describe(finding, &report.prepared.config);
+        let _ = write!(MarkdownCell(&mut output), "{message}");
+        if report.verbose
+            && let Some(detail) = message.detail
+        {
+            output.push_str("<br><sub>");
+            let _ = write!(MarkdownCell(&mut output), "{detail}");
+            output.push_str("</sub>");
+        }
+        output.push_str(" |\n");
     }
     output.trim_end().to_owned()
+}
+
+struct MarkdownCell<'a>(&'a mut String);
+
+impl fmt::Write for MarkdownCell<'_> {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        for character in text.chars() {
+            match character {
+                '|' => self.0.push_str("\\|"),
+                '<' => self.0.push_str("&lt;"),
+                '>' => self.0.push_str("&gt;"),
+                '&' => self.0.push_str("&amp;"),
+                '\n' => self.0.push_str("<br>"),
+                '\r' => self.0.push_str("&#13;"),
+                _ => self.0.push(character),
+            }
+        }
+        Ok(())
+    }
 }
 
 fn sarif(findings: &[Finding]) -> Value {
@@ -1178,5 +1205,38 @@ mod tests {
         let records = ndjson(&report).unwrap();
         let finding: Value = serde_json::from_str(records.lines().nth(1).unwrap()).unwrap();
         assert_eq!(finding["mode"], "count");
+    }
+
+    #[test]
+    fn markdown_details_do_not_inject_html_or_split_table_cells() {
+        let root = tempfile::tempdir().unwrap();
+        let prepared = prepared(root.path());
+        let findings = [Finding::structure(
+            "dart-json-serialization-asymmetry",
+            "model.dart".to_owned(),
+            "toJson/fromJson fields differ: write-only={</sub><img src=x onerror=alert(1)>|field} read-only={}".to_owned(),
+            "",
+            Vec::new(),
+        )];
+        let advisory_summary = BTreeMap::new();
+        let mut report = FindingReport {
+            command: "review",
+            prepared: &prepared,
+            findings: &findings,
+            taxonomy_group: rule_catalog::taxonomy_group,
+            actionable_count: 1,
+            advisory_summary: &advisory_summary,
+            show_advisory_hint: false,
+            verbose: false,
+            profile: false,
+        };
+        let plain = markdown(&report);
+        assert!(!plain.contains("onerror"));
+        report.verbose = true;
+        let verbose = markdown(&report);
+        assert!(!verbose.contains("<img"));
+        assert!(verbose.contains("&lt;/sub&gt;&lt;img"));
+        assert!(verbose.contains("\\|field"));
+        assert!(verbose.contains("onerror=alert(1)&gt;"));
     }
 }

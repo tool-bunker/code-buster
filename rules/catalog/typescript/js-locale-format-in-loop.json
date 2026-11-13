@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Repeated toLocaleString, toLocaleDateString, or toLocaleTimeString calls resolve equivalent locale data and options on every iteration.",
   "suggestion": "Create the matching Intl formatter once outside the loop and reuse its format method.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only direct locale-formatting calls with no arguments or literal locale and simple literal options inside recognized braced loops are reported.",
-    "Dynamic locales and options, formatter wrappers, receiver types, loop frequency, and engine-specific optimizations are not inferred."
+    "Dynamic locales and options, formatter wrappers, receiver types, loop frequency, and engine-specific optimizations are not inferred.",
+    "Loop/function structure and declaration evidence use masked executable source; comment, string and regex literal text does not establish a collection or structural scope. Analysis remains lexical rather than type-resolved."
   ]
 }
