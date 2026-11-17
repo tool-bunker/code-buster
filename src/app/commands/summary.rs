@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use crate::analysis_cache::{AnalysisCache, FindingCacheInputs};
 use crate::analysis_engine;
+use crate::dependency_graph::DependencyGraph;
 use crate::discovery::{AnalysisProfile, PreparedPreview, is_builtin_production_path, prepare};
 use crate::engine::execution_plan::ExecutionPlan;
 use crate::finding_controls;
@@ -56,6 +57,14 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
         None
     };
     let analysis_prepared = full_prepared.as_ref().unwrap_or(&prepared);
+    let plan = ExecutionPlan::new(
+        options,
+        &analysis_prepared.config,
+        analysis_prepared
+            .files
+            .iter()
+            .map(|file| file.language.as_str()),
+    );
     let changed_paths = prepared.changed_paths.clone();
     let base_sources = load_base_sources(
         Path::new(&analysis_prepared.root),
@@ -84,14 +93,19 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
     }
     stage_durations.insert("preparation".to_owned(), started.elapsed().as_millis());
 
-    progress.set_phase("Building dependency graph…");
-    let graph_started = Instant::now();
     let mut cache =
         AnalysisCache::new(options, Path::new(&analysis_prepared.root)).with_finding_inputs(
             FindingCacheInputs::new(&base_sources, &changed_paths, &auxiliary),
         );
-    let graph = cache.graph(analysis_prepared);
-    stage_durations.insert("graph".to_owned(), graph_started.elapsed().as_millis());
+    let graph = if plan.needs_graph() {
+        progress.set_phase("Building dependency graph…");
+        let graph_started = Instant::now();
+        let graph = cache.graph(analysis_prepared);
+        stage_durations.insert("graph".to_owned(), graph_started.elapsed().as_millis());
+        graph
+    } else {
+        DependencyGraph::default()
+    };
 
     progress.set_phase(format!(
         "Running rules… {} files",
@@ -114,14 +128,6 @@ fn analyze_for(options: &PreviewOptions, cache_command: &str) -> Result<Analysis
             &changed_paths,
             options.changed_base.is_some(),
             &auxiliary,
-        );
-        let plan = ExecutionPlan::new(
-            options,
-            &analysis_prepared.config,
-            analysis_prepared
-                .files
-                .iter()
-                .map(|file| file.language.as_str()),
         );
         let output = analysis_engine::analyze(
             analysis_prepared,

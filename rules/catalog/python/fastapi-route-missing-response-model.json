@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "An undocumented response shape weakens validation and the generated OpenAPI contract.",
   "suggestion": "Declare response_model or a precise return annotation.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -30,7 +30,7 @@
   ],
   "languageVersions": [],
   "limitations": [
-    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Explicit route decorators and object-shaped returns are inspected for response_model or recognized return annotations, including bare dict, parameterized dict/list, and capitalized model types. Annotation aliases and model definitions are not resolved.",
     "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
   ]
 }

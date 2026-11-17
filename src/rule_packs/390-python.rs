@@ -12,6 +12,10 @@ pub(super) const PACK: RulePack = RulePack::main(
 
 fn analyze(context: &RulePackContext<'_, '_, '_>) -> Result<RulePackOutput, String> {
     Ok(RulePackOutput::findings(
-        crate::python_rules::analyze_with_functions(context.source_context, context.functions),
+        crate::python_rules::analyze_with_functions(
+            context.source_context,
+            context.functions,
+            context.selected_rule,
+        ),
     ))
 }

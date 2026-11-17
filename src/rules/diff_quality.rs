@@ -123,8 +123,7 @@ fn stale_contract_references(
                 if path == &owner.path || TEST_SOURCE_PATH.is_match(path) {
                     continue;
                 }
-                let raw_lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
-                let strings_masked = mask_generic_rule_strings(&raw_lines, path);
+                let strings_masked = mask_generic_rule_strings(source, path);
                 let masked = mask_comments(&strings_masked, path.ends_with(".py"));
                 let Some(index) = masked.iter().position(|line| reference.is_match(line)) else {
                     continue;
@@ -157,12 +156,7 @@ fn risky_changes_without_test(
         if has_related_changed_test(file, &tests) {
             continue;
         }
-        let raw_lines = file
-            .after
-            .split('\n')
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let masked = mask_generic_rule_strings(&raw_lines, &file.path);
+        let masked = mask_generic_rule_strings(&file.after, &file.path);
         for line in &file.added_lines {
             let Some(category) = risk_category(&masked[line.number - 1]) else {
                 continue;
@@ -467,12 +461,7 @@ fn caller_side_guard_duplication(
 ) -> Vec<Finding> {
     let mut groups = Vec::<(String, Vec<GuardedCall>)>::new();
     for file in change.production_files() {
-        let raw_lines = file
-            .after
-            .split('\n')
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let masked = mask_generic_rule_strings(&raw_lines, &file.path);
+        let masked = mask_generic_rule_strings(&file.after, &file.path);
         for line in &file.added_lines {
             let Some(matched) = GUARDED_CALL.captures(&masked[line.number - 1]) else {
                 continue;
@@ -565,12 +554,7 @@ fn thin_dependencies(context: &SourceAnalysisContext<'_>, change: &SemanticDiff)
                 continue;
             };
             let binding = binding.as_str();
-            let raw_lines = file
-                .after
-                .split('\n')
-                .map(str::to_owned)
-                .collect::<Vec<_>>();
-            let masked = mask_generic_rule_strings(&raw_lines, &file.path).join("\n");
+            let masked = mask_generic_rule_strings(&file.after, &file.path).join("\n");
             if identifier_occurrences(&masked, binding) == Some(2) {
                 uses.push((file.path.clone(), complete.start(), binding.to_owned()));
             }
@@ -727,8 +711,7 @@ fn risk_category(line: &str) -> Option<&'static str> {
 
 // code-buster-ignore complex-function: language-specific public declaration patterns are a bounded dispatch table.
 fn public_declarations(source: &str, path: &str) -> BTreeSet<String> {
-    let raw_lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
-    let masked = mask_generic_rule_strings(&raw_lines, path).join("\n");
+    let masked = mask_generic_rule_strings(source, path).join("\n");
     let mut patterns = Vec::<&Regex>::new();
     if JS_PATH.is_match(path) {
         patterns.push(&JS_PUBLIC_DECLARATION);

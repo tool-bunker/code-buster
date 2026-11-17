@@ -14,7 +14,10 @@ pub(super) struct RegexContracts {
 
 impl RegexContracts {
     pub(super) fn new(source: &str, masked: &str) -> Self {
-        if source.len() != masked.len() {
+        if source.len() != masked.len()
+            || !masked.contains("captures")
+            || !(masked.contains("unwrap") || masked.contains("expect"))
+        {
             return Self {
                 source_len: source.len(),
                 invariant_call_offsets: BTreeSet::new(),
@@ -1084,28 +1087,13 @@ impl Analyzer<'_> {
     }
 
     fn receiver_method_call(&self, start: usize, method: &str) -> Option<(usize, usize)> {
-        let tokens = &self.parsed.tokens;
-        let mut index = start;
-        while index < tokens.len() {
-            if tokens[index].is_symbol(b'.')
-                && index > start
-                && tokens
-                    .get(index + 1)
-                    .is_some_and(|token| token.is_ident(method))
-                && tokens
-                    .get(index + 2)
-                    .is_some_and(|token| token.is_symbol(b'('))
-            {
-                return Some((index, index + 2));
-            }
-            match tokens[index].symbol() {
-                Some(b'(' | b'[') => index = self.parsed.matching(index)? + 1,
-                Some(b'=' | b';' | b'{' | b'}' | b',') => return None,
-                _ if tokens[index].is_ident("else") => return None,
-                _ => index += 1,
-            }
-        }
-        None
+        let column = RECEIVER_METHODS
+            .iter()
+            .position(|candidate| *candidate == method)?;
+        // A receiver starts before its method dot, never at that dot.
+        let next = receiver_continuation(&self.parsed.tokens, &self.parsed.pairs, start)?;
+        let dot = self.parsed.receiver_calls[next][column];
+        (dot < self.parsed.tokens.len()).then_some((dot, dot + 2))
     }
 
     fn capture_contract_for_receiver(
@@ -1165,7 +1153,8 @@ impl Analyzer<'_> {
         if !self.is_expression_start(start) {
             return None;
         }
-        let (contract, capture_close) = self.capture_call(start, "captures")?;
+        let (receiver_end, capture_open) = self.receiver_method_call(start, "captures")?;
+        let capture_close = self.parsed.matching(capture_open)?;
         let captures_end = self.result_extraction_end(capture_close + 1)?;
         let tokens = &self.parsed.tokens;
         if !tokens
@@ -1183,10 +1172,9 @@ impl Analyzer<'_> {
         let argument_open = captures_end + 2;
         let argument_close = self.parsed.matching(argument_open)?;
         let access = self.capture_access("get", argument_open, argument_close)?;
-        if !contract.guarantees(&access) {
-            return None;
-        }
-        self.panic_call_offset(argument_close + 1)
+        let offset = self.panic_call_offset(argument_close + 1)?;
+        let contract = self.capture_contract_for_receiver(start, receiver_end)?;
+        contract.guarantees(&access).then_some(offset)
     }
 
     fn result_extraction_end(&self, dot: usize) -> Option<usize> {
@@ -1682,6 +1670,7 @@ struct ParsedSource<'a> {
     pairs: Vec<Option<usize>>,
     scopes: Vec<Scope>,
     brace_scope: Vec<Option<usize>>,
+    receiver_calls: Vec<[usize; RECEIVER_METHODS.len()]>,
 }
 
 impl<'a> ParsedSource<'a> {
@@ -1689,12 +1678,14 @@ impl<'a> ParsedSource<'a> {
         let tokens = tokenize(masked);
         let pairs = delimiter_pairs(&tokens);
         let (scopes, brace_scope) = lexical_scopes(source.len(), &tokens, &pairs);
+        let receiver_calls = receiver_method_calls(&tokens, &pairs);
         Self {
             source,
             tokens,
             pairs,
             scopes,
             brace_scope,
+            receiver_calls,
         }
     }
 
@@ -1709,6 +1700,43 @@ impl<'a> ParsedSource<'a> {
             .filter(|(_, scope)| scope.open <= offset && offset < scope.close)
             .max_by_key(|(_, scope)| scope.depth)
             .map_or(0, |(index, _)| index)
+    }
+}
+
+const RECEIVER_METHODS: [&str; 3] = ["captures", "captures_iter", "iter"];
+
+fn receiver_method_calls(
+    tokens: &[Token],
+    pairs: &[Option<usize>],
+) -> Vec<[usize; RECEIVER_METHODS.len()]> {
+    let missing = [tokens.len(); RECEIVER_METHODS.len()];
+    let mut calls = vec![missing; tokens.len() + 1];
+    for index in (0..tokens.len()).rev() {
+        if let Some(next) = receiver_continuation(tokens, pairs, index) {
+            calls[index] = calls[next];
+        }
+        if tokens[index].is_symbol(b'.')
+            && tokens
+                .get(index + 2)
+                .is_some_and(|token| token.is_symbol(b'('))
+            && let Some(method) = tokens.get(index + 1).and_then(Token::identifier)
+            && let Some(column) = RECEIVER_METHODS
+                .iter()
+                .position(|candidate| *candidate == method)
+        {
+            calls[index][column] = index;
+        }
+    }
+    calls
+}
+
+fn receiver_continuation(tokens: &[Token], pairs: &[Option<usize>], index: usize) -> Option<usize> {
+    let token = tokens.get(index)?;
+    match token.symbol() {
+        Some(b'(' | b'[') => pairs.get(index).copied().flatten().map(|close| close + 1),
+        Some(b'=' | b';' | b'{' | b'}' | b',') => None,
+        _ if token.is_ident("else") => None,
+        _ => Some(index + 1),
     }
 }
 
@@ -1811,6 +1839,57 @@ fn lexical_scopes(
 #[cfg(test)]
 mod tests {
     use super::RegexContracts;
+
+    #[test]
+    fn preserves_spaced_receivers_without_borrowing_argument_captures() {
+        let source = r###"
+fn scan(input: &str) {
+    let pattern = Regex::new(r"^(?P<field>x)(y)?$").unwrap();
+    if let Some(known) = (&pattern)
+        . /* comment between tokens */ captures(input)
+    {
+        known.get(0).unwrap();
+        known.name("field").expect("required group");
+        known.get(2).unwrap();
+    }
+    if let Some(unknown) = custom(pattern.captures(input)) {
+        unknown.get(0).unwrap();
+    }
+}
+"###;
+        let masked = mask(source);
+        let contracts = RegexContracts::new(source, &masked);
+        assert_invariant(&contracts, source, &masked, "known.get(0).unwrap");
+        assert_invariant(&contracts, source, &masked, "known.name(\"field\").expect");
+        assert_not_invariant(&contracts, source, &masked, "known.get(2).unwrap");
+        assert_not_invariant(&contracts, source, &masked, "unknown.get(0).unwrap");
+    }
+
+    #[test]
+    fn keeps_capture_searches_inside_their_expression_boundaries() {
+        let source = r###"
+fn scan(input: &str, candidate: Option<Record>) {
+    let pattern = Regex::new(r"^(x)$").unwrap();
+    if let Some(unknown) = candidate {
+        unknown.get(0).unwrap();
+    }
+    pattern.captures(input).unwrap().get(1).unwrap();
+    if let Some(known) = pattern.captures(input) {
+        known.get(1).unwrap();
+    }
+}
+"###;
+        let masked = mask(source);
+        let contracts = RegexContracts::new(source, &masked);
+        assert_not_invariant(&contracts, source, &masked, "unknown.get(0).unwrap");
+        assert_invariant(
+            &contracts,
+            source,
+            &masked,
+            "pattern.captures(input).unwrap().get(1).unwrap",
+        );
+        assert_invariant(&contracts, source, &masked, "known.get(1).unwrap");
+    }
 
     #[test]
     fn proves_group_zero_from_direct_flat_maps_over_proven_regex_slices() {

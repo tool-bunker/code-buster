@@ -2,13 +2,14 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use crate::generic_rules::{mask_generic_rule_strings, mask_rust_test_regions};
 
 pub struct SourceAnalysisContext<'a> {
     raw_sources: &'a BTreeMap<String, String>,
     sources: BTreeMap<String, String>,
-    masked_source_lines: BTreeMap<String, Vec<String>>,
+    masked_source_lines: BTreeMap<String, OnceLock<Vec<String>>>,
     base_sources: BTreeMap<String, String>,
     changed_paths: &'a BTreeSet<String>,
     auxiliary_files: &'a BTreeMap<String, String>,
@@ -57,11 +58,8 @@ impl<'a> SourceAnalysisContext<'a> {
             .map(|(path, source)| (path.clone(), mask_test_regions(path, source).into_owned()))
             .collect::<BTreeMap<_, _>>();
         let masked_source_lines = sources
-            .iter()
-            .map(|(path, source)| {
-                let lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
-                (path.clone(), mask_generic_rule_strings(&lines, path))
-            })
+            .keys()
+            .map(|path| (path.clone(), OnceLock::new()))
             .collect();
         Self {
             raw_sources,
@@ -83,10 +81,10 @@ impl<'a> SourceAnalysisContext<'a> {
     }
 
     pub fn masked_lines(&self, path: &str) -> &[String] {
-        self.masked_source_lines
-            .get(path)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        let Some(masked) = self.masked_source_lines.get(path) else {
+            return &[];
+        };
+        masked.get_or_init(|| mask_generic_rule_strings(&self.sources[path], path))
     }
 
     pub fn base_sources(&self) -> &BTreeMap<String, String> {
@@ -110,28 +108,27 @@ pub(crate) fn mask_test_regions<'a>(path: &str, source: &'a str) -> Cow<'a, str>
     if path.ends_with(".rs") {
         return Cow::Owned(mask_rust_test_regions(path, source));
     }
-    if !path.ends_with(".py") {
+    if !path.ends_with(".py") || !source.contains("_TEST") {
         return Cow::Borrowed(source);
     }
 
-    let lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
-    let lexical_lines = mask_generic_rule_strings(&lines, path);
-    let mut masked = Vec::with_capacity(lines.len());
+    let lexical_lines = mask_generic_rule_strings(source, path);
+    let mut masked = Vec::with_capacity(lexical_lines.len());
     let mut delimiter_depth = 0_i32;
     let mut masking = false;
 
-    for (line, lexical) in lines.into_iter().zip(lexical_lines) {
+    for (line, lexical) in source.split('\n').zip(lexical_lines) {
         if !masking {
             masking = is_python_embedded_test_assignment(&lexical);
         }
         if !masking {
-            masked.push(line);
+            masked.push(Cow::Borrowed(line));
             continue;
         }
 
         let (opens, closes) = python_delimiter_counts(&lexical);
         delimiter_depth += opens - closes;
-        masked.push(" ".repeat(line.chars().count()));
+        masked.push(Cow::Owned(" ".repeat(line.chars().count())));
         if delimiter_depth <= 0 && !lexical.trim_end().ends_with('\\') {
             delimiter_depth = 0;
             masking = false;
@@ -196,6 +193,10 @@ fn after() {}\n";
         assert!(analyzed.contains("fn after() {}"));
         assert!(!analyzed.contains("TODO: fixture"));
         assert_eq!(analyzed.lines().count(), source.lines().count());
+        let masked = context.masked_lines("src/lib.rs").join("\n");
+        assert!(masked.contains("fn production() {}"));
+        assert!(masked.contains("fn after() {}"));
+        assert!(!masked.contains("fn fixture()"));
     }
 
     #[test]
@@ -225,5 +226,89 @@ with delimiters [ignored]''',
         assert!(!analyzed.contains("1569445289"));
         assert!(!analyzed.contains("1701156004"));
         assert_eq!(analyzed.lines().count(), source.lines().count());
+    }
+
+    #[test]
+    fn masked_lines_keep_distinct_context_sources_for_the_same_path() {
+        let first_sources =
+            BTreeMap::from([("src/main.ts".to_owned(), "first_call();\n".to_owned())]);
+        let second_sources =
+            BTreeMap::from([("src/main.ts".to_owned(), "second_call();\n".to_owned())]);
+        let first = SourceAnalysisContext::unchanged(&first_sources);
+        let second = SourceAnalysisContext::unchanged(&second_sources);
+
+        assert_eq!(first.masked_lines("src/main.ts"), ["first_call();", ""]);
+        assert_eq!(second.masked_lines("src/main.ts"), ["second_call();", ""]);
+        assert_eq!(first.masked_lines("src/main.ts"), ["first_call();", ""]);
+    }
+
+    #[test]
+    fn preserves_cooked_multiline_escape_widths_crlf_and_final_empty_line() {
+        let body = "é\\\"still";
+        let source = format!("text = \"\"\"{body}\r\n中 end\"\"\"\r\nafter = 12345678\r\n");
+        let sources = BTreeMap::from([
+            ("source.py".to_owned(), source.clone()),
+            ("source.dart".to_owned(), source),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let expected = vec![
+            format!("text = {}", " ".repeat(3 + body.len() + 1)),
+            format!("{}\r", " ".repeat("中 end\"\"\"".len())),
+            "after = 12345678\r".to_owned(),
+            String::new(),
+        ];
+        assert_eq!(context.masked_lines("source.py"), expected);
+        assert_eq!(context.masked_lines("source.dart"), expected);
+    }
+
+    #[test]
+    fn concurrent_mask_requests_keep_file_sources_and_multiline_state_separate() {
+        let sources = BTreeMap::from([
+            (
+                "first.py".to_owned(),
+                "first_call()\ntext = '''hidden\nstill hidden'''\nafter_first()\n".to_owned(),
+            ),
+            (
+                "second.py".to_owned(),
+                "second_call()\ntext = \"\"\"other hidden\nalso hidden\"\"\"\nafter_second()\n"
+                    .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let expected = [
+            (
+                "first.py",
+                vec![
+                    "first_call()".to_owned(),
+                    format!("text = {}", " ".repeat(9)),
+                    " ".repeat(15),
+                    "after_first()".to_owned(),
+                    String::new(),
+                ],
+            ),
+            (
+                "second.py",
+                vec![
+                    "second_call()".to_owned(),
+                    format!("text = {}", " ".repeat(15)),
+                    " ".repeat(14),
+                    "after_second()".to_owned(),
+                    String::new(),
+                ],
+            ),
+        ];
+        let barrier = std::sync::Barrier::new(8);
+
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    barrier.wait();
+                    for (path, lines) in &expected {
+                        assert_eq!(context.masked_lines(path), lines);
+                    }
+                    assert!(context.masked_lines("missing.py").is_empty());
+                });
+            }
+        });
     }
 }

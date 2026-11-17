@@ -368,6 +368,139 @@ fn summary_reuses_and_invalidates_the_persistent_analysis_cache() {
 }
 
 #[test]
+fn selected_source_rules_do_not_populate_or_report_graph_cache_hits() {
+    let root = TempDirectory::new("cb-selected-source-cache-root");
+    let cache = TempDirectory::new("cb-selected-source-cache-directory");
+    root.write(".editorconfig", b"root = true\n[*]\nindent_style = space\n");
+    root.write(
+        "src/a.js",
+        b"import './b.js';\nfunction ready() {\n\treturn true;\n}\n",
+    );
+    root.write("src/b.js", b"import './a.js';\n");
+    let cache_path = cache.path.to_str().expect("cache path must be UTF-8");
+    let run = |only: Option<&str>| {
+        let mut arguments = vec![
+            "--format",
+            "json",
+            "--verbose",
+            "--all-findings",
+            "--cache-dir",
+            cache_path,
+        ];
+        if let Some(rule) = only {
+            arguments.extend(["--only", rule]);
+        }
+        let output = run_summary(&root.path, &arguments);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stderr.is_empty());
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .expect("summary must emit JSON")
+    };
+
+    let source = run(Some("tab-indent"));
+    assert_eq!(
+        source["manifest"]["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": false})
+    );
+    assert_eq!(source["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(source["findings"][0]["code"], "tab-indent");
+    assert_eq!(source["findings"][0]["path"], "src/a.js");
+    assert_eq!(source["findings"][0]["line"], 3);
+    let source_cached = run(Some("tab-indent"));
+    assert_eq!(source_cached["findings"], source["findings"]);
+    assert_eq!(
+        source_cached["manifest"]["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": true})
+    );
+
+    let cycle = run(Some("cycle"));
+    assert_eq!(
+        cycle["manifest"]["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": false})
+    );
+    assert_eq!(cycle["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(cycle["findings"][0]["code"], "cycle");
+    assert_eq!(cycle["findings"][0]["path"], "src/a.js");
+    let cycle_cached = run(Some("cycle"));
+    assert_eq!(cycle_cached["findings"], cycle["findings"]);
+    assert_eq!(
+        cycle_cached["manifest"]["cache"],
+        serde_json::json!({"graphHit": true, "findingsHit": true})
+    );
+
+    let full = run(None);
+    assert_eq!(
+        full["manifest"]["cache"],
+        serde_json::json!({"graphHit": true, "findingsHit": false})
+    );
+    assert_eq!(
+        full["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|finding| finding["code"] == "cycle")
+            .unwrap(),
+        &cycle["findings"][0]
+    );
+    let source_after_graph = run(Some("tab-indent"));
+    assert_eq!(source_after_graph["findings"], source["findings"]);
+    assert_eq!(
+        source_after_graph["manifest"]["cache"],
+        serde_json::json!({"graphHit": false, "findingsHit": true})
+    );
+}
+
+#[test]
+fn selected_sibling_and_custom_rules_keep_conservative_graph_caching() {
+    let root = TempDirectory::new("cb-selected-conservative-cache-root");
+    root.write(
+        "code-buster.toml",
+        br#"languages = ["javascript"]
+
+[rules]
+patterns = ['no-debug|warn|debugCall\(|debug call committed|Remove it.|allowed|remove call|reliability']
+"#,
+    );
+    root.write("src/main.js", b"debugCall(value);\n");
+    root.write("package.json", br#"{"bin":"bin/missing.js"}"#);
+
+    for rule in ["manifest-local-path-missing", "no-debug"] {
+        let cache = TempDirectory::new("cb-selected-conservative-cache-directory");
+        let arguments = [
+            "--format",
+            "json",
+            "--verbose",
+            "--all-findings",
+            "--cache-dir",
+            cache.path.to_str().expect("cache path must be UTF-8"),
+            "--only",
+            rule,
+        ];
+        let run = || {
+            let output = run_summary(&root.path, &arguments);
+            assert_eq!(output.status.code(), Some(0));
+            assert!(output.stderr.is_empty());
+            serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                .expect("summary must emit JSON")
+        };
+
+        let first = run();
+        assert_eq!(first["findings"].as_array().unwrap().len(), 1, "{rule}");
+        assert_eq!(first["findings"][0]["code"], rule);
+        assert_eq!(
+            first["manifest"]["cache"],
+            serde_json::json!({"graphHit": false, "findingsHit": false})
+        );
+        let cached = run();
+        assert_eq!(cached["findings"], first["findings"]);
+        assert_eq!(
+            cached["manifest"]["cache"],
+            serde_json::json!({"graphHit": true, "findingsHit": true})
+        );
+    }
+}
+
+#[test]
 fn summary_cache_tracks_auxiliary_and_style_inputs() {
     let root = TempDirectory::new("cbr-summary-cache-inputs-root");
     let cache = TempDirectory::new("cbr-summary-cache-inputs-directory");
@@ -457,7 +590,7 @@ fn summary_cache_tracks_sourcehut_format_tasks() {
     assert!(checked["findings"].as_array().unwrap().is_empty());
     assert_eq!(
         checked["manifest"]["cache"],
-        serde_json::json!({"graphHit": true, "findingsHit": false})
+        serde_json::json!({"graphHit": false, "findingsHit": false})
     );
     assert_eq!(run()["manifest"]["cache"]["findingsHit"], true);
 

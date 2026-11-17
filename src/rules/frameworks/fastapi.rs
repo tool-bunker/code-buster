@@ -26,10 +26,18 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
 struct PySource<'a> {
     path: &'a str,
     code: &'a str,
+    lexical: String,
     functions: Vec<Function<'a>>,
 }
 
 impl PySource<'_> {
+    fn is_code(&self, offset: usize) -> bool {
+        self.lexical
+            .as_bytes()
+            .get(offset)
+            .is_some_and(|byte| !byte.is_ascii_whitespace())
+    }
+
     fn line_at(&self, offset: usize) -> usize {
         self.code.as_bytes()[..offset]
             .iter()
@@ -43,6 +51,52 @@ impl PySource<'_> {
         let end = ceil_char_boundary(self.code, (offset + 180).min(self.code.len()));
         &self.code[start..end]
     }
+}
+
+// Preserve byte offsets for code anchors while retaining the original source
+// separately for route paths and security-relevant string literals.
+fn python_code_mask(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut masked = bytes.to_vec();
+    let mut index = 0;
+    while index < bytes.len() {
+        let start = index;
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = python_string_end(bytes, index),
+            _ => {
+                index += 1;
+                continue;
+            }
+        }
+        for line in masked[start..index].split_mut(|byte| *byte == b'\n') {
+            line.fill(b' ');
+        }
+    }
+    String::from_utf8(masked).expect("lexical masking preserves UTF-8")
+}
+
+fn python_string_end(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    let width = if bytes[start..].starts_with(&[quote; 3]) {
+        3
+    } else {
+        1
+    };
+    let mut index = start + width;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = (index + 2).min(bytes.len()),
+            _ if bytes[index..].starts_with(&[quote; 3][..width]) => return index + width,
+            b'\n' if width == 1 => return index,
+            _ => index += 1,
+        }
+    }
+    index
 }
 
 struct Function<'a> {
@@ -92,6 +146,8 @@ enum AuthenticationCandidateKind<'a> {
     },
     InsecureJwtDecode {
         call: &'a str,
+        lexical_call: &'a str,
+        safe_kwargs: bool,
     },
 }
 
@@ -148,6 +204,7 @@ impl<'a> Project<'a> {
                 PySource {
                     path,
                     code,
+                    lexical: python_code_mask(code),
                     functions,
                 }
             })
@@ -410,13 +467,20 @@ fn collect_jwt_candidates<'a>(
     collect: &mut impl FnMut(AuthenticationCandidate<'a>),
 ) {
     for matched in JWT_DECODE.find_iter(source.code) {
+        if !source.is_code(matched.start()) {
+            continue;
+        }
         let Some(call) = python_call_expression(source.code, matched.start()) else {
             continue;
         };
         collect(AuthenticationCandidate {
             path: source.path,
             line: source.line_at(matched.start()),
-            kind: AuthenticationCandidateKind::InsecureJwtDecode { call },
+            kind: AuthenticationCandidateKind::InsecureJwtDecode {
+                call,
+                lexical_call: &source.lexical[matched.start()..matched.start() + call.len()],
+                safe_kwargs: jwt_has_local_kwargs(source, matched.start(), call),
+            },
         });
     }
 }
@@ -479,6 +543,231 @@ fn python_call_expression(source: &str, start: usize) -> Option<&str> {
     None
 }
 
+fn call_arguments(call: &str) -> &str {
+    call.find('(')
+        .and_then(|open| call.get(open + 1..call.len().saturating_sub(1)))
+        .unwrap_or("")
+}
+
+fn python_arguments(mut source: &str) -> impl Iterator<Item = &str> {
+    std::iter::from_fn(move || {
+        if source.trim().is_empty() {
+            return None;
+        }
+        let mut state = PythonCallState::default();
+        let mut depth = 0_usize;
+        for (index, character) in source.char_indices() {
+            if state.skips_structure(character) {
+                continue;
+            }
+            match character {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    let argument = source[..index].trim();
+                    source = &source[index + 1..];
+                    return Some(argument);
+                }
+                _ => {}
+            }
+        }
+        let argument = source.trim();
+        source = "";
+        Some(argument)
+    })
+}
+
+// Only fresh local mappings qualify. Every subsequent reference invalidates the
+// proof except a simple issuer assignment, which cannot change signature policy.
+fn jwt_has_local_kwargs(source: &PySource<'_>, offset: usize, call: &str) -> bool {
+    let mut expansions =
+        python_arguments(call_arguments(call)).filter_map(|argument| argument.strip_prefix("**"));
+    let Some(name) = expansions.next().map(str::trim) else {
+        return false;
+    };
+    if expansions.next().is_some() || !PYTHON_IDENTIFIER.is_match(name) {
+        return false;
+    }
+    let prefix = &source.code[..offset];
+    let Some(assignment) = LOCAL_JWT_KWARGS
+        .captures_iter(prefix)
+        .filter(|captures| captures.get(2).is_some_and(|value| value.as_str() == name))
+        .last()
+    else {
+        return false;
+    };
+    let (Some(statement), Some(indent), Some(initializer)) =
+        (assignment.get(0), assignment.get(1), assignment.get(3))
+    else {
+        return false;
+    };
+    if indent.as_str().is_empty()
+        || !source.is_code(initializer.start())
+        || IDENTIFIER_TOKEN
+            .find_iter(&source.lexical[..statement.start()])
+            .any(|token| token.as_str() == name)
+        || !jwt_call_accepts_local_kwargs(call, name)
+    {
+        return false;
+    }
+    let call_line = prefix.rsplit_once('\n').map_or(prefix, |(_, line)| line);
+    if leading_indent(call_line) != indent.as_str().len() {
+        return false;
+    }
+    let Some(expression) = python_mapping_expression(prefix, initializer.start()) else {
+        return false;
+    };
+    if !jwt_kwargs_mapping_is_safe(expression)
+        || (expression.starts_with("dict")
+            && DICT_SHADOW.is_match(&source.lexical[..initializer.start()]))
+    {
+        return false;
+    }
+    let end = initializer.start() + expression.len();
+    jwt_kwargs_remain_unmodified(source, end, offset, name, indent.as_str().len())
+}
+
+fn jwt_call_accepts_local_kwargs(call: &str, name: &str) -> bool {
+    IDENTIFIER_TOKEN
+        .find_iter(call)
+        .filter(|token| token.as_str() == name)
+        .count()
+        == 1
+        && python_arguments(call_arguments(call)).all(|argument| {
+            argument.split_once('=').is_none_or(|(key, value)| {
+                jwt_auxiliary_parameter_is_safe(key.trim(), value.trim())
+            })
+        })
+}
+
+fn jwt_auxiliary_parameter_is_safe(name: &str, value: &str) -> bool {
+    match name {
+        "audience" | "issuer" | "leeway" => true,
+        "options" => jwt_literal_options_are_safe(value),
+        _ => false,
+    }
+}
+
+fn jwt_kwargs_remain_unmodified(
+    source: &PySource<'_>,
+    start: usize,
+    end: usize,
+    name: &str,
+    indent: usize,
+) -> bool {
+    let remainder = &source.lexical[start..end];
+    // Do not accept another statement or an expression after the initializer.
+    if remainder
+        .lines()
+        .next()
+        .is_some_and(|line| !line.trim().is_empty())
+    {
+        return false;
+    }
+    for (line, raw) in remainder
+        .lines()
+        .zip(source.code[start..end].lines())
+        .skip(1)
+    {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if leading_indent(line) < indent {
+            return false;
+        }
+        if !IDENTIFIER_TOKEN
+            .find_iter(line)
+            .any(|token| token.as_str() == name)
+        {
+            continue;
+        }
+        let Some(update) = LOCAL_JWT_ISSUER.captures_iter(raw).next() else {
+            return false;
+        };
+        if update.get(1).is_none_or(|value| value.as_str() != name)
+            || update.get(2).is_none_or(|value| value.as_str() == name)
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn python_mapping_expression(source: &str, start: usize) -> Option<&str> {
+    if source[start..].starts_with("dict") {
+        return python_call_expression(source, start);
+    }
+    let mut state = PythonCallState::default();
+    let mut depth = 0_usize;
+    for (index, character) in source[start..].char_indices() {
+        if state.skips_structure(character) {
+            continue;
+        }
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(&source[start..start + index + 1]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn jwt_kwargs_mapping_is_safe(expression: &str) -> bool {
+    let constructor = expression.starts_with("dict");
+    let fields = if constructor {
+        call_arguments(expression)
+    } else {
+        &expression[1..expression.len() - 1]
+    };
+    let mut algorithms = false;
+    for field in python_arguments(fields) {
+        let Some((name, value)) = jwt_mapping_field(field, constructor) else {
+            return false;
+        };
+        match name {
+            "algorithms" => {
+                if algorithms || !LITERAL_JWT_ALGORITHMS.is_match(value) {
+                    return false;
+                }
+                algorithms = true;
+            }
+            name if jwt_auxiliary_parameter_is_safe(name, value) => {}
+            _ => return false,
+        }
+    }
+    algorithms
+}
+
+fn jwt_mapping_field(field: &str, constructor: bool) -> Option<(&str, &str)> {
+    let (name, value) = field.split_once(if constructor { '=' } else { ':' })?;
+    if !constructor && !OPTION_FIELD_KEY.is_match(name.trim()) {
+        return None;
+    }
+    Some((name.trim().trim_matches(['\'', '"']), value.trim()))
+}
+
+fn jwt_literal_options_are_safe(value: &str) -> bool {
+    let Some(fields) = value
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+    else {
+        return false;
+    };
+    python_arguments(fields).all(|field| {
+        let Some((key, value)) = field.split_once(':') else {
+            return false;
+        };
+        let key = key.trim();
+        OPTION_FIELD_KEY.is_match(key)
+            && (key.trim_matches(['\'', '"']) != "verify_signature" || value.trim() == "True")
+    })
+}
+
 fn violates_authentication_policy(candidate: &AuthenticationCandidate<'_>) -> bool {
     match &candidate.kind {
         AuthenticationCandidateKind::MissingDependency {
@@ -490,8 +779,17 @@ fn violates_authentication_policy(candidate: &AuthenticationCandidate<'_>) -> bo
         AuthenticationCandidateKind::PlaintextPassword { context } => {
             !PASSWORD_HASH.is_match(context)
         }
-        AuthenticationCandidateKind::InsecureJwtDecode { call } => {
-            !call.contains("algorithms=") || DISABLED_SIGNATURE.is_match(call)
+        AuthenticationCandidateKind::InsecureJwtDecode {
+            call,
+            lexical_call,
+            safe_kwargs,
+        } => {
+            !(python_arguments(call_arguments(lexical_call)).any(|argument| {
+                argument
+                    .split_once('=')
+                    .is_some_and(|(name, _)| name.trim() == "algorithms")
+            }) || *safe_kwargs)
+                || DISABLED_SIGNATURE.is_match(call)
         }
     }
 }
@@ -543,6 +841,9 @@ fn emit_authentication_finding(
 fn transport_findings(project: &Project<'_>, findings: &mut Vec<Finding>) {
     for source in &project.sources {
         for matched in PERMISSIVE_CORS.find_iter(source.code) {
+            if !source.is_code(matched.start()) {
+                continue;
+            }
             add(
                 findings,
                 "fastapi-permissive-cors",
@@ -1042,7 +1343,7 @@ macro_rules! regexes {
 }
 
 regexes! {
-    RETURN_ANNOTATION = r"->\s*(?:[A-Z][\w.\[\], ]+|list\[|dict\[)";
+    RETURN_ANNOTATION = r"->\s*(?:[A-Z][\w.\[\], ]+|list\[|dict(?:\[|\s*:))";
     OBJECT_RETURN = r"\breturn\s+(?:\{|dict\s*\(|JSONResponse\s*\()";
     STATUS_204 = r"status_code\s*=\s*(?:204|status\.HTTP_204_NO_CONTENT)";
     BODY_ARGUMENT = r"\bBody\s*\(";
@@ -1060,6 +1361,13 @@ regexes! {
     PASSWORD_HASH = r"(?i)\b(?:hash|bcrypt|argon|password_hasher)\b";
     JWT_DECODE = r"\b(?:jwt|jose\.jwt)\.decode\s*\(";
     DISABLED_SIGNATURE = r#"(?i)(?:verify_signature\s*=\s*false|["']verify_signature["']\s*:\s*false)"#;
+    PYTHON_IDENTIFIER = r"^[A-Za-z_]\w*$";
+    IDENTIFIER_TOKEN = r"\b[A-Za-z_]\w*\b";
+    LOCAL_JWT_KWARGS = r"(?m)^([ \t]*)([A-Za-z_]\w*)\s*(?::[^=\n]+)?=\s*(dict\s*\(|\{)";
+    LOCAL_JWT_ISSUER = r#"^\s*([A-Za-z_]\w*)\s*\[\s*["']issuer["']\s*\]\s*=\s*([A-Za-z_]\w*)\s*$"#;
+    DICT_SHADOW = r"(?m)(?:^\s*dict\s*(?:(?::[^=\n]+)?=|,|[+\-*/|&^%]=)|\bdict\s*(?::=|\s+in\b)|\b(?:def|class|import|as|for|lambda)\s+dict\b|[,(]\s*dict\s*(?:[:,)=]))";
+    OPTION_FIELD_KEY = r#"^["'][A-Za-z_]\w*["']$"#;
+    LITERAL_JWT_ALGORITHMS = r#"^\[\s*["'](?:HS|RS|ES|PS)(?:256|384|512)["'](?:\s*,\s*["'](?:HS|RS|ES|PS)(?:256|384|512)["'])*\s*,?\s*\]$"#;
     PERMISSIVE_CORS = r#"allow_origins\s*=\s*\[\s*["']\*["']"#;
     RATE_LIMIT = r"(?i)\b(?:Limiter|RateLimiter|slowapi|rate_limit|throttle)\b";
     SECURITY_HEADERS = r"\b(?:SecurityHeadersMiddleware|TrustedHostMiddleware|X-Content-Type-Options|Content-Security-Policy|Strict-Transport-Security)\b";
@@ -1084,12 +1392,289 @@ mod tests {
     use super::analyze;
     use crate::source_analysis_context::SourceAnalysisContext;
 
-    fn codes(source: &str) -> BTreeSet<String> {
+    fn findings(source: &str) -> Vec<crate::findings::Finding> {
         let sources = BTreeMap::from([("app/api.py".to_owned(), source.to_owned())]);
         analyze(&SourceAnalysisContext::unchanged(&sources))
+    }
+
+    fn codes(source: &str) -> BTreeSet<String> {
+        findings(source)
             .into_iter()
             .map(|finding| finding.code)
             .collect()
+    }
+
+    #[test]
+    fn cors_uses_code_anchors_without_erasing_literal_origins_or_route_paths() {
+        let source = r#"# Never use allow_origins=["*"] on a network listener. """
+"""Documentation (π): allow_origins=['*']
+"""
+example = r"allow_origins=['*']"
+app.add_middleware(CORSMiddleware, allow_origins=["https://trusted.test"])
+@app.get("/actual")
+def actual(): return {}
+app.add_middleware(CORSMiddleware,
+    allow_origins=[
+        "*",
+    ])
+app.add_middleware(CORSMiddleware, allow_origins=['*'])
+"#;
+        let findings = findings(source);
+        let cors = findings
+            .iter()
+            .filter(|finding| finding.code == "fastapi-permissive-cors")
+            .collect::<Vec<_>>();
+        assert_eq!(cors.len(), 2);
+        assert_eq!(
+            cors.iter().map(|finding| finding.line).collect::<Vec<_>>(),
+            [9, 12]
+        );
+        for finding in cors {
+            assert_eq!(finding.path, "app/api.py");
+            assert_eq!(finding.confidence, "high");
+            assert_eq!(finding.message, "CORS allows every origin");
+        }
+        let routes = findings
+            .iter()
+            .filter(|finding| finding.code == "fastapi-route-missing-response-model")
+            .collect::<Vec<_>>();
+        assert_eq!(routes.len(), 1);
+        assert_eq!(
+            routes[0].message,
+            "GET /actual returns an object without a response model"
+        );
+    }
+
+    #[test]
+    fn accepts_fresh_local_jwt_algorithm_kwargs_with_optional_issuer() {
+        for source in [
+            r#"def verify(token, key, audience, issuer):
+    try:
+        decode_kwargs: dict[str, Any] = dict(
+            algorithms=["RS256", "RS384", "RS512", "ES256", "ES384"],
+            audience=audience, options={"require": ["exp", "aud"]})
+        if issuer:
+            decode_kwargs["issuer"] = issuer
+        return jwt.decode(token, key, **decode_kwargs)
+    except Exception:
+        return None
+"#,
+            r#"def verify(token, key):
+    kwargs = {
+        "algorithms": ["RS256"],
+        "options": {"verify_signature": True, "require": ["exp", "aud"]},
+    }
+    return jwt.decode(token, key, **kwargs)
+"#,
+            "def verify(token, key):\n    return jwt.decode(\n        token, key, algorithms=[\"RS256\"],\n        options={\"require\": [\"exp\"]})\n",
+        ] {
+            assert!(
+                !codes(source).contains("fastapi-insecure-jwt-decode"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn jwt_keyword_comments_do_not_hide_policy_or_establish_fake_policy() {
+        let source = r#"import jwt
+safe = jwt.decode(token, key,
+    # pinned policy
+    algorithms=["RS256"])
+spaced = jwt.decode(token, key,
+    algorithms  # pinned keyword
+    = ["RS256"])
+missing = jwt.decode(token, key,
+    # algorithms=["RS256"]
+    audience="issuer/#algorithms=RS256")
+disabled = jwt.decode(token, key,
+    # pinned policy
+    algorithms=["RS256"], options={"verify_signature": False})
+"#;
+        let jwt = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "fastapi-insecure-jwt-decode")
+            .map(|finding| (finding.path, finding.line, finding.confidence))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            jwt,
+            vec![
+                ("app/api.py".to_owned(), 8, "high".to_owned()),
+                ("app/api.py".to_owned(), 11, "high".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn retains_unproven_mutated_shadowed_and_signature_disabled_jwt_kwargs() {
+        for (setup, between, arguments) in [
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "",
+                "token, key, **unknown",
+            ),
+            (
+                "kwargs = dict(audience=audience)",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=allowed)",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = {algorithms: ['RS256']}",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'], **supplied)",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'], options={**supplied})",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['none'])",
+                "",
+                "token, key, **kwargs",
+            ),
+            ("kwargs = dict(algorithms=[])", "", "token, key, **kwargs"),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    kwargs = supplied\n",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    kwargs['algorithms'] = ['none']\n",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    kwargs.update(supplied)\n",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    alias = kwargs\n",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    del kwargs['algorithms']\n",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    mutate(kwargs)\n",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "",
+                "mutate(kwargs), key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "",
+                "token, key, **kwargs, **supplied",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "",
+                "token, key, options=supplied, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'], options=supplied)",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'], options={'verify_signature': False})",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'], options={'verify_' 'signature': False})",
+                "",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    kwargs['options'] = {'verify_signature': False}\n",
+                "token, key, **kwargs",
+            ),
+            (
+                "kwargs = dict(algorithms=['RS256'])",
+                "    def inner(kwargs):\n        return jwt.decode(token, key, **kwargs)\n",
+                "token, key, **kwargs",
+            ),
+        ] {
+            let source = format!(
+                "def verify(token, key):\n    {setup}\n{between}    return jwt.decode({arguments})\n"
+            );
+            let findings = findings(&source);
+            assert!(
+                findings.iter().any(|finding| {
+                    finding.code == "fastapi-insecure-jwt-decode"
+                        && finding.path == "app/api.py"
+                        && finding.confidence == "high"
+                }),
+                "{source}"
+            );
+        }
+        for source in [
+            "def verify(dict, token, key):\n    kwargs = dict(algorithms=['RS256'])\n    return jwt.decode(token, key, **kwargs)\n",
+            "def verify(token, key):\n    dict = supplied\n    kwargs = dict(algorithms=['RS256'])\n    return jwt.decode(token, key, **kwargs)\n",
+            "def verify(token, key):\n    if (dict := supplied):\n        pass\n    kwargs = dict(algorithms=['RS256'])\n    return jwt.decode(token, key, **kwargs)\n",
+            "def verify(token, key):\n    if enabled:\n        kwargs = dict(algorithms=['RS256'])\n    else:\n        return jwt.decode(token, key, **kwargs)\n",
+            "def verify(token, key):\n    def mutate():\n        kwargs.clear()\n    kwargs = dict(algorithms=['RS256'])\n    return jwt.decode(mutate(), key, **kwargs)\n",
+            "def verify(token, key):\n    try:\n        return jwt.decode(token, key, algorithms=['RS256'])\n    except jwt.InvalidAudienceError:\n        claims = jwt.decode(token, options={'verify_signature': False})\n        logger.warning(claims)\n        raise InvalidCodeError()\n",
+        ] {
+            assert!(
+                codes(source).contains("fastapi-insecure-jwt-decode"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn jwt_examples_and_algorithm_strings_do_not_establish_executable_policy() {
+        let source = r#"# jwt.decode(token) """
+"""jwt.decode(token, options={"verify_signature": False})"""
+example = "jwt.decode(token)"
+claims = jwt.decode(token, key, note="algorithms=['RS256']")
+"#;
+        let findings = findings(source)
+            .into_iter()
+            .filter(|finding| finding.code == "fastapi-insecure-jwt-decode")
+            .collect::<Vec<_>>();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].line, 4);
+    }
+
+    #[test]
+    fn accepts_bare_dictionary_response_annotations_but_not_untyped_object_routes() {
+        for annotation in ["dict", "dict[str, Any]", "list[dict]", "UserOut"] {
+            let source = format!(
+                "@app.get('/typed')\ndef typed() -> {annotation}:\n    return {{'ok': True}}\n"
+            );
+            assert!(
+                !codes(&source).contains("fastapi-route-missing-response-model"),
+                "{annotation}"
+            );
+        }
+        let findings = findings("@app.get('/untyped')\ndef untyped():\n    return {'ok': True}\n");
+        let finding = findings
+            .iter()
+            .find(|finding| finding.code == "fastapi-route-missing-response-model")
+            .expect("untyped object response remains reportable");
+        assert_eq!(finding.line, 1);
     }
 
     #[test]

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.14.5
+
+### Changed
+
+- Speed up Python analysis by reusing scanner and declaration facts, avoiding repeated regex work, and analyzing files on bounded workers while preserving deterministic finding order.
+- Speed up Rust function, panic and regex-capture analysis with reusable file-local indexes and fewer repeated source scans, including code-line counting for verbose reports.
+- Reduce allocations and repeated source masking across duplication, clean-code, generic, Python and Dart checks while preserving finding locations, grouping and fingerprints.
+- Skip unnecessary dependency-graph, source-mask and custom-pattern work in focused scans without changing source coverage or report and cache formats.
+
+### Fixed
+
+- Reduce Python credential hotspots for symbolic environment-name references, standard password/OTP autocomplete tokens, and explicit no-key-required placeholders. Recognize explicit safe ruamel.yaml round-trip loaders without borrowing safety after receiver or constructor reassignment.
+- Keep commented and quoted CORS/JWT examples out of FastAPI security findings, recognize explicit JWT algorithm keywords across comments and fixed policies passed through proven fresh local keyword dictionaries, and accept bare dictionary response annotations. Preserve warnings for mutated, shadowed, dynamically configured, and signature-disabled decoders.
+- Distinguish Python prompt-override literals from documentation and injection-detector tables, while retaining neighboring scalar prompts and explicit multiline prompt/message constructions.
+- Keep nested Dart block-comment contents out of large-number advice through the matching outer closing delimiter. Preserve real numeric findings before and after comments, quoted delimiters, per-file state and other languages' comment semantics; invalidate cached findings for the corrected rule.
+
 ## 0.14.4
 
 ### Changed

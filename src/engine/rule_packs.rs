@@ -82,6 +82,7 @@ pub struct RulePackContext<'call, 'source, 'functions> {
     pub dart_index: Option<&'call DartSourceIndex<'source>>,
     pub yagni_index: Option<&'call YagniCallIndex<'functions>>,
     pub prior_findings: &'call [Finding],
+    pub selected_rule: Option<&'call str>,
     pub collect_timings: bool,
 }
 

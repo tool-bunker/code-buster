@@ -289,6 +289,86 @@ real repository and compare the slowest rule packs and shared analysis stages.
 The profiler bypasses analysis caches automatically. Verify exact finding
 parity unless behavior intentionally changed.
 
+Python file analysis uses Rayon's CPU-sized worker pool and merges results in
+source order. Keep mutable scan state local to each file and repository-wide
+matching outside the parallel phase. Use `RAYON_NUM_THREADS=1` as a control when
+separating reduced analysis work from parallel speedups. Shared masked views are
+initialized on demand per source context; do not introduce global source caches.
+
+Generic rules share file-local raw and string-stripped lines while retaining
+consumer-specific comment state and Rust test exclusions. Exact duplication
+borrows normalized windows and paths; hash matches still require exact text,
+language and scope equality. Preserve grouping caps and legacy fingerprint
+material when changing this index.
+Preserve Unicode whitespace and multiline comment state when adding normalization
+fast paths. Keep regex prefilters conservative and apply them to the consumer's
+processed lexical view.
+
+Rust extraction advances scope/line state only to each candidate's start, not its
+closing brace, so nested declarations remain visible. Keep enclosing-contract
+caches file-local and discard them when the scope closes.
+
+Rust source metrics may compact ASCII padding in a trailing blank suffix, but
+must preserve every newline and the final non-newline line: unfinished literals
+can count those lines as code. Never pass this shortened counter view back into
+detector analysis or fingerprinting.
+
+Regex-contract receiver lookups reuse the existing token/delimiter stream, not
+semantic binding results. Preserve expression barriers, unmatched-delimiter
+abstention and shadowing; file prefilters must be necessary conditions on masked
+source, not raw text.
+
+Rust simple-rule patterns search a full mask but remain line-local: exclude LF,
+not Unicode whitespace, from whitespace spans. Emit only the first reportable
+occurrence per rule/source line; a suppressed or proven-invariant call must not
+hide later calls on that line. Reuse `RustFile`'s line starts for offset mapping.
+
+Duplicate-window prehashes belong to one index's fixed randomized hash builder.
+Hash equality is never sufficient: retain exact normalized-line, length, language
+and scope comparisons. Do not use the prehash for published fingerprints or reuse
+such keys across indexes.
+
+Clean-code prefilters must be necessary conditions on the existing analysis view.
+Share placeholder matching with exact-name qualification, retaining ASCII-only
+case folding and Unicode decimal suffixes. Keep brace, comment and main-guard
+tracking active on non-candidate lines. Do not narrow the declaration regex:
+changing its non-overlapping match consumption can change later declarations.
+
+Pass complete source text to shared string masking; do not allocate owned input
+lines just to mask or rejoin them. Retain each consumer's lexical view and final
+empty split line. Quoted-span batching must stop at delimiter/escape candidates
+without splitting UTF-8, and preserve cooked/raw string state and CRLF behavior.
+Python fixture guards must remain necessary conditions on the original source;
+keep unrelated lines borrowed and preserve the existing fixture-padding contract.
+
+Generic command scanning can borrow a line only when no comment-marker candidate
+exists and its block-comment state is inactive. Preprocessor candidate guards
+must still mask ordinary lines inside disabled branches. Collection guards must
+use the existing processed view and keep the comma threshold per matched
+collection, not per source line; separate small literals do not form one list.
+
+Multiline numeric masks may borrow only under their existing unchanged-line state
+guard. Keep owning shared-mask callers explicit with `into_owned`; numeric
+consumers can borrow directly. Unquoted batching must stop at ASCII quote/slash
+candidates and retain raw-prefix offsets, UTF-8 boundaries and all existing
+multiline transitions.
+
+Dart numeric analysis enables comment masking on the existing multiline lexer,
+using its nested block depth. Other consumers keep their default view, which
+preserves comments. Do not pass an already-masked Dart numeric view through the
+legacy boolean comment stripper; it cannot represent nested comments.
+
+Python capture-location storage is file-local; read group offsets only after a
+successful match. Import prefilters must not skip scope or binding updates on
+other lines. Credential prefilters must be necessary conditions on the existing
+code view, including both scalar assignments and dictionary entries.
+
+Python security candidate checks must use the view read by each matcher. SQL may
+reuse code/stripped byte-length equality only while both are untrimmed and
+`strip_quoted_strings` removes nonempty matches with the same `QUOTED_STRING` regex.
+Keep complete archive matching (including spaced calls), receiver provenance and
+safe filters; retain the string-preserving code view for f-string logging.
+
 ## Preparing a release
 
 Add user-visible changes under `## Unreleased`, then prepare the Cargo package

@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "JWT decoding without an explicit algorithm policy can accept unintended token configurations.",
   "suggestion": "Pass a fixed algorithms allowlist and keep signature verification enabled.",
-  "version": 2,
+  "version": 4,
   "semanticMaturity": "project",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -30,7 +30,8 @@
   ],
   "languageVersions": [],
   "limitations": [
-    "Balanced single-line and multiline jwt.decode calls are inspected for an algorithms argument and explicitly disabled signature verification.",
-    "Framework wrappers, aliased decoders, generated routes, runtime registrations, and external infrastructure cannot be resolved."
+    "Executable single-line and multiline jwt.decode calls are inspected for a direct algorithms argument and explicitly disabled signature verification. Direct keyword names use the executable lexical view: comments and quoted examples do not establish calls or algorithm policy, and comments between keyword tokens do not hide an explicit algorithms argument.",
+    "Fresh local dict(...) or dictionary-literal kwargs can establish a fixed nonempty HS/RS/ES/PS algorithm allowlist. Rebinding, aliases, mutation, scope changes, additional expansions, dynamic options, and observed dict shadowing invalidate this proof; simple optional issuer assignment is supported.",
+    "Arbitrary kwargs, interprocedural data flow, aliased decoders, and diagnostic-only uses of signature-disabled decoding are not resolved."
   ]
 }

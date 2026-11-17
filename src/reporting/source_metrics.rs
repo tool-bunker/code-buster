@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -41,6 +42,11 @@ fn measure_file(file: &SourceFile, source: &str, config: &Config) -> Result<usiz
     }
     let language = counting_language(file)
         .ok_or_else(|| format!("cannot measure source language: {}", file.language))?;
+    let source = if language == LanguageType::Rust {
+        compact_rust_metric_suffix(source)
+    } else {
+        source
+    };
     let stats = language.parse_from_str(source.as_ref(), config);
     // Rust's embedded blobs are documentation examples, not production code.
     // String literals remain code; in Python that includes runtime docstrings.
@@ -58,6 +64,28 @@ fn code_lines_with_embedded(stats: &CodeStats) -> usize {
             .values()
             .map(code_lines_with_embedded)
             .sum::<usize>()
+}
+
+fn compact_rust_metric_suffix(mut source: Cow<'_, str>) -> Cow<'_, str> {
+    let end = source
+        .trim_end_matches([' ', '\t', '\n', '\r', '\u{b}', '\u{c}'])
+        .len();
+    let suffix = &source[end..];
+    let newlines = suffix.bytes().filter(|byte| *byte == b'\n').count();
+    let final_line = usize::from(!suffix.is_empty() && !source.ends_with('\n'));
+    if suffix.len() <= newlines + final_line {
+        return source;
+    }
+
+    // Tokei repeatedly scans blank test padding. Keep line topology even inside
+    // unfinished literals; trimming the suffix away could change code counts.
+    let buffer = source.to_mut();
+    buffer.truncate(end);
+    buffer.extend(std::iter::repeat_n('\n', newlines));
+    if final_line != 0 {
+        buffer.push(' ');
+    }
+    source
 }
 
 fn counting_language(file: &SourceFile) -> Option<LanguageType> {
@@ -152,6 +180,35 @@ mod tests {
         )]);
         assert_eq!(metrics["fileCodeLines"]["src/lib.rs"], 1);
         assert_eq!(metrics["codeLines"], 1);
+    }
+
+    #[test]
+    fn preserves_rust_trailing_lines_and_unfinished_literal_counts() {
+        let metrics = metrics_for(&[
+            ("src/complete.rs", "fn code() {}\r\n  \t\r\n \t\r\n"),
+            ("src/blank.rs", "  \t\r\n \t"),
+            (
+                "src/unfinished.rs",
+                "const TEXT: &str = \"open\n   \t \r\n \t",
+            ),
+            (
+                "src/unfinished_raw.rs",
+                "const TEXT: &str = r###\"open\n   \t \r\n \t\r\n",
+            ),
+            ("src/non_ascii.rs", "fn code() {}\n\u{a0}   \r\n"),
+        ]);
+
+        assert_eq!(
+            metrics["fileCodeLines"],
+            json!({
+                "src/complete.rs": 1,
+                "src/blank.rs": 0,
+                "src/unfinished.rs": 3,
+                "src/unfinished_raw.rs": 3,
+                "src/non_ascii.rs": 2,
+            })
+        );
+        assert_eq!(metrics["codeLines"], 9);
     }
 
     #[test]

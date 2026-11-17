@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Instructions that override trusted prompts can redirect an AI agent or disclose privileged context.",
   "suggestion": "Treat the content as untrusted data, delimit it from instructions, and enforce the trusted policy outside the prompt.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -26,6 +26,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Requires AI-framework context and an explicit override-style instruction."
+    "Requires AI-framework context and an explicit override-style instruction.",
+    "Python inspects quoted literals in direct scalar assignments or returns, explicit prompt/message construction statements, and role-tagged message mappings; standalone documentation and untargeted collections are not evidence of an active prompt.",
+    "Python does not resolve arbitrary collection flows, indirect prompt sinks, dynamically assembled instructions, or expressions inside interpolated strings. Other languages retain line-based literal matching."
   ]
 }

@@ -31,17 +31,23 @@ fn public_mutable_state(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
         .filter(|path| is_production_source(path))
     {
         let syntax = MutableStateSyntax::for_path(path);
-        let script_visibility = ScriptVisibility::from_lines(context.masked_lines(path), syntax);
+        let lines = context.masked_lines(path);
+        if !syntax.may_have_mutable_fields(lines) {
+            continue;
+        }
+        let script_visibility = ScriptVisibility::from_lines(lines, syntax);
         let mut scope = MutableStateScope::default();
         let mut java_cli_binding = false;
         let mut script_reactive_member = false;
         let mut comment_masker = SlashCommentMasker::default();
-        for (index, raw_line) in context.masked_lines(path).iter().enumerate() {
+        for (index, raw_line) in lines.iter().enumerate() {
             let line = comment_masker.code(raw_line);
-            scope.observe_class_declaration(&line, syntax, &script_visibility);
-            if let Some(name) = mutable_state_candidate(&line, syntax, &scope)
-                && !java_cli_binding
+            let class_declaration =
+                scope.observe_class_declaration(&line, syntax, &script_visibility);
+            if !java_cli_binding
                 && !script_reactive_member
+                && !scope.current_type_reported()
+                && let Some(name) = mutable_state_candidate(&line, syntax, &scope)
                 && !is_excluded_mutable_state(name)
                 && scope.mark_current_type_reported()
             {
@@ -50,7 +56,7 @@ fn public_mutable_state(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
             java_cli_binding = next_java_cli_binding_state(&line, java_cli_binding);
             script_reactive_member =
                 next_script_reactive_member_state(&line, script_reactive_member, syntax);
-            scope.advance(&line);
+            scope.advance(&line, class_declaration);
         }
     }
     findings
@@ -77,6 +83,15 @@ impl MutableStateSyntax {
             Self::Java
         } else {
             Self::ExplicitOnly
+        }
+    }
+
+    fn may_have_mutable_fields(self, lines: &[String]) -> bool {
+        match self {
+            Self::Dart | Self::Script => true,
+            Self::ExplicitOnly | Self::CSharp | Self::Java => {
+                lines.iter().any(|line| line.contains("public"))
+            }
         }
     }
 }
@@ -116,67 +131,79 @@ impl ScriptVisibility {
         }
         let mut visibility = Self::default();
         let mut comment_masker = SlashCommentMasker::default();
+        let mut freeze_scope = ScriptFreezeScope::default();
         for raw_line in lines {
             let line = comment_masker.code(raw_line);
-            let trimmed = line.trim_start();
-            visibility.module |= starts_keyword(trimmed, "import")
-                || starts_keyword(trimmed, "export")
-                || trimmed.contains("module.exports")
-                || trimmed.starts_with("exports.");
-            if let Some(names) = SCRIPT_NAMED_EXPORT
-                .captures(&line)
-                .and_then(|captures| captures.name("names"))
-            {
-                visibility.exported_types.extend(
-                    names
-                        .as_str()
-                        .split(',')
-                        .filter_map(|entry| entry.split_whitespace().next())
-                        .filter(|name| !name.is_empty())
-                        .map(str::to_owned),
-                );
-            }
-            if let Some(name) = SCRIPT_COMMONJS_EXPORT
-                .captures(&line)
-                .and_then(|captures| captures.name("name"))
-            {
-                visibility.exported_types.insert(name.as_str().to_owned());
-            }
+            visibility.observe_exports(&line);
+            freeze_scope.observe(&line, &mut visibility.frozen_types);
         }
-        visibility.frozen_types = frozen_script_types(lines);
         visibility
+    }
+
+    fn observe_exports(&mut self, line: &str) {
+        let trimmed = line.trim_start();
+        self.module |= starts_keyword(trimmed, "import")
+            || starts_keyword(trimmed, "export")
+            || trimmed.contains("module.exports")
+            || trimmed.starts_with("exports.");
+        if trimmed.starts_with("export")
+            && trimmed.contains('{')
+            && let Some(names) = SCRIPT_NAMED_EXPORT
+                .captures(line)
+                .and_then(|captures| captures.name("names"))
+        {
+            self.exported_types.extend(
+                names
+                    .as_str()
+                    .split(',')
+                    .filter_map(|entry| entry.split_whitespace().next())
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned),
+            );
+        }
+        if (trimmed.starts_with("module.exports") || trimmed.starts_with("exports."))
+            && let Some(name) = SCRIPT_COMMONJS_EXPORT
+                .captures(line)
+                .and_then(|captures| captures.name("name"))
+        {
+            self.exported_types.insert(name.as_str().to_owned());
+        }
     }
 }
 
-fn frozen_script_types(lines: &[String]) -> BTreeSet<String> {
-    let mut frozen = BTreeSet::new();
-    let mut scopes = Vec::<(String, isize)>::new();
-    let mut depth = 0;
-    let mut comment_masker = SlashCommentMasker::default();
-    for raw_line in lines {
-        let line = comment_masker.code(raw_line);
-        if let Some(declaration) = CLASS_DECLARATION.captures(&line)
+#[derive(Default)]
+struct ScriptFreezeScope {
+    types: Vec<(String, isize)>,
+    depth: isize,
+}
+
+impl ScriptFreezeScope {
+    fn observe(&mut self, line: &str, frozen_types: &mut BTreeSet<String>) {
+        if let Some(declaration) = class_declaration(line)
             && let Some(name) = declaration.name("name")
         {
-            scopes.push((
+            self.types.push((
                 name.as_str().to_owned(),
-                depth + count_byte(&line, b'{').max(1),
+                self.depth + count_byte(line, b'{').max(1),
             ));
         }
-        if OBJECT_FREEZE_THIS.is_match(&line)
-            && let Some((name, _)) = scopes.last()
+        if !self.types.is_empty()
+            && line.contains("Object")
+            && line.contains("freeze")
+            && OBJECT_FREEZE_THIS.is_match(line)
+            && let Some((name, _)) = self.types.last()
         {
-            frozen.insert(name.clone());
+            frozen_types.insert(name.clone());
         }
-        depth += count_byte(&line, b'{') - count_byte(&line, b'}');
-        while scopes
+        self.depth += count_byte(line, b'{') - count_byte(line, b'}');
+        while self
+            .types
             .last()
-            .is_some_and(|(_, scope_depth)| depth < *scope_depth)
+            .is_some_and(|(_, scope_depth)| self.depth < *scope_depth)
         {
-            scopes.pop();
+            self.types.pop();
         }
     }
-    frozen
 }
 
 impl MutableStateScope {
@@ -185,12 +212,12 @@ impl MutableStateScope {
         line: &str,
         syntax: MutableStateSyntax,
         script_visibility: &ScriptVisibility,
-    ) {
-        let Some(declaration) = CLASS_DECLARATION.captures(line) else {
-            return;
+    ) -> bool {
+        let Some(declaration) = class_declaration(line) else {
+            return false;
         };
         let Some(name) = declaration.name("name") else {
-            return;
+            return false;
         };
         let opening_braces = count_byte(line, b'{');
         let generic_header = matches!(syntax, MutableStateSyntax::Script)
@@ -226,12 +253,19 @@ impl MutableStateScope {
             },
             mutable_state_reported: false,
         });
+        true
     }
 
     fn is_direct_member(&self) -> bool {
         self.type_scopes.last().is_some_and(|scope| {
             !scope.awaiting_body && scope.depth == self.depth && self.parenthesis_depth == 0
         })
+    }
+
+    fn current_type_reported(&self) -> bool {
+        self.type_scopes
+            .last()
+            .is_some_and(|scope| scope.mutable_state_reported)
     }
 
     fn mark_current_type_reported(&mut self) -> bool {
@@ -278,9 +312,8 @@ impl MutableStateScope {
         ) || (self.is_direct_member() && self.externally_visible())
     }
 
-    fn advance(&mut self, line: &str) {
+    fn advance(&mut self, line: &str, class_declaration: bool) {
         let opening_braces = count_byte(line, b'{');
-        let class_declaration = CLASS_DECLARATION.is_match(line);
         let awaited_body_depth = self.type_scopes.last().and_then(|scope| {
             scope.awaiting_body.then(|| {
                 awaited_script_class_body_depth(
@@ -333,6 +366,16 @@ fn awaited_script_class_body_depth(
         }
     }
     None
+}
+
+fn class_declaration(line: &str) -> Option<regex::Captures<'_>> {
+    if !["class", "enum", "struct", "record"]
+        .iter()
+        .any(|keyword| line.contains(keyword))
+    {
+        return None;
+    }
+    CLASS_DECLARATION.captures(line)
 }
 
 #[derive(Default)]
@@ -397,16 +440,12 @@ fn mutable_state_candidate<'a>(
     syntax: MutableStateSyntax,
     scope: &MutableStateScope,
 ) -> Option<&'a str> {
-    if scope.suppresses_direct_member() {
+    if !scope.allows_explicit_member(syntax) || scope.suppresses_direct_member() {
         return None;
     }
-    if let Some(name) = explicit_mutable_field(line)
-        && scope.is_error_contract_field(name)
-    {
-        return None;
-    }
+    let line = line.trim_start();
     if let Some(name) = explicit_mutable_field(line) {
-        return scope.allows_explicit_member(syntax).then_some(name);
+        return (!scope.is_error_contract_field(name)).then_some(name);
     }
     if !scope.is_direct_member() {
         return None;
@@ -488,6 +527,9 @@ fn public_mutable_state_finding(path: &str, line: usize, name: &str) -> Finding 
 fn explicit_mutable_field(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
     let remainder = trimmed.strip_prefix("public")?.trim_start();
+    if !remainder.contains([';', '=']) {
+        return None;
+    }
     let qualifiers = remainder
         .strip_prefix("static")
         .map(str::trim_start)
@@ -507,6 +549,9 @@ fn explicit_mutable_field(line: &str) -> Option<&str> {
 
 fn dart_mutable_field(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
+    if !trimmed.contains([';', '=']) {
+        return None;
+    }
     if starts_keyword(trimmed, "final")
         || starts_keyword(trimmed, "const")
         || trimmed
@@ -524,6 +569,9 @@ fn dart_mutable_field(line: &str) -> Option<&str> {
 
 fn script_mutable_field(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
+    if !trimmed.contains([';', '=']) {
+        return None;
+    }
     if ["private", "protected", "readonly", "static", "declare"]
         .iter()
         .any(|keyword| starts_keyword(trimmed, keyword))
@@ -532,8 +580,8 @@ fn script_mutable_field(line: &str) -> Option<&str> {
         return None;
     }
     if trimmed.ends_with(',')
-        || SCRIPT_THIS_ALIAS.is_match(trimmed)
-        || SCRIPT_CALLABLE_FIELD.is_match(trimmed)
+        || (trimmed.contains("this") && SCRIPT_THIS_ALIAS.is_match(trimmed))
+        || (trimmed.contains("=>") && SCRIPT_CALLABLE_FIELD.is_match(trimmed))
     {
         return None;
     }
@@ -566,14 +614,19 @@ fn commented_out_code(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
         .filter(|(path, _)| is_production_source(path))
     {
         let lines = source.split('\n').collect::<Vec<_>>();
-        let facts = super::generated_code_risks::scan_lines(path, source);
         let supports_hash = matches!(extension(path).as_str(), ".mojo" | ".nim" | ".php" | ".py");
-        if let Some(candidate) = comment_candidates(&lines, supports_hash).find(|candidate| {
+        let mut candidates = comment_candidates(&lines, supports_hash)
+            .filter(|candidate| is_commented_code_candidate(&lines, candidate))
+            .peekable();
+        if candidates.peek().is_none() {
+            continue;
+        }
+        let facts = super::generated_code_risks::scan_lines(path, source);
+        if let Some(candidate) = candidates.find(|candidate| {
             let fact = &facts[candidate.line_index];
             !(fact.documentation
                 || path.ends_with(".rs") && FOREIGN_RUST_DECLARATION.is_match(candidate.body))
                 && fact.comment.trim() == candidate.body
-                && is_commented_code_candidate(&lines, candidate)
         }) {
             findings.push(commented_code_finding(path, candidate.line_index + 1));
         }
@@ -594,6 +647,9 @@ fn comment_candidates<'a>(
         .iter()
         .enumerate()
         .filter_map(move |(line_index, line)| {
+            if !(line.contains("//") || supports_hash && line.contains('#')) {
+                return None;
+            }
             let comment = if supports_hash {
                 HASH_OR_SLASH_COMMENT.captures(line)
             } else {
@@ -675,10 +731,6 @@ fn is_inline_syntax_example(lines: &[&str], candidate: &CommentCandidate<'_>) ->
             .is_some_and(|line| OBJECT_PROPERTY.is_match(line))
 }
 
-const PLACEHOLDER_NAMES: [&str; 8] = [
-    "asdf", "bar", "baz", "dummy", "foo", "stuff", "thing", "whatever",
-];
-
 struct PlaceholderIdentifierCandidate<'a> {
     name: &'a str,
     declaration_line: &'a str,
@@ -712,45 +764,47 @@ fn placeholder_identifier_candidates<'a>(
     let python = extension(path) == ".py";
     let comment_only = comment_only_lines(lines, python);
     let mut depth = 0;
+    let mut main_guard_indent = None;
     let mut candidates = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        if !(comment_only[index] || (python && is_in_python_main_guard(lines, index))) {
-            candidates.extend(
-                PLACEHOLDER_DECLARATION
-                    .captures_iter(line)
-                    .map(|declaration| {
-                        let complete = declaration.get(0).unwrap();
-                        PlaceholderIdentifierCandidate {
-                            name: declaration.name("name").unwrap().as_str(),
-                            declaration_line: line,
-                            line: index + 1,
-                            scope_depth: depth + brace_delta(&line[..complete.start()]),
-                        }
-                    }),
-            );
+        let in_main_guard = python && advance_python_main_guard(line, &mut main_guard_indent);
+        if !(comment_only[index] || in_main_guard) && PLACEHOLDER_NAME.is_match(line) {
+            candidates.extend(PLACEHOLDER_DECLARATION.captures_iter(line).filter_map(
+                |declaration| {
+                    let complete = declaration.get(0).unwrap();
+                    let name = declaration.name("name").unwrap().as_str();
+                    if !is_placeholder_name(name) {
+                        return None;
+                    }
+                    Some(PlaceholderIdentifierCandidate {
+                        name,
+                        declaration_line: line,
+                        line: index + 1,
+                        scope_depth: depth + brace_delta(&line[..complete.start()]),
+                    })
+                },
+            ));
         }
         depth += brace_delta(line);
     }
     candidates
 }
 
-fn is_in_python_main_guard(lines: &[String], line_index: usize) -> bool {
-    let candidate_indent = leading_whitespace_width(&lines[line_index]);
-    lines[..line_index]
-        .iter()
-        .enumerate()
-        .rev()
-        .filter(|(_, line)| PYTHON_MAIN_GUARD_MASKED.is_match(line.trim()))
-        .any(|(guard_index, guard)| {
-            let guard_indent = leading_whitespace_width(guard);
-            candidate_indent > guard_indent
-                && lines[guard_index + 1..=line_index].iter().all(|line| {
-                    let trimmed = line.trim();
-                    trimmed.is_empty()
-                        || trimmed.starts_with('#')
-                        || leading_whitespace_width(line) > guard_indent
-                })
-        })
+fn advance_python_main_guard(line: &str, guard_indent: &mut Option<usize>) -> bool {
+    let trimmed = line.trim();
+    let indent = leading_whitespace_width(line);
+    if !trimmed.is_empty()
+        && !trimmed.starts_with('#')
+        && guard_indent.is_some_and(|guard| indent <= guard)
+    {
+        *guard_indent = None;
+    }
+    let in_guard = guard_indent.is_some_and(|guard| indent > guard);
+    // The outermost active guard also covers any nested main guards.
+    if guard_indent.is_none() && PYTHON_MAIN_GUARD_MASKED.is_match(trimmed) {
+        *guard_indent = Some(indent);
+    }
+    in_guard
 }
 
 fn leading_whitespace_width(line: &str) -> usize {
@@ -782,17 +836,17 @@ fn brace_delta(source: &str) -> isize {
     count_byte(source, b'{') - count_byte(source, b'}')
 }
 
+fn is_placeholder_name(name: &str) -> bool {
+    let normalized = TRAILING_DIGITS.replace(name, "");
+    PLACEHOLDER_NAME
+        .find(&normalized)
+        .is_some_and(|matched| matched.start() == 0 && matched.end() == normalized.len())
+}
+
 fn qualifies_placeholder_identifier(
     candidate: &PlaceholderIdentifierCandidate<'_>,
     lines: &[String],
 ) -> bool {
-    let normalized = TRAILING_DIGITS.replace(candidate.name, "");
-    if !PLACEHOLDER_NAMES
-        .iter()
-        .any(|name| normalized.eq_ignore_ascii_case(name))
-    {
-        return false;
-    }
     if EXPOSED.is_match(candidate.declaration_line)
         || (candidate.scope_depth == 0
             && candidate.declaration_line.trim_start() == candidate.declaration_line)
@@ -847,11 +901,11 @@ fn placeholder_identifier_finding(
 
 fn mixed_boundary_responsibilities(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
-    for (path, source) in context.sources() {
+    for path in context.sources().keys() {
         if !is_production_source(path) {
             continue;
         }
-        for function in function_blocks(source, path) {
+        for function in function_blocks(context.masked_lines(path)) {
             if function.lines < 8 || ORCHESTRATOR_NAME.is_match(&function.name) {
                 continue;
             }
@@ -899,6 +953,31 @@ struct CapturedPolicyConcept<'a> {
     named: bool,
 }
 
+struct PolicyTokenCaptures {
+    locations: regex::CaptureLocations,
+    literal: Option<usize>,
+    concepts: [(Option<usize>, bool, bool); 3],
+}
+
+impl PolicyTokenCaptures {
+    fn new() -> Self {
+        let index = |name| {
+            POLICY_TOKEN
+                .capture_names()
+                .position(|candidate| candidate == Some(name))
+        };
+        Self {
+            locations: POLICY_TOKEN.capture_locations(),
+            literal: index("literal"),
+            concepts: [
+                (index("named_comparison"), true, true),
+                (index("comparison"), true, false),
+                (index("named_only"), false, true),
+            ],
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct PolicyLocation<'a> {
     path: &'a str,
@@ -934,6 +1013,7 @@ fn repeated_policy_literals(context: &SourceAnalysisContext<'_>) -> Vec<Finding>
 
 fn collect_policy_literals<'a>(context: &'a SourceAnalysisContext<'_>) -> Vec<PolicyLiteral<'a>> {
     let mut literals = Vec::new();
+    let mut captures = PolicyTokenCaptures::new();
     for path in context
         .sources()
         .keys()
@@ -947,7 +1027,20 @@ fn collect_policy_literals<'a>(context: &'a SourceAnalysisContext<'_>) -> Vec<Po
                 line.as_str()
             };
             let code = comment_masker.code(line);
-            collect_line_policy_literals(line, &code, path, index + 1, &mut literals);
+            // Unicode decimal digits are valid POLICY_TOKEN literals too.
+            if code
+                .bytes()
+                .any(|byte| byte.is_ascii_digit() || !byte.is_ascii())
+            {
+                collect_line_policy_literals(
+                    line,
+                    &code,
+                    path,
+                    index + 1,
+                    &mut literals,
+                    &mut captures,
+                );
+            }
         }
     }
     literals
@@ -959,6 +1052,7 @@ fn collect_line_policy_literals<'a>(
     path: &'a str,
     line_number: usize,
     literals: &mut Vec<PolicyLiteral<'a>>,
+    captures: &mut PolicyTokenCaptures,
 ) {
     if NAMED_POLICY_CONSTANT.is_match(code) {
         return;
@@ -968,36 +1062,36 @@ fn collect_line_policy_literals<'a>(
     let mut comparison_concept: Option<PolicyConcept<'a>> = None;
     let mut named_concepts = Vec::new();
 
-    for captures in POLICY_TOKEN.captures_iter(line).filter(|captures| {
-        let matched = captures.get(0).unwrap();
-        code.get(matched.range()) == Some(matched.as_str())
-    }) {
-        if let Some(literal) = captures.name("literal") {
+    let mut offset = 0;
+    while let Some(matched) = POLICY_TOKEN.captures_read_at(&mut captures.locations, line, offset) {
+        offset = matched.end();
+        if code.get(matched.range()) != Some(matched.as_str()) {
+            continue;
+        }
+        if let Some((start, end)) = captures
+            .literal
+            .and_then(|index| captures.locations.get(index))
+        {
+            let literal = &line[start..end];
             if let Some(concept) = comparison_concept.take()
-                && is_policy_comparison(&line[concept.end..literal.start()])
-                && !policy_literal_has_arithmetic_suffix(&line[literal.end()..])
+                && is_policy_comparison(&line[concept.end..start])
+                && !policy_literal_has_arithmetic_suffix(&line[end..])
             {
                 push_line_policy_literal(
                     literals,
                     first_line_literal,
                     concept.name,
-                    literal.as_str(),
+                    literal,
                     line,
                     path,
                     line_number,
                 );
             }
-            collect_named_policy_match(
-                line,
-                literal.start(),
-                literal.as_str(),
-                &mut named_concepts,
-                &mut named,
-            );
+            collect_named_policy_match(line, start, literal, &mut named_concepts, &mut named);
             continue;
         }
 
-        let Some(captured) = captured_policy_concept(&captures) else {
+        let Some(captured) = captured_policy_concept(line, captures) else {
             continue;
         };
         comparison_concept = captured.comparison.then_some(captured.concept);
@@ -1020,19 +1114,22 @@ fn collect_line_policy_literals<'a>(
 }
 
 fn captured_policy_concept<'a>(
-    captures: &regex::Captures<'a>,
+    line: &'a str,
+    captures: &PolicyTokenCaptures,
 ) -> Option<CapturedPolicyConcept<'a>> {
-    let (matched, comparison, named) = if let Some(matched) = captures.name("named_comparison") {
-        (matched, true, true)
-    } else if let Some(matched) = captures.name("comparison") {
-        (matched, true, false)
-    } else {
-        (captures.name("named_only")?, false, true)
-    };
+    let ((start, end), comparison, named) =
+        captures
+            .concepts
+            .iter()
+            .find_map(|&(index, comparison, named)| {
+                index
+                    .and_then(|index| captures.locations.get(index))
+                    .map(|range| (range, comparison, named))
+            })?;
     Some(CapturedPolicyConcept {
         concept: PolicyConcept {
-            name: matched.as_str(),
-            end: matched.end(),
+            name: &line[start..end],
+            end,
         },
         comparison,
         named,
@@ -1296,16 +1393,20 @@ fn imported_python_peers(context: &SourceAnalysisContext<'_>) -> BTreeSet<String
         .keys()
         .filter(|path| path.ends_with(".py"))
     {
-        let modules = context.masked_lines(path).iter().filter_map(|line| {
-            PYTHON_FROM_IMPORT
-                .captures(line)
-                .and_then(|captures| captures.name("name"))
-                .or_else(|| {
-                    PYTHON_DIRECT_IMPORT
-                        .captures(line)
-                        .and_then(|captures| captures.name("names"))
-                })
-        });
+        let modules = context
+            .masked_lines(path)
+            .iter()
+            .filter(|line| line.contains("import"))
+            .filter_map(|line| {
+                PYTHON_FROM_IMPORT
+                    .captures(line)
+                    .and_then(|captures| captures.name("name"))
+                    .or_else(|| {
+                        PYTHON_DIRECT_IMPORT
+                            .captures(line)
+                            .and_then(|captures| captures.name("names"))
+                    })
+            });
         for name in modules
             .flat_map(|names| names.as_str().split(','))
             .filter_map(|entry| entry.split_whitespace().next())
@@ -1447,15 +1548,15 @@ fn changed_complexity_regressions(context: &SourceAnalysisContext<'_>) -> Vec<Fi
         return Vec::new();
     }
     let mut findings = Vec::new();
-    for (path, source) in context.sources() {
+    for path in context.sources().keys() {
         let Some(before) = context.base_sources().get(path) else {
             continue;
         };
-        let old_functions = function_blocks(before, path)
+        let old_functions = function_blocks(&mask_generic_rule_strings(before, path))
             .into_iter()
             .map(|function| (function.name.clone(), function))
             .collect::<BTreeMap<_, _>>();
-        for current in function_blocks(source, path) {
+        for current in function_blocks(context.masked_lines(path)) {
             let Some(old) = old_functions.get(&current.name) else {
                 continue;
             };
@@ -1487,19 +1588,22 @@ struct FunctionBlock {
     lines: usize,
 }
 
-fn function_blocks(source: &str, path: &str) -> Vec<FunctionBlock> {
-    let raw_lines = source.split('\n').map(str::to_owned).collect::<Vec<_>>();
-    let mut lines = mask_generic_rule_strings(&raw_lines, path);
+fn function_blocks(masked_lines: &[String]) -> Vec<FunctionBlock> {
     let mut comment_masker = SlashCommentMasker::default();
-    for line in &mut lines {
-        if let Cow::Owned(code) = comment_masker.code(line) {
-            *line = code;
-        }
-    }
+    let lines = masked_lines
+        .iter()
+        .map(|line| comment_masker.code(line))
+        .collect::<Vec<_>>();
     let mut result = Vec::new();
     let mut index = 0;
     while index < lines.len() {
-        let Some(declaration) = FUNCTION_DECLARATION.captures(&lines[index]) else {
+        let line = &lines[index];
+        if !line.contains('(') || !line.contains(')') || !line.contains('{') || line.contains("=>")
+        {
+            index += 1;
+            continue;
+        }
+        let Some(declaration) = FUNCTION_DECLARATION.captures(line) else {
             index += 1;
             continue;
         };
@@ -1507,10 +1611,6 @@ fn function_blocks(source: &str, path: &str) -> Vec<FunctionBlock> {
             .name("name")
             .is_some_and(|name| is_control_flow_name(name.as_str()))
         {
-            index += 1;
-            continue;
-        }
-        if lines[index].contains("=>") {
             index += 1;
             continue;
         }
@@ -1528,7 +1628,7 @@ fn function_blocks(source: &str, path: &str) -> Vec<FunctionBlock> {
     result
 }
 
-fn collect_function_body(lines: &[String], start: usize) -> (String, usize, bool) {
+fn collect_function_body(lines: &[Cow<'_, str>], start: usize) -> (String, usize, bool) {
     let mut depth = 0isize;
     let mut seen_brace = false;
     let mut body = String::new();
@@ -1779,6 +1879,8 @@ static PYTHON_DIRECT_IMPORT: LazyLock<Regex> =
 static PLACEHOLDER_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:export\s+|public\s+)?(?:class|interface|enum|struct|def|function|fn|proc|func|void|var|let|const|final|[A-Z][\w$<>,?\[\].]*)\s+(?P<name>[A-Za-z_$][\w$]*)").unwrap()
 });
+static PLACEHOLDER_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i-u:asdf|bar|baz|dummy|foo|stuff|thing|whatever)").unwrap());
 static TRAILING_DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+$").unwrap());
 static EXPOSED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:export|public)\b").unwrap());
 static PYTHON_MAIN_GUARD_MASKED: LazyLock<Regex> =
@@ -2217,6 +2319,32 @@ fallback) run();",
     }
 
     #[test]
+    fn finds_disabled_code_after_literal_and_documentation_candidates() {
+        let sources = sources(&[
+            (
+                "src/scanner.py",
+                "text = '''\n# return phantom();\n'''\n# return legacy();",
+            ),
+            (
+                "src/scanner.rs",
+                "/// return documented();\npub fn documented() {}\n// return legacy();",
+            ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            commented_out_code(&context)
+                .into_iter()
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("src/scanner.py".to_owned(), 4),
+                ("src/scanner.rs".to_owned(), 3)
+            ]
+        );
+    }
+
+    #[test]
     fn requires_placeholder_exposure_or_repeated_use() {
         let sources = sources(&[(
             "src/api.ts",
@@ -2239,29 +2367,114 @@ function broad() {\n\
         assert_eq!(
             findings
                 .iter()
-                .map(|finding| finding.message.as_str())
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
             vec![
-                "`Foo` is a placeholder name used beyond a tiny local scope",
-                "`dummy` is a placeholder name used beyond a tiny local scope",
+                ("placeholder-identifier", "src/api.ts", 3),
+                ("placeholder-identifier", "src/api.ts", 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_placeholder_case_unicode_suffixes_and_non_candidate_scope_transitions() {
+        let sources = sources(&[(
+            "src/identifiers.ts",
+            "function settled() {\r\n  const unrelated = input;\r\n}\r\n\
+const FoO٤٥ = input;\r\nclass BaR12 {}\r\nconst football = input;\r\n\
+const DUMMY2Model = input;\r\n// const baz = input;\r\n\
+const text = 'const stuff = input;';\r\n",
+        )]);
+        let context = unchanged(&sources);
+        let findings = placeholder_identifiers(&context);
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("placeholder-identifier", "src/identifiers.ts", 4),
+                ("placeholder-identifier", "src/identifiers.ts", 5),
             ]
         );
     }
 
     #[test]
     fn ignores_placeholder_identifiers_in_python_main_demos() {
-        let sources = sources(&[(
-            "src/repr.py",
-            "if __name__ == \"__main__\":\n    class Foo:\n        pass\n    foo = Foo()\n    print(foo)\n\nclass Bar:\n    pass\nbar = Bar()\nprint(Bar)\n",
-        )]);
+        let sources = sources(&[
+            (
+                "src/repr.py",
+                "if __name__ == \"__main__\":\n    class Foo:\n        pass\n    foo = Foo()\n    print(foo)\n\nclass Bar:\n    pass\nbar = Bar()\nprint(Bar)\n",
+            ),
+            (
+                "src/nested.py",
+                r#"if ready:
+    if __name__ == "__main__":
+        if enabled:
+            if __name__ == "__main__":
+                class Foo:
+                    pass
+                first = Foo()
+
+# A comment does not end the guarded demo.
+                prepare()
+                process()
+                finish()
+                second = Foo()
+        class Bar:
+            pass
+        first = Bar()
+
+# The outer main guard still contains this declaration.
+        prepare()
+        process()
+        finish()
+        second = Bar()
+class Dummy:
+    pass
+"#,
+            ),
+            (
+                "src/repeated.py",
+                r#"example = 'if __name__ == "__main__":'
+class Foo:
+    pass
+if __name__ == "__main__":
+    class Bar:
+        pass
+    first = Bar()
+
+    prepare()
+    process()
+    finish()
+    second = Bar()
+class Baz:
+    pass
+if __name__ == "__main__":
+    class Dummy:
+        pass
+    first = Dummy()
+
+    prepare()
+    process()
+    finish()
+    second = Dummy()
+"#,
+            ),
+        ]);
         let context = unchanged(&sources);
 
         assert_eq!(
             placeholder_identifiers(&context)
-                .into_iter()
-                .map(|finding| finding.message)
+                .iter()
+                .map(|finding| (finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
-            vec!["`Bar` is a placeholder name used beyond a tiny local scope"]
+            vec![
+                ("src/nested.py", 23),
+                ("src/repeated.py", 2),
+                ("src/repeated.py", 13),
+                ("src/repr.py", 7),
+            ]
         );
     }
 
@@ -2395,6 +2608,30 @@ function broad() {\n\
                 "policy literal `30` for `size` appears 2 times without a shared name",
                 "policy literal `40` for `width` appears 2 times without a shared name",
                 "policy literal `30` for `timeout` appears 2 times without a shared name",
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_unicode_policy_literals_and_comment_boundaries() {
+        let source = "Duration::from_secs(٤٥);\n\
+if (size > ٣٠) reject();\n\
+if (width > /* threshold 50 */ 60) reject();\n\
+if (height > 70) reject(); // timeout = 80\n";
+        let sources = sources(&[("src/a.rs", source)]);
+        let context = unchanged(&sources);
+        let literals = collect_policy_literals(&context);
+
+        assert_eq!(
+            literals
+                .iter()
+                .map(|literal| (literal.concept, literal.literal, literal.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Duration::from_secs", "٤٥", 1),
+                ("size", "٣٠", 2),
+                ("width", "60", 3),
+                ("height", "70", 4),
             ]
         );
     }

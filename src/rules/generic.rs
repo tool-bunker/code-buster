@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::LazyLock;
@@ -29,28 +30,49 @@ pub fn analyze(sources: &BTreeMap<String, String>, config: &Config) -> Vec<Findi
         return Vec::new();
     }
 
-    let mut findings = Vec::new();
     let todo_enabled = enabled(config, "todo-comment");
     let fixme_enabled = enabled(config, "fixme-comment");
-    if todo_enabled || fixme_enabled {
-        let (todo_findings, fixme_findings) = comment_markers(sources, todo_enabled, fixme_enabled);
-        findings.extend(todo_findings);
-        findings.extend(fixme_findings);
+    let same_value_enabled = enabled(config, "operation-on-same-value");
+    let command_enabled = enabled(config, "suspicious-command-arg-space");
+    let large_number_enabled = enabled(config, "large-number-ungrouped");
+    let inline_list_enabled = enabled(config, "large-inline-list");
+    let bool_branch_enabled = enabled(config, "needless-bool-branch");
+    let mut buckets: [Vec<Finding>; 7] = Default::default();
+    let [
+        todo,
+        fixme,
+        same_value,
+        command,
+        large_number,
+        inline_list,
+        bool_branch,
+    ] = &mut buckets;
+
+    for (path, source) in sources {
+        let lines = GenericLines::new(source);
+        if todo_enabled || fixme_enabled {
+            append_comment_markers(todo, fixme, path, &lines.raw, todo_enabled, fixme_enabled);
+        }
+        if same_value_enabled && !path.ends_with(".css") {
+            append_same_value_operations(same_value, path, &lines);
+        }
+        if command_enabled {
+            append_suspicious_command_arguments(command, path, &lines.raw);
+        }
+        if large_number_enabled && !excludes_large_number_file(path, source) {
+            append_large_numbers(large_number, path, &lines.raw);
+        }
+        if inline_list_enabled {
+            append_large_inline_lists(inline_list, path, source, &lines);
+        }
+        if bool_branch_enabled {
+            append_needless_bool_branches(bool_branch, path, &lines);
+        }
     }
-    if enabled(config, "operation-on-same-value") {
-        findings.extend(operation_on_same_value(sources));
-    }
-    if enabled(config, "suspicious-command-arg-space") {
-        findings.extend(suspicious_command_arguments(sources));
-    }
-    if enabled(config, "large-number-ungrouped") {
-        findings.extend(large_numbers(sources));
-    }
-    if enabled(config, "large-inline-list") {
-        findings.extend(large_inline_lists(sources));
-    }
-    if enabled(config, "needless-bool-branch") {
-        findings.extend(needless_bool_branches(sources));
+
+    let mut findings = Vec::with_capacity(buckets.iter().map(Vec::len).sum());
+    for bucket in buckets {
+        findings.extend(bucket);
     }
     findings
 }
@@ -59,47 +81,80 @@ fn enabled(config: &Config, code: &str) -> bool {
     config.rule_groups.contains("suspicious") || config.severity_overrides.contains_key(code)
 }
 
-fn large_numbers(sources: &BTreeMap<String, String>) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for (path, source) in sources {
-        if excludes_large_number_file(path, source) {
-            continue;
-        }
-        append_large_numbers(&mut findings, path, source);
-    }
-    findings
+/// File-local legacy views: do not share these masks with language-specific scanners.
+struct GenericLines<'a> {
+    raw: Vec<&'a str>,
+    stripped: OnceCell<Vec<Cow<'a, str>>>,
+    code: OnceCell<Vec<Option<String>>>,
 }
 
-fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, source: &str) {
-    let raw_lines = source.split('\n').collect::<Vec<_>>();
-    let preprocessed = mask_inactive_preprocessor_branches(&raw_lines);
-    let masked = mask_generic_rule_strings(&preprocessed, path);
+impl<'a> GenericLines<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            raw: source.split('\n').collect(),
+            stripped: OnceCell::new(),
+            code: OnceCell::new(),
+        }
+    }
+
+    fn stripped(&self) -> &[Cow<'a, str>] {
+        self.stripped.get_or_init(|| {
+            self.raw
+                .iter()
+                .map(|&line| strip_generic_strings(line))
+                .collect()
+        })
+    }
+
+    fn code(&self, index: usize) -> &str {
+        let code = self.code.get_or_init(|| {
+            let mut in_block_comment = false;
+            self.stripped()
+                .iter()
+                .map(|line| match strip_comments(line, &mut in_block_comment) {
+                    Cow::Borrowed(_) => None,
+                    Cow::Owned(code) => Some(code),
+                })
+                .collect()
+        });
+        code[index]
+            .as_deref()
+            .unwrap_or_else(|| self.stripped()[index].as_ref())
+    }
+}
+
+fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, raw_lines: &[&str]) {
+    let rust_masked = path.ends_with(".rs").then(|| {
+        let preprocessed = mask_inactive_preprocessor_branches(raw_lines);
+        mask_generic_rule_strings(&preprocessed.join("\n"), path)
+    });
+    let cpp_digit_separators = uses_cpp_digit_separators(path);
     let mut in_block_comment = false;
     let mut language = LargeNumberLanguageExclusions::new(path);
     let first_finding = findings.len();
     let mut protocol_enum_catalog = true;
 
-    for (index, line) in masked.iter().enumerate() {
-        if language.excludes_line(line) {
+    for (index, raw_line, line) in large_number_lines(raw_lines, path, rust_masked.as_deref()) {
+        if language.excludes_line(&line) {
             continue;
         }
-        let code = strip_comments(line, &mut in_block_comment);
-        let code_without_hash_comment = if path.ends_with(".py") {
+        let code = language.code_without_comments(&line, &mut in_block_comment);
+        let code_without_hash_comment = if language.python {
             code.split_once('#')
-                .map_or(code.as_str(), |(before, _)| before)
+                .map_or(code.as_ref(), |(before, _)| before)
         } else {
-            code.as_str()
+            code.as_ref()
         };
-        if uses_cpp_digit_separators(path)
-            && CPP_GROUPED_DECIMAL.is_match(raw_lines[index])
-            && large_number_candidates(raw_lines[index]).next().is_none()
+        if cpp_digit_separators
+            && CPP_GROUPED_DECIMAL.is_match(raw_line)
+            && large_number_candidates(raw_line).next().is_none()
         {
             continue;
         }
         if large_number_candidates(code_without_hash_comment).any(|candidate| {
             !excludes_large_number_candidate(
                 &language,
-                raw_lines[index],
+                raw_line,
                 code_without_hash_comment,
                 candidate,
             )
@@ -112,6 +167,36 @@ fn append_large_numbers(findings: &mut Vec<Finding>, path: &str, source: &str) {
     if protocol_enum_catalog && findings.len() - first_finding >= 20 {
         findings.truncate(first_finding);
     }
+}
+
+fn large_number_lines<'a>(
+    raw_lines: &'a [&'a str],
+    path: &str,
+    rust_masked: Option<&'a [String]>,
+) -> impl Iterator<Item = (usize, &'a str, Cow<'a, str>)> {
+    let mut preprocessor = PreprocessorBranchState::default();
+    let mut string_masker = MultilineStringMasker {
+        mask_comments: path.ends_with(".dart"),
+        ..Default::default()
+    };
+    let multiline_strings = path.ends_with(".dart") || path.ends_with(".py");
+    raw_lines
+        .iter()
+        .copied()
+        .enumerate()
+        .map(move |(index, raw_line)| {
+            let line = if let Some(masked) = rust_masked {
+                Cow::Borrowed(masked[index].as_str())
+            } else {
+                let preprocessed = preprocessor.mask_line(raw_line);
+                if multiline_strings {
+                    string_masker.mask_line(preprocessed)
+                } else {
+                    strip_generic_strings(preprocessed)
+                }
+            };
+            (index, raw_line, line)
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -212,6 +297,7 @@ fn uses_c_family_braced_collections(path: &str) -> bool {
 struct LargeNumberLanguageExclusions<'a> {
     path: &'a str,
     python: bool,
+    dart: bool,
     python_docstring: Option<&'static str>,
 }
 
@@ -220,7 +306,21 @@ impl<'a> LargeNumberLanguageExclusions<'a> {
         Self {
             path,
             python: path.ends_with(".py"),
+            dart: path.ends_with(".dart"),
             python_docstring: None,
+        }
+    }
+
+    fn code_without_comments<'b>(
+        &self,
+        line: &'b str,
+        in_block_comment: &mut bool,
+    ) -> Cow<'b, str> {
+        if self.dart {
+            // Numeric masking has already removed Dart comments with nested depth.
+            Cow::Borrowed(line)
+        } else {
+            strip_comments(line, in_block_comment)
         }
     }
 
@@ -274,6 +374,9 @@ enum PreprocessorDirective<'a> {
 }
 
 fn classify_preprocessor_directive(line: &str) -> Option<PreprocessorDirective<'_>> {
+    if !line.contains('#') {
+        return None;
+    }
     let captures = PREPROCESSOR_DIRECTIVE.captures(line)?;
     let name = captures.name("name")?.as_str();
     let expression = captures.name("expression")?.as_str();
@@ -317,11 +420,14 @@ impl PreprocessorBranchState {
         }
     }
 
-    fn mask_line(&self, line: &str) -> String {
-        if self.disabled {
-            String::new()
+    fn mask_line<'a>(&mut self, line: &'a str) -> &'a str {
+        if let Some(directive) = classify_preprocessor_directive(line) {
+            self.transition(directive);
+            ""
+        } else if self.disabled {
+            ""
         } else {
-            line.to_owned()
+            line
         }
     }
 }
@@ -330,28 +436,29 @@ pub(crate) fn mask_inactive_preprocessor_branches(lines: &[&str]) -> Vec<String>
     let mut result = Vec::with_capacity(lines.len());
     let mut state = PreprocessorBranchState::default();
     for line in lines {
-        let Some(directive) = classify_preprocessor_directive(line) else {
-            result.push(state.mask_line(line));
-            continue;
-        };
-        state.transition(directive);
-        result.push(String::new());
+        result.push(state.mask_line(line).to_owned());
     }
     result
 }
 
-pub(crate) fn mask_generic_rule_strings(lines: &[String], path: &str) -> Vec<String> {
+pub(crate) fn mask_generic_rule_strings(source: &str, path: &str) -> Vec<String> {
     if path.ends_with(".rs") {
-        return mask_rust_strings(lines);
+        return source_lexical_mask(source)
+            .split('\n')
+            .map(str::to_owned)
+            .collect();
     }
     if !path.ends_with(".dart") && !path.ends_with(".py") {
-        return lines
-            .iter()
+        return source
+            .split('\n')
             .map(|line| strip_generic_strings(line).into_owned())
             .collect();
     }
     let mut masker = MultilineStringMasker::default();
-    lines.iter().map(|line| masker.mask_line(line)).collect()
+    source
+        .split('\n')
+        .map(|line| masker.mask_line(line).into_owned())
+        .collect()
 }
 
 #[derive(Default)]
@@ -359,10 +466,15 @@ struct MultilineStringMasker {
     quote: Option<&'static str>,
     raw: bool,
     block_comment_depth: usize,
+    mask_comments: bool,
 }
 
 impl MultilineStringMasker {
-    fn mask_line(&mut self, line: &str) -> String {
+    fn mask_line<'a>(&mut self, line: &'a str) -> Cow<'a, str> {
+        if self.quote.is_none() && self.block_comment_depth == 0 && !line.contains(['\'', '"', '/'])
+        {
+            return Cow::Borrowed(line);
+        }
         let bytes = line.as_bytes();
         let mut masked = Vec::with_capacity(bytes.len());
         let mut index = 0;
@@ -379,7 +491,7 @@ impl MultilineStringMasker {
             self.quote = None;
             self.raw = false;
         }
-        String::from_utf8(masked).expect("masked source must remain UTF-8")
+        Cow::Owned(String::from_utf8(masked).expect("masked source must remain UTF-8"))
     }
 
     fn consume_quoted(&mut self, line: &str, index: &mut usize, masked: &mut Vec<u8>) {
@@ -387,6 +499,13 @@ impl MultilineStringMasker {
             return;
         };
         let bytes = line.as_bytes();
+        let width = line[*index..]
+            .find([char::from(delimiter.as_bytes()[0]), '\\'])
+            .unwrap_or(bytes.len() - *index);
+        if width > 0 {
+            Self::mask_width(masked, index, width);
+            return;
+        }
         if !self.raw && bytes[*index] == b'\\' {
             Self::mask_width(masked, index, 1);
             if *index < bytes.len() {
@@ -404,31 +523,36 @@ impl MultilineStringMasker {
     }
 
     fn consume_block_comment(&mut self, bytes: &[u8], index: &mut usize, masked: &mut Vec<u8>) {
-        if bytes[*index..].starts_with(b"/*") {
+        let width = if bytes[*index..].starts_with(b"/*") {
             self.block_comment_depth += 1;
-            masked.extend_from_slice(b"/*");
-            *index += 2;
+            2
         } else if bytes[*index..].starts_with(b"*/") {
             self.block_comment_depth -= 1;
-            masked.extend_from_slice(b"*/");
-            *index += 2;
+            2
         } else {
-            masked.push(bytes[*index]);
-            *index += 1;
-        }
+            1
+        };
+        self.consume_comment_bytes(bytes, index, masked, width);
     }
 
     fn consume_code(&mut self, line: &str, index: &mut usize, masked: &mut Vec<u8>) -> bool {
         let bytes = line.as_bytes();
+        let width = line[*index..]
+            .find(['\'', '"', '/'])
+            .unwrap_or(bytes.len() - *index);
+        if width > 0 {
+            masked.extend_from_slice(&bytes[*index..*index + width]);
+            *index += width;
+            return false;
+        }
         if bytes[*index..].starts_with(b"//") {
-            masked.extend_from_slice(&bytes[*index..]);
-            *index = bytes.len();
+            let width = bytes.len() - *index;
+            self.consume_comment_bytes(bytes, index, masked, width);
             return true;
         }
         if bytes[*index..].starts_with(b"/*") {
             self.block_comment_depth = 1;
-            masked.extend_from_slice(b"/*");
-            *index += 2;
+            self.consume_comment_bytes(bytes, index, masked, 2);
             return false;
         }
         if matches!(bytes[*index], b'\'' | b'\"') {
@@ -457,6 +581,21 @@ impl MultilineStringMasker {
             && (index == 1 || !is_identifier_byte(bytes[index - 2]));
     }
 
+    fn consume_comment_bytes(
+        &self,
+        bytes: &[u8],
+        index: &mut usize,
+        masked: &mut Vec<u8>,
+        width: usize,
+    ) {
+        if self.mask_comments {
+            Self::mask_width(masked, index, width);
+        } else {
+            masked.extend_from_slice(&bytes[*index..*index + width]);
+            *index += width;
+        }
+    }
+
     fn mask_width(masked: &mut Vec<u8>, index: &mut usize, width: usize) {
         masked.extend(std::iter::repeat_n(b' ', width));
         *index += width;
@@ -465,13 +604,6 @@ impl MultilineStringMasker {
 
 fn character_width(line: &str, index: usize) -> usize {
     line[index..].chars().next().map_or(1, char::len_utf8)
-}
-
-fn mask_rust_strings(lines: &[String]) -> Vec<String> {
-    source_lexical_mask(&lines.join("\n"))
-        .split('\n')
-        .map(str::to_owned)
-        .collect()
 }
 
 fn inside_url(line: &str, start: usize, end: usize) -> bool {
@@ -543,48 +675,49 @@ fn uses_html_text_syntax(path: &str) -> bool {
         .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "htm" | "html"))
 }
 
-fn large_inline_lists(sources: &BTreeMap<String, String>) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for (path, source) in sources {
-        if skips_inline_lists(path) {
-            continue;
-        }
-        let lines = source.split('\n').collect::<Vec<_>>();
-        if lines
+fn append_large_inline_lists(
+    findings: &mut Vec<Finding>,
+    path: &str,
+    source: &str,
+    lines: &GenericLines<'_>,
+) {
+    if skips_inline_lists(path)
+        || lines
+            .raw
             .iter()
             .take(10)
             .any(|line| GENERATED_HEADER.is_match(line))
-        {
+    {
+        return;
+    }
+    let rust_test_lines = if path.ends_with(".rs") {
+        function_lexical_facts(source).1
+    } else {
+        BTreeSet::new()
+    };
+    let mut in_block_comment = false;
+    for index in 0..lines.raw.len() {
+        if rust_test_lines.contains(&index) {
             continue;
         }
-        let rust_test_lines = if path.ends_with(".rs") {
-            function_lexical_facts(source).1
+        // Skipped test lines must not advance this consumer's block-comment state.
+        let code = if rust_test_lines.is_empty() {
+            Cow::Borrowed(lines.code(index))
         } else {
-            BTreeSet::new()
+            strip_comments(&lines.stripped()[index], &mut in_block_comment)
         };
-        let mut in_block_comment = false;
-        for (index, line) in lines.iter().enumerate() {
-            if rust_test_lines.contains(&index) {
-                continue;
-            }
-            let stripped = strip_generic_strings(line);
-            let code = strip_comments(&stripped, &mut in_block_comment);
-            if is_java_constant_collection(path, &lines, index) {
-                continue;
-            }
-            let large_collection = has_large_collection(path, &code);
-            if large_collection {
-                findings.push(finding(
-                    "large-inline-list",
-                    path,
-                    index + 1,
-                    "large inline collection literal",
-                    "medium",
-                ));
-            }
+        if !is_java_constant_collection(path, &lines.raw, index)
+            && has_large_collection(path, &code)
+        {
+            findings.push(finding(
+                "large-inline-list",
+                path,
+                index + 1,
+                "large inline collection literal",
+                "medium",
+            ));
         }
     }
-    findings
 }
 
 fn skips_inline_lists(path: &str) -> bool {
@@ -598,6 +731,9 @@ fn skips_inline_lists(path: &str) -> bool {
 }
 
 fn has_large_collection(path: &str, code: &str) -> bool {
+    if code.matches(',').nth(11).is_none() {
+        return false;
+    }
     COLLECTION.captures_iter(code).any(|collection| {
         let brace_delimited = collection
             .get(0)
@@ -605,7 +741,7 @@ fn has_large_collection(path: &str, code: &str) -> bool {
         !(brace_delimited && (uses_c_family_braced_collections(path) || path.ends_with(".rs")))
             && collection
                 .name("contents")
-                .is_some_and(|contents| contents.as_str().matches(',').count() >= 12)
+                .is_some_and(|contents| contents.as_str().matches(',').nth(11).is_some())
     })
 }
 
@@ -648,36 +784,35 @@ pub(crate) fn mask_rust_test_regions(path: &str, source: &str) -> String {
         .join("\n")
 }
 
-fn needless_bool_branches(sources: &BTreeMap<String, String>) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for (path, source) in sources {
-        let lines = source.split('\n').collect::<Vec<_>>();
-        for (index, line) in lines.iter().enumerate() {
-            if !TRUE_BRANCH.is_match(&strip_generic_strings(line)) {
-                continue;
-            }
-            if followed_by_false_return(&lines, index) {
-                findings.push(finding(
-                    "needless-bool-branch",
-                    path,
-                    index + 1,
-                    "boolean branch can return its condition directly",
-                    "medium",
-                ));
-            }
+fn append_needless_bool_branches(
+    findings: &mut Vec<Finding>,
+    path: &str,
+    lines: &GenericLines<'_>,
+) {
+    for (index, line) in lines.stripped().iter().enumerate() {
+        if TRUE_BRANCH.is_match(line) && followed_by_false_return(lines, index) {
+            findings.push(finding(
+                "needless-bool-branch",
+                path,
+                index + 1,
+                "boolean branch can return its condition directly",
+                "medium",
+            ));
         }
     }
-    findings
 }
 
-fn followed_by_false_return(lines: &[&str], line_index: usize) -> bool {
-    for next in lines.iter().skip(line_index + 1).take(4) {
-        let raw = next.trim();
+fn followed_by_false_return(lines: &GenericLines<'_>, line_index: usize) -> bool {
+    for index in line_index + 1..(line_index + 5).min(lines.raw.len()) {
+        let raw_line = lines.raw[index];
+        let raw = raw_line.trim();
         if raw.is_empty() {
             continue;
         }
+        // Trim only the original indentation, not whitespace exposed by masking.
+        let indentation = raw_line.len() - raw_line.trim_start().len();
         return !CONDITIONAL_BOOLEAN_RETURN.is_match(raw)
-            && FALSE_RETURN.is_match(&strip_generic_strings(raw));
+            && FALSE_RETURN.is_match(&lines.stripped()[index][indentation..]);
     }
     false
 }
@@ -686,7 +821,10 @@ fn strip_generic_strings(line: &str) -> Cow<'_, str> {
     QUOTED_LITERAL.replace_all(line, "")
 }
 
-fn strip_comments(line: &str, in_block_comment: &mut bool) -> String {
+fn strip_comments<'a>(line: &'a str, in_block_comment: &mut bool) -> Cow<'a, str> {
+    if !*in_block_comment && !line.contains("/*") && !line.contains("//") {
+        return Cow::Borrowed(line);
+    }
     let bytes = line.as_bytes();
     let mut code = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -711,10 +849,13 @@ fn strip_comments(line: &str, in_block_comment: &mut bool) -> String {
             index += 1;
         }
     }
-    String::from_utf8(code).expect("stripped source must remain UTF-8")
+    Cow::Owned(String::from_utf8(code).expect("stripped source must remain UTF-8"))
 }
 
-fn strip_command_comments(line: &str, in_block_comment: &mut bool) -> String {
+fn strip_command_comments<'a>(line: &'a str, in_block_comment: &mut bool) -> Cow<'a, str> {
+    if !*in_block_comment && !line.contains(['/', '#']) {
+        return Cow::Borrowed(line);
+    }
     let bytes = line.as_bytes();
     let mut code = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -744,7 +885,7 @@ fn strip_command_comments(line: &str, in_block_comment: &mut bool) -> String {
             index += 1;
         }
     }
-    String::from_utf8(code).expect("stripped command source must remain UTF-8")
+    Cow::Owned(String::from_utf8(code).expect("stripped command source must remain UTF-8"))
 }
 
 fn quoted_end(bytes: &[u8]) -> usize {

@@ -1,6 +1,7 @@
 fn rust_functions(path: &str, source: &str) -> Vec<FunctionSource> {
     let (masked, test_lines) = function_lexical_facts(source);
     let mut functions = Vec::new();
+    let mut scan = RustFunctionScan::default();
     for captures in RUST_FUNCTION.captures_iter(&masked) {
         let complete = captures
             .get(0)
@@ -12,7 +13,7 @@ fn rust_functions(path: &str, source: &str) -> Vec<FunctionSource> {
             continue;
         };
         let opening = complete.start() + opening_offset;
-        let line = line_at(&masked, complete.start());
+        let line = scan.advance_to(&masked, complete.start());
         if test_lines.contains(&(line - 1)) {
             continue;
         }
@@ -23,8 +24,12 @@ fn rust_functions(path: &str, source: &str) -> Vec<FunctionSource> {
             path: path.to_owned(),
             name: name.as_str().to_owned(),
             line,
-            end_line: line_at(source, closing),
-            contract_signature: rust_contract_signature(
+            end_line: line
+                + source[complete.start()..closing]
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count(),
+            contract_signature: scan.contract_signature(
                 &masked,
                 complete.start(),
                 complete.as_str(),
@@ -33,6 +38,59 @@ fn rust_functions(path: &str, source: &str) -> Vec<FunctionSource> {
         });
     }
     functions
+}
+
+#[derive(Default)]
+struct RustFunctionScan {
+    offset: usize,
+    newlines: usize,
+    scopes: Vec<RustFunctionScope>,
+}
+
+struct RustFunctionScope {
+    opening: usize,
+    contract_signature: Option<bool>,
+}
+
+impl RustFunctionScan {
+    fn advance_to(&mut self, source: &str, offset: usize) -> usize {
+        for (index, byte) in source.as_bytes()[self.offset..offset].iter().enumerate() {
+            match byte {
+                b'\n' => self.newlines += 1,
+                b'{' => self.scopes.push(RustFunctionScope {
+                    opening: self.offset + index,
+                    contract_signature: None,
+                }),
+                b'}' => {
+                    self.scopes.pop();
+                }
+                _ => {}
+            }
+        }
+        self.offset = offset;
+        self.newlines + 1
+    }
+
+    fn contract_signature(&mut self, source: &str, function_start: usize, header: &str) -> bool {
+        self.enclosing_contract(source)
+            || header
+                .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                .any(|word| word == "extern")
+            || rust_binding_attributes(rust_item_prefix(source, function_start))
+    }
+
+    fn enclosing_contract(&mut self, source: &str) -> bool {
+        let Some((scope, parents)) = self.scopes.split_last_mut() else {
+            return false;
+        };
+        if let Some(contract) = scope.contract_signature {
+            return contract;
+        }
+        let container_start = parents.last().map_or(0, |parent| parent.opening + 1);
+        let contract = rust_scope_contract(source, container_start, scope.opening);
+        scope.contract_signature = Some(contract);
+        contract
+    }
 }
 
 #[derive(Default)]
@@ -827,13 +885,6 @@ fn rust_quote_span_end(masked: &str, mut offset: usize, closing: usize) -> Optio
     None
 }
 
-fn rust_contract_signature(source: &str, function_start: usize, header: &str) -> bool {
-    rust_trait_or_binding_method(source, function_start)
-        || header
-            .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
-            .any(|word| word == "extern")
-        || rust_binding_attributes(rust_item_prefix(source, function_start))
-}
 
 fn rust_item_prefix(source: &str, item_start: usize) -> &str {
     let prefix = &source[..item_start];
@@ -868,21 +919,7 @@ fn rust_binding_attributes(source: &str) -> bool {
         })
 }
 
-fn rust_trait_or_binding_method(source: &str, function_start: usize) -> bool {
-    let mut openings = Vec::new();
-    for (index, byte) in source.bytes().take(function_start).enumerate() {
-        match byte {
-            b'{' => openings.push(index),
-            b'}' => {
-                openings.pop();
-            }
-            _ => {}
-        }
-    }
-    let Some((&opening, parent_openings)) = openings.split_last() else {
-        return false;
-    };
-    let container_start = parent_openings.last().map_or(0, |parent| parent + 1);
+fn rust_scope_contract(source: &str, container_start: usize, opening: usize) -> bool {
     let mut container = None;
     let mut implementation_has_for = false;
     for word in source[container_start..opening]

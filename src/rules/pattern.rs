@@ -9,6 +9,10 @@ pub fn analyze(
     sources: &BTreeMap<String, String>,
     rules: &[PatternRule],
 ) -> Result<Vec<Finding>, String> {
+    if rules.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let compiled = rules
         .iter()
         .map(CompiledPatternRule::new)

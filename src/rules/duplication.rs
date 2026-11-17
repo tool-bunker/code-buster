@@ -1,4 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, hash_map::Entry};
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -14,22 +16,22 @@ const MAX_GROUPS: usize = 50;
 const MAX_OCCURRENCES_PER_GROUP: usize = 32;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct Location {
-    path: String,
+struct Location<'a> {
+    path: &'a str,
     line: usize,
     index: usize,
 }
 
 #[derive(Clone, Debug)]
-struct NormalizedLine {
+struct NormalizedLine<'a> {
     number: usize,
-    text: String,
+    text: Cow<'a, str>,
     declaration: bool,
 }
 
 #[derive(Clone, Debug)]
-struct DuplicateSpan {
-    path: String,
+struct DuplicateSpan<'a> {
+    path: &'a str,
     start_line: usize,
     end_line: usize,
     start_index: usize,
@@ -56,9 +58,10 @@ fn exact_duplicates(
     collect_findings: bool,
 ) -> (usize, Vec<Finding>) {
     let window = min_lines.max(3) as usize;
-    let (occurrences, normalized_by_path) = collect_duplicate_windows(sources, window);
+    let normalized_by_path = normalize_duplicate_sources(sources);
+    let occurrences = collect_duplicate_windows(&normalized_by_path, window);
     let candidates = ordered_duplicate_candidates(occurrences);
-    let mut occupied: BTreeMap<String, Vec<LineRange>> = BTreeMap::new();
+    let mut occupied: BTreeMap<&str, Vec<LineRange>> = BTreeMap::new();
     let mut groups = 0;
     let mut findings = Vec::new();
 
@@ -82,13 +85,13 @@ fn exact_duplicates(
             continue;
         }
         let first = &spans[0];
-        let maximal = &normalized_by_path[&first.path][first.start_index..=first.end_index];
+        let maximal = &normalized_by_path[first.path][first.start_index..=first.end_index];
         if maximal.iter().all(|line| line.declaration) {
             continue;
         }
         let maximal_lines = maximal
             .iter()
-            .map(|line| line.text.as_str())
+            .map(|line| line.text.as_ref())
             .collect::<Vec<_>>();
         if mostly_literal_data(&maximal_lines)
             || mostly_case_labels(&maximal_lines)
@@ -98,91 +101,132 @@ fn exact_duplicates(
         }
         groups += 1;
         if collect_findings {
-            findings.push(duplicate_finding(&candidate_key, &spans, &maximal_lines));
+            findings.push(duplicate_finding(
+                candidate_key.language_key,
+                &spans,
+                &maximal_lines,
+            ));
         }
         occupy_duplicate_spans(spans, &mut occupied);
     }
     (groups, findings)
 }
 
-struct DuplicateOccurrence {
+struct DuplicateOccurrence<'a> {
     insertion_order: usize,
-    locations: Vec<Location>,
+    first: Location<'a>,
+    additional_locations: Vec<Location<'a>>,
 }
 
-type DuplicateOccurrences = HashMap<String, DuplicateOccurrence>;
-type NormalizedSources = BTreeMap<String, Vec<NormalizedLine>>;
+#[derive(Clone, Copy)]
+struct DuplicateWindow<'a> {
+    language_key: Option<&'a str>,
+    scope: &'a str,
+    lines: &'a [NormalizedLine<'a>],
+    // Index-local hash; collisions still require exact normalized-text equality.
+    content_hash: u64,
+}
 
-fn collect_duplicate_windows(
-    sources: &BTreeMap<String, String>,
+impl PartialEq for DuplicateWindow<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.content_hash == other.content_hash
+            && self.language_key == other.language_key
+            && self.scope == other.scope
+            && self.lines.len() == other.lines.len()
+            && self
+                .lines
+                .iter()
+                .zip(other.lines)
+                .all(|(left, right)| left.text == right.text)
+    }
+}
+
+impl Eq for DuplicateWindow<'_> {}
+
+impl Hash for DuplicateWindow<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.language_key.hash(state);
+        self.scope.hash(state);
+        self.lines.len().hash(state);
+        self.content_hash.hash(state);
+    }
+}
+
+type DuplicateOccurrences<'a> = HashMap<DuplicateWindow<'a>, DuplicateOccurrence<'a>>;
+type NormalizedSources<'a> = BTreeMap<&'a str, Vec<NormalizedLine<'a>>>;
+
+fn normalize_duplicate_sources(sources: &BTreeMap<String, String>) -> NormalizedSources<'_> {
+    sources
+        .iter()
+        .filter(|(path, source)| {
+            !historical_sql(path)
+                && !mechanical_shell_completion(path, source)
+                && !ambient_declaration_module(path)
+        })
+        .map(|(path, source)| (path.as_str(), normalized_lines(source, path)))
+        .collect()
+}
+
+fn collect_duplicate_windows<'a>(
+    normalized_by_path: &'a NormalizedSources<'_>,
     window: usize,
-) -> (DuplicateOccurrences, NormalizedSources) {
+) -> DuplicateOccurrences<'a> {
     let mut occurrences = HashMap::new();
-    let mut normalized_by_path = BTreeMap::new();
-    for (path, source) in sources {
-        record_source_duplicate_windows(
-            path,
-            source,
-            window,
-            &mut occurrences,
-            &mut normalized_by_path,
-        );
-    }
-    (occurrences, normalized_by_path)
-}
-
-fn record_source_duplicate_windows(
-    path: &str,
-    source: &str,
-    window: usize,
-    occurrences: &mut DuplicateOccurrences,
-    normalized_by_path: &mut NormalizedSources,
-) {
-    if historical_sql(path)
-        || mechanical_shell_completion(path, source)
-        || ambient_declaration_module(path)
-    {
-        return;
-    }
-    let lines = normalized_lines(source, path);
-    if lines.len() >= window {
+    for (&path, lines) in normalized_by_path {
         let language_key = duplicate_language_key(path);
         let scope = if is_localization_path(path) {
             path
         } else {
             standalone_template_scope(path)
         };
-        for start in 0..=lines.len() - window {
-            let key = duplicate_window_key(&language_key, scope, &lines[start..start + window]);
+        for (start, lines) in lines.windows(window).enumerate() {
+            let mut content_hasher = occurrences.hasher().build_hasher();
+            for line in lines {
+                line.text.hash(&mut content_hasher);
+            }
+            let key = DuplicateWindow {
+                language_key,
+                scope,
+                lines,
+                content_hash: content_hasher.finish(),
+            };
             let insertion_order = occurrences.len();
-            let occurrence = occurrences
-                .entry(key)
-                .or_insert_with(|| DuplicateOccurrence {
-                    insertion_order,
-                    locations: Vec::new(),
-                });
-            if occurrence.locations.len() < MAX_OCCURRENCES_PER_GROUP {
-                occurrence.locations.push(Location {
-                    path: path.to_owned(),
-                    line: lines[start].number,
-                    index: start,
-                });
+            let location = Location {
+                path,
+                line: lines[0].number,
+                index: start,
+            };
+            match occurrences.entry(key) {
+                Entry::Vacant(entry) => {
+                    entry.insert(DuplicateOccurrence {
+                        insertion_order,
+                        first: location,
+                        additional_locations: Vec::new(),
+                    });
+                }
+                Entry::Occupied(mut entry) => {
+                    let occurrence = entry.get_mut();
+                    if occurrence.additional_locations.len() < MAX_OCCURRENCES_PER_GROUP - 1 {
+                        occurrence.additional_locations.push(location);
+                    }
+                }
             }
         }
     }
-    normalized_by_path.insert(path.to_owned(), lines);
+    occurrences
 }
 
-fn duplicate_language_key(path: &str) -> String {
-    let extension = Path::new(path)
+fn duplicate_language_key(path: &str) -> Option<&str> {
+    Path::new(path)
         .extension()
         .and_then(|value| value.to_str())
-        .map_or_else(String::new, |value| format!(".{value}"));
-    if extension == ".luau" {
-        ".lua".to_owned()
-    } else {
-        extension
-    }
+        .map(|extension| {
+            if extension == "luau" {
+                "lua"
+            } else {
+                extension
+            }
+        })
 }
 
 fn mechanical_shell_completion(path: &str, source: &str) -> bool {
@@ -199,39 +243,21 @@ fn ambient_declaration_module(path: &str) -> bool {
         .any(|suffix| path.ends_with(suffix))
 }
 
-fn duplicate_window_key(language_key: &str, scope: &str, lines: &[NormalizedLine]) -> String {
-    let mut key = String::with_capacity(
-        language_key.len()
-            + scope.len()
-            + 2
-            + lines.iter().map(|line| line.text.len() + 1).sum::<usize>(),
-    );
-    key.push_str(language_key);
-    key.push('\n');
-    key.push_str(scope);
-    key.push('\n');
-    for (offset, line) in lines.iter().enumerate() {
-        if offset > 0 {
-            key.push('\n');
-        }
-        key.push_str(&line.text);
-    }
-    key
-}
-
 fn ordered_duplicate_candidates(
-    occurrences: DuplicateOccurrences,
-) -> Vec<(usize, String, Vec<Location>)> {
+    occurrences: DuplicateOccurrences<'_>,
+) -> Vec<(usize, DuplicateWindow<'_>, Vec<Location<'_>>)> {
     let mut candidates = occurrences
         .into_iter()
-        .filter(|(_, occurrence)| occurrence.locations.len() > 1)
-        .map(|(key, occurrence)| (occurrence.insertion_order, key, occurrence.locations))
+        .filter(|(_, occurrence)| !occurrence.additional_locations.is_empty())
+        .map(|(key, occurrence)| {
+            let mut locations = occurrence.additional_locations;
+            locations.insert(0, occurrence.first);
+            (occurrence.insertion_order, key, locations)
+        })
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| {
-        let left_earliest =
-            earliest(&left.2).map(|location| (location.path.as_str(), location.line));
-        let right_earliest =
-            earliest(&right.2).map(|location| (location.path.as_str(), location.line));
+        let left_earliest = earliest(&left.2).map(|location| (location.path, location.line));
+        let right_earliest = earliest(&right.2).map(|location| (location.path, location.line));
         left_earliest
             .cmp(&right_earliest)
             .then_with(|| left.0.cmp(&right.0))
@@ -239,13 +265,13 @@ fn ordered_duplicate_candidates(
     candidates
 }
 
-fn select_duplicate_locations(
-    candidate_locations: Vec<Location>,
+fn select_duplicate_locations<'a>(
+    candidate_locations: Vec<Location<'a>>,
     window: usize,
     sources: &BTreeMap<String, String>,
-    normalized_by_path: &NormalizedSources,
-    occupied: &BTreeMap<String, Vec<LineRange>>,
-) -> Option<Vec<Location>> {
+    normalized_by_path: &NormalizedSources<'_>,
+    occupied: &BTreeMap<&str, Vec<LineRange>>,
+) -> Option<Vec<Location<'a>>> {
     let mut ordered_locations = candidate_locations
         .into_iter()
         .collect::<HashSet<_>>()
@@ -253,10 +279,10 @@ fn select_duplicate_locations(
         .collect::<Vec<_>>();
     ordered_locations.sort_by(|left, right| {
         left.path
-            .cmp(&right.path)
+            .cmp(right.path)
             .then_with(|| left.line.cmp(&right.line))
     });
-    let mut locations: Vec<Location> = Vec::new();
+    let mut locations: Vec<Location<'_>> = Vec::new();
     for location in ordered_locations {
         if locations.iter().any(|selected| {
             selected.path == location.path && selected.index.abs_diff(location.index) < window
@@ -270,18 +296,18 @@ fn select_duplicate_locations(
     }
     if locations.len() == 2
         && mutually_exclusive_go_builds(
-            &locations[0].path,
-            &sources[&locations[0].path],
-            &locations[1].path,
-            &sources[&locations[1].path],
+            locations[0].path,
+            &sources[locations[0].path],
+            locations[1].path,
+            &sources[locations[1].path],
         )
     {
         return None;
     }
     if locations.iter().any(|location| {
-        let lines = &normalized_by_path[&location.path];
+        let lines = &normalized_by_path[location.path];
         overlaps(
-            occupied.get(&location.path).map_or(&[], Vec::as_slice),
+            occupied.get(location.path).map_or(&[], Vec::as_slice),
             LineRange {
                 start: lines[location.index].number,
                 end: lines[location.index + window - 1].number,
@@ -294,38 +320,34 @@ fn select_duplicate_locations(
 }
 
 fn duplicate_span_extensions(
-    locations: &[Location],
+    locations: &[Location<'_>],
     window: usize,
-    normalized_by_path: &NormalizedSources,
+    normalized_by_path: &NormalizedSources<'_>,
 ) -> (usize, usize) {
+    let first = &locations[0];
     let mut backward = 0;
     while locations.iter().all(|location| location.index > backward) {
-        let previous = locations
-            .iter()
-            .map(|location| {
-                normalized_by_path[&location.path][location.index - backward - 1]
-                    .text
-                    .as_str()
-            })
-            .collect::<BTreeSet<_>>();
-        if previous.len() != 1 {
+        let previous = normalized_by_path[first.path][first.index - backward - 1]
+            .text
+            .as_ref();
+        if !locations.iter().skip(1).all(|location| {
+            normalized_by_path[location.path][location.index - backward - 1].text == previous
+        }) {
             break;
         }
         backward += 1;
     }
     let mut forward = 0;
-    while locations.iter().all(|location| {
-        location.index + window + forward < normalized_by_path[&location.path].len()
-    }) {
-        let next = locations
-            .iter()
-            .map(|location| {
-                normalized_by_path[&location.path][location.index + window + forward]
-                    .text
-                    .as_str()
-            })
-            .collect::<BTreeSet<_>>();
-        if next.len() != 1 {
+    while locations
+        .iter()
+        .all(|location| location.index + window + forward < normalized_by_path[location.path].len())
+    {
+        let next = normalized_by_path[first.path][first.index + window + forward]
+            .text
+            .as_ref();
+        if !locations.iter().skip(1).all(|location| {
+            normalized_by_path[location.path][location.index + window + forward].text == next
+        }) {
             break;
         }
         forward += 1;
@@ -333,21 +355,21 @@ fn duplicate_span_extensions(
     (backward, forward)
 }
 
-fn duplicate_spans(
-    locations: &[Location],
+fn duplicate_spans<'a>(
+    locations: &[Location<'a>],
     window: usize,
     backward: usize,
     forward: usize,
-    normalized_by_path: &NormalizedSources,
-) -> Vec<DuplicateSpan> {
+    normalized_by_path: &NormalizedSources<'_>,
+) -> Vec<DuplicateSpan<'a>> {
     locations
         .iter()
         .map(|location| {
-            let lines = &normalized_by_path[&location.path];
+            let lines = &normalized_by_path[location.path];
             let start_index = location.index - backward;
             let end_index = location.index + window + forward - 1;
             DuplicateSpan {
-                path: location.path.clone(),
+                path: location.path,
                 start_line: lines[start_index].number,
                 end_line: lines[end_index].number,
                 start_index,
@@ -357,7 +379,7 @@ fn duplicate_spans(
         .collect()
 }
 
-fn spans_overlap_each_other(spans: &[DuplicateSpan]) -> bool {
+fn spans_overlap_each_other(spans: &[DuplicateSpan<'_>]) -> bool {
     spans.iter().enumerate().any(|(index, left)| {
         spans[index + 1..].iter().any(|right| {
             left.path == right.path
@@ -368,12 +390,12 @@ fn spans_overlap_each_other(spans: &[DuplicateSpan]) -> bool {
 }
 
 fn spans_overlap_occupied(
-    spans: &[DuplicateSpan],
-    occupied: &BTreeMap<String, Vec<LineRange>>,
+    spans: &[DuplicateSpan<'_>],
+    occupied: &BTreeMap<&str, Vec<LineRange>>,
 ) -> bool {
     spans.iter().any(|span| {
         overlaps(
-            occupied.get(&span.path).map_or(&[], Vec::as_slice),
+            occupied.get(span.path).map_or(&[], Vec::as_slice),
             LineRange {
                 start: span.start_line,
                 end: span.end_line,
@@ -383,14 +405,15 @@ fn spans_overlap_occupied(
 }
 
 fn duplicate_finding(
-    candidate_key: &str,
-    spans: &[DuplicateSpan],
+    language_key: Option<&str>,
+    spans: &[DuplicateSpan<'_>],
     maximal_lines: &[&str],
 ) -> Finding {
-    let language_key = candidate_key
-        .split_once('\n')
-        .map_or(candidate_key, |(key, _)| key);
-    let mut fingerprint_material = String::from(language_key);
+    let mut fingerprint_material = String::new();
+    if let Some(extension) = language_key {
+        fingerprint_material.push('.');
+        fingerprint_material.push_str(extension);
+    }
     fingerprint_material.push('\n');
     fingerprint_material.push_str(&maximal_lines.join("\n"));
     let digest = Sha256::digest(fingerprint_material.as_bytes());
@@ -405,7 +428,7 @@ fn duplicate_finding(
     Finding {
         code: "duplicate-block".to_owned(),
         severity: Severity::Warn,
-        path: first.path.clone(),
+        path: first.path.to_owned(),
         line: first.start_line,
         end_line: first.end_line,
         message: format!(
@@ -425,9 +448,9 @@ fn duplicate_finding(
     }
 }
 
-fn occupy_duplicate_spans(
-    spans: Vec<DuplicateSpan>,
-    occupied: &mut BTreeMap<String, Vec<LineRange>>,
+fn occupy_duplicate_spans<'a>(
+    spans: Vec<DuplicateSpan<'a>>,
+    occupied: &mut BTreeMap<&'a str, Vec<LineRange>>,
 ) {
     for span in spans {
         occupied.entry(span.path).or_default().push(LineRange {
@@ -646,10 +669,10 @@ fn condition_source(value: &str) -> String {
     result.trim().to_owned()
 }
 
-fn earliest(locations: &[Location]) -> Option<&Location> {
+fn earliest<'a, 'path>(locations: &'a [Location<'path>]) -> Option<&'a Location<'path>> {
     locations.iter().min_by(|left, right| {
         left.path
-            .cmp(&right.path)
+            .cmp(right.path)
             .then_with(|| left.line.cmp(&right.line))
     })
 }
@@ -687,7 +710,7 @@ impl NormalizationExclusions<'_> {
             return LineTreatment::Skip;
         }
         if self.rust_masked_lines.is_some_and(|lines| {
-            normalize_line(lines[index]).is_empty() && !normalize_line(raw_line).is_empty()
+            excluded_trimmed_line(lines[index].trim()) && !excluded_trimmed_line(raw_line.trim())
         }) {
             return LineTreatment::Unique(format!(
                 "__code_buster_rust_literal__{}:{number}",
@@ -724,11 +747,11 @@ impl NormalizationPolicy {
         }
     }
 
-    fn normalize(
+    fn normalize<'a>(
         &self,
-        raw_line: &str,
+        raw_line: &'a str,
         comment_state: &mut CommentNormalizationState,
-    ) -> Option<String> {
+    ) -> Option<Cow<'a, str>> {
         if self.python
             && masks_python_standalone_string(raw_line, &mut comment_state.python_triple_quote)
         {
@@ -737,15 +760,15 @@ impl NormalizationPolicy {
         if self.hash_comments && raw_line.trim_start().starts_with('#') {
             return None;
         }
-        let mut line = raw_line.to_owned();
+        let mut line = Cow::Borrowed(raw_line);
         if self.lua_comments {
-            line = without_lua_long_comments(&line, &mut comment_state.lua_end);
+            line = without_lua_long_comments(line, &mut comment_state.lua_end);
         }
         if self.html_comments {
             line = without_html_comments(line, &mut comment_state.in_html_comment)?;
         }
         line = without_block_comments(line, &mut comment_state.in_block_comment)?;
-        let normalized = normalize_line(&line);
+        let normalized = normalize_line(line);
         (!normalized.is_empty()).then_some(normalized)
     }
 }
@@ -787,41 +810,63 @@ fn masks_python_standalone_string(line: &str, active_delimiter: &mut Option<&'st
     true
 }
 
-fn without_block_comments(mut line: String, in_block_comment: &mut bool) -> Option<String> {
+fn without_block_comments<'a>(
+    mut line: Cow<'a, str>,
+    in_block_comment: &mut bool,
+) -> Option<Cow<'a, str>> {
     if *in_block_comment {
         let end = line.find("*/")?;
-        line = line[end + 2..].to_owned();
+        let length = line.len();
+        line = slice_line(line, end + 2, length);
         *in_block_comment = false;
     }
     if let Some(comment_start) = line.find("/*") {
         if let Some(relative_end) = line[comment_start + 2..].find("*/") {
             let comment_end = comment_start + 2 + relative_end;
-            line = format!("{} {}", &line[..comment_start], &line[comment_end + 2..]);
+            line.to_mut()
+                .replace_range(comment_start..comment_end + 2, " ");
         } else {
-            line.truncate(comment_start);
+            line = slice_line(line, 0, comment_start);
             *in_block_comment = true;
         }
     }
     Some(line)
 }
 
-fn without_html_comments(mut line: String, in_comment: &mut bool) -> Option<String> {
+fn without_html_comments<'a>(
+    mut line: Cow<'a, str>,
+    in_comment: &mut bool,
+) -> Option<Cow<'a, str>> {
     if *in_comment {
         let end = line.find("-->")?;
-        line = line[end + 3..].to_owned();
+        let length = line.len();
+        line = slice_line(line, end + 3, length);
         *in_comment = false;
     }
     while let Some(start) = line.find("<!--") {
         if let Some(relative_end) = line[start + 4..].find("-->") {
             let end = start + 4 + relative_end;
-            line.replace_range(start..end + 3, " ");
+            line.to_mut().replace_range(start..end + 3, " ");
         } else {
-            line.truncate(start);
+            line = slice_line(line, 0, start);
             *in_comment = true;
             break;
         }
     }
     Some(line)
+}
+
+fn slice_line(line: Cow<'_, str>, start: usize, end: usize) -> Cow<'_, str> {
+    match line {
+        Cow::Borrowed(line) => Cow::Borrowed(&line[start..end]),
+        Cow::Owned(mut line) => {
+            line.truncate(end);
+            if start != 0 {
+                line.replace_range(..start, "");
+            }
+            Cow::Owned(line)
+        }
+    }
 }
 
 fn is_shell_shebang(line: &str) -> bool {
@@ -831,7 +876,7 @@ fn is_shell_shebang(line: &str) -> bool {
             .any(|shell| line.split(['/', ' ', '\t']).any(|part| part == *shell))
 }
 
-fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
+fn normalized_lines<'a>(source: &'a str, source_path: &str) -> Vec<NormalizedLine<'a>> {
     let raw_lines: Vec<&str> = source.split('\n').collect();
     let dart_forwarding = dart_forwarding_constructor_lines(&raw_lines, source_path);
     let python_declarations = python_declaration_lines(source, source_path);
@@ -855,10 +900,10 @@ fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
     let policy = NormalizationPolicy::for_source(source_path, source);
     let mut comment_state = CommentNormalizationState::default();
     let mut result = Vec::new();
-    for (index, raw_line) in raw_lines.iter().enumerate() {
+    for (index, raw_line) in raw_lines.iter().copied().enumerate() {
         let text = match exclusions.line_treatment(index, raw_line) {
             LineTreatment::Skip => continue,
-            LineTreatment::Unique(text) => text,
+            LineTreatment::Unique(text) => Cow::Owned(text),
             LineTreatment::Normalize => {
                 let Some(text) = policy.normalize(raw_line, &mut comment_state) else {
                     continue;
@@ -875,20 +920,51 @@ fn normalized_lines(source: &str, source_path: &str) -> Vec<NormalizedLine> {
     result
 }
 
-fn normalize_line(line: &str) -> String {
-    let normalized = WHITESPACE.replace_all(line.trim(), " ").into_owned();
-    if normalized.is_empty()
-        || normalized.starts_with("--")
-        || normalized.starts_with("//")
-        || normalized.starts_with("using ")
-        || normalized.starts_with("namespace ")
-        || normalized.starts_with("#nullable")
-        || normalized.starts_with("#pragma")
-        || ["{", "}", "{}"].contains(&normalized.as_str())
-    {
-        String::new()
-    } else {
-        normalized
+fn normalize_line(line: Cow<'_, str>) -> Cow<'_, str> {
+    let end = line.trim_end().len();
+    let start = end - line[..end].trim_start().len();
+    if excluded_trimmed_line(&line[start..end]) {
+        return Cow::Borrowed("");
+    }
+    let line = slice_line(line, start, end);
+    // Only bypass the Unicode regex when every whitespace run is already one ASCII space.
+    let mut previous_space = false;
+    let canonical_ascii = line.bytes().all(|byte| {
+        let canonical =
+            byte.is_ascii() && !matches!(byte, b'\t'..=b'\r') && !(byte == b' ' && previous_space);
+        previous_space = byte == b' ';
+        canonical
+    });
+    if canonical_ascii {
+        return line;
+    }
+    match WHITESPACE.replace_all(&line, " ") {
+        Cow::Borrowed(_) => line,
+        Cow::Owned(normalized) => Cow::Owned(normalized),
+    }
+}
+
+fn excluded_trimmed_line(line: &str) -> bool {
+    line.is_empty()
+        || line.starts_with("--")
+        || line.starts_with("//")
+        || starts_with_spaced_keyword(line, "using")
+        || starts_with_spaced_keyword(line, "namespace")
+        || line.starts_with("#nullable")
+        || line.starts_with("#pragma")
+        || ["{", "}", "{}"].contains(&line)
+}
+
+fn starts_with_spaced_keyword(line: &str, keyword: &str) -> bool {
+    let Some(rest) = line.strip_prefix(keyword) else {
+        return false;
+    };
+    match rest.as_bytes().first() {
+        Some(b' ' | b'\t'..=b'\r') => true,
+        Some(byte) if !byte.is_ascii() => WHITESPACE
+            .find(rest)
+            .is_some_and(|matched| matched.start() == 0),
+        _ => false,
     }
 }
 
@@ -1147,14 +1223,17 @@ fn split_parameters(parameters: &str) -> Vec<String> {
     result
 }
 
-fn without_lua_long_comments(line: &str, state: &mut Option<String>) -> String {
-    let mut result = line.to_owned();
+fn without_lua_long_comments<'a>(
+    mut result: Cow<'a, str>,
+    state: &mut Option<String>,
+) -> Cow<'a, str> {
     let mut search_from = 0;
     if let Some(end_marker) = state.as_ref() {
         let Some(end) = result.find(end_marker) else {
-            return String::new();
+            return Cow::Borrowed("");
         };
-        result = result[end + end_marker.len()..].to_owned();
+        let length = result.len();
+        result = slice_line(result, end + end_marker.len(), length);
         *state = None;
     }
     loop {
@@ -1172,10 +1251,12 @@ fn without_lua_long_comments(line: &str, state: &mut Option<String>) -> String {
         let content_start = search_from + matched.end();
         if let Some(relative_end) = result[content_start..].find(&end_marker) {
             let end_index = content_start + relative_end;
-            result.replace_range(start_index..end_index + end_marker.len(), "");
+            result
+                .to_mut()
+                .replace_range(start_index..end_index + end_marker.len(), "");
             search_from = start_index;
         } else {
-            result.truncate(start_index);
+            result = slice_line(result, 0, start_index);
             *state = Some(end_marker);
             return result;
         }
@@ -1415,6 +1496,237 @@ mod tests {
     }
 
     #[test]
+    fn retains_separate_duplicate_groups_across_many_distinct_windows() {
+        let head = "prepare_head(state);\nvalidate_head(state);\npersist_head(state);\n";
+        let tail = "prepare_tail(state);\nvalidate_tail(state);\npersist_tail(state);\n";
+        let left = (0..256)
+            .map(|index| format!("left_{index}(state);\n"))
+            .collect::<String>();
+        let right = (0..256)
+            .map(|index| format!("right_{index}(state);\n"))
+            .collect::<String>();
+        let sources = BTreeMap::from([
+            ("a.ts".to_owned(), format!("{head}{left}{tail}")),
+            (
+                "b.ts".to_owned(),
+                format!("boundary_b();\n{head}{right}{tail}finish_b();\n"),
+            ),
+        ]);
+
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(exact_group_count(&sources, 3), 2);
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (
+                    finding.code.as_str(),
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.end_line,
+                    finding.related_files.clone(),
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("duplicate-block", "a.ts", 1, 3, vec!["b.ts:2-4".to_owned()]),
+                (
+                    "duplicate-block",
+                    "a.ts",
+                    260,
+                    262,
+                    vec!["b.ts:261-263".to_owned()],
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_unicode_whitespace_exclusions_and_crlf_duplicate_boundaries() {
+        let block =
+            "usingValue(input, state);\nnamespaceValue(ready, state);\npersist(café, state);";
+        for whitespace in [
+            " ", "  ", "\t", "\u{b}", "\u{c}", "\r", "\u{85}", "\u{a0}", "\u{1680}", "\u{2000}",
+            "\u{2001}", "\u{2002}", "\u{2003}", "\u{2004}", "\u{2005}", "\u{2006}", "\u{2007}",
+            "\u{2008}", "\u{2009}", "\u{200a}", "\u{2028}", "\u{2029}", "\u{202f}", "\u{205f}",
+            "\u{3000}", " \t ",
+        ] {
+            let body = block
+                .replace(", ", &format!(",{whitespace}"))
+                .lines()
+                .map(|line| format!("\u{3000}{line} \t"))
+                .collect::<Vec<_>>()
+                .join("\r\n");
+            let sources = BTreeMap::from([
+                ("a.cs".to_owned(), block.to_owned()),
+                (
+                    "b.cs".to_owned(),
+                    format!(
+                        "\u{2003}using{whitespace}Example; \r\n\tnamespace{whitespace}Example;\r\n{body}\r\n"
+                    ),
+                ),
+            ]);
+
+            let findings = exact_findings(&sources, 3);
+            assert_eq!(exact_group_count(&sources, 3), 1, "{whitespace:?}");
+            assert_eq!(findings.len(), 1, "{whitespace:?}");
+            assert_eq!(findings[0].path, "a.cs");
+            assert_eq!((findings[0].line, findings[0].end_line), (1, 3));
+            assert_eq!(findings[0].related_files, ["b.cs:3-5"]);
+            assert_eq!(
+                findings[0].snippet,
+                block
+                    .lines()
+                    .map(|line| format!("    {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            let digest = <sha2::Sha256 as sha2::Digest>::digest(format!(".cs\n{block}"));
+            assert_eq!(
+                findings[0]
+                    .message
+                    .rsplit_once("fingerprint=")
+                    .map(|(_, fingerprint)| fingerprint),
+                Some(&format!("{digest:X}")[..12])
+            );
+        }
+
+        for non_whitespace in ["\u{1c}", "\u{200b}", "\u{feff}"] {
+            let sources = BTreeMap::from([
+                ("a.cs".to_owned(), block.to_owned()),
+                ("b.cs".to_owned(), block.replace(' ', non_whitespace)),
+            ]);
+            assert!(exact_findings(&sources, 3).is_empty(), "{non_whitespace:?}");
+        }
+    }
+
+    #[test]
+    fn preserves_continued_comment_trimming_and_duplicate_fingerprints() {
+        for (extension, source, block) in [
+            (
+                "ts",
+                "/* first\r\ncontinued\r\n*/\tprepare();\r\nvalidate(); /* inline */\r\npersist(); /* tail\r\ncontinued\r\n*/\r\n",
+                "prepare();\nvalidate();\npersist();",
+            ),
+            (
+                "html",
+                "<!-- first\r\ncontinued\r\n-->\t<prepare />\r\n<validate /><!-- one --><!-- two -->\r\n<persist /><!-- tail\r\ncontinued\r\n-->\r\n",
+                "<prepare />\n<validate />\n<persist />",
+            ),
+            (
+                "lua",
+                "--[=[ first\r\ncontinued\r\n]=]\tprepare()\r\nval--[[inline]]idate()\r\npersist()--[==[ tail\r\ncontinued\r\n]==]\r\n",
+                "prepare()\nvalidate()\npersist()",
+            ),
+        ] {
+            let sources = BTreeMap::from([
+                (format!("a.{extension}"), source.to_owned()),
+                (format!("b.{extension}"), format!("\n{block}\n")),
+            ]);
+
+            let findings = exact_findings(&sources, 3);
+            assert_eq!(exact_group_count(&sources, 3), 1, "{extension}");
+            assert_eq!(findings.len(), 1, "{extension}");
+            assert_eq!(findings[0].path, format!("a.{extension}"));
+            assert_eq!((findings[0].line, findings[0].end_line), (3, 5));
+            assert_eq!(findings[0].related_files, [format!("b.{extension}:2-4")]);
+            let digest = <sha2::Sha256 as sha2::Digest>::digest(format!(".{extension}\n{block}"));
+            assert_eq!(
+                findings[0]
+                    .message
+                    .rsplit_once("fingerprint=")
+                    .map(|(_, fingerprint)| fingerprint),
+                Some(&format!("{digest:X}")[..12])
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_rust_exclusions_inside_continued_comments() {
+        let block = "prepare();\nvalidate();\npersist();";
+        let sources = BTreeMap::from([
+            (
+                "a.rs".to_owned(),
+                "prepare(); /* first\r\nusing\u{b}Example;\r\nnamespace\u{2003}Example;\r\n#nullable hidden\r\n{}\r\n\u{3000}\r\n*/ validate();\r\npersist();\r\n".to_owned(),
+            ),
+            ("b.rs".to_owned(), format!("\n{block}\n")),
+        ]);
+
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(exact_group_count(&sources, 3), 1);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "a.rs");
+        assert_eq!((findings[0].line, findings[0].end_line), (1, 8));
+        assert_eq!(findings[0].related_files, ["b.rs:2-4"]);
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(format!(".rs\n{block}"));
+        assert_eq!(
+            findings[0]
+                .message
+                .rsplit_once("fingerprint=")
+                .map(|(_, fingerprint)| fingerprint),
+            Some(&format!("{digest:X}")[..12])
+        );
+    }
+
+    #[test]
+    fn matches_normalized_text_across_lua_aliases_but_not_other_languages() {
+        let block = "prepare()\nvalidate()\npersist()\n";
+        let sources = BTreeMap::from([
+            ("a.lua".to_owned(), format!("-- leading comment\n{block}")),
+            (
+                "b.luau".to_owned(),
+                "\n-- another comment\n\n prepare() \n\tvalidate()\npersist()\n".to_owned(),
+            ),
+            ("c.py".to_owned(), block.to_owned()),
+            (
+                "d.lua".to_owned(),
+                "prepare()\nvalidate()\nfinish()\n".to_owned(),
+            ),
+        ]);
+
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(exact_group_count(&sources, 3), 1);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "duplicate-block");
+        assert_eq!(findings[0].path, "a.lua");
+        assert_eq!((findings[0].line, findings[0].end_line), (2, 4));
+        assert_eq!(findings[0].related_files, ["b.luau:4-6"]);
+        assert_eq!(
+            findings[0].snippet,
+            "    prepare()\n    validate()\n    persist()"
+        );
+        let digest =
+            <sha2::Sha256 as sha2::Digest>::digest(b".lua\nprepare()\nvalidate()\npersist()");
+        assert_eq!(
+            findings[0].message,
+            format!(
+                "duplicate block of 3 lines fingerprint={}",
+                &format!("{digest:X}")[..12]
+            )
+        );
+    }
+
+    #[test]
+    fn matches_normalized_text_with_different_declaration_metadata() {
+        let fields = "    first: Prepared,\n    second: Checked,\n    third: Saved,\n";
+        let sources = BTreeMap::from([
+            (
+                "a.rs".to_owned(),
+                format!("fn envelope() -> Envelope {{\n    Envelope {{\n{fields}    }}\n}}\n"),
+            ),
+            (
+                "z.rs".to_owned(),
+                format!("struct Envelope {{\n{fields}}}\n"),
+            ),
+        ]);
+
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(exact_group_count(&sources, 3), 1);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "a.rs");
+        assert_eq!((findings[0].line, findings[0].end_line), (3, 5));
+        assert_eq!(findings[0].related_files, ["z.rs:2-4"]);
+    }
+
+    #[test]
     fn ignores_shell_and_html_comment_headers() {
         let shell_license =
             "#!/bin/sh\n# shared license one\n# shared license two\n# shared license three\n";
@@ -1603,6 +1915,32 @@ mod tests {
                 .message
                 .starts_with("duplicate block of 4 lines")
         );
+    }
+
+    #[test]
+    fn limits_maximal_extension_to_text_shared_by_every_occurrence() {
+        let shared = "one();\ntwo();\nthree();\n";
+        let sources = BTreeMap::from([
+            (
+                "a.rs".to_owned(),
+                format!("before_a();\n{shared}shared_tail();\n"),
+            ),
+            (
+                "b.rs".to_owned(),
+                format!("before_b();\n{shared}shared_tail();\n"),
+            ),
+            (
+                "c.rs".to_owned(),
+                format!("before_c();\n{shared}different_tail();\n"),
+            ),
+        ]);
+
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(exact_group_count(&sources, 3), 1);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "a.rs");
+        assert_eq!((findings[0].line, findings[0].end_line), (2, 4));
+        assert_eq!(findings[0].related_files, ["b.rs:2-4", "c.rs:2-4"]);
     }
 
     #[test]
@@ -1880,7 +2218,13 @@ fn third(user: User) {
             sources.insert(format!("{index:02}_b.rs"), block);
         }
         assert_eq!(exact_group_count(&sources, 3), 50);
-        assert_eq!(exact_findings(&sources, 3).len(), 50);
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(findings.len(), 50);
+        for (index, finding) in findings.iter().enumerate() {
+            assert_eq!(finding.path, format!("{index:02}_a.rs"));
+            assert_eq!((finding.line, finding.end_line), (1, 3));
+            assert_eq!(finding.related_files, [format!("{index:02}_b.rs:1-3")]);
+        }
 
         let sources = (0..40)
             .map(|index| {
@@ -1894,8 +2238,10 @@ fn third(user: User) {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].related_files.len(), 31);
         assert_eq!(
-            findings[0].related_files.last().map(String::as_str),
-            Some("31.rs:1-3")
+            findings[0].related_files,
+            (1..32)
+                .map(|index| format!("{index:02}.rs:1-3"))
+                .collect::<Vec<_>>()
         );
     }
 }

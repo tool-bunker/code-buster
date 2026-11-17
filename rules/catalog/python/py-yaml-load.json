@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "This scripting construct can weaken correctness, security, or runtime performance.",
   "suggestion": "Use the safer explicit pattern described by the rule.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -28,5 +28,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Recognizes explicit SafeLoader use and local YAML instances constructed with typ='safe' or typ='rt'; round-trip loading does not construct arbitrary Python objects by default.",
+    "Custom loader factories and cross-module constructor configuration are not resolved."
+  ]
 }

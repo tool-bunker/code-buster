@@ -210,6 +210,84 @@ void fixture() {
         );
         assert_eq!(functions[0].end_line, 4);
     }
+
+    #[test]
+    fn preserves_rust_contract_scopes_and_crlf_coordinates() {
+        let source = r###"fn before() {
+    let text = r##"café } trait Hidden {
+fn fake() {}"##;
+}
+trait Api {
+    fn provided() {
+        fn local() {}
+    }
+    fn sibling() {}
+}
+impl Api for Engine {
+    fn required() {}
+}
+impl Engine {
+    fn inherent() {}
+}
+#[pyo3::pymethods]
+impl Bridge {
+    fn exported() {
+        fn local_export() {}
+    }
+    fn exported_sibling() {}
+}
+#[cfg(test)]
+mod tests {
+    fn hidden() {}
+}
+fn after() {}"###
+            .replace('\n', "\r\n");
+        let functions = extract(&BTreeMap::from([("src/lib.rs".to_owned(), source)]));
+
+        assert_eq!(
+            functions
+                .iter()
+                .map(|function| (
+                    function.name.as_str(),
+                    function.line,
+                    function.end_line,
+                    function.contract_signature,
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("before", 1, 4, false),
+                ("provided", 6, 8, true),
+                ("local", 7, 7, false),
+                ("sibling", 9, 9, true),
+                ("required", 12, 12, true),
+                ("inherent", 15, 15, false),
+                ("exported", 19, 21, true),
+                ("local_export", 20, 20, false),
+                ("exported_sibling", 22, 22, true),
+                ("after", 28, 28, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_rust_extraction_after_skipped_and_incomplete_functions() {
+        let source = "}\r\nfn before() {}\r\n#[cfg(test)]\r\nfn ignored() {}\r\n\
+                      fn incomplete() {\r\n    fn nested() {}\r\n";
+        let functions = extract(&BTreeMap::from([("src/lib.rs".to_owned(), source.to_owned())]));
+
+        assert_eq!(
+            functions
+                .iter()
+                .map(|function| (
+                    function.name.as_str(),
+                    function.line,
+                    function.end_line,
+                    function.contract_signature,
+                ))
+                .collect::<Vec<_>>(),
+            [("before", 2, 2, false), ("nested", 6, 6, false)]
+        );
+    }
     #[test]
     fn extracts_go_functions_with_interface_parameters() {
         let functions = extract(&BTreeMap::from([(

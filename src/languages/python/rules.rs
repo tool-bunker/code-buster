@@ -1,7 +1,9 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 use std::sync::LazyLock;
 
+use rayon::prelude::*;
 use regex::Regex;
 use toml::Value;
 
@@ -16,37 +18,89 @@ use crate::source_analysis_context::SourceAnalysisContext;
 #[cfg(test)]
 pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     let functions = function_sources::extract(context.sources());
-    analyze_with_functions(context, &functions)
+    analyze_with_functions(context, &functions, None)
 }
 
 pub fn analyze_with_functions(
     context: &SourceAnalysisContext<'_>,
     functions: &[FunctionSource],
+    selected_rule: Option<&str>,
 ) -> Vec<Finding> {
-    let policy = python_project_policy(context);
-    let mut findings = object_soup_rules::python(functions);
-    for (path, source) in context
+    let mut policy = python_project_policy(context);
+    if let Some(selected) = selected_rule {
+        policy.disabled.extend(
+            rule_catalog::RULE_METADATA
+                .iter()
+                .filter(|rule| rule.packs.contains(&"python") && rule.id != selected)
+                .map(|rule| rule.id),
+        );
+    }
+    let sources = context
         .sources()
         .iter()
         .filter(|(path, _)| path.ends_with(".py"))
+        .collect::<Vec<_>>();
+    policy.collect_mock_facts = !policy.disabled.contains("py-test-mocked-target-wrong")
+        && sources.iter().any(|(path, _)| is_test_path(path));
+    let mut findings = if policy.disabled.contains("py-object-soup")
+        && policy.disabled.contains("py-repeated-dictionary-shape")
     {
-        analyze_source(path, source, &policy, &mut findings);
+        Vec::new()
+    } else {
+        object_soup_rules::python(functions)
+    };
+    // Indexed collection preserves source order independently of worker scheduling.
+    // Only per-file state runs concurrently; repository-wide matching stays below.
+    let results = if sources.len() > 1 {
+        sources
+            .par_iter()
+            .map(|(path, source)| analyze_source(path, source, &policy))
+            .collect::<Vec<_>>()
+    } else {
+        sources
+            .iter()
+            .map(|(path, source)| analyze_source(path, source, &policy))
+            .collect()
+    };
+    let mut imported_symbols = Vec::new();
+    let mut mock_targets = Vec::new();
+    for result in results {
+        findings.extend(result.findings);
+        imported_symbols.extend(result.imported_symbols);
+        mock_targets.extend(result.mock_targets);
     }
-    analyze_mock_targets(context.sources(), &policy.disabled, &mut findings);
+    analyze_mock_targets(
+        &mock_targets,
+        &imported_symbols,
+        &policy.disabled,
+        &mut findings,
+    );
     findings
 }
 
-fn analyze_source(
-    path: &str,
-    source: &str,
-    policy: &PythonProjectPolicy,
-    findings: &mut Vec<Finding>,
-) {
+#[derive(Default)]
+struct PythonFileAnalysis {
+    findings: Vec<Finding>,
+    imported_symbols: Vec<ImportedPythonSymbol>,
+    mock_targets: Option<PythonMockTargets>,
+}
+
+fn analyze_source(path: &str, source: &str, policy: &PythonProjectPolicy) -> PythonFileAnalysis {
+    let mut analysis = PythonFileAnalysis::default();
+    let findings = &mut analysis.findings;
     let lines = source.split('\n').collect::<Vec<_>>();
-    let monkey_patch_replacements = monkey_patch_replacements(&lines);
+    let monkey_patch_replacements = if policy.disabled.contains("py-function-naming") {
+        BTreeSet::new()
+    } else {
+        monkey_patch_replacements(&lines)
+    };
     let mut state = PythonScanState::default();
     let mut sanitized = Vec::with_capacity(lines.len());
     let mut expression_continuations = Vec::with_capacity(lines.len());
+    let mut declarations = Vec::new();
+    let mut mock_code = policy
+        .collect_mock_facts
+        .then(|| String::with_capacity(source.len()));
 
     for (index, raw) in lines.iter().enumerate() {
         let current = state.scan(index, raw);
@@ -82,6 +136,13 @@ fn analyze_source(
             findings,
         );
         state.finish(&current);
+        if let Some(name) = &current.function_name {
+            declarations.push((index, name.clone()));
+        }
+        if let Some(code) = &mut mock_code {
+            code.push_str(&current.code);
+            code.push('\n');
+        }
         expression_continuations.push(current.in_expression_continuation);
         sanitized.push(current.stripped);
     }
@@ -90,9 +151,14 @@ fn analyze_source(
         &lines,
         &sanitized,
         &expression_continuations,
+        &declarations,
         &policy.disabled,
         findings,
     );
+    if let Some(code) = mock_code {
+        collect_python_mock_facts(path, &code, &sanitized, &mut analysis);
+    }
+    analysis
 }
 
 struct PythonSourceLines<'a> {
@@ -123,6 +189,8 @@ struct PythonScanState {
     subprocess_timeout_reported: bool,
     eager_logging_reported: bool,
     broad_exception_reported: bool,
+    function_capture_locations: Option<regex::CaptureLocations>,
+    assignment_capture_locations: Option<regex::CaptureLocations>,
 }
 
 impl PythonScanState {
@@ -136,6 +204,17 @@ impl PythonScanState {
         };
         let stripped = strip_quoted_strings(&code);
         let line = stripped.trim();
+        let function_name = if line.starts_with("def") || line.starts_with("async") {
+            let locations = self
+                .function_capture_locations
+                .get_or_insert_with(|| FUNCTION.capture_locations());
+            FUNCTION
+                .captures_read(locations, line)
+                .and_then(|_| locations.get(1))
+                .map(|(start, end)| start..end)
+        } else {
+            None
+        };
         let indent = leading_indent(raw);
         let in_import_continuation = self.import_continuation_depth > 0;
         let in_expression_continuation = self.expression_depth > 0;
@@ -161,17 +240,26 @@ impl PythonScanState {
             in_async_function,
             in_loop,
             saw_code: self.saw_code,
+            function_name,
         }
     }
 
-    fn scan_code(&mut self, raw: &str, starts_in_continued_string: bool) -> String {
+    fn scan_code<'a>(&mut self, raw: &'a str, starts_in_continued_string: bool) -> Cow<'a, str> {
         if starts_in_continued_string {
             self.continued_string_quote =
                 continued_string_quote_after(raw, self.continued_string_quote);
-            return String::new();
+            return Cow::Borrowed("");
         }
 
-        let scanned =
+        // Without an active string or quote/comment bytes, the scanner would
+        // copy this UTF-8 line unchanged and cannot update string state.
+        if self.triple_quoted_string_delimiter.is_none()
+            && !raw.bytes().any(|byte| matches!(byte, b'\'' | b'"' | b'#'))
+        {
+            return Cow::Borrowed(raw);
+        }
+
+        let mut scanned =
             code_outside_triple_quoted_strings(raw, self.triple_quoted_string_delimiter.take());
         self.triple_quoted_string_delimiter = scanned.1;
         self.continued_string_quote = self
@@ -179,7 +267,8 @@ impl PythonScanState {
             .is_none()
             .then(|| continued_string_quote_after(&scanned.0, None))
             .flatten();
-        code_before_comment(&scanned.0).to_owned()
+        scanned.0.truncate(code_before_comment(&scanned.0).len());
+        Cow::Owned(scanned.0)
     }
 
     fn update_type_checking_scope(&mut self, line: &str, indent: usize) {
@@ -247,28 +336,42 @@ impl PythonScanState {
             self.sequence_variable_indents.clear();
             self.variable_assignment_indents.clear();
         }
-        for capture in PYTHON_LIST_DECLARATION.captures_iter(&current.code) {
-            self.list_variables.insert(capture[1].to_owned());
-            self.sequence_variable_indents
-                .insert(capture[1].to_owned(), current.indent);
+        // Every declaration alternative requires an assignment or annotation.
+        // Keep annotations without initializers, including function parameters.
+        if current.code.bytes().any(|byte| matches!(byte, b'=' | b':')) {
+            for capture in PYTHON_LIST_DECLARATION.captures_iter(&current.code) {
+                self.list_variables.insert(capture[1].to_owned());
+                self.sequence_variable_indents
+                    .insert(capture[1].to_owned(), current.indent);
+            }
+            for capture in PYTHON_STRING_DECLARATION.captures_iter(&current.code) {
+                self.string_variables
+                    .insert(capture[1].to_owned(), current.indent);
+            }
+            for capture in PYTHON_IMMUTABLE_SEQUENCE_DECLARATION.captures_iter(&current.code) {
+                self.immutable_sequence_variables
+                    .insert(capture[1].to_owned());
+                self.sequence_variable_indents
+                    .insert(capture[1].to_owned(), current.indent);
+            }
         }
-        for capture in PYTHON_STRING_DECLARATION.captures_iter(&current.code) {
-            self.string_variables
-                .insert(capture[1].to_owned(), current.indent);
-        }
-        for capture in PYTHON_IMMUTABLE_SEQUENCE_DECLARATION.captures_iter(&current.code) {
-            self.immutable_sequence_variables
-                .insert(capture[1].to_owned());
-            self.sequence_variable_indents
-                .insert(capture[1].to_owned(), current.indent);
-        }
-        if !PYTHON_NUMPY_GROW.is_match(current.line())
-            && let Some(capture) = PYTHON_SIMPLE_ASSIGNMENT.captures(current.line())
+        let assignment = {
+            let locations = self
+                .assignment_capture_locations
+                .get_or_insert_with(|| PYTHON_SIMPLE_ASSIGNMENT.capture_locations());
+            PYTHON_SIMPLE_ASSIGNMENT
+                .captures_read(locations, current.line())
+                .and_then(|_| locations.get(1))
+        };
+        if let Some((start, end)) = assignment
+            && !PYTHON_NUMPY_GROW.is_match(current.line())
         {
             self.variable_assignment_indents
-                .insert(capture[1].to_owned(), current.indent);
+                .insert(current.line()[start..end].to_owned(), current.indent);
         }
-        if let Some(capture) = NUMPY_IMPORT.captures(current.line()) {
+        if current.line().starts_with("import")
+            && let Some(capture) = NUMPY_IMPORT.captures(current.line())
+        {
             self.numpy_aliases.insert(
                 capture
                     .get(1)
@@ -289,10 +392,17 @@ impl PythonScanState {
             self.logging_bindings
                 .retain(|name, _| !identifier_token_occurs(line, name));
         }
-        if let Some(import) = STANDARD_LOGGING_IMPORT.captures(line) {
+        if line.starts_with("import")
+            && let Some(import) = STANDARD_LOGGING_IMPORT.captures(line)
+        {
             let name = import.get(1).map_or("logging", |alias| alias.as_str());
             self.logging_bindings
                 .insert(name.to_owned(), (current.indent, true));
+        }
+        // A factory needs an existing module binding, and an assignment cannot
+        // invalidate a binding when none remain after scope/import updates.
+        if self.logging_bindings.is_empty() {
+            return;
         }
         if let Some(assignment) = LOGGING_ASSIGNMENT.captures(line) {
             let name = &assignment[1];
@@ -317,8 +427,7 @@ impl PythonScanState {
         }
         self.update_import_continuation(current);
         let previous_depth = self.expression_depth;
-        self.expression_depth =
-            (previous_depth + bracket_delta(&mask_strings(&current.code))).max(0);
+        self.expression_depth = (previous_depth + bracket_delta(&current.stripped)).max(0);
         if previous_depth == 0 && self.expression_depth > 0 {
             self.expression_start = Some(current.index);
         } else if self.expression_depth == 0 {
@@ -380,7 +489,7 @@ fn is_import(line: &str) -> bool {
 struct PythonLine<'a> {
     index: usize,
     raw: &'a str,
-    code: String,
+    code: Cow<'a, str>,
     stripped: String,
     comment: &'a str,
     indent: usize,
@@ -391,11 +500,18 @@ struct PythonLine<'a> {
     in_async_function: bool,
     in_loop: bool,
     saw_code: bool,
+    function_name: Option<Range<usize>>,
 }
 
 impl PythonLine<'_> {
     fn line(&self) -> &str {
         self.stripped.trim()
+    }
+
+    fn function_name(&self) -> Option<&str> {
+        self.function_name
+            .as_ref()
+            .map(|range| &self.line()[range.clone()])
     }
 
     fn number(&self) -> usize {
@@ -501,6 +617,9 @@ fn report_compound_statement(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-compound-statement") {
+        return;
+    }
     let line = current.line();
     if has_inline_compound_body(line) || COMPOUND_AFTER_SEMICOLON.is_match(line) {
         add_finding(
@@ -520,6 +639,9 @@ fn report_extraneous_whitespace(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-extraneous-whitespace") {
+        return;
+    }
     if EXTRANEOUS_WHITESPACE.is_match(&mask_strings(current.code.trim())) {
         add_finding(
             disabled,
@@ -559,10 +681,7 @@ fn analyze_language_constructs(
     state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
-    let function = FUNCTION
-        .captures(current.line())
-        .and_then(|captures| captures.get(1))
-        .map(|name| name.as_str());
+    let function = current.function_name();
     report_function_name(
         path,
         lines,
@@ -588,6 +707,9 @@ fn report_function_name(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-function-naming") {
+        return;
+    }
     let Some(name) = function else {
         return;
     };
@@ -643,6 +765,12 @@ fn report_exception_handler(
     state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-exception-swallowed")
+        && disabled.contains("py-bare-except")
+        && disabled.contains("py-broad-except")
+    {
+        return;
+    }
     let line = current.line();
     let catches_broad_exception = catches_broad_exception(line);
     if catches_broad_exception && exception_handler_is_swallowed(lines, current) {
@@ -704,6 +832,9 @@ fn report_dynamic_execution(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-eval-exec") {
+        return;
+    }
     let line = current.line();
     if function.is_none()
         && (DYNAMIC_EXECUTION.is_match(line) || BUILTINS_DYNAMIC_EXECUTION.is_match(line))
@@ -793,6 +924,9 @@ fn report_requests_call(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-requests-timeout") && disabled.contains("py-insecure-tls") {
+        return;
+    }
     if !REQUESTS_CALL.is_match(current.line()) {
         return;
     }
@@ -826,6 +960,9 @@ fn report_yaml_load(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-yaml-load") {
+        return;
+    }
     let line = current.line();
     if !line.contains("yaml.load(")
         || line.contains("SafeLoader")
@@ -850,6 +987,9 @@ fn report_pickle_load(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-pickle") {
+        return;
+    }
     if PICKLE_LOAD.is_match(current.line()) {
         add_finding(
             disabled,
@@ -869,6 +1009,9 @@ fn report_dynamic_sql(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-sql-string-build") || current.code.len() == current.stripped.len() {
+        return;
+    }
     if has_dynamic_sql_string_expression(&current.code)
         && !uses_literal_sql_identifier_choice(lines, current)
         && !expression_has_noqa(lines, current, "S608")
@@ -891,6 +1034,9 @@ fn report_hardcoded_secret(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-hardcoded-secret") {
+        return;
+    }
     if has_hardcoded_secret(&current.code, path, current.in_expression_continuation)
         && !is_secret_form_metadata(lines, current)
     {
@@ -912,6 +1058,9 @@ fn report_weak_hash(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-weak-hash") {
+        return;
+    }
     if WEAK_HASH.is_match(&current.code)
         && !WEAK_HASH_SAFE_INTENT.is_match(&continued_call(lines, current.index))
     {
@@ -950,6 +1099,9 @@ fn report_debug_enabled(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-debug-enabled") {
+        return;
+    }
     let continued_keyword = current.in_expression_continuation
         && current
             .line()
@@ -975,6 +1127,10 @@ fn report_archive_extraction(
     policy: &PythonProjectPolicy,
     findings: &mut Vec<Finding>,
 ) {
+    if policy.disabled.contains("py-unsafe-archive-extract") || !current.line().contains("extract")
+    {
+        return;
+    }
     let Some(captures) = ARCHIVE_EXTRACTION.captures(current.line()) else {
         return;
     };
@@ -1004,6 +1160,9 @@ fn report_insecure_random_token(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-insecure-random-token") || !current.stripped.contains('=') {
+        return;
+    }
     if INSECURE_RANDOM_TOKEN.is_match(&current.stripped) {
         add_finding(
             disabled,
@@ -1022,6 +1181,9 @@ fn report_sensitive_data_logging(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-sensitive-data-logging") || !current.code.contains('.') {
+        return;
+    }
     if current.stripped.contains("request.")
         || (!SENSITIVE_LOGGING_CALL.is_match(&current.stripped)
             && !SENSITIVE_FSTRING_LOGGING.is_match(&current.code))
@@ -1083,6 +1245,11 @@ fn report_subprocess_safety(
     state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-subprocess-run-unchecked")
+        && disabled.contains("py-subprocess-no-timeout")
+    {
+        return;
+    }
     if current.in_expression_continuation || !current.line().contains("subprocess.run(") {
         return;
     }
@@ -1123,6 +1290,9 @@ fn report_open_without_encoding(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-open-no-encoding") {
+        return;
+    }
     if defines_function_named(current.line(), "open")
         || !OPEN_CALL.is_match(current.line())
         || expects_open_failure(lines, current.index)
@@ -1149,6 +1319,9 @@ fn report_printed_exception(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-logging-exception") {
+        return;
+    }
     let line = current.line();
     let is_exception = line.starts_with("except ") || line == "except:";
     if !is_exception || current.index + 1 >= lines.len() {
@@ -1195,6 +1368,9 @@ fn report_async_blocking_call(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-async-blocking-call") {
+        return;
+    }
     if current.in_async_function && ASYNC_BLOCKING_CALL.is_match(current.line()) {
         add_finding(
             disabled,
@@ -1238,6 +1414,9 @@ fn report_regex_compilation(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-regex-compile-in-loop") {
+        return;
+    }
     if PYTHON_CONSTANT_REGEX.is_match(&current.code) && !current.line().contains("lambda") {
         add_finding(
             disabled,
@@ -1257,6 +1436,9 @@ fn report_linear_list_membership(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-linear-membership-in-loop") {
+        return;
+    }
     if has_linear_list_membership(current.line(), state) {
         add_finding(
             disabled,
@@ -1277,6 +1459,9 @@ fn report_repeated_list_search(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-list-search-in-loop") {
+        return;
+    }
     if has_repeated_list_search(current.line(), state) && !next_statement_is_break(lines, current) {
         add_finding(
             disabled,
@@ -1296,6 +1481,9 @@ fn report_list_front_removal(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-list-front-removal-in-loop") {
+        return;
+    }
     if PYTHON_LIST_FRONT_REMOVAL
         .captures_iter(&current.code)
         .any(|capture| state.list_variables.contains(&capture[1]))
@@ -1319,6 +1507,9 @@ fn report_string_concatenation(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-string-concat-in-loop") {
+        return;
+    }
     if PYTHON_IN_PLACE_CONCAT
         .captures(current.line())
         .is_some_and(|capture| {
@@ -1352,6 +1543,9 @@ fn report_loop_query(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-query-in-loop") {
+        return;
+    }
     if PYTHON_LOOP_QUERY.is_match(current.line())
         || (PYTHON_SESSION_GET_OPEN.is_match(current.line())
             && PYTHON_LOOP_QUERY
@@ -1375,6 +1569,9 @@ fn report_eager_any_all(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-eager-any-all-comprehension") {
+        return;
+    }
     if !EAGER_ANY_ALL_OPEN.is_match(current.line()) {
         return;
     }
@@ -1411,6 +1608,9 @@ fn report_quadratic_list_flattening(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-quadratic-list-flattening") {
+        return;
+    }
     if !SUM_CALL_OPEN.is_match(current.line()) {
         return;
     }
@@ -1435,6 +1635,9 @@ fn report_eager_logging_format(
     state: &mut PythonScanState,
     findings: &mut Vec<Finding>,
 ) {
+    if state.eager_logging_reported || state.logging_bindings.is_empty() {
+        return;
+    }
     let Some(candidate) = EAGER_LOGGING_CALL.captures(current.line()) else {
         return;
     };
@@ -1450,7 +1653,7 @@ fn report_eager_logging_format(
     let eager = EAGER_FSTRING_ARGUMENT.is_match(argument)
         || STRING_FORMAT_ARGUMENT.is_match(argument)
         || (QUOTED_STRING.is_match(argument) && contains_top_level_plus(argument));
-    if eager && !state.eager_logging_reported {
+    if eager {
         state.eager_logging_reported = true;
         add_finding(
             disabled,
@@ -1728,6 +1931,7 @@ fn analyze_structured_python_rules(
     lines: &[&str],
     sanitized: &[String],
     expression_continuations: &[bool],
+    declarations: &[(usize, Range<usize>)],
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
@@ -1735,6 +1939,7 @@ fn analyze_structured_python_rules(
         path,
         sanitized,
         expression_continuations,
+        declarations,
         disabled,
         findings,
     );
@@ -1748,21 +1953,22 @@ fn report_unawaited_coroutines(
     path: &str,
     sanitized: &[String],
     expression_continuations: &[bool],
+    declarations: &[(usize, Range<usize>)],
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    let mut async_functions = sanitized
+    if disabled.contains("py-coroutine-not-awaited") {
+        return;
+    }
+    let mut async_functions = declarations
         .iter()
-        .filter_map(|line| ASYNC_FUNCTION.captures(line.trim()))
-        .map(|captures| captures[1].to_owned())
+        .filter(|(index, _)| ASYNC_FUNCTION.is_match(sanitized[*index].trim()))
+        .map(|(index, name)| &sanitized[*index].trim()[name.clone()])
         .collect::<BTreeSet<_>>();
-    for line in sanitized
-        .iter()
-        .map(|line| line.trim())
-        .filter(|line| line.starts_with("def "))
-    {
-        if let Some(captures) = FUNCTION.captures(line) {
-            async_functions.remove(&captures[1]);
+    for (index, name) in declarations {
+        let line = sanitized[*index].trim();
+        if line.starts_with("def ") {
+            async_functions.remove(&line[name.clone()]);
         }
     }
     if async_functions.is_empty() {
@@ -1795,6 +2001,9 @@ fn report_unclosed_resources(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-resource-not-closed") {
+        return;
+    }
     for (index, line) in sanitized.iter().enumerate() {
         let Some(captures) = RESOURCE_ASSIGNMENT.captures(line) else {
             continue;
@@ -1929,6 +2138,9 @@ fn report_finally_control_flow(
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
+    if disabled.contains("py-finally-control-flow") {
+        return;
+    }
     for index in 0..sanitized.len() {
         if let Some(line) = finally_control_flow_line(lines, sanitized, index) {
             add_finally_control_flow_finding(path, line, disabled, findings);
@@ -2340,74 +2552,79 @@ struct TestPythonImport {
     symbol: String,
 }
 
+struct PythonMockTargets {
+    path: String,
+    imports: Vec<TestPythonImport>,
+    patches: Vec<(String, usize)>,
+}
+
 fn analyze_mock_targets(
-    sources: &BTreeMap<String, String>,
+    targets: &[PythonMockTargets],
+    imported_symbols: &[ImportedPythonSymbol],
     disabled: &BTreeSet<&'static str>,
     findings: &mut Vec<Finding>,
 ) {
-    let test_sources = sources
-        .iter()
-        .filter(|(path, _)| path.ends_with(".py") && is_test_path(path))
-        .collect::<Vec<_>>();
-    if test_sources.is_empty() {
-        return;
-    }
-    let imported_symbols = collect_imported_python_symbols(sources);
     if imported_symbols.is_empty() {
         return;
     }
-    for (path, source) in test_sources {
-        analyze_test_mock_targets(path, source, &imported_symbols, disabled, findings);
+    for target in targets {
+        for (symbol, line) in &target.patches {
+            if patch_targets_provider(symbol, imported_symbols, &target.imports) {
+                add_finding(
+                    disabled,
+                    findings,
+                    &target.path,
+                    "py-test-mocked-target-wrong",
+                    *line,
+                    "mock patches the provider instead of the importing consumer",
+                );
+            }
+        }
     }
 }
 
-fn collect_imported_python_symbols(
-    sources: &BTreeMap<String, String>,
-) -> Vec<ImportedPythonSymbol> {
-    let mut imported_symbols = Vec::new();
-    for (path, source) in sources
-        .iter()
-        .filter(|(path, _)| path.ends_with(".py") && !is_test_path(path))
-    {
-        let (code, stripped) = masked_python_sources(source);
-        for captures in FROM_IMPORT.captures_iter(&code) {
+fn collect_python_mock_facts(
+    path: &str,
+    code: &str,
+    sanitized: &[String],
+    analysis: &mut PythonFileAnalysis,
+) {
+    let test = is_test_path(path);
+    if test && !PATCH_TARGET.is_match(code) || !test && !code.contains("from") {
+        return;
+    }
+    let mut stripped = sanitized.join("\n");
+    stripped.push('\n');
+    if test {
+        let imports = test_python_imports(code)
+            .into_iter()
+            .filter(|import| contains_python_call(&stripped, &import.symbol))
+            .collect();
+        let patches = PATCH_TARGET
+            .captures_iter(code)
+            .map(|patch| {
+                let offset = patch.get(0).map_or(0, |matched| matched.start());
+                (
+                    patch[1].to_owned(),
+                    code[..offset].bytes().filter(|byte| *byte == b'\n').count() + 1,
+                )
+            })
+            .collect();
+        analysis.mock_targets = Some(PythonMockTargets {
+            path: path.to_owned(),
+            imports,
+            patches,
+        });
+    } else {
+        for captures in FROM_IMPORT.captures_iter(code) {
             if contains_python_call(&stripped, &captures[2]) {
-                imported_symbols.push(ImportedPythonSymbol {
-                    consumer_path: path.clone(),
+                analysis.imported_symbols.push(ImportedPythonSymbol {
+                    consumer_path: path.to_owned(),
                     provider: captures[1].to_owned(),
                     symbol: captures[2].to_owned(),
                 });
             }
         }
-    }
-    imported_symbols
-}
-
-fn analyze_test_mock_targets(
-    path: &str,
-    source: &str,
-    imported_symbols: &[ImportedPythonSymbol],
-    disabled: &BTreeSet<&'static str>,
-    findings: &mut Vec<Finding>,
-) {
-    let (code, stripped) = masked_python_sources(source);
-    if !PATCH_TARGET.is_match(&code) {
-        return;
-    }
-    let test_imports = test_python_imports(&code);
-    for patch in PATCH_TARGET.captures_iter(&code) {
-        if !patch_targets_provider(&patch[1], &stripped, imported_symbols, &test_imports) {
-            continue;
-        }
-        let offset = patch.get(0).map_or(0, |matched| matched.start());
-        add_finding(
-            disabled,
-            findings,
-            path,
-            "py-test-mocked-target-wrong",
-            code[..offset].bytes().filter(|byte| *byte == b'\n').count() + 1,
-            "mock patches the provider instead of the importing consumer",
-        );
     }
 }
 
@@ -2427,7 +2644,6 @@ fn test_python_imports(code: &str) -> Vec<TestPythonImport> {
 
 fn patch_targets_provider(
     target: &str,
-    stripped_test_source: &str,
     imported_symbols: &[ImportedPythonSymbol],
     test_imports: &[TestPythonImport],
 ) -> bool {
@@ -2438,13 +2654,16 @@ fn patch_targets_provider(
                     &imported.consumer_path,
                     &test_import.module_file,
                     &test_import.module_init,
-                ) && contains_python_call(stripped_test_source, &test_import.symbol)
+                )
             })
     })
 }
 
 fn contains_python_call(source: &str, symbol: &str) -> bool {
     source.lines().any(|line| {
+        if !line.contains(symbol) {
+            return false;
+        }
         let trimmed = line.trim();
         if FUNCTION
             .captures(trimmed)
@@ -2486,25 +2705,11 @@ fn python_path_matches_module(path: &str, module_file: &str, module_init: &str) 
     })
 }
 
-fn masked_python_sources(source: &str) -> (String, String) {
-    let mut state = PythonScanState::default();
-    let mut code = String::with_capacity(source.len());
-    let mut stripped = String::with_capacity(source.len());
-    for (index, raw) in source.split('\n').enumerate() {
-        let current = state.scan(index, raw);
-        code.push_str(&current.code);
-        code.push('\n');
-        stripped.push_str(&current.stripped);
-        stripped.push('\n');
-        state.finish(&current);
-    }
-    (code, stripped)
-}
-
 #[derive(Default)]
 struct PythonProjectPolicy {
     disabled: BTreeSet<&'static str>,
     tar_data_filter_default: bool,
+    collect_mock_facts: bool,
 }
 
 fn python_project_policy(context: &SourceAnalysisContext<'_>) -> PythonProjectPolicy {
@@ -2564,6 +2769,7 @@ fn python_project_policy(context: &SourceAnalysisContext<'_>) -> PythonProjectPo
     PythonProjectPolicy {
         disabled,
         tar_data_filter_default,
+        collect_mock_facts: false,
     }
 }
 
@@ -2668,6 +2874,12 @@ fn uses_safe_ruamel_yaml(lines: &[&str], index: usize) -> bool {
         let candidate = code_before_comment(lines[line_index]).trim();
         if YAML_CONSTRUCTION.is_match(candidate) {
             return SAFE_YAML_TYPE.is_match(&continued_call(lines, line_index));
+        }
+        if candidate
+            .split_once('=')
+            .is_some_and(|(target, _)| matches!(target.trim(), "yaml" | "yaml.Constructor"))
+        {
+            return false;
         }
     }
     false
@@ -3217,6 +3429,9 @@ fn mask_strings(line: &str) -> Cow<'_, str> {
 }
 
 fn has_hardcoded_secret(code: &str, path: &str, in_expression_continuation: bool) -> bool {
+    if !code.contains(['=', ':']) || !code.contains(['\'', '"']) {
+        return false;
+    }
     let secret = HARDCODED_SECRET_MAP_ENTRY
         .find(code)
         .filter(|matched| !is_inside_quoted_string(code, matched.start()))
@@ -3298,7 +3513,16 @@ fn is_symbolic_secret_value(text: &str) -> bool {
         .get(1)
         .or_else(|| literal.get(2))
         .map_or("", |value| value.as_str());
-    normalize_secret(name.as_str()) == normalize_secret(value)
+    let name = normalize_secret(name.as_str());
+    let normalized_value = normalize_secret(value);
+    name == normalized_value
+        || (value.contains('_')
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+            && normalized_value.ends_with(&name))
+        || (name == "token"
+            && matches!(value, "current-password" | "new-password" | "one-time-code"))
 }
 
 fn is_secret_metadata_label(text: &str) -> bool {
@@ -3557,7 +3781,7 @@ static TERMINATING_HANDLER: LazyLock<Regex> =
 static YAML_CONSTRUCTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\byaml\s*=\s*YAML\s*\(").unwrap());
 static SAFE_YAML_TYPE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?i)\btyp\s*=\s*["']safe["']"#).unwrap());
+    LazyLock::new(|| Regex::new(r#"(?i)\btyp\s*=\s*["'](?:safe|rt)["']"#).unwrap());
 static SQL_STATEMENT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?i)^["']\s*(?:select\s+\S+[^\n]*\s+from\b|insert\s+into\b|update\s+[A-Za-z_][\w.]*\s+set\b|delete\s+from\b)"#,
@@ -3616,7 +3840,7 @@ static SECRET_NAME: LazyLock<Regex> = LazyLock::new(|| {
 static SECRET_STRING_LITERAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[rRuUbBfF]{0,2}(?:"([^"]*)"|'([^']*)')"#).unwrap());
 static DOCUMENTATION_SECRET_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(?:none|null|undefined|incorrect|invalid|wrong(?:[-_][a-z0-9]+)?|\[%key:[^]]+%\])$|(?:^|[-_])your(?:[-_])(?:[a-z0-9]+[-_])*(?:key|token|secret|password|credential)(?:$|[-_])|(?:^|[-_])replace[-_]?me(?:$|[-_])").unwrap()
+    Regex::new(r"(?i)^(?:none|null|undefined|incorrect|invalid|wrong(?:[-_][a-z0-9]+)?|no[-_](?:api[-_]?)?(?:key|auth|token)[-_](?:required|needed)|\[%key:[^]]+%\])$|(?:^|[-_])your(?:[-_])(?:[a-z0-9]+[-_])*(?:key|token|secret|password|credential)(?:$|[-_])|(?:^|[-_])replace[-_]?me(?:$|[-_])").unwrap()
 });
 static SECRET_METADATA_LABEL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(?:secrets? backend|(?:client )?(?:secret|password|token|api key) (?:field|label|name|identifier|id|endpoint|url))$").unwrap()
@@ -3633,8 +3857,92 @@ static REPEATED_FILLER_SECRET: LazyLock<Regex> = LazyLock::new(|| {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::{analyze, code_outside_triple_quoted_strings};
+    use super::{analyze, analyze_with_functions, code_outside_triple_quoted_strings};
     use crate::source_analysis_context::SourceAnalysisContext;
+
+    #[test]
+    fn keeps_file_state_and_mock_evidence_deterministic_across_workers() {
+        let sources = BTreeMap::from([
+            (
+                "src/app/service.py".to_owned(),
+                "from deps.client import fetch\nasync def handle():\n    time.sleep(1)\n    return fetch()\n".to_owned(),
+            ),
+            (
+                "src/app/sync.py".to_owned(),
+                "example = '''async def hidden():\n    time.sleep(1)\n'''\ndef handle():\n    time.sleep(1)\n".to_owned(),
+            ),
+            (
+                "src/app/shadow.py".to_owned(),
+                "async def fetch():\n    return 1\nfetch()\ndef fetch():\n    return 2\nfetch()\nasync def save(\n):\n    return 3\nsave()\n".to_owned(),
+            ),
+            (
+                "tests/test_service.py".to_owned(),
+                "from app.service import handle\nfrom unittest.mock import patch\n\ndef test_handle():\n    with patch('deps.client.fetch'):\n        handle()\n".to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let run = |workers| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .unwrap()
+                .install(|| analyze(&context))
+        };
+        let findings = run(1);
+        assert_eq!(findings, run(4));
+        for (code, path, line) in [
+            ("py-async-blocking-call", "src/app/service.py", 3),
+            ("py-coroutine-not-awaited", "src/app/shadow.py", 10),
+            ("py-test-mocked-target-wrong", "tests/test_service.py", 5),
+        ] {
+            assert_eq!(
+                findings
+                    .iter()
+                    .filter(|finding| finding.code == code)
+                    .map(|finding| (finding.path.as_str(), finding.line))
+                    .collect::<Vec<_>>(),
+                vec![(path, line)],
+            );
+        }
+    }
+
+    #[test]
+    fn selected_rules_preserve_shared_failure_precedence() {
+        let sources = BTreeMap::from([(
+            "app.py".to_owned(),
+            "def BadName(values=[]):\n    return values\ntry:\n    run()\nexcept Exception:\n    pass\ntry:\n    run()\nexcept Exception as error:\n    log(error)\nsubprocess.run(command)\nsubprocess.run(command, check=True)\ntempfile.mktemp()\n".to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let functions = crate::function_sources::extract(context.sources());
+        let all = analyze_with_functions(&context, &functions, None);
+        for code in [
+            "py-function-naming",
+            "py-mutable-default",
+            "py-exception-swallowed",
+            "py-broad-except",
+            "py-subprocess-run-unchecked",
+            "py-subprocess-no-timeout",
+            "py-tempfile-mktemp",
+        ] {
+            let expected = all
+                .iter()
+                .filter(|finding| finding.code == code)
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                analyze_with_functions(&context, &functions, Some(code)),
+                expected,
+                "{code}",
+            );
+        }
+        assert_eq!(
+            all.iter()
+                .filter(|finding| finding.code == "py-subprocess-no-timeout")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![12],
+        );
+    }
 
     #[test]
     fn reports_complete_python_rule_family() {
@@ -4297,6 +4605,66 @@ examples = {"example": '{"password": "password_for_server"}'}
         );
     }
     #[test]
+    fn accepts_environment_references_and_autofill_tokens_but_keeps_credentials() {
+        let sources = BTreeMap::from([(
+            "credentials.py".to_owned(),
+            r#"config = {"api_key": "AUXILIARY_VISION_API_KEY"}
+delivery = {"access_token": "SERVICE_ACCESS_TOKEN"}
+field = {"token": "current-password"}
+otp = {"token": "one-time-code"}
+new_field = {"token": "new-password"}
+api_key = "no-key-required"
+api_key = "no-api-key-needed"
+api_key = "abc123_API_KEY_value"
+password = "current-password"
+credentials = {"token": "actual-static-token"}
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "py-hardcoded-secret")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![8, 9, 10]
+        );
+    }
+
+    #[test]
+    fn accepts_explicit_ruamel_roundtrip_but_keeps_unsafe_and_dynamic_loaders() {
+        let sources = BTreeMap::from([(
+            "config.py".to_owned(),
+            r#"from ruamel.yaml import YAML
+yaml = YAML(typ="rt")
+yaml.preserve_quotes = True
+document = yaml.load(payload)
+yaml = YAML(typ="unsafe")
+document = yaml.load(payload)
+yaml = YAML(typ=loader_type)
+document = yaml.load(payload)
+yaml = YAML(typ="rt")
+yaml = unknown_loader()
+document = yaml.load(payload)
+yaml = YAML(typ="rt")
+yaml.Constructor = CustomConstructor
+document = yaml.load(payload)
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "py-yaml-load")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![6, 8, 11, 14]
+        );
+    }
+
+    #[test]
     fn reports_python_loop_performance_patterns() {
         let sources = BTreeMap::from([(
             "performance.py".to_owned(),
@@ -4320,6 +4688,50 @@ examples = {"example": '{"password": "password_for_server"}'}
                 ("py-regex-compile-in-loop".to_owned(), 4),
                 ("py-linear-membership-in-loop".to_owned(), 5),
                 ("py-string-concat-in-loop".to_owned(), 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_annotation_only_performance_facts_with_unicode_identifiers() {
+        let sources = BTreeMap::from([(
+            "annotations.py".to_owned(),
+            r#"def scan(items, bloqué: list[str], outpüt: str, payload: bytes, coords: tuple):
+    consume(items)
+    for item in items:
+        if item in bloqué:
+            outpüt += item
+        payload += item
+        coords += (item,)
+
+def unrelated(items):
+    for item in items:
+        outpüt += item
+        payload += item
+        if item in bloqué:
+            consume(item)
+"#
+            .to_owned(),
+        )]);
+        let findings = analyze(&SourceAnalysisContext::unchanged(&sources));
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "py-linear-membership-in-loop"
+                            | "py-string-concat-in-loop"
+                            | "py-sequence-rebuild-in-loop"
+                    )
+                })
+                .map(|finding| (finding.code.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("py-linear-membership-in-loop", 4),
+                ("py-string-concat-in-loop", 5),
+                ("py-sequence-rebuild-in-loop", 6),
+                ("py-sequence-rebuild-in-loop", 7),
             ]
         );
     }
@@ -4659,9 +5071,9 @@ example = 'sum(groups, [])'
     def blocking_request():
         return requests.get(url)
     tasks = []
-    tasks.append(
+    tasks.append(prepare(")]}", r")", "escaped\"}", f"{values}]",
         asyncio.create_task(save())
-    )
+    ))
     pending = [
         asyncio.create_task(process(value))
         for value in values
@@ -5325,6 +5737,160 @@ EXAMPLE = """with patch("deps.client.fetch"):
                 | "py-sensitive-data-logging"
                 | "py-test-mocked-target-wrong"
         )
+    }
+
+    #[test]
+    fn preserves_literal_boundaries_when_plain_lines_resume() {
+        let sources = BTreeMap::from([(
+            "boundaries.py".to_owned(),
+            r#"Øresund = tempfile.mktemp()
+text = r"""
+tempfile.mktemp()
+"""; tempfile.mktemp()
+continued = "escaped \
+tempfile.mktemp() \
+end"
+literal = r"tempfile.mktemp() # not a comment"
+quoted = "escaped \" # tempfile.mktemp()"
+# tempfile.mktemp()
+tempfile.mktemp()  # real call
+"#
+            .to_owned(),
+        )]);
+
+        let selected = analyze(&SourceAnalysisContext::unchanged(&sources))
+            .into_iter()
+            .filter(|finding| finding.code == "py-tempfile-mktemp")
+            .map(|finding| (finding.path, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected,
+            [
+                ("boundaries.py".to_owned(), 1),
+                ("boundaries.py".to_owned(), 4),
+                ("boundaries.py".to_owned(), 11),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_import_bindings_and_credentials_after_non_assignment_lines() {
+        let sources = BTreeMap::from([
+            (
+                "bindings.py".to_owned(),
+                r#"import numpy as np
+import logging as log
+values = np.array([])
+logger = log.getLogger(__name__)
+pass
+
+for item in items:
+    values = np.append(values, item)
+    logger.debug(f"{item}")
+password = "R7qM4aZ9tB2nV6xP"
+"#
+                .to_owned(),
+            ),
+            (
+                "mapping.py".to_owned(),
+                r#"settings = {
+    "api_key": "P9cL3wX7mD2fQ8sH",
+}
+"#
+                .to_owned(),
+            ),
+        ]);
+        assert_eq!(
+            analyze(&SourceAnalysisContext::unchanged(&sources))
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "py-numpy-grow-in-loop" | "py-logging-eager-format" | "py-hardcoded-secret"
+                    )
+                })
+                .map(|finding| (finding.code, finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "py-numpy-grow-in-loop".to_owned(),
+                    "bindings.py".to_owned(),
+                    8
+                ),
+                (
+                    "py-logging-eager-format".to_owned(),
+                    "bindings.py".to_owned(),
+                    9
+                ),
+                (
+                    "py-hardcoded-secret".to_owned(),
+                    "bindings.py".to_owned(),
+                    10
+                ),
+                ("py-hardcoded-secret".to_owned(), "mapping.py".to_owned(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_security_detection_with_spaced_calls_and_quoted_inputs() {
+        let sources = BTreeMap::from([(
+            "security_views.py".to_owned(),
+            r#"import tarfile
+import random as RANDOM
+archive = tarfile.open(path)
+archive . extractall (destination)
+safe = tarfile.open(path)
+safe.extractall(destination, filter="data")
+message = "archive.extractall(destination)"
+query = "SELECT name FROM users WHERE id = {}".format(user_id)
+parameterized = "SELECT name FROM users WHERE id = ?"
+reset_token = RANDOM.choice(characters)
+audit_logger.INFO(f"credential={access_token}")
+request_id = RANDOM.choice(characters)
+logger.info("items %s", amount)
+request.info(password)
+"#
+            .replace('\n', "\r\n"),
+        )]);
+        assert_eq!(
+            analyze(&SourceAnalysisContext::unchanged(&sources))
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "py-unsafe-archive-extract"
+                            | "py-sql-string-build"
+                            | "py-insecure-random-token"
+                            | "py-sensitive-data-logging"
+                    )
+                })
+                .map(|finding| (finding.code, finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "py-unsafe-archive-extract".to_owned(),
+                    "security_views.py".to_owned(),
+                    4
+                ),
+                (
+                    "py-sql-string-build".to_owned(),
+                    "security_views.py".to_owned(),
+                    8
+                ),
+                (
+                    "py-insecure-random-token".to_owned(),
+                    "security_views.py".to_owned(),
+                    10
+                ),
+                (
+                    "py-sensitive-data-logging".to_owned(),
+                    "security_views.py".to_owned(),
+                    11
+                ),
+            ]
+        );
     }
 
     #[test]

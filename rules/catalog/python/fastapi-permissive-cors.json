@@ -9,7 +9,7 @@
   "legacyGroup": "security",
   "why": "Wildcard origins can expose authenticated or sensitive APIs to untrusted sites.",
   "suggestion": "List trusted origins explicitly and avoid wildcard credentials.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "project",
   "securityKind": "hotspot",
   "taxonomy": [
@@ -30,7 +30,7 @@
   ],
   "languageVersions": [],
   "limitations": [
-    "Only explicit FastAPI decorators, common middleware, SQLAlchemy, JWT, and dependency patterns are resolved.",
+    "Explicit allow_origins lists beginning with a wildcard literal are reported only at executable code locations; comments, docstrings, and quoted examples are excluded while origin strings are retained.",
     "Framework wrappers, generated routes, runtime registrations, and external infrastructure cannot be resolved."
   ]
 }

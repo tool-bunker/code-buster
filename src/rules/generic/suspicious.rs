@@ -27,66 +27,55 @@ impl Marker {
     }
 }
 
-fn comment_markers(
-    sources: &BTreeMap<String, String>,
+fn append_comment_markers(
+    todo_findings: &mut Vec<Finding>,
+    fixme_findings: &mut Vec<Finding>,
+    path: &str,
+    lines: &[&str],
     todo_enabled: bool,
     fixme_enabled: bool,
-) -> (Vec<Finding>, Vec<Finding>) {
-    let mut todo_findings = Vec::new();
-    let mut fixme_findings = Vec::new();
-    for (path, source) in sources {
-        let syntax = CommentSyntax::for_path(path);
-        let mut state = CommentState::default();
-        for (index, line) in source.split('\n').enumerate() {
-            let comments = extract_comments(line, syntax, &mut state);
-            if todo_enabled && Marker::Todo.pattern().is_match(&comments) {
-                todo_findings.push(finding(
-                    Marker::Todo.code(),
-                    path,
-                    index + 1,
-                    Marker::Todo.message(),
-                    "high",
-                ));
-            }
-            if fixme_enabled && Marker::Fixme.pattern().is_match(&comments) {
-                fixme_findings.push(finding(
-                    Marker::Fixme.code(),
-                    path,
-                    index + 1,
-                    Marker::Fixme.message(),
-                    "high",
-                ));
-            }
-        }
-    }
-    (todo_findings, fixme_findings)
-}
-
-fn operation_on_same_value(sources: &BTreeMap<String, String>) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for (path, source) in sources {
-        if !path.ends_with(".css") {
-            append_same_value_operations(&mut findings, path, source);
-        }
-    }
-    findings
-}
-
-fn append_same_value_operations(findings: &mut Vec<Finding>, path: &str, source: &str) {
-    let lines = source.split('\n').collect::<Vec<_>>();
-    let mut in_block_comment = false;
+) {
+    let syntax = CommentSyntax::for_path(path);
+    let mut state = CommentState::default();
     for (index, line) in lines.iter().enumerate() {
-        let stripped = strip_generic_strings(line);
-        let code = strip_comments(&stripped, &mut in_block_comment);
+        let comments = extract_comments(line, syntax, &mut state);
+        if todo_enabled && Marker::Todo.pattern().is_match(&comments) {
+            todo_findings.push(finding(
+                Marker::Todo.code(),
+                path,
+                index + 1,
+                Marker::Todo.message(),
+                "high",
+            ));
+        }
+        if fixme_enabled && Marker::Fixme.pattern().is_match(&comments) {
+            fixme_findings.push(finding(
+                Marker::Fixme.code(),
+                path,
+                index + 1,
+                Marker::Fixme.message(),
+                "high",
+            ));
+        }
+    }
+}
+
+fn append_same_value_operations(
+    findings: &mut Vec<Finding>,
+    path: &str,
+    lines: &GenericLines<'_>,
+) {
+    for index in 0..lines.raw.len() {
+        let code = lines.code(index);
         let code = if path.ends_with(".py") {
-            code.split_once('#').map_or(code.as_str(), |(before, _)| before)
+            code.split_once('#').map_or(code, |(before, _)| before)
         } else {
-            code.as_str()
+            code
         };
         let Some(comparison) = same_value_comparison(code) else {
             continue;
         };
-        if excludes_same_value_candidate(&lines, index, code, comparison) {
+        if excludes_same_value_candidate(lines, index, code, comparison) {
             continue;
         }
         findings.push(same_value_finding(path, index + 1, comparison));
@@ -109,6 +98,9 @@ struct SameValueComparison<'a> {
 }
 
 fn same_value_comparison(code: &str) -> Option<SameValueComparison<'_>> {
+    if !code.bytes().any(|byte| matches!(byte, b'=' | b'<' | b'>')) {
+        return None;
+    }
     COMPARISON
         .captures_iter(code)
         .filter_map(parse_comparison_candidate)
@@ -168,7 +160,7 @@ fn continues_right_operand(tail: &str) -> bool {
 
 
 fn excludes_same_value_candidate(
-    lines: &[&str],
+    lines: &GenericLines<'_>,
     line_index: usize,
     code: &str,
     comparison: SameValueComparison<'_>,
@@ -179,17 +171,17 @@ fn excludes_same_value_candidate(
 }
 
 fn excludes_intentional_self_comparison(
-    lines: &[&str],
+    lines: &GenericLines<'_>,
     line_index: usize,
     comparison: SameValueComparison<'_>,
 ) -> bool {
     matches!(comparison.operator, "==" | "!=")
         && (has_floating_point_declaration(lines, line_index, comparison.identifier)
             || has_nan_context(lines, line_index)
-            || has_following_nan_guard(lines, line_index)
-            || has_no_self_compare_directive(lines, line_index)
+            || has_following_nan_guard(&lines.raw, line_index)
+            || has_no_self_compare_directive(&lines.raw, line_index)
             || is_nan_ternary_comparison(lines, line_index, comparison.operator)
-            || has_peer_self_comparison(code_at(lines, line_index), comparison))
+            || has_peer_self_comparison(code_at(&lines.raw, line_index), comparison))
 }
 
 fn excludes_same_value_context(code: &str, comparison: SameValueComparison<'_>) -> bool {
@@ -273,7 +265,11 @@ fn is_assertion_name(name: &str) -> bool {
         || name.starts_with("expect_")
 }
 
-fn has_floating_point_declaration(lines: &[&str], line_index: usize, identifier: &str) -> bool {
+fn has_floating_point_declaration(
+    lines: &GenericLines<'_>,
+    line_index: usize,
+    identifier: &str,
+) -> bool {
     let declaration = Regex::new(&format!(
         r"\b(?:float|double)\s+(?:[*&]\s*)?{}\b",
         regex::escape(identifier)
@@ -281,23 +277,23 @@ fn has_floating_point_declaration(lines: &[&str], line_index: usize, identifier:
     .unwrap();
     let first_line = line_index.saturating_sub(20);
     for index in (first_line..=line_index).rev() {
-        let code = strip_generic_strings(lines[index]);
-        if declaration.is_match(&code) {
+        let code = &lines.stripped()[index];
+        if declaration.is_match(code) {
             return true;
         }
-        if index != line_index && CLOSING_BRACE_LINE.is_match(&code) {
+        if index != line_index && CLOSING_BRACE_LINE.is_match(code) {
             break;
         }
     }
     false
 }
 
-fn has_nan_context(lines: &[&str], line_index: usize) -> bool {
+fn has_nan_context(lines: &GenericLines<'_>, line_index: usize) -> bool {
     for index in (line_index.saturating_sub(2)..=line_index).rev() {
-        if NAN_CONTEXT.is_match(&strip_generic_strings(lines[index])) {
+        if NAN_CONTEXT.is_match(&lines.stripped()[index]) {
             return true;
         }
-        if index != line_index && CLOSING_BRACE_LINE.is_match(lines[index]) {
+        if index != line_index && CLOSING_BRACE_LINE.is_match(lines.raw[index]) {
             break;
         }
     }
@@ -313,18 +309,17 @@ fn has_no_self_compare_directive(lines: &[&str], line_index: usize) -> bool {
     line_index > 0 && NO_SELF_COMPARE.is_match(lines[line_index - 1])
 }
 
-fn is_nan_ternary_comparison(lines: &[&str], line_index: usize, operator: &str) -> bool {
-    let code = strip_generic_strings(lines[line_index]);
-    let code = code.trim();
-    if operator == "!=" && line_index + 1 < lines.len() {
+fn is_nan_ternary_comparison(lines: &GenericLines<'_>, line_index: usize, operator: &str) -> bool {
+    let code = lines.stripped()[line_index].trim();
+    if operator == "!=" && line_index + 1 < lines.raw.len() {
         let left = trailing_same_value(code, "!=");
-        let next = strip_generic_strings(lines[line_index + 1]);
+        let next = &lines.stripped()[line_index + 1];
         let right = leading_ternary_same_value(next.trim(), "==");
         return matches!((left, right), (Some(left), Some(right)) if left != right);
     }
     if operator == "==" && line_index > 0 {
         let left = leading_ternary_same_value(code, "==");
-        let previous = strip_generic_strings(lines[line_index - 1]);
+        let previous = &lines.stripped()[line_index - 1];
         let right = trailing_same_value(previous.trim(), "!=");
         return matches!((left, right), (Some(left), Some(right)) if left != right);
     }
@@ -365,31 +360,27 @@ fn leading_ternary_same_value<'a>(line: &'a str, operator: &str) -> Option<&'a s
     (comparison.operator == operator).then_some(comparison.identifier)
 }
 
-fn suspicious_command_arguments(sources: &BTreeMap<String, String>) -> Vec<Finding> {
-    let mut findings = Vec::new();
-    for (path, source) in sources {
-        let mut in_block_comment = false;
-        for (index, line) in source.split('\n').enumerate() {
-            let code = strip_command_comments(line, &mut in_block_comment);
-            let Some(call) = COMMAND_CALL.find(&code) else {
-                continue;
-            };
-            let arguments = &code[call.end()..];
-            if call.as_str().starts_with("subprocess.") && arguments.contains("shell=True") {
-                continue;
-            }
-            if command_argument_has_embedded_space(arguments) {
-                findings.push(finding(
-                    "suspicious-command-arg-space",
-                    path,
-                    index + 1,
-                    "command argument appears to contain embedded spaces",
-                    "medium",
-                ));
-            }
+fn append_suspicious_command_arguments(findings: &mut Vec<Finding>, path: &str, lines: &[&str]) {
+    let mut in_block_comment = false;
+    for (index, line) in lines.iter().enumerate() {
+        let code = strip_command_comments(line, &mut in_block_comment);
+        let Some(call) = COMMAND_CALL.find(&code) else {
+            continue;
+        };
+        let arguments = &code[call.end()..];
+        if call.as_str().starts_with("subprocess.") && arguments.contains("shell=True") {
+            continue;
+        }
+        if command_argument_has_embedded_space(arguments) {
+            findings.push(finding(
+                "suspicious-command-arg-space",
+                path,
+                index + 1,
+                "command argument appears to contain embedded spaces",
+                "medium",
+            ));
         }
     }
-    findings
 }
 
 fn command_argument_has_embedded_space(arguments: &str) -> bool {

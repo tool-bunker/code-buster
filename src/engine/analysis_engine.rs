@@ -257,6 +257,7 @@ fn run_rule_packs<'source, 'functions>(
             dart_index,
             yagni_index,
             prior_findings: &output.findings,
+            selected_rule: plan.selected_rule(),
             collect_timings,
         })?;
         if let Some(started) = started {

@@ -619,6 +619,292 @@ auto raw = 10000000;",
         );
     }
 
+    #[test]
+    fn preserves_rule_major_order_and_selective_configuration_across_files() {
+        let source = r#"// TODO: clean up
+// FIXME: incorrect
+if (value == value) {}
+Process.run('unsafe command', []);
+final timeout = 10000000;
+final values = [1,2,3,4,5,6,7,8,9,10,11,12,13,14];
+if (ready) return true;
+return false;
+"#;
+        let sources = sources(&[("z.dart", source), ("a.dart", source)]);
+        let all = analyze(&sources, &config());
+        let expected_order = RULE_ORDER
+            .iter()
+            .enumerate()
+            .flat_map(|(index, code)| {
+                ["a.dart", "z.dart"]
+                    .into_iter()
+                    .map(move |path| (*code, path, index + 1))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            all.iter()
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            expected_order
+        );
+
+        for selection in 0usize..(1 << RULE_ORDER.len()) {
+            let mut selected_config = config();
+            selected_config.rule_groups.clear();
+            selected_config.rule_groups.insert("core".into());
+            for (index, code) in RULE_ORDER.iter().enumerate() {
+                if selection & (1 << index) != 0 {
+                    selected_config
+                        .severity_overrides
+                        .insert((*code).into(), "warn".into());
+                }
+            }
+            let expected = all
+                .iter()
+                .filter(|finding| selected_config.severity_overrides.contains_key(&finding.code))
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(analyze(&sources, &selected_config), expected, "{selection}");
+        }
+    }
+
+    #[test]
+    fn preserves_consumer_specific_rust_test_comment_state_and_file_isolation() {
+        let findings = analyze(
+            &sources(&[
+                (
+                    "a.rs",
+                    r##"#[test]
+fn skipped() {
+    let text = r#"
+/*
+"#;
+}
+fn production() {
+    let values = [0,1,2,3,4,5,6,7,8,9,10,11,12];
+    if (value == value) {}
+}
+"##,
+                ),
+                (
+                    "b.rs",
+                    r##"const TEXT: &str = r#"
+/*
+"#;
+#[test]
+fn skipped() {
+    let text = r#"
+*/
+"#;
+}
+fn production() {
+    let values = [0,1,2,3,4,5,6,7,8,9,10,11,12];
+    if (value == value) {}
+}
+"##,
+                ),
+                (
+                    "c.ts",
+                    "const text = '/*'; if (value == value) {}\nconst values = [0,1,2,3,4,5,6,7,8,9,10,11,12];",
+                ),
+            ]),
+            &config(),
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("operation-on-same-value", "b.rs", 12),
+                ("operation-on-same-value", "c.ts", 1),
+                ("large-inline-list", "a.rs", 8),
+                ("large-inline-list", "c.ts", 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_boolean_return_whitespace_exposed_by_string_removal() {
+        let findings = analyze(
+            &sources(&[(
+                "source.dart",
+                r#"if (ready) return true;
+  "" return false;
+if (ready) return true;
+  return "false";
+if (ready) return true;
+  return false;
+if (ready) return true;
+  "prefix"return false;
+"#,
+            )]),
+            &config(),
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "needless-bool-branch")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![5, 7]
+        );
+    }
+
+    #[test]
+    fn preserves_command_comment_state_and_collection_thresholds() {
+        let findings = analyze(
+            &sources(&[
+                (
+                    "branches.cpp",
+                    "\u{2003}#if 0\r\nconst hidden = 10000000;\r\n#if 1\r\nconst nested = 20000000;\r\n#endif\r\n#else\r\nconst active = 30000000;\r\n#endif\r\n",
+                ),
+                (
+                    "collections.ts",
+                    r#"const below = [0,1,2,3,4,5,6,7,8,9,10,11];
+const edge = [0,1,2,3,4,5,6,7,8,9,10,11,12];
+const first = [0,1,2,3,4,5,6]; const second = [7,8,9,10,11,12,13];
+const quoted = ["é,,,,,,,,,,,,"];
+/*
+const hidden = [0,1,2,3,4,5,6,7,8,9,10,11,12];
+*/const later = [0,1,2,3,4,5,6,7,8,9,10,11,12];
+"#,
+                ),
+                (
+                    "commands.py",
+                    r#"subprocess.run("outside task")
+/*
+subprocess.run("inside task")
+*/
+message = "é /* quoted marker */ # slash //"
+subprocess.run("after task")
+subprocess.run/* intervening comment */("separated task")
+subprocess.run(["ok", "separate arg"])
+# subprocess.run("comment task")
+subprocess.run("tool task".split())
+"#,
+                ),
+            ]),
+            &config(),
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "suspicious-command-arg-space"
+                            | "large-number-ungrouped"
+                            | "large-inline-list"
+                    )
+                })
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("suspicious-command-arg-space", "commands.py", 1),
+                ("suspicious-command-arg-space", "commands.py", 6),
+                ("suspicious-command-arg-space", "commands.py", 7),
+                ("large-number-ungrouped", "branches.cpp", 7),
+                ("large-inline-list", "collections.ts", 2),
+                ("large-inline-list", "collections.ts", 7),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_numeric_masks_across_utf8_spans_and_multiline_state() {
+        let source = [
+            "var plain = 10000000;",
+            r#"var 模型 = 20000000 / 2; var text = r"hidden 30000000";"#,
+            r#"var block = r""""#,
+            "hidden = 40000000;",
+            r#""""; var after = 50000000;"#,
+            r#"var literal = "escaped \" 60000000"; var tail = 70000000;"#,
+            "/* comment",
+            "still inside the comment",
+            "hidden = 80000000;",
+            "*/ var resumed = 90000000;",
+            "var finalValue = 11000000; // 12000000",
+            "",
+        ]
+        .join("\r\n");
+        let findings = analyze(&sources(&[("numeric.dart", &source)]), &config());
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| (finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("numeric.dart", 1),
+                ("numeric.dart", 2),
+                ("numeric.dart", 5),
+                ("numeric.dart", 6),
+                ("numeric.dart", 10),
+                ("numeric.dart", 11),
+            ]
+        );
+    }
+
+    #[test]
+    fn excludes_nested_dart_numeric_comments_without_hiding_following_code() {
+        let nested = [
+            "var before = 10000000;",
+            "/* outer é",
+            "/* inner",
+            "hidden = 20000000;",
+            "*/",
+            "hidden = 30000000;",
+            "/* sibling */",
+            "hidden = 40000000;",
+            "*/ var after = 50000000;",
+            r#"var raw = r"/* 60000000 */";"#,
+            r#"var quoted = "/* 70000000 */";"#,
+            r#"var multiline = r""""#,
+            "/* literal 80000000 */",
+            r#"""";"#,
+            "// /* ignored opener",
+            "var next = 90000000;",
+            "",
+        ]
+        .join("\r\n");
+        let findings = analyze(
+            &sources(&[
+                ("nested.dart", &nested),
+                (
+                    "inline.dart",
+                    "/* outer /* inner */ hidden = 12345678; */ var small = 1;\n",
+                ),
+                (
+                    "unterminated.dart",
+                    "/* outer /* inner */\nhidden = 12345678;\n",
+                ),
+                (
+                    "unchanged.js",
+                    "/* outer\n/* inner */\nconst live = 12345678;\n",
+                ),
+                ("z_after.dart", "var live = 12345678;\n"),
+            ]),
+            &config(),
+        );
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| finding.code == "large-number-ungrouped")
+                .map(|finding| {
+                    (finding.path.as_str(), finding.line, finding.confidence.as_str())
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                ("nested.dart", 1, "high"),
+                ("nested.dart", 9, "high"),
+                ("nested.dart", 16, "high"),
+                ("unchanged.js", 3, "high"),
+                ("z_after.dart", 1, "high"),
+            ]
+        );
+    }
+
     fn config() -> Config {
         Config::defaults(".".into())
     }

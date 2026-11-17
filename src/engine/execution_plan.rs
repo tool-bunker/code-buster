@@ -8,12 +8,13 @@ use crate::rule_catalog;
 pub struct ExecutionPlan<'a> {
     languages: BTreeSet<&'a str>,
     only_families: Option<&'static [&'static str]>,
+    selected_rule: Option<&'a str>,
     selected_rule_active: bool,
 }
 
 impl<'a> ExecutionPlan<'a> {
     pub fn new(
-        options: &PreviewOptions,
+        options: &'a PreviewOptions,
         config: &Config,
         languages: impl Iterator<Item = &'a str>,
     ) -> Self {
@@ -27,6 +28,7 @@ impl<'a> ExecutionPlan<'a> {
         Self {
             languages: languages.collect(),
             only_families,
+            selected_rule: (!options.only.is_empty()).then_some(options.only.as_str()),
             selected_rule_active,
         }
     }
@@ -40,6 +42,20 @@ impl<'a> ExecutionPlan<'a> {
 
     pub fn selects_language(&self, language: &str) -> bool {
         self.languages.contains(language)
+    }
+
+    pub fn selected_rule(&self) -> Option<&str> {
+        self.selected_rule
+    }
+
+    pub fn needs_graph(&self) -> bool {
+        // Unknown/custom rules retain the full schedule. A selected pack can emit
+        // more than the requested rule, so honor every rule owned by that pack.
+        self.only_families.is_none()
+            || rule_catalog::RULE_METADATA.iter().any(|metadata| {
+                metadata.requirements.contains(&"graph")
+                    && metadata.packs.iter().any(|family| self.allows(family))
+            })
     }
 }
 

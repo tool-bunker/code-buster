@@ -151,16 +151,24 @@ fn analyze_simple_rules(
 ) {
     for rule in SIMPLE_RULES.iter() {
         let started = collect_timings.then(Instant::now);
-        if !file_allows_rule(&file.masked, rule.allowed_lints) {
+        let mut matches = rule.pattern.find_iter(&file.masked).peekable();
+        if matches.peek().is_some() && !file_allows_rule(&file.masked, rule.allowed_lints) {
             let allowed_ranges = attributed_allowed_ranges(&file.masked, rule.allowed_lints);
-            let mut source_offset = 0usize;
-            for (index, line) in file.masked.split('\n').enumerate() {
-                if reportable_simple_match(file, rule, &allowed_ranges, index, line, source_offset)
-                    .is_some()
+            let mut reported_line = 0;
+            for matched in matches {
+                let line = file.line_at(matched.start());
+                if line != reported_line
+                    && reportable_simple_match(
+                        file,
+                        rule,
+                        &allowed_ranges,
+                        line - 1,
+                        matched.start(),
+                    )
                 {
-                    findings.push(finding(rule.code, path, index + 1, rule.message));
+                    findings.push(finding(rule.code, path, line, rule.message));
+                    reported_line = line;
                 }
-                source_offset += line.len() + 1;
             }
         }
         if let Some(started) = started {
@@ -174,22 +182,13 @@ fn reportable_simple_match(
     rule: &SimpleRule,
     allowed_ranges: &[(usize, usize)],
     index: usize,
-    line: &str,
-    source_offset: usize,
-) -> Option<usize> {
-    if file.test_lines.contains(&index) {
-        return None;
-    }
-    rule.pattern
-        .find_iter(line)
-        .find(|matched| {
-            let offset = source_offset + matched.start();
-            !allowed_ranges
-                .iter()
-                .any(|(start, end)| *start <= offset && offset < *end)
-                && !is_proven_panic_invariant(rule.code, file, offset)
-        })
-        .map(|matched| matched.start())
+    offset: usize,
+) -> bool {
+    !file.test_lines.contains(&index)
+        && !allowed_ranges
+            .iter()
+            .any(|(start, end)| *start <= offset && offset < *end)
+        && !is_proven_panic_invariant(rule.code, file, offset)
 }
 
 fn is_proven_panic_invariant(code: &str, file: &RustFile<'_>, call_offset: usize) -> bool {
@@ -2009,6 +2008,7 @@ struct RustFile<'a> {
     masked: String,
     comments_masked: String,
     comments: Vec<CommentRange>,
+    line_starts: Vec<usize>,
     test_lines: BTreeSet<usize>,
     regex_contracts: RegexContracts,
     panic_contracts: Vec<(usize, usize, bool)>,
@@ -2018,6 +2018,14 @@ impl<'a> RustFile<'a> {
     fn new(source: &'a str) -> Self {
         let (masked, comments_masked, comments) = scan_rust(source);
         let test_lines = test_scopes::test_lines(source, &masked);
+        let line_starts = std::iter::once(0)
+            .chain(
+                source
+                    .bytes()
+                    .enumerate()
+                    .filter_map(|(offset, byte)| (byte == b'\n').then_some(offset + 1)),
+            )
+            .collect();
         let regex_contracts = RegexContracts::new(source, &masked);
         let panic_contracts = function_panic_contracts(source, &masked, &comments);
         Self {
@@ -2025,6 +2033,7 @@ impl<'a> RustFile<'a> {
             masked,
             comments_masked,
             comments,
+            line_starts,
             test_lines,
             regex_contracts,
             panic_contracts,
@@ -2032,11 +2041,8 @@ impl<'a> RustFile<'a> {
     }
 
     fn line_at(&self, offset: usize) -> usize {
-        self.source.as_bytes()[..offset.min(self.source.len())]
-            .iter()
-            .filter(|byte| **byte == b'\n')
-            .count()
-            + 1
+        self.line_starts
+            .partition_point(|start| *start <= offset.min(self.source.len()))
     }
 
     fn excluded(&self, offset: usize) -> bool {
@@ -2389,40 +2395,41 @@ fn finding(code: &str, path: &str, line: usize, message: &str) -> Finding {
 }
 
 static SIMPLE_RULES: LazyLock<Vec<SimpleRule>> = LazyLock::new(|| {
+    // Search whole masks without allowing a match to cross a source line.
     vec![
         SimpleRule {
             code: "rust-unwrap",
-            pattern: Regex::new(r"\.unwrap\s*\(").unwrap(),
+            pattern: Regex::new(r"\.unwrap[^\S\n]*\(").unwrap(),
             message: "unwrap can panic on a recoverable value",
             allowed_lints: &["clippy::unwrap_used", "unwrap_used"],
         },
         SimpleRule {
             code: "rust-expect",
-            pattern: Regex::new(r"\.expect\s*\(").unwrap(),
+            pattern: Regex::new(r"\.expect[^\S\n]*\(").unwrap(),
             message: "expect can panic when its assumed invariant fails",
             allowed_lints: &["clippy::expect_used", "expect_used"],
         },
         SimpleRule {
             code: "rust-panic-macro",
-            pattern: Regex::new(r"\bpanic!\s*\(").unwrap(),
+            pattern: Regex::new(r"\bpanic![^\S\n]*\(").unwrap(),
             message: "explicit panic in production source",
             allowed_lints: &["clippy::panic", "panic"],
         },
         SimpleRule {
             code: "rust-mem-forget",
-            pattern: Regex::new(r"\b(?:std::)?mem::forget\s*\(").unwrap(),
+            pattern: Regex::new(r"\b(?:std::)?mem::forget[^\S\n]*\(").unwrap(),
             message: "mem::forget deliberately skips destruction",
             allowed_lints: &["clippy::mem_forget", "mem_forget"],
         },
         SimpleRule {
             code: "rust-dbg-macro",
-            pattern: Regex::new(r"\bdbg!\s*\(").unwrap(),
+            pattern: Regex::new(r"\bdbg![^\S\n]*\(").unwrap(),
             message: "dbg! output remains in production source",
             allowed_lints: &[],
         },
         SimpleRule {
             code: "rust-todo-macro",
-            pattern: Regex::new(r"\btodo!\s*\(").unwrap(),
+            pattern: Regex::new(r"\btodo![^\S\n]*\(").unwrap(),
             message: "todo! leaves an executable panic path",
             allowed_lints: &[],
         },
@@ -3389,6 +3396,45 @@ fn root_only() {
             .collect::<Vec<_>>();
 
         assert_eq!(selected, vec!["rust-unwrap:2", "rust-unwrap:3"]);
+    }
+
+    #[test]
+    fn preserves_simple_rule_line_boundaries_and_grouping_with_crlf_and_unicode() {
+        let source = [
+            "fn execute() {",
+            "    consume(left.unwrap(), right.unwrap());",
+            "    value.unwrap",
+            "        ();",
+            "    value.expect\u{00a0}(\"missing\");",
+            "    value.expect",
+            "        (\"missing\");",
+            "    panic!",
+            "        (\"failed\");",
+            "    dbg!\t(input);",
+            "    todo!\u{2028}(\"unfinished\");",
+            "    std::mem::forget",
+            "        (input);",
+            "    std::mem::forget \r\t(input);",
+            "    panic!(failure);",
+            "}",
+        ]
+        .join("\r\n");
+        let selected = findings(&source)
+            .into_iter()
+            .map(|finding| format!("{}:{}", finding.code, finding.line))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected,
+            vec![
+                "rust-unwrap:2",
+                "rust-expect:5",
+                "rust-panic-macro:15",
+                "rust-mem-forget:14",
+                "rust-dbg-macro:10",
+                "rust-todo-macro:11",
+            ]
+        );
     }
 
     #[test]
