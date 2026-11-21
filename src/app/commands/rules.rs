@@ -31,11 +31,8 @@ pub fn execute(options: &PreviewOptions) -> Result<(), String> {
     let rules = select_catalog_rules(&config, options.inactive_rules);
 
     match &options.format {
-        ReportFormat::Json => print_json(&rules),
-        _ => {
-            print_text(&rules);
-            Ok(())
-        }
+        ReportFormat::Json => print_json(options, &rules),
+        _ => super::write_report(options, |writer| print_text(writer, &rules)),
     }
 }
 
@@ -105,28 +102,29 @@ fn inactive_reason(
     })
 }
 
-fn print_json(rules: &[RenderedRule]) -> Result<(), String> {
+fn print_json(options: &PreviewOptions, rules: &[RenderedRule]) -> Result<(), String> {
     let output = serde_json::to_string(&RulesReport {
         schema_version: 3,
         command: "rules",
         rules,
     })
     .map_err(|error| format!("failed to encode rules report: {error}"))?;
-    println!("{output}");
-    Ok(())
+    super::write_report(options, |writer| writeln!(writer, "{output}"))
 }
 
-fn print_text(rules: &[RenderedRule]) {
-    println!("Code Buster rules");
+fn print_text(writer: &mut dyn std::io::Write, rules: &[RenderedRule]) -> std::io::Result<()> {
+    writeln!(writer, "Code Buster rules")?;
     for rule in rules {
         let reason = rule
             .inactive_reason
             .map_or_else(String::new, |reason| format!(" ({reason})"));
-        println!(
+        writeln!(
+            writer,
             "{:<7} {} [{}/{}] — {}{}",
             rule.mode, rule.id, rule.language, rule.group, rule.title, reason
-        );
+        )?;
     }
+    Ok(())
 }
 
 fn mode_for(descriptor: &RuleDescriptor, config: &Config) -> &'static str {

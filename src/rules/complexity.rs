@@ -77,17 +77,16 @@ pub fn analyze(
             });
         }
     }
-    if let Some(mut representative) = localization_complexity.first().cloned() {
+    let mut localization_complexity = localization_complexity.into_iter();
+    if let Some(mut representative) = localization_complexity.next() {
         representative.related_files = localization_complexity
-            .iter()
-            .skip(1)
             .map(|finding| format!("{}:{}", finding.path, finding.line))
             .collect();
-        if localization_complexity.len() > 1 {
+        if !representative.related_files.is_empty() {
             representative.message = format!(
                 "{}; {} localization implementations grouped",
                 representative.message,
-                localization_complexity.len()
+                representative.related_files.len() + 1
             );
         }
         findings.push(representative);

@@ -257,14 +257,12 @@ fn qualify_invocation(
     let process_untrusted_argument = invocation.target == "Process"
         && PROCESS_METHODS.contains(&invocation.method)
         && references_parameter(arguments, function, &COMMAND_INPUT_NAME);
-    let path_kind = match (
-        invocation.target.is_empty() && matches!(invocation.method, "File" | "Directory"),
-        PATH_METHODS.contains(&invocation.method)
-            && matches!(invocation.target, "File" | "Directory" | "p" | "path"),
-    ) {
-        (true, _) => Some(PathInvocationKind::Constructor),
-        (false, true) => Some(PathInvocationKind::Method),
-        (false, false) => None,
+    let path_kind = match (invocation.target, invocation.method) {
+        ("", "File" | "Directory") => Some(PathInvocationKind::Constructor),
+        ("File" | "Directory" | "p" | "path", method) if PATH_METHODS.contains(&method) => {
+            Some(PathInvocationKind::Method)
+        }
+        _ => None,
     };
     let path_traversal = path_kind.filter(|_| {
         references_unguarded_path_parameter(arguments, invocation.start, function, original, masked)

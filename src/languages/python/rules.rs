@@ -720,7 +720,7 @@ fn report_function_name(
     {
         return;
     }
-    if is_com_interface_method(lines.raw, current.index, current.indent)
+    if is_com_interface_method(lines, current.index, current.indent)
         || has_naming_contract_decorator(lines, current.indent, name)
         || monkey_patch_replacements.contains(name)
         || has_noqa_for(current.comment, "N802")
@@ -772,8 +772,10 @@ fn report_exception_handler(
         return;
     }
     let line = current.line();
-    let catches_broad_exception = catches_broad_exception(line);
-    if catches_broad_exception && exception_handler_is_swallowed(lines, current) {
+    if !catches_broad_exception(line) {
+        return;
+    }
+    if exception_handler_is_swallowed(lines, current) {
         add_finding(
             disabled,
             findings,
@@ -784,7 +786,7 @@ fn report_exception_handler(
         );
         return;
     }
-    if (line == "except:" || line.starts_with("except:"))
+    if line.starts_with("except:")
         && !broad_handler_unconditionally_raises(lines, current)
         && !has_noqa_for(current.comment, "E722")
     {
@@ -797,9 +799,7 @@ fn report_exception_handler(
             "bare except catches all exceptions",
         );
     }
-    if !catches_broad_exception
-        || reviewed_broad_exception_handler(lines, current, state.broad_exception_reported)
-    {
+    if reviewed_broad_exception_handler(lines, current, state.broad_exception_reported) {
         return;
     }
     add_finding(
@@ -1250,13 +1250,34 @@ fn report_subprocess_safety(
     {
         return;
     }
-    if current.in_expression_continuation || !current.line().contains("subprocess.run(") {
+    if current.in_expression_continuation || !current.line().contains("subprocess.run") {
         return;
     }
     let call = continued_call(lines, current.index);
-    let unchecked_discard = current.line().starts_with("subprocess.run(")
-        && !SUBPROCESS_CHECK_ARGUMENT.is_match(&call)
-        && !call.contains(".check_returncode(");
+    let call = mask_strings(&call);
+    let Some(run) = SUBPROCESS_RUN_CALL.find(&call) else {
+        return;
+    };
+    let open = run.end() - 1;
+    let Some(arguments) = parenthesized_body(&call, open) else {
+        return;
+    };
+    let mut explicit_check = false;
+    let mut bounded = false;
+    for argument in python_call_arguments(arguments) {
+        let Some((name, value)) = argument.split_once('=') else {
+            continue;
+        };
+        match name.trim() {
+            "check" => explicit_check = true,
+            "timeout" => bounded = value.trim() != "None",
+            _ => {}
+        }
+    }
+    let checks_returncode = suffix_after_matching_delimiter(&call, open)
+        .is_some_and(|suffix| suffix.trim_start().starts_with(".check_returncode("));
+    let unchecked_discard =
+        call[..run.start()].trim().is_empty() && !explicit_check && !checks_returncode;
     if unchecked_discard {
         add_finding(
             disabled,
@@ -1268,9 +1289,7 @@ fn report_subprocess_safety(
         );
         return;
     }
-    if (!TIMEOUT_ARGUMENT.is_match(&call) || NONE_TIMEOUT_ARGUMENT.is_match(&call))
-        && !state.subprocess_timeout_reported
-    {
+    if !bounded && !state.subprocess_timeout_reported {
         state.subprocess_timeout_reported = true;
         add_finding(
             disabled,
@@ -1347,19 +1366,10 @@ fn report_printed_exception(
 }
 
 fn prints_to_stderr(call: &str) -> bool {
-    let Some(mut arguments) = parenthesized_body(call, "print".len()) else {
+    let Some(arguments) = parenthesized_body(call, "print".len()) else {
         return false;
     };
-    loop {
-        let argument = first_call_argument(arguments);
-        if STDERR_PRINT_TARGET.is_match(argument) {
-            return true;
-        }
-        let Some(remaining) = arguments[argument.len()..].strip_prefix(',') else {
-            return false;
-        };
-        arguments = remaining;
-    }
+    python_call_arguments(arguments).any(|argument| STDERR_PRINT_TARGET.is_match(argument))
 }
 
 fn report_async_blocking_call(
@@ -1875,6 +1885,17 @@ fn first_call_argument(source: &str) -> &str {
         }
     }
     source
+}
+
+fn python_call_arguments(mut source: &str) -> impl Iterator<Item = &str> {
+    std::iter::from_fn(move || {
+        if source.trim().is_empty() {
+            return None;
+        }
+        let argument = first_call_argument(source);
+        source = source[argument.len()..].strip_prefix(',').unwrap_or("");
+        Some(argument)
+    })
 }
 
 fn contains_top_level_plus(source: &str) -> bool {
@@ -2979,22 +3000,30 @@ fn has_unescaped_f_string_field(literal: &str) -> bool {
     false
 }
 
-fn is_com_interface_method(lines: &[&str], method_index: usize, method_indent: usize) -> bool {
+fn is_com_interface_method(
+    lines: &PythonSourceLines<'_>,
+    method_index: usize,
+    method_indent: usize,
+) -> bool {
     for index in (0..method_index).rev() {
-        let candidate = lines[index].trim();
-        if candidate.is_empty() || candidate.starts_with('#') {
+        let candidate = lines.sanitized[index].trim();
+        if candidate.is_empty() {
             continue;
         }
-        let candidate_indent = leading_indent(lines[index]);
+        let candidate_indent = leading_indent(lines.raw[index]);
         if candidate_indent >= method_indent {
             continue;
         }
         if !COM_INTERFACE_CLASS.is_match(candidate) {
             return false;
         }
-        return lines[index + 1..method_index]
+        return lines.sanitized[index + 1..method_index]
             .iter()
-            .any(|line| line.trim_start().starts_with("_com_interfaces_"));
+            .zip(&lines.raw[index + 1..method_index])
+            .any(|(line, raw)| {
+                leading_indent(raw) == method_indent
+                    && COM_INTERFACE_ASSIGNMENT.is_match(line.trim())
+            });
     }
     false
 }
@@ -3069,12 +3098,15 @@ fn naming_contract_decorator(decorator: &str, method_name: &str) -> Option<bool>
 
 fn monkey_patch_replacements(lines: &[&str]) -> BTreeSet<String> {
     let mut replacements = BTreeSet::new();
+    let mut scanner = PythonScanState::default();
     for raw in lines {
-        let line = code_before_comment(raw);
-        if let Some(assignment) = MONKEY_PATCH_ASSIGNMENT.captures(line) {
+        let starts_in_continued_string = scanner.continued_string_quote.is_some();
+        let code = scanner.scan_code(raw, starts_in_continued_string);
+        let line = mask_strings(&code);
+        if let Some(assignment) = MONKEY_PATCH_ASSIGNMENT.captures(&line) {
             replacements.insert(assignment[1].to_owned());
         }
-        for patch in MONKEY_PATCH_CALL.captures_iter(line) {
+        for patch in MONKEY_PATCH_CALL.captures_iter(&line) {
             replacements.extend(
                 PYTHON_IDENTIFIER
                     .find_iter(&patch[1])
@@ -3201,25 +3233,15 @@ impl QuoteContinuationState {
     }
 
     fn transition(self, character: char) -> QuoteContinuationTransition {
-        match self {
-            Self::Code if matches!(character, '"' | '\'') => {
-                QuoteContinuationTransition::Continue(Self::Quoted(character))
-            }
-            Self::Code if character == '#' => QuoteContinuationTransition::Stop,
-            Self::Code => QuoteContinuationTransition::Continue(Self::Code),
-            Self::Quoted(delimiter) if character == '\\' => {
-                QuoteContinuationTransition::Continue(Self::Escaped(delimiter))
-            }
-            Self::Quoted(delimiter) if character == delimiter => {
-                QuoteContinuationTransition::Continue(Self::Code)
-            }
-            Self::Quoted(delimiter) => {
-                QuoteContinuationTransition::Continue(Self::Quoted(delimiter))
-            }
-            Self::Escaped(delimiter) => {
-                QuoteContinuationTransition::Continue(Self::Quoted(delimiter))
-            }
-        }
+        let next = match (self, character) {
+            (Self::Code, '#') => return QuoteContinuationTransition::Stop,
+            (Self::Code, '"' | '\'') => Self::Quoted(character),
+            (Self::Quoted(delimiter), '\\') => Self::Escaped(delimiter),
+            (Self::Quoted(delimiter), character) if character == delimiter => Self::Code,
+            (Self::Escaped(delimiter), _) => Self::Quoted(delimiter),
+            (state, _) => state,
+        };
+        QuoteContinuationTransition::Continue(next)
     }
 
     fn quote(self) -> Option<char> {
@@ -3747,11 +3769,9 @@ static BUILTINS_DYNAMIC_EXECUTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bbuiltins\.(?:eval|exec)\s*\(").unwrap());
 static REQUESTS_CALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"requests\.(?:get|post|put|patch|delete|request)\(").unwrap());
+static SUBPROCESS_RUN_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bsubprocess\.run\s*\(").unwrap());
 static TIMEOUT_ARGUMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btimeout\s*=").unwrap());
-static NONE_TIMEOUT_ARGUMENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\btimeout\s*=\s*None\b").unwrap());
-static SUBPROCESS_CHECK_ARGUMENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\bcheck\s*=").unwrap());
 static DISABLED_TLS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bverify\s*=\s*False\b").unwrap());
 static PICKLE_LOAD: LazyLock<Regex> = LazyLock::new(|| {
@@ -3800,6 +3820,8 @@ static DYNAMIC_SQL_LITERAL_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 static COM_INTERFACE_CLASS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^class\s+\w+\s*\([^)]*\bcomtypes\.COMObject\b[^)]*\)\s*:").unwrap()
 });
+static COM_INTERFACE_ASSIGNMENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^_com_interfaces_\s*(?::[^=\n]+)?=").unwrap());
 static MONKEY_PATCH_ASSIGNMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\.[A-Za-z_]\w*\s*=\s*([A-Za-z_]\w*)\b").unwrap());
 static MONKEY_PATCH_CALL: LazyLock<Regex> =
@@ -4195,6 +4217,100 @@ ignore = [\"E402\", \"E722\"]\n"
             SourceAnalysisContext::with_auxiliary(&sources, &base, &changed, false, &auxiliary);
 
         assert!(analyze(&context).is_empty());
+    }
+
+    #[test]
+    fn naming_monkey_patch_contracts_require_executable_references() {
+        let source = r#"def StringAssignment(): return None
+example = "client.method = StringAssignment"
+def DocAssignment(): return None
+"""
+client.method = DocAssignment
+"""
+def QuotedTarget(): return None
+patches.patch("QuotedTarget", real_replacement)
+def RealReplacement(): return None
+client.method = RealReplacement
+def RealPatch(): return None
+patches.patch("client.method", RealPatch)
+def ContinuedExample(): return None
+example = "first\
+client.method = ContinuedExample"
+def StringPatch(): return None
+example = "patches.patch(target, StringPatch)"
+"#;
+        let sources = BTreeMap::from([("contracts.py".to_owned(), source.to_owned())]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let functions = crate::function_sources::extract(context.sources());
+        let all = analyze_with_functions(&context, &functions, None);
+        let selected = all
+            .into_iter()
+            .filter(|finding| finding.code == "py-function-naming")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selected
+                .iter()
+                .map(|finding| (
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.confidence.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("contracts.py", 1, "medium"),
+                ("contracts.py", 3, "medium"),
+                ("contracts.py", 7, "medium"),
+                ("contracts.py", 13, "medium"),
+                ("contracts.py", 16, "medium"),
+            ]
+        );
+        assert_eq!(
+            analyze_with_functions(&context, &functions, Some("py-function-naming")),
+            selected,
+        );
+    }
+
+    #[test]
+    fn naming_com_contracts_require_executable_class_and_interface_markers() {
+        let cases = [
+            (
+                "class Adapter(comtypes.COMObject):\n    _com_interfaces_ = [IAdapter]\n    def RequiredName(self): return None\n",
+                None,
+            ),
+            (
+                "class Adapter(comtypes.COMObject):\n    _com_interfaces_: list = [IAdapter]\n    def RequiredName(self): return None\n",
+                None,
+            ),
+            (
+                "class Adapter(comtypes.COMObject):\n    def prepare(self):\n        _com_interfaces_ = [IAdapter]\n    def OrdinaryName(self): return None\n",
+                Some(4),
+            ),
+            (
+                "class Adapter(comtypes.COMObject):\n    _com_interfaces_notes = [IAdapter]\n    def OrdinaryName(self): return None\n",
+                Some(3),
+            ),
+            (
+                "class Adapter(comtypes.COMObject):\n    \"\"\"\n    _com_interfaces_ = [IAdapter]\n    \"\"\"\n    def OrdinaryName(self): return None\n",
+                Some(5),
+            ),
+            (
+                "\"\"\"\nclass Adapter(comtypes.COMObject):\n    _com_interfaces_ = [IAdapter]\n\"\"\"\nif enabled:\n    def OrdinaryName(): return None\n",
+                Some(6),
+            ),
+        ];
+        for (source, expected) in cases {
+            let sources = BTreeMap::from([("adapter.py".to_owned(), source.to_owned())]);
+            let selected = analyze(&SourceAnalysisContext::unchanged(&sources))
+                .into_iter()
+                .filter(|finding| finding.code == "py-function-naming")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                selected,
+                expected.into_iter().collect::<Vec<_>>(),
+                "{source}"
+            );
+        }
     }
 
     #[test]
@@ -5025,6 +5141,86 @@ example = 'sum(groups, [])'
 
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
+    #[test]
+    fn subprocess_policy_requires_keywords_on_the_actual_call() {
+        for (source, expected) in [
+            (
+                "subprocess.run(['check=True', 'timeout=5', '.check_returncode('])\n",
+                Some("py-subprocess-run-unchecked"),
+            ),
+            (
+                "subprocess.run(build(check=True, timeout=5))\n",
+                Some("py-subprocess-run-unchecked"),
+            ),
+            (
+                "subprocess.run(['timeout=5'], check=False)\n",
+                Some("py-subprocess-no-timeout"),
+            ),
+            (
+                "result = subprocess.run(build(timeout=5), check=True)\n",
+                Some("py-subprocess-no-timeout"),
+            ),
+            (
+                "record(subprocess.run(command, check=True), timeout=5)\n",
+                Some("py-subprocess-no-timeout"),
+            ),
+            (
+                "result = subprocess.run(command, check=True, timeout=None)\n",
+                Some("py-subprocess-no-timeout"),
+            ),
+            (
+                "subprocess.run(command).check_returncode()\n",
+                Some("py-subprocess-no-timeout"),
+            ),
+            (
+                "subprocess.run (\n    command,\n    check=False,  # deliberate exit policy\n    timeout=5,\n)\n",
+                None,
+            ),
+            ("example = \"subprocess.run(command, check=True)\"\n", None),
+        ] {
+            let sources = BTreeMap::from([("process.py".to_owned(), source.to_owned())]);
+            let context = SourceAnalysisContext::unchanged(&sources);
+            let functions = crate::function_sources::extract(context.sources());
+            let all = analyze_with_functions(&context, &functions, None);
+            let selected = all
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "py-subprocess-run-unchecked" | "py-subprocess-no-timeout"
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                selected
+                    .iter()
+                    .map(|finding| (
+                        finding.code.as_str(),
+                        finding.path.as_str(),
+                        finding.line,
+                        finding.confidence.as_str(),
+                    ))
+                    .collect::<Vec<_>>(),
+                expected
+                    .map(|code| (code, "process.py", 1, "medium"))
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+                "{source}",
+            );
+            for code in ["py-subprocess-run-unchecked", "py-subprocess-no-timeout"] {
+                assert_eq!(
+                    analyze_with_functions(&context, &functions, Some(code)),
+                    selected
+                        .iter()
+                        .filter(|finding| finding.code == code)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    "{code}: {source}",
+                );
+            }
+        }
+    }
+
     #[test]
     fn reports_dangling_tasks_and_discarded_unchecked_subprocesses() {
         let sources = BTreeMap::from([(

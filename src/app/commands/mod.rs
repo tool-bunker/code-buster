@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::discovery::PreparedPreview;
 use crate::findings::Finding;
 use crate::options::PreviewOptions;
-use crate::report::{FindingReport, render};
+use crate::report::{FindingReport, render, write_report};
 
 pub(crate) mod baseline;
 pub(crate) mod completions;
@@ -23,6 +23,7 @@ pub(crate) mod rules;
 pub(crate) mod structure;
 pub(crate) mod summary;
 pub(crate) mod update;
+pub(crate) mod workflow;
 
 fn print_quality_report(
     options: &PreviewOptions,
@@ -32,23 +33,19 @@ fn print_quality_report(
     actionable_count: usize,
     advisory_summary: &BTreeMap<String, usize>,
 ) -> Result<(), String> {
-    println!(
-        "{}",
-        render(
-            options.format.clone(),
-            &FindingReport {
-                command: "quality",
-                prepared,
-                findings,
-                taxonomy_group,
-                actionable_count,
-                advisory_summary,
-                show_advisory_hint: false,
-                verbose: options.verbose,
-                profile: options.profile,
-            },
-        )?
-    );
-    Ok(())
+    let output = render(
+        options.format.clone(),
+        &FindingReport {
+            command: "quality",
+            prepared,
+            findings,
+            taxonomy_group,
+            actionable_count,
+            advisory_summary,
+            show_advisory_hint: false,
+            verbose: options.verbose,
+            profile: options.profile,
+        },
+    )?;
+    write_report(options, |writer| writeln!(writer, "{output}"))
 }
-pub(crate) mod workflow;

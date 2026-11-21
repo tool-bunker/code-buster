@@ -52,13 +52,13 @@ fn included_by_scope(classification: &str, config: &Config) -> bool {
 }
 
 fn print_excluded_inspection(
+    options: &RepositoryViewOptions,
     path: &str,
     classification: &str,
     classification_source: &str,
     matched: Option<&str>,
-    json_output: bool,
 ) -> Result<(), String> {
-    if json_output {
+    if matches!(options.common.format, ReportFormat::Json) {
         let mut report = json!({
             "path": path,
             "classification": classification,
@@ -70,22 +70,21 @@ fn print_excluded_inspection(
         if let Some(matched) = matched {
             report["matched"] = json!(matched);
         }
-        println!(
-            "{}",
-            serde_json::to_string(&report)
-                .map_err(|error| format!("failed to encode inspect report: {error}"))?
-        );
+        let output = serde_json::to_string(&report)
+            .map_err(|error| format!("failed to encode inspect report: {error}"))?;
+        super::write_report(&options.common, |writer| writeln!(writer, "{output}"))
     } else {
-        println!("path={path}");
-        println!("classification={classification}");
-        println!("classification_source={classification_source}");
-        if let Some(pattern) = matched {
-            println!("matched={pattern}");
-        }
-        println!("included=false");
-        println!("reason=excluded by the default production scope");
+        super::write_report(&options.common, |writer| {
+            writeln!(writer, "path={path}")?;
+            writeln!(writer, "classification={classification}")?;
+            writeln!(writer, "classification_source={classification_source}")?;
+            if let Some(pattern) = matched {
+                writeln!(writer, "matched={pattern}")?;
+            }
+            writeln!(writer, "included=false")?;
+            writeln!(writer, "reason=excluded by the default production scope")
+        })
     }
-    Ok(())
 }
 
 fn scope_override(classification: &str) -> &'static str {
@@ -110,11 +109,11 @@ pub fn execute_inspect(options: &RepositoryViewOptions) -> Result<RepositoryView
     let target_path = root.join(normalized.replace('/', std::path::MAIN_SEPARATOR_STR));
     if target_path.is_file() && !included {
         print_excluded_inspection(
+            options,
             &normalized,
             classification.classification,
             classification.source,
             classification.matched.as_deref(),
-            matches!(options.common.format, ReportFormat::Json),
         )?;
         return Ok(RepositoryViewOutcome::Success);
     }
@@ -196,35 +195,38 @@ pub fn execute_inspect(options: &RepositoryViewOptions) -> Result<RepositoryView
         if let Some(matched) = &classification.matched {
             report["matched"] = json!(matched);
         }
-        println!(
-            "{}",
-            serde_json::to_string(&report)
-                .map_err(|error| format!("failed to encode inspect report: {error}"))?
-        );
+        let output = serde_json::to_string(&report)
+            .map_err(|error| format!("failed to encode inspect report: {error}"))?;
+        super::write_report(&options.common, |writer| writeln!(writer, "{output}"))?;
     } else {
-        println!("classification={}", classification.classification);
-        println!("classification_source={}", classification.source);
-        if let Some(pattern) = classification.matched {
-            println!("matched={pattern}");
-        }
-        println!("included=true");
-        println!(
-            "Code Buster inspect: 1 files, {} actionable findings",
-            findings.len()
-        );
-        for finding in &findings {
-            let location = if finding.end_line > finding.line {
-                format!("{}:{}-{}", finding.path, finding.line, finding.end_line)
-            } else {
-                format!("{}:{}", finding.path, finding.line)
-            };
-            println!(
-                "{} {} {location} {}",
-                finding.severity.as_str(),
-                finding.code,
-                finding.message
-            );
-        }
+        super::write_report(&options.common, |writer| {
+            writeln!(writer, "classification={}", classification.classification)?;
+            writeln!(writer, "classification_source={}", classification.source)?;
+            if let Some(pattern) = classification.matched {
+                writeln!(writer, "matched={pattern}")?;
+            }
+            writeln!(writer, "included=true")?;
+            writeln!(
+                writer,
+                "Code Buster inspect: 1 files, {} actionable findings",
+                findings.len()
+            )?;
+            for finding in &findings {
+                let location = if finding.end_line > finding.line {
+                    format!("{}:{}-{}", finding.path, finding.line, finding.end_line)
+                } else {
+                    format!("{}:{}", finding.path, finding.line)
+                };
+                writeln!(
+                    writer,
+                    "{} {} {location} {}",
+                    finding.severity.as_str(),
+                    finding.code,
+                    finding.message
+                )?;
+            }
+            Ok(())
+        })?;
     }
     Ok(inspect_outcome(
         options.common.fail_on_issues,
@@ -289,17 +291,14 @@ pub fn execute_related(options: &RepositoryViewOptions) -> Result<RepositoryView
         .map(str::to_owned)
         .collect::<Vec<_>>();
     if matches!(options.common.format, ReportFormat::Json) {
-        println!(
-            "{}",
-            serde_json::to_string(&RelatedReport {
-                path: &normalized,
-                depends_on: &depends_on,
-                depended_on_by: &depended_on_by,
-            })
-            .map_err(|error| format!("failed to encode related report: {error}"))?
-        );
+        let output = serde_json::to_string(&RelatedReport {
+            path: &normalized,
+            depends_on: &depends_on,
+            depended_on_by: &depended_on_by,
+        })
+        .map_err(|error| format!("failed to encode related report: {error}"))?;
+        super::write_report(&options.common, |writer| writeln!(writer, "{output}"))?;
     } else {
-        println!("Code Buster related: {normalized}");
         let mut related = depends_on
             .iter()
             .chain(&depended_on_by)
@@ -307,9 +306,13 @@ pub fn execute_related(options: &RepositoryViewOptions) -> Result<RepositoryView
             .collect::<Vec<_>>();
         related.sort_unstable();
         related.dedup();
-        for path in related {
-            println!("{path}");
-        }
+        super::write_report(&options.common, |writer| {
+            writeln!(writer, "Code Buster related: {normalized}")?;
+            for path in related {
+                writeln!(writer, "{path}")?;
+            }
+            Ok(())
+        })?;
     }
     Ok(RepositoryViewOutcome::Success)
 }
@@ -336,17 +339,17 @@ pub fn execute_why(options: &RepositoryViewOptions) -> Result<RepositoryViewOutc
     }
 
     if matches!(options.common.format, ReportFormat::Json) {
-        println!(
-            "{}",
-            serde_json::to_string(&WhyReport {
-                target: &normalized,
-                reachable: true,
-                path: &selected,
-            })
-            .map_err(|error| format!("failed to encode why report: {error}"))?
-        );
+        let output = serde_json::to_string(&WhyReport {
+            target: &normalized,
+            reachable: true,
+            path: &selected,
+        })
+        .map_err(|error| format!("failed to encode why report: {error}"))?;
+        super::write_report(&options.common, |writer| writeln!(writer, "{output}"))?;
     } else {
-        println!("{}", selected.join(" -> "));
+        super::write_report(&options.common, |writer| {
+            writeln!(writer, "{}", selected.join(" -> "))
+        })?;
     }
     Ok(RepositoryViewOutcome::Success)
 }
@@ -368,17 +371,17 @@ pub fn execute_path(options: &RepositoryViewOptions) -> Result<RepositoryViewOut
     }
 
     if matches!(options.common.format, ReportFormat::Json) {
-        println!(
-            "{}",
-            serde_json::to_string(&PathReport {
-                from: &from,
-                to: &to,
-                path: &path,
-            })
-            .map_err(|error| format!("failed to encode path report: {error}"))?
-        );
+        let output = serde_json::to_string(&PathReport {
+            from: &from,
+            to: &to,
+            path: &path,
+        })
+        .map_err(|error| format!("failed to encode path report: {error}"))?;
+        super::write_report(&options.common, |writer| writeln!(writer, "{output}"))?;
     } else {
-        println!("{}", path.join(" -> "));
+        super::write_report(&options.common, |writer| {
+            writeln!(writer, "{}", path.join(" -> "))
+        })?;
     }
     Ok(RepositoryViewOutcome::Success)
 }

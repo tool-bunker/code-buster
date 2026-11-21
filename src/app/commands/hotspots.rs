@@ -59,9 +59,9 @@ pub fn execute(options: &PreviewOptions) -> Result<HotspotsOutcome, String> {
             hotspots: &hotspots,
         })
         .map_err(|error| format!("failed to encode hotspots report: {error}"))?;
-        println!("{output}");
+        super::write_report(options, |writer| writeln!(writer, "{output}"))?;
     } else {
-        print_text(&hotspots);
+        super::write_report(options, |writer| print_text(writer, &hotspots))?;
     }
     Ok(HotspotsOutcome::Success)
 }
@@ -144,13 +144,14 @@ fn finish_commit(totals: &mut BTreeMap<String, HotspotTotals>, touched: &mut BTr
     touched.clear();
 }
 
-fn print_text(hotspots: &[Hotspot]) {
-    println!("Code Buster hotspots: {}", hotspots.len());
+fn print_text(writer: &mut dyn std::io::Write, hotspots: &[Hotspot]) -> std::io::Result<()> {
+    writeln!(writer, "Code Buster hotspots: {}", hotspots.len())?;
     if hotspots.is_empty() {
-        println!("No Git history available for discovered files.");
+        writeln!(writer, "No Git history available for discovered files.")?;
     }
     for hotspot in hotspots {
-        println!(
+        writeln!(
+            writer,
             "{} — risk {:.1}, churn {}, commits {} (+{}/-{})",
             hotspot.path,
             hotspot.risk,
@@ -158,6 +159,7 @@ fn print_text(hotspots: &[Hotspot]) {
             hotspot.commits,
             hotspot.added,
             hotspot.deleted
-        );
+        )?;
     }
+    Ok(())
 }

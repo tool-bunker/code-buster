@@ -35,6 +35,16 @@ is cleared before the final report. It is disabled for redirected streams,
 machine formats, `--ci`, `--output`, `CI`, `NO_COLOR`, and `TERM=dumb`.
 Human-readable reports use ANSI color only when stdout is interactive.
 
+Report-producing commands share `src/reporting/report.rs::write_report`: `--output`
+selects a file-only sink, preserves the renderer's bytes and final newline, and
+leaves stdout empty. Relative report paths resolve from the invocation directory,
+not `--root`; the parent directory must already exist. Save and flush the report
+before deciding finding or quality-gate exit status, and propagate write errors
+through the normal stderr/error exit path. This applies to summary/review (including
+plan/actions), quality views, duplication, dead, graph, inspect views, rules, doctor,
+and `config --files`. Baseline ledger paths, fix/init mutations, configuration
+inspection/migration, completions, and updater output have separate contracts.
+
 Human-only finding wording belongs in `src/reporting/finding_message.rs`, shared
 by terminal and Markdown reports. Keep canonical finding messages unchanged
 unless intentionally changing the machine contract: they participate in finding
@@ -163,8 +173,18 @@ path-mapped modules, and unresolved imports remain conservative, not certified.
 
 Review CB's own advisory findings too. Prefer a useful simplification, but do not
 scatter cohesive dispatch or parser state solely to lower a counter, increase
-thresholds, or add blanket ignores. Record the reason when retaining contextual
-advice or an intentional invariant panic.
+thresholds, or add blanket ignores. A retained advisory needs concrete branch-order,
+state, or contract invariants and relevant behavioral coverage; “it is a parser”
+is not enough. Record the reason when retaining contextual advice or an intentional
+invariant panic.
+
+Report rendering retains some contextual complexity: inspection keeps scope
+classification and format-specific evidence together, while review plans keep
+first-seen grouping, stable priority ordering, and bounded evidence in one flow.
+The report-sink closure adds lexical nesting without another analysis pass or
+an intermediate report buffer. Preserve flush-before-policy-exit behavior;
+`tests/cli/output.rs` covers both formats, excluded inspections, plan ordering
+parity, write errors, and reports saved on finding/quality-gate failure.
 
 ### Rust panic-rule precision
 

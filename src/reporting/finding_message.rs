@@ -228,3 +228,79 @@ fn yagni(message: &str) -> Option<HumanMessage<'_>> {
         }),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::describe;
+    use crate::config::Config;
+    use crate::findings::Finding;
+    use std::path::PathBuf;
+
+    fn finding(code: &str, message: &str) -> Finding {
+        Finding::structure(
+            code,
+            "source".to_owned(),
+            message.to_owned(),
+            "",
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn unfamiliar_or_malformed_messages_fall_back_losslessly() {
+        let config = Config::defaults(PathBuf::from("."));
+        for (code, message) in [
+            ("external-rule", "work complexity=11 cognitive=16"),
+            (
+                "external-rule",
+                "Imported evidence: α\n  keep spacing; and details",
+            ),
+            ("external-rule", ""),
+            (
+                "complex-function",
+                "work complexity=11 cognitive=16 additional evidence",
+            ),
+            ("complex-function", " complexity=11 cognitive=16"),
+            ("large-file", "501 lines > 500; additional evidence"),
+            (
+                "long-function",
+                "work has 51 lines (threshold 50); more evidence",
+            ),
+            ("long-function", " has 51 lines (threshold 50)"),
+            (
+                "duplicate-block",
+                "duplicate block of 6 lines fingerprint=ABCDEF012345 extra",
+            ),
+            (
+                "duplicate-block",
+                "duplicate block of 6 lines fingerprint=not-hex-data",
+            ),
+            (
+                "dart-json-serialization-asymmetry",
+                "toJson/fromJson fields differ: write-only={name} read-only=id",
+            ),
+            (
+                "yagni-concentration",
+                "4 YAGNI findings from 2 rule families are concentrated in this file: ",
+            ),
+            (
+                "py-broad-except",
+                "broad exception handler; catches user errors",
+            ),
+            (
+                "nim-broad-except",
+                "broad exception handler catches too much; retry required",
+            ),
+            (
+                "py-broad-except",
+                "broad exception handler catches too much",
+            ),
+            ("nim-broad-except", "broad exception handler"),
+        ] {
+            let finding = finding(code, message);
+            let human = describe(&finding, &config);
+            assert_eq!(human.to_string(), message, "{code}");
+            assert!(human.detail.is_none(), "{code}: {message}");
+        }
+    }
+}

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -9,35 +8,26 @@ use crate::rule_catalog;
 use crate::source_analysis_context::SourceAnalysisContext;
 
 pub fn analyze(context: &SourceAnalysisContext<'_>, config: &Config) -> Vec<Finding> {
-    let sql_sources = context
+    let languages = if config.languages.is_empty() {
+        std::slice::from_ref(&config.language)
+    } else {
+        &config.languages
+    };
+    let configured_mysql = languages
+        .iter()
+        .any(|language| language.eq_ignore_ascii_case("mysql"));
+    let configured_postgres = languages.iter().any(|language| {
+        language.eq_ignore_ascii_case("postgres") || language.eq_ignore_ascii_case("postgresql")
+    });
+    let mut findings = Vec::new();
+    for (path, source) in context
         .sources()
         .iter()
         .filter(|(path, _)| path.ends_with(".sql"))
-        .collect::<Vec<_>>();
-    let mut mysql_evidence_by_directory = BTreeMap::<String, usize>::new();
-    for (path, source) in &sql_sources {
-        if MYSQL_SYNTAX.is_match(source) {
-            *mysql_evidence_by_directory
-                .entry(source_directory(path))
-                .or_default() += 1;
-        }
-    }
-    let configured_mysql = config.language.eq_ignore_ascii_case("mysql")
-        || config
-            .languages
-            .iter()
-            .any(|language| language.eq_ignore_ascii_case("mysql"));
-    let mut findings = Vec::new();
-    for (path, source) in sql_sources {
-        let directory = source_directory(path);
+    {
         let postgres = !configured_mysql
-            && (POSTGRES_PATH.is_match(path)
-                || (!is_clearly_non_postgres(path, source)
-                    && mysql_evidence_by_directory
-                        .get(&directory)
-                        .copied()
-                        .unwrap_or_default()
-                        < 2));
+            && (configured_postgres || POSTGRES_PATH.is_match(path))
+            && !is_clearly_non_postgres(path, source);
         scan_source(path, source, postgres, &mut findings);
     }
     findings
@@ -347,13 +337,6 @@ fn is_clearly_non_postgres(path: &str, source: &str) -> bool {
         || SQL_SERVER_SYNTAX.is_match(source)
 }
 
-fn source_directory(path: &str) -> String {
-    let normalized = path.replace('\\', "/");
-    normalized
-        .rsplit_once('/')
-        .map_or_else(String::new, |(directory, _)| directory.to_owned())
-}
-
 static POSTGRES_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:^|[\\/])postgres(?:ql)?(?:[\\/]|$)|postgres(?:ql)?\.sql$").unwrap()
 });
@@ -409,7 +392,9 @@ SELECT id FROM users WHERE id NOT IN (SELECT user_id FROM bans);"
         )]);
         let context = SourceAnalysisContext::unchanged(&sources);
 
-        let findings = analyze(&context, &Config::defaults(PathBuf::from(".")));
+        let mut config = Config::defaults(PathBuf::from("."));
+        config.language = "postgresql".to_owned();
+        let findings = analyze(&context, &config);
 
         assert_eq!(
             findings
@@ -488,44 +473,99 @@ CREATE INDEX CONCURRENTLY idx_users ON users(name);\n\
     }
 
     #[test]
-    fn uses_configured_and_inferred_mysql_dialects() {
-        let configured_sources = BTreeMap::from([(
-            "index.sql".to_owned(),
-            "CREATE INDEX idx ON users(name);".to_owned(),
-        )]);
-        let configured_context = SourceAnalysisContext::unchanged(&configured_sources);
-        let mut mysql = Config::defaults(PathBuf::from("."));
-        mysql.languages = vec!["mysql".to_owned()];
-        assert!(analyze(&configured_context, &mysql).is_empty());
-
-        let inferred_sources = BTreeMap::from([
+    fn requires_postgres_evidence_for_nonconcurrent_index_advice() {
+        let sources = BTreeMap::from([
             (
-                "db/tables.sql".to_owned(),
-                "CREATE TABLE `users` (`name` varchar(100));".to_owned(),
+                "db/migrations/001_create.sql".to_owned(),
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);\nCREATE INDEX idx_users ON users(name);".to_owned(),
             ),
             (
-                "db/options.sql".to_owned(),
-                "CREATE TABLE logs (id int) ENGINE=InnoDB;".to_owned(),
+                "db/migrations/002_index.sql".to_owned(),
+                "CREATE INDEX idx_sessions ON sessions(user_id);\nDELETE FROM expired_sessions;".to_owned(),
             ),
             (
-                "db/indexes.sql".to_owned(),
+                "db/postgresql/003_index.sql".to_owned(),
+                "-- Add an index\nCREATE INDEX idx_events ON events(name);\nCREATE INDEX CONCURRENTLY idx_accounts ON accounts(name);".to_owned(),
+            ),
+            (
+                "db/postgresql/sqlite/004_index.sql".to_owned(),
                 "CREATE INDEX idx_users ON users(name);".to_owned(),
             ),
             (
-                "db/postgresql.sql".to_owned(),
-                "CREATE INDEX idx_events ON events(name);".to_owned(),
+                "db/postgresql/schema.sql".to_owned(),
+                "-- SQLite schema\nCREATE INDEX idx_users ON users(name);".to_owned(),
+            ),
+            (
+                "mysql/migrations/001_index.sql".to_owned(),
+                "CREATE INDEX idx_users ON users(name);".to_owned(),
             ),
         ]);
-        let inferred_context = SourceAnalysisContext::unchanged(&inferred_sources);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context, &Config::defaults(PathBuf::from(".")));
+
         assert_eq!(
-            analyze(&inferred_context, &Config::defaults(PathBuf::from(".")),)
-                .into_iter()
-                .filter(|finding| finding.code == "sql-create-index-nonconcurrent")
-                .map(|finding| finding.path)
+            findings
+                .iter()
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
                 .collect::<Vec<_>>(),
-            vec!["db/postgresql.sql"]
+            vec![
+                ("sql-delete-without-where", "db/migrations/002_index.sql", 2),
+                (
+                    "sql-create-index-nonconcurrent",
+                    "db/postgresql/003_index.sql",
+                    2
+                ),
+            ]
         );
     }
+
+    #[test]
+    fn honors_explicit_postgres_selection_without_overriding_sqlite_evidence() {
+        let sources = BTreeMap::from([
+            (
+                "migrations/001_index.sql".to_owned(),
+                "CREATE INDEX idx_users ON users(name);".to_owned(),
+            ),
+            (
+                "sqlite/schema.sql".to_owned(),
+                "CREATE INDEX idx_users ON users(name);".to_owned(),
+            ),
+            (
+                "schema.sql".to_owned(),
+                "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT);\nCREATE INDEX idx_users ON users(id);".to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        for language in ["postgres", "postgresql", "PoStGrEsQL"] {
+            for use_language_list in [false, true] {
+                let mut config = Config::defaults(PathBuf::from("."));
+                if use_language_list {
+                    config.language = "mysql".to_owned();
+                    config.languages = vec![language.to_owned()];
+                } else {
+                    config.language = language.to_owned();
+                }
+                assert_eq!(
+                    analyze(&context, &config)
+                        .into_iter()
+                        .map(|finding| (finding.code, finding.path, finding.line))
+                        .collect::<Vec<_>>(),
+                    vec![(
+                        "sql-create-index-nonconcurrent".to_owned(),
+                        "migrations/001_index.sql".to_owned(),
+                        1,
+                    )]
+                );
+            }
+        }
+        let mut ambiguous = Config::defaults(PathBuf::from("."));
+        ambiguous.languages = vec!["postgresql".to_owned(), "mysql".to_owned()];
+        assert!(analyze(&context, &ambiguous).is_empty());
+        let mut mysql = Config::defaults(PathBuf::from("."));
+        mysql.language = "mysql".to_owned();
+        assert!(analyze(&context, &mysql).is_empty());
+    }
+
     #[test]
     fn handles_unterminated_sql_constructs_with_multibyte_text() {
         let sources = BTreeMap::from([

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.14.6
+
+### Changed
+
+- Simplify inspection-result routing, legacy configuration-key migration, Python exception and quote handling, and MVVM/Dart path qualification without changing public behavior. Avoid cloning grouped localization evidence and redundant lexical/visibility checks.
+
+### Fixed
+
+- Honor `--output` across finding and repository reports, including JSON/SARIF review reports and focused views. Write only to the requested file (relative to the invocation directory), preserve report bytes and finding/quality-gate exit statuses after saving, and fail clearly on report-write errors.
+- Preserve nested and multiline generic class-header state when detecting public mutable fields. Do not confuse type-constraint properties or function-type arrows with the actual class body.
+- Require Python subprocess exit-handling and timeout keywords to belong to the actual call, rather than quoted arguments, nested calls, or surrounding expressions. Preserve unchecked-result precedence and per-file timeout grouping.
+- Require executable Python monkey-patch and class-scope COM evidence for naming exemptions; documentation, string literals, method-local variables, and similarly prefixed attributes no longer establish those contracts.
+- Recognize triple-quoted role keys and values in Python message mappings when reviewing prompt-override instructions, without treating detector tables as active prompts.
+- Preserve scalar rule severities named `lang` or `languages` during legacy configuration migration; language-list conversion applies only at the root.
+- Recognize fail-fast fixture and generated-output JSON parsing in proven JavaScript/TypeScript test harness modules, including module-scope helpers. Keep normal runtime parsing, local-storage, and security checks active.
+- Respect component- and source-derived test naming contracts instead of comparing those tests with utility-module peers. Recognize feature-named component tests through real relative imports while preserving unrelated outliers and rejecting quoted, missing, or unresolved import evidence.
+- Stop recommending PostgreSQL-only `CREATE INDEX CONCURRENTLY` for SQLite and unspecified SQL dialects. Require a PostgreSQL path or explicit `postgres`/`postgresql` language selection, preserve recognized non-PostgreSQL exclusions, and retain general SQL checks.
+
 ## 0.14.5
 
 ### Changed

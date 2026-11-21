@@ -159,23 +159,18 @@ fn execute_command(command: cli::Command) -> Result<ExitCode, String> {
                 rules_command::execute(&options.common)?;
                 ExitCode::SUCCESS
             } else {
-                repository_view_exit(Ok(explain_command::execute(&options)))
+                repository_view_exit(explain_command::execute(&options))
             }
         }
-        cli::Command::Inspect(options, view) => match view {
-            cli::InspectView::Details => {
-                repository_view_exit(repository_view_command::execute_inspect(&options))
-            }
-            cli::InspectView::Related => {
-                repository_view_exit(repository_view_command::execute_related(&options))
-            }
-            cli::InspectView::Why => {
-                repository_view_exit(repository_view_command::execute_why(&options))
-            }
-            cli::InspectView::Path => {
-                repository_view_exit(repository_view_command::execute_path(&options))
-            }
-        },
+        cli::Command::Inspect(options, view) => {
+            let result = match view {
+                cli::InspectView::Details => repository_view_command::execute_inspect(&options),
+                cli::InspectView::Related => repository_view_command::execute_related(&options),
+                cli::InspectView::Why => repository_view_command::execute_why(&options),
+                cli::InspectView::Path => repository_view_command::execute_path(&options),
+            };
+            repository_view_exit(result)
+        }
         cli::Command::Config(options) => {
             config_command::execute(&options)?;
             ExitCode::SUCCESS

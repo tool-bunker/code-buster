@@ -238,7 +238,7 @@ pub(crate) fn execute_report(
             profile: options.profile,
         },
     )?;
-    println!("{output}");
+    super::write_report(options, |writer| writeln!(writer, "{output}"))?;
     if options.fail_on_issues && run.actionable_count > 0 {
         Ok(SummaryOutcome::Findings)
     } else {

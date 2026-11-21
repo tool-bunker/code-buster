@@ -100,7 +100,7 @@ impl MutableStateSyntax {
 struct MutableTypeScope {
     depth: isize,
     awaiting_body: bool,
-    generic_header: bool,
+    generic_depth: usize,
     private_class: bool,
     intentionally_mutable_class: bool,
     script_enum: bool,
@@ -219,35 +219,45 @@ impl MutableStateScope {
         let Some(name) = declaration.name("name") else {
             return false;
         };
+        let declaration_end = name.end();
+        let name = name.as_str();
+        let is_script = matches!(syntax, MutableStateSyntax::Script);
         let opening_braces = count_byte(line, b'{');
-        let generic_header = matches!(syntax, MutableStateSyntax::Script)
-            && count_byte(line, b'<') > count_byte(line, b'>');
-        let parent_is_visible = self
-            .type_scopes
-            .last()
-            .is_none_or(|scope| scope.externally_visible);
+        let mut generic_depth = 0;
+        let body_depth = if is_script {
+            awaited_script_class_body_depth(
+                &line[declaration_end..],
+                self.depth,
+                self.parenthesis_depth,
+                &mut generic_depth,
+            )
+        } else {
+            (opening_braces > 0).then_some(self.depth + opening_braces)
+        };
         self.type_scopes.push(MutableTypeScope {
-            depth: self.depth + opening_braces.max(1),
-            awaiting_body: opening_braces == 0 || generic_header,
-            generic_header,
-            private_class: name.as_str().starts_with('_'),
-            intentionally_mutable_class: intentionally_mutable_type(name.as_str()),
-            error_contract: matches!(syntax, MutableStateSyntax::Script)
-                && (name.as_str().ends_with("Error") || script_error_contract_declaration(line)),
-            runtime_immutable: matches!(syntax, MutableStateSyntax::Script)
-                && script_visibility.frozen_types.contains(name.as_str()),
-            script_enum: matches!(syntax, MutableStateSyntax::Script)
+            depth: body_depth.unwrap_or(self.depth + 1),
+            awaiting_body: body_depth.is_none(),
+            generic_depth,
+            private_class: name.starts_with('_'),
+            intentionally_mutable_class: intentionally_mutable_type(name),
+            error_contract: is_script
+                && (name.ends_with("Error") || script_error_contract_declaration(line)),
+            runtime_immutable: is_script && script_visibility.frozen_types.contains(name),
+            script_enum: is_script
                 && declaration
                     .name("kind")
                     .is_some_and(|kind| kind.as_str() == "enum"),
             externally_visible: match syntax {
                 MutableStateSyntax::CSharp | MutableStateSyntax::Java => {
-                    parent_is_visible && contains_identifier(line, "public")
+                    self.type_scopes
+                        .last()
+                        .is_none_or(|scope| scope.externally_visible)
+                        && contains_identifier(line, "public")
                 }
                 MutableStateSyntax::Script => {
                     !script_visibility.module
                         || contains_identifier(line, "export")
-                        || script_visibility.exported_types.contains(name.as_str())
+                        || script_visibility.exported_types.contains(name)
                 }
                 MutableStateSyntax::Dart | MutableStateSyntax::ExplicitOnly => true,
             },
@@ -314,16 +324,16 @@ impl MutableStateScope {
 
     fn advance(&mut self, line: &str, class_declaration: bool) {
         let opening_braces = count_byte(line, b'{');
-        let awaited_body_depth = self.type_scopes.last().and_then(|scope| {
-            scope.awaiting_body.then(|| {
-                awaited_script_class_body_depth(
-                    line,
-                    self.depth,
-                    self.parenthesis_depth,
-                    scope.generic_header,
-                    class_declaration,
-                )
-            })?
+        let awaited_body_depth = self.type_scopes.last_mut().and_then(|scope| {
+            if class_declaration || !scope.awaiting_body {
+                return None;
+            }
+            awaited_script_class_body_depth(
+                line,
+                self.depth,
+                self.parenthesis_depth,
+                &mut scope.generic_depth,
+            )
         });
         self.depth += opening_braces - count_byte(line, b'}');
         self.parenthesis_depth += count_byte(line, b'(') - count_byte(line, b')');
@@ -347,23 +357,21 @@ fn awaited_script_class_body_depth(
     line: &str,
     mut depth: isize,
     mut parenthesis_depth: isize,
-    generic_header: bool,
-    class_declaration: bool,
+    generic_depth: &mut usize,
 ) -> Option<isize> {
-    if class_declaration {
-        return None;
-    }
-    let mut generic_closed = !generic_header;
-    for character in line.chars() {
+    let mut previous = 0;
+    for character in line.bytes() {
         match character {
-            '(' => parenthesis_depth += 1,
-            ')' => parenthesis_depth -= 1,
-            '>' if generic_header => generic_closed = true,
-            '{' if parenthesis_depth <= 0 && generic_closed => return Some(depth + 1),
-            '{' => depth += 1,
-            '}' => depth -= 1,
+            b'(' => parenthesis_depth += 1,
+            b')' => parenthesis_depth -= 1,
+            b'<' if *generic_depth > 0 || parenthesis_depth <= 0 => *generic_depth += 1,
+            b'>' if previous != b'=' => *generic_depth = generic_depth.saturating_sub(1),
+            b'{' if parenthesis_depth <= 0 && *generic_depth == 0 => return Some(depth + 1),
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
             _ => {}
         }
+        previous = character;
     }
     None
 }
@@ -1295,11 +1303,13 @@ fn inconsistent_peer_file_naming(context: &SourceAnalysisContext<'_>) -> Vec<Fin
     let imported_python = imported_python_peers(context);
     let mut by_directory_and_role = BTreeMap::<(String, &'static str), Vec<String>>::new();
     for path in context.sources().keys().filter(|path| is_source(path)) {
+        let role = peer_naming_role(context, path, &imported_python);
+        // A proven source-derived test name is not an independent style vote.
+        if matches!(role, "component-test" | "named-module-test") {
+            continue;
+        }
         by_directory_and_role
-            .entry((
-                posix_directory(path).to_owned(),
-                peer_naming_role(context, path, &imported_python),
-            ))
+            .entry((posix_directory(path).to_owned(), role))
             .or_default()
             .push(path.clone());
     }
@@ -1454,17 +1464,110 @@ fn peer_naming_role(
     if let Some(role) = native_file_role(path) {
         return role;
     }
-    let jsx_component = (path.ends_with(".tsx") || path.ends_with(".jsx"))
-        && file_stem(path)
-            .chars()
-            .next()
-            .is_some_and(char::is_uppercase);
+    if let Some(role) = matching_test_source_naming_role(context, path) {
+        return role;
+    }
+    let stem = file_stem(path);
+    let jsx_component = matches!(path.rsplit_once('.'), Some((_, "tsx" | "jsx")))
+        && !matches!(stem.rsplit_once('.'), Some((_, "test" | "spec")))
+        && stem.chars().next().is_some_and(char::is_uppercase);
     if jsx_component {
         "component"
     } else if exported_symbol_matches_filename(context, path) {
         "named-module"
     } else {
         "module"
+    }
+}
+
+fn matching_test_source_naming_role(
+    context: &SourceAnalysisContext<'_>,
+    path: &str,
+) -> Option<&'static str> {
+    let stem = file_stem(path);
+    let test_base = stem
+        .strip_suffix(".test")
+        .or_else(|| stem.strip_suffix(".spec"))?;
+    if !is_script_path(path) {
+        return None;
+    }
+    let component_base = test_base.strip_suffix(".component");
+    let base = component_base.unwrap_or(test_base);
+    let source = context.sources().get(path)?;
+    let mut lexical = None;
+    for import in PEER_TEST_SOURCE_IMPORT.captures_iter(source) {
+        let source_name = import.name("source")?.as_str();
+        let Some(counterpart) = peer_test_import_path(path, source_name) else {
+            continue;
+        };
+        if !context.sources().contains_key(&counterpart) {
+            continue;
+        }
+        let Some(role) =
+            imported_test_source_role(context, &counterpart, base, component_base.is_some())
+        else {
+            continue;
+        };
+        let keyword = import.name("keyword")?;
+        let code =
+            lexical.get_or_insert_with(|| super::frameworks::mask_javascript(source, true, false));
+        if code.get(keyword.range()) == Some("import") {
+            return Some(role);
+        }
+    }
+    None
+}
+
+fn peer_test_import_path(path: &str, import: &str) -> Option<String> {
+    let mut directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
+    let mut relative = import;
+    while let Some(parent) = relative.strip_prefix("../") {
+        if directory.is_empty() {
+            return None;
+        }
+        directory = directory
+            .rsplit_once('/')
+            .map_or("", |(directory, _)| directory);
+        relative = parent;
+    }
+    let relative = relative.strip_prefix("./").unwrap_or(relative);
+    if relative
+        .split('/')
+        .any(|part| matches!(part, "" | "." | ".."))
+    {
+        return None;
+    }
+    Some(if directory.is_empty() {
+        relative.to_owned()
+    } else {
+        format!("{directory}/{relative}")
+    })
+}
+
+fn imported_test_source_role(
+    context: &SourceAnalysisContext<'_>,
+    counterpart: &str,
+    base: &str,
+    component_test: bool,
+) -> Option<&'static str> {
+    let counterpart_stem = file_stem(counterpart);
+    let component = counterpart.ends_with(".svelte")
+        || (matches!(counterpart.rsplit_once('.'), Some((_, "tsx" | "jsx")))
+            && counterpart_stem.starts_with(char::is_uppercase));
+    match (counterpart_stem == base, component, component_test) {
+        (true, true, _) => Some("component-test"),
+        (false, true, true) if file_style(base) == file_style(counterpart_stem) => {
+            // Component integration tests can name a feature rather than the
+            // containing component; retain its naming family, not helper-module peers.
+            Some("component-test")
+        }
+        (true, false, false)
+            if is_script_path(counterpart)
+                && exported_symbol_matches_filename(context, counterpart) =>
+        {
+            Some("named-module-test")
+        }
+        _ => None,
     }
 }
 
@@ -1804,6 +1907,12 @@ static EXPORTED_SCRIPT_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
         r"^\s*export\s+(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:class|const|enum|function|interface|let|namespace|type|var)\s+(?P<name>[A-Za-z_$]\w*)\b",
     )
     .expect("exported script declaration regex must compile")
+});
+static PEER_TEST_SOURCE_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?m)^[ \t]*(?P<keyword>import)\s+(?:[A-Za-z_$][\w$]*(?:\s*,\s*\{[^}]*\})?|\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*)\s+from\s*["'](?P<source>\.{1,2}/[^"'\\\r\n]+)["']"#,
+    )
+    .expect("peer test source import regex must compile")
 });
 static SCRIPT_THIS_ALIAS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z_$]\w*(?:\s*:\s*[^=;]+)?\s*=\s*this\.[A-Za-z_$]\w*\s*;\s*$")
@@ -2230,6 +2339,45 @@ exports.FileContext = FileContext;\n",
                 .map(|finding| finding.message)
                 .collect::<Vec<_>>(),
             ["public mutable field `mutable` exposes writable state"]
+        );
+    }
+
+    #[test]
+    fn tracks_nested_and_split_generic_headers_before_script_class_fields() {
+        let sources = sources(&[
+            (
+                "src/split.ts",
+                "export class PublicBox<\n  T\n>\n{\n  value: T;\n}\n",
+            ),
+            (
+                "src/nested.ts",
+                "export class NestedBox<\n  T extends Box<Item> & {\n    headerOnly: string;\n  }\n>\n{\n  actual: T;\n}\n",
+            ),
+            (
+                "src/function-type.ts",
+                "export class FunctionBox<\n  T extends Box<\n    () => {\n      readonly signatureOnly: string;\n    }\n  >\n>\n{\n  actual: number;\n}\n",
+            ),
+            (
+                "src/header-only.ts",
+                "export class HeaderOnly<\n  T extends Box<Item> & {\n    headerOnly: string;\n  }\n>\n{\n  readonly value: T;\n}\n",
+            ),
+            (
+                "src/internal.ts",
+                "export {};\nclass InternalBox<\n  T\n>\n{\n  value: T;\n}\n",
+            ),
+        ]);
+        let context = unchanged(&sources);
+
+        assert_eq!(
+            public_mutable_state(&context)
+                .into_iter()
+                .map(|finding| (finding.path, finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("src/function-type.ts".to_owned(), 9),
+                ("src/nested.ts".to_owned(), 7),
+                ("src/split.ts".to_owned(), 5),
+            ]
         );
     }
 
@@ -2735,6 +2883,259 @@ if (height > 70) reject(); // timeout = 80\n";
         let context = unchanged(&sources);
 
         assert!(inconsistent_peer_file_naming(&context).is_empty());
+    }
+
+    #[test]
+    fn peer_naming_accepts_imported_component_tests_but_reports_unrelated_outliers() {
+        let mut sources = sources(&[
+            ("src/selection/inspectorChoices.test.ts", ""),
+            ("src/selection/inspectorChoices.ts", ""),
+            ("src/selection/inspectorState.ts", ""),
+            ("src/selection/selectionActions.ts", ""),
+            ("src/selection/selectionEvents.ts", ""),
+            (
+                "src/selection/SelectionInspector.svelte",
+                "<div>Selection</div>",
+            ),
+            (
+                "src/selection/SelectionInspector.component.test.ts",
+                "import SelectionInspector from './SelectionInspector.svelte';",
+            ),
+            ("src/selection/UnrelatedInspector.component.test.ts", ""),
+        ]);
+        for name in [
+            "auditView",
+            "cacheView",
+            "detailView",
+            "eventView",
+            "filterView",
+        ] {
+            sources.insert(format!("src/selection/{name}.svelte"), String::new());
+            sources.insert(
+                format!("src/selection/{name}.component.test.ts"),
+                format!("import Component from './{name}.svelte';"),
+            );
+        }
+        let context = unchanged(&sources);
+        let findings = inconsistent_peer_file_naming(&context);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "inconsistent-peer-file-naming");
+        assert_eq!(
+            findings[0].path,
+            "src/selection/UnrelatedInspector.component.test.ts"
+        );
+        assert_eq!(findings[0].line, 1);
+        assert_eq!(findings[0].confidence, "high");
+        assert_eq!(
+            findings[0].related_files,
+            [
+                "src/selection/inspectorChoices.test.ts",
+                "src/selection/inspectorChoices.ts",
+                "src/selection/inspectorState.ts",
+            ]
+        );
+    }
+
+    #[test]
+    fn peer_naming_requires_a_real_matching_component_test_import() {
+        for (test_name, test_source, counterpart, counterpart_source) in [
+            (
+                "SelectionInspector.component.test.ts",
+                "import SelectionInspector from './SelectionInspector.svelte';",
+                "OtherInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.component.test.ts",
+                "import SelectionInspector from './selectionInspector.svelte';",
+                "selectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.component.test.ts",
+                "import OtherInspector from './OtherInspector.svelte';",
+                "SelectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.component.test.ts",
+                "const componentName = 'SelectionInspector';",
+                "SelectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.component.test.ts",
+                "/*\nimport SelectionInspector from './SelectionInspector.svelte';\n*/",
+                "SelectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.component.test.ts",
+                "const example = `\nimport SelectionInspector from './SelectionInspector.svelte';\n`;",
+                "SelectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.component.test.ts",
+                "import { SelectionInspector } from './SelectionInspector.ts';",
+                "SelectionInspector.ts",
+                "export class SelectionInspector {}",
+            ),
+            (
+                "SelectionInspector.component.ts",
+                "import SelectionInspector from './SelectionInspector.svelte';",
+                "SelectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.test.tsx",
+                "import SelectionInspector from './SelectionInspector.tsx';",
+                "OtherInspector.svelte",
+                "",
+            ),
+            (
+                "Selection_inspector.component.test.ts",
+                "import SelectionInspector from './SelectionInspector.svelte';",
+                "SelectionInspector.svelte",
+                "",
+            ),
+        ] {
+            let mut sources = sources(&[
+                ("src/inspectorChoices.test.ts", ""),
+                ("src/inspectorChoices.ts", ""),
+                ("src/inspectorState.ts", ""),
+                ("src/selectionActions.ts", ""),
+                ("src/selectionEvents.ts", ""),
+            ]);
+            let test_path = format!("src/{test_name}");
+            sources.insert(test_path.clone(), test_source.to_owned());
+            sources.insert(format!("src/{counterpart}"), counterpart_source.to_owned());
+            let context = unchanged(&sources);
+            let findings = inconsistent_peer_file_naming(&context);
+
+            assert_eq!(findings.len(), 1, "{test_name}: {test_source}");
+            assert_eq!(findings[0].path, test_path);
+            assert_eq!(findings[0].confidence, "high");
+        }
+    }
+
+    #[test]
+    fn peer_naming_accepts_proven_test_contracts_across_styles_and_source_roles() {
+        for (test_name, test_source, counterpart, counterpart_source) in [
+            (
+                "SelectionInspector.test.ts",
+                "import SelectionInspector from './SelectionInspector.svelte';",
+                "SelectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.component.spec.js",
+                "import SelectionInspector from './SelectionInspector.svelte';",
+                "SelectionInspector.svelte",
+                "",
+            ),
+            (
+                "SelectionInspector.test.tsx",
+                "import SelectionInspector from './SelectionInspector.tsx';",
+                "SelectionInspector.tsx",
+                "export default function SelectionInspector() { return null; }",
+            ),
+            (
+                "SelectionInspector.spec.jsx",
+                "import SelectionInspector from './SelectionInspector.jsx';",
+                "SelectionInspector.jsx",
+                "export default function SelectionInspector() { return null; }",
+            ),
+            (
+                "SelectionInspector.spec.ts",
+                "import {\n  SelectionInspector,\n} from './SelectionInspector.ts';",
+                "SelectionInspector.ts",
+                "export class SelectionInspector {}",
+            ),
+            (
+                "selection_inspector.test.ts",
+                "import { selection_inspector } from './selection_inspector.ts';",
+                "selection_inspector.ts",
+                "export function selection_inspector() {}",
+            ),
+        ] {
+            let mut sources = sources(&[
+                ("src/inspectorChoices.test.ts", ""),
+                ("src/inspectorChoices.ts", ""),
+                ("src/inspectorState.ts", ""),
+                ("src/selectionActions.ts", ""),
+                ("src/selectionEvents.ts", ""),
+            ]);
+            sources.insert(format!("src/{test_name}"), test_source.to_owned());
+            sources.insert(format!("src/{counterpart}"), counterpart_source.to_owned());
+            let context = unchanged(&sources);
+
+            assert!(
+                inconsistent_peer_file_naming(&context).is_empty(),
+                "{test_name}: {test_source}"
+            );
+        }
+    }
+
+    #[test]
+    fn peer_naming_recognizes_feature_component_tests_without_hiding_unrelated_outliers() {
+        for (test_name, import, counterpart, exempt) in [
+            (
+                "FeatureGeometry.component.test.ts",
+                "../components/ActualPanel.svelte",
+                "src/components/ActualPanel.svelte",
+                true,
+            ),
+            (
+                "FeatureChoices.component.test.ts",
+                "./ActualPanel.svelte",
+                "src/views/ActualPanel.svelte",
+                true,
+            ),
+            (
+                "UnrelatedFeature.test.ts",
+                "../components/ActualPanel.svelte",
+                "src/components/ActualPanel.svelte",
+                false,
+            ),
+            (
+                "FeatureGeometry.component.test.ts",
+                "./actualPanel.svelte",
+                "src/views/actualPanel.svelte",
+                false,
+            ),
+            (
+                "FeatureGeometry.component.test.ts",
+                "@/components/ActualPanel.svelte",
+                "src/components/ActualPanel.svelte",
+                false,
+            ),
+            (
+                "FeatureGeometry.component.test.ts",
+                "../../../src/components/ActualPanel.svelte",
+                "src/components/ActualPanel.svelte",
+                false,
+            ),
+        ] {
+            let mut sources = sources(&[
+                ("src/views/inspectorChoices.test.ts", ""),
+                ("src/views/inspectorChoices.ts", ""),
+                ("src/views/inspectorState.ts", ""),
+                ("src/views/selectionActions.ts", ""),
+                ("src/views/selectionEvents.ts", ""),
+            ]);
+            let test_path = format!("src/views/{test_name}");
+            sources.insert(test_path.clone(), format!("import Panel from '{import}';"));
+            sources.insert(counterpart.to_owned(), "<div>Panel</div>".to_owned());
+            let context = unchanged(&sources);
+            let reported = inconsistent_peer_file_naming(&context)
+                .into_iter()
+                .map(|finding| finding.path)
+                .collect::<Vec<_>>();
+            let expected = if exempt { Vec::new() } else { vec![test_path] };
+            assert_eq!(reported, expected, "{test_name}: {import}");
+        }
     }
 
     #[test]

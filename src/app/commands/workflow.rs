@@ -32,37 +32,44 @@ pub fn execute_plan(options: &PreviewOptions) -> Result<(), String> {
             .then_with(|| right_findings.len().cmp(&left_findings.len()))
     });
 
-    println!("Code Buster review plan");
-    if prioritized.is_empty() {
-        println!("No findings to plan from.");
-        return Ok(());
-    }
-    for (index, group_index) in prioritized.iter().enumerate() {
-        let (code, findings) = &groups[*group_index];
-        let worst = worst_severity(findings);
-        println!(
-            "{}. {} ({} finding{}, severity: {}, confidence: {})",
-            index + 1,
-            plan_title(code),
-            findings.len(),
-            if findings.len() == 1 { "" } else { "s" },
-            worst.as_str(),
-            if *code == "feature-flag" {
-                "medium"
-            } else {
-                "high"
+    super::write_report(options, |writer| {
+        writeln!(writer, "Code Buster review plan")?;
+        if prioritized.is_empty() {
+            writeln!(writer, "No findings to plan from.")?;
+            return Ok(());
+        }
+        for (index, group_index) in prioritized.iter().enumerate() {
+            let (code, findings) = &groups[*group_index];
+            let worst = worst_severity(findings);
+            writeln!(
+                writer,
+                "{}. {} ({} finding{}, severity: {}, confidence: {})",
+                index + 1,
+                plan_title(code),
+                findings.len(),
+                if findings.len() == 1 { "" } else { "s" },
+                worst.as_str(),
+                if *code == "feature-flag" {
+                    "medium"
+                } else {
+                    "high"
+                }
+            )?;
+            writeln!(writer, "   why: {}", action_why(code))?;
+            writeln!(writer, "   suggestion: {}", action_suggestion(code))?;
+            for finding in findings.iter().take(5) {
+                writeln!(
+                    writer,
+                    "   - {}:{} {}",
+                    finding.path, finding.line, finding.message
+                )?;
             }
-        );
-        println!("   why: {}", action_why(code));
-        println!("   suggestion: {}", action_suggestion(code));
-        for finding in findings.iter().take(5) {
-            println!("   - {}:{} {}", finding.path, finding.line, finding.message);
+            if findings.len() > 5 {
+                writeln!(writer, "   - ... {} more", findings.len() - 5)?;
+            }
         }
-        if findings.len() > 5 {
-            println!("   - ... {} more", findings.len() - 5);
-        }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn execute_actions(options: &PreviewOptions) -> Result<WorkflowOutcome, String> {
@@ -72,18 +79,16 @@ pub fn execute_actions(options: &PreviewOptions) -> Result<WorkflowOutcome, Stri
         .iter()
         .map(action_value)
         .collect::<Vec<Value>>();
-    println!(
-        "{}",
-        serde_json::to_string(&json!({
-            "schemaVersion": 3,
-            "version": 1,
-            "command": "review",
-            "view": "actions",
-            "root": run.prepared.root,
-            "actions": actions,
-        }))
-        .map_err(|error| format!("failed to encode actions report: {error}"))?
-    );
+    let output = serde_json::to_string(&json!({
+        "schemaVersion": 3,
+        "version": 1,
+        "command": "review",
+        "view": "actions",
+        "root": run.prepared.root,
+        "actions": actions,
+    }))
+    .map_err(|error| format!("failed to encode actions report: {error}"))?;
+    super::write_report(options, |writer| writeln!(writer, "{output}"))?;
     if options.fail_on_issues && !actions.is_empty() {
         Ok(WorkflowOutcome::Findings)
     } else {

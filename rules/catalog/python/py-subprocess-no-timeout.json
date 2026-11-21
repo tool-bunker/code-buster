@@ -9,7 +9,7 @@
   "legacyGroup": "reliability",
   "why": "A subprocess without a timeout can block a worker indefinitely when the child hangs or waits for unavailable input.",
   "suggestion": "Pass a justified timeout and handle TimeoutExpired at the process boundary.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["reliability"],
@@ -22,6 +22,7 @@
   "limitations": [
     "Only subprocess.run calls are checked, and an explicit timeout=None remains unbounded.",
     "A directly discarded unchecked call reports py-subprocess-run-unchecked instead, avoiding duplicate findings.",
-    "Repeated unbounded subprocess calls are grouped to one representative finding per file."
+    "Repeated unbounded subprocess calls are grouped to one representative finding per file.",
+    "Timeout keywords are recognized only at the top level of the subprocess call, not inside strings, nested calls, or longer keyword names."
   ]
 }

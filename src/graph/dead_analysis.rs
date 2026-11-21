@@ -753,25 +753,17 @@ fn mvvm_violation_reason(
     target: MvvmLayer,
     strict_view_model_boundary: bool,
 ) -> Option<&'static str> {
-    if source == target {
-        return None;
-    }
-    match source {
-        MvvmLayer::View if strict_view_model_boundary && target == MvvmLayer::Repository => {
+    match (source, target) {
+        (MvvmLayer::View, MvvmLayer::Repository) if strict_view_model_boundary => {
             Some("Views should delegate data access and orchestration to a ViewModel.")
         }
-        MvvmLayer::ViewModel if target == MvvmLayer::View => {
+        (MvvmLayer::ViewModel, MvvmLayer::View) => {
             Some("ViewModels should remain independent of presentation classes.")
         }
-        MvvmLayer::Model
-            if matches!(
-                target,
-                MvvmLayer::View | MvvmLayer::ViewModel | MvvmLayer::Repository
-            ) =>
-        {
+        (MvvmLayer::Model, MvvmLayer::View | MvvmLayer::ViewModel | MvvmLayer::Repository) => {
             Some("Models should not depend on presentation or data-access layers.")
         }
-        MvvmLayer::Repository if matches!(target, MvvmLayer::View | MvvmLayer::ViewModel) => Some(
+        (MvvmLayer::Repository, MvvmLayer::View | MvvmLayer::ViewModel) => Some(
             "Repositories should expose data through model abstractions without presentation dependencies.",
         ),
         _ => None,

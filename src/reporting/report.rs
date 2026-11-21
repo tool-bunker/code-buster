@@ -2,6 +2,8 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Write as _};
+use std::fs::File;
+use std::io::{self, BufWriter, Write as _};
 use std::process::Command;
 
 use super::{finding_message, source_metrics, terminal};
@@ -9,7 +11,7 @@ use crate::config::{Config, PatternRule};
 use crate::discovery::{AnalysisProfile, PreparedPreview, ProcessingDiagnostic, RulePackTiming};
 use crate::finding_controls;
 use crate::findings::{Finding, Severity, rule_suggestion, rule_why};
-use crate::options::ReportFormat;
+use crate::options::{PreviewOptions, ReportFormat};
 use crate::rule_catalog;
 
 pub struct FindingReport<'a> {
@@ -37,6 +39,25 @@ pub fn render(format: ReportFormat, report: &FindingReport<'_>) -> Result<String
         ReportFormat::Mermaid => {
             Err("Mermaid output is only supported by graph commands".to_owned())
         }
+    }
+}
+
+pub(crate) fn write_report(
+    options: &PreviewOptions,
+    render: impl FnOnce(&mut dyn io::Write) -> io::Result<()>,
+) -> Result<(), String> {
+    if let Some(path) = &options.output {
+        let write = || -> io::Result<()> {
+            let mut writer = BufWriter::new(File::create(path)?);
+            render(&mut writer)?;
+            writer.flush()
+        };
+        write().map_err(|error| format!("failed to write report {}: {error}", path.display()))
+    } else {
+        let mut writer = io::stdout().lock();
+        render(&mut writer)
+            .and_then(|()| writer.flush())
+            .map_err(|error| format!("failed to write report to stdout: {error}"))
     }
 }
 

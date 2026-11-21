@@ -89,7 +89,7 @@ fn summary_reports_complete_wren_and_sql_rule_families() {
     let root = TempDirectory::new("cbr-wren-sql");
     root.write(
         "code-buster.toml",
-        b"languages = [\"wren\", \"sql\"]\n[files]\nentry_points = [\"wren/main.wren\"]\n",
+        b"languages = [\"wren\", \"postgresql\"]\n[files]\nentry_points = [\"wren/main.wren\"]\n",
     );
     root.write(
         "db/migration.sql",

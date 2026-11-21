@@ -11,16 +11,15 @@ pub fn execute(options: &PreviewOptions) -> Result<(), String> {
     }
     let prepared = prepare(options)?;
     match options.format {
-        ReportFormat::Json => print_json(&prepared, options.verbose),
-        ReportFormat::Text => {
-            print_text(&prepared, options.verbose);
-            Ok(())
-        }
+        ReportFormat::Json => print_json(options, &prepared),
+        ReportFormat::Text => crate::report::write_report(options, |writer| {
+            print_text(writer, &prepared, options.verbose)
+        }),
         _ => unreachable!("unsupported format returned before preparation"),
     }
 }
 
-fn print_json(prepared: &PreparedPreview, verbose: bool) -> Result<(), String> {
+fn print_json(options: &PreviewOptions, prepared: &PreparedPreview) -> Result<(), String> {
     let report = PreviewReport {
         schema_version: 3,
         command: "config",
@@ -29,21 +28,25 @@ fn print_json(prepared: &PreparedPreview, verbose: bool) -> Result<(), String> {
         files: &prepared.files,
         coverage: &prepared.coverage,
         language_versions: &prepared.language_versions,
-        generated_provenance: (verbose && !prepared.generated_provenance.is_empty())
+        generated_provenance: (options.verbose && !prepared.generated_provenance.is_empty())
             .then_some(prepared.generated_provenance.as_slice()),
         processing_diagnostics: prepared.diagnostics.as_slice(),
     };
     let json = serde_json::to_string(&report)
         .map_err(|error| format!("failed to encode selected-files report: {error}"))?;
-    println!("{json}");
-    Ok(())
+    crate::report::write_report(options, |writer| writeln!(writer, "{json}"))
 }
 
-fn print_text(prepared: &PreparedPreview, verbose: bool) {
-    println!(
+fn print_text(
+    writer: &mut dyn std::io::Write,
+    prepared: &PreparedPreview,
+    verbose: bool,
+) -> std::io::Result<()> {
+    writeln!(
+        writer,
         "Code Buster selected files: {} selected files",
         prepared.files.len()
-    );
+    )?;
     if !prepared.coverage.is_empty() {
         let coverage = prepared
             .coverage
@@ -51,19 +54,21 @@ fn print_text(prepared: &PreparedPreview, verbose: bool) {
             .map(|(reason, count)| format!("{reason}={count}"))
             .collect::<Vec<_>>()
             .join(" ");
-        println!("coverage: {coverage}");
+        writeln!(writer, "coverage: {coverage}")?;
     }
     for file in &prepared.files {
-        println!("{}\t{}", file.language, file.path);
+        writeln!(writer, "{}\t{}", file.language, file.path)?;
     }
     if verbose {
         for provenance in &prepared.generated_provenance {
-            println!(
+            writeln!(
+                writer,
                 "generated\t{}\t{}\t{}",
                 provenance.path, provenance.reason, provenance.source
-            );
+            )?;
         }
     }
+    Ok(())
 }
 
 #[derive(Serialize)]

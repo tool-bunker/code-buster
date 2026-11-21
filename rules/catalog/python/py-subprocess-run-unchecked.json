@@ -9,7 +9,7 @@
   "legacyGroup": "correctness",
   "why": "subprocess.run defaults to ignoring non-zero exit codes, so a discarded result can silently hide command failure.",
   "suggestion": "Pass check=true when failure should propagate, or check=false when ignoring the exit status is intentional.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["correctness"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only discarded direct subprocess.run calls without check or chained check_returncode are reported.",
+    "Only top-level call keywords establish exit-handling policy; quoted text and nested calls do not count as check arguments.",
     "Aliases, wrappers, and exit-code handling performed by surrounding decorators are not inferred."
   ]
 }

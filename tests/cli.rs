@@ -144,6 +144,12 @@ mod language_rules {
     include!("cli/languages.rs");
 }
 
+mod report_output {
+    use super::*;
+
+    include!("cli/output.rs");
+}
+
 struct TempDirectory {
     path: PathBuf,
     _guard: TempDir,

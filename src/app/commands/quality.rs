@@ -20,30 +20,36 @@ pub fn execute_score(options: &PreviewOptions) -> Result<(), String> {
     let dead = paths_with_code(&run.findings, "dead-file");
     let duplicate = paths_with_code(&run.findings, "duplicate-block");
     let cycle = paths_with_code(&run.findings, "cycle");
-    println!("Code Buster score: {} files", run.prepared.files.len());
-    for file in &run.prepared.files {
-        let mut score = 100.0;
-        let mut reasons = Vec::new();
-        if dead.contains(&file.path) {
-            score -= 30.0;
-            reasons.push("dead file (-30.0)");
+    super::write_report(options, |writer| {
+        writeln!(
+            writer,
+            "Code Buster score: {} files",
+            run.prepared.files.len()
+        )?;
+        for file in &run.prepared.files {
+            let mut score = 100.0;
+            let mut reasons = Vec::new();
+            if dead.contains(&file.path) {
+                score -= 30.0;
+                reasons.push("dead file (-30.0)");
+            }
+            if cycle.contains(&file.path) {
+                score -= 15.0;
+                reasons.push("part of a cycle (-15.0)");
+            }
+            if duplicate.contains(&file.path) {
+                score -= 10.0;
+                reasons.push("has duplicated content (-10.0)");
+            }
+            let suffix = if reasons.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", reasons.join(", "))
+            };
+            writeln!(writer, "{:>5.1} {}{suffix}", score, file.path)?;
         }
-        if cycle.contains(&file.path) {
-            score -= 15.0;
-            reasons.push("part of a cycle (-15.0)");
-        }
-        if duplicate.contains(&file.path) {
-            score -= 10.0;
-            reasons.push("has duplicated content (-10.0)");
-        }
-        let suffix = if reasons.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", reasons.join(", "))
-        };
-        println!("{:>5.1} {}{suffix}", score, file.path);
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn execute_quality(options: &PreviewOptions) -> Result<QualityOutcome, String> {
@@ -237,8 +243,9 @@ fn render_quality(
     if matches!(options.format, ReportFormat::Json) {
         render_quality_json(options, run, evaluation)
     } else {
-        render_quality_text(run, &evaluation);
-        Ok(())
+        super::write_report(options, |writer| {
+            render_quality_text(writer, run, &evaluation)
+        })
     }
 }
 
@@ -346,21 +353,24 @@ fn render_quality_json(
     result.insert("domain_debt_minutes".to_owned(), json!(domain_debt));
     result.insert("severity".to_owned(), severity);
 
-    println!(
-        "{}",
-        serde_json::to_string(&Value::Object(result))
-            .map_err(|error| format!("failed to encode quality report: {error}"))?
-    );
-    Ok(())
+    let output = serde_json::to_string(&Value::Object(result))
+        .map_err(|error| format!("failed to encode quality report: {error}"))?;
+    super::write_report(options, |writer| writeln!(writer, "{output}"))
 }
 
-fn render_quality_text(run: &summary_command::AnalysisRun, evaluation: &QualityEvaluation) {
-    println!(
+fn render_quality_text(
+    writer: &mut dyn std::io::Write,
+    run: &summary_command::AnalysisRun,
+    evaluation: &QualityEvaluation,
+) -> std::io::Result<()> {
+    writeln!(
+        writer,
         "Code Buster quality: {} files, {} findings",
         run.prepared.files.len(),
         run.actionable_findings.len()
-    );
-    println!(
+    )?;
+    writeln!(
+        writer,
         "gate: {} scope={}",
         if evaluation.gate_passed {
             "pass"
@@ -372,12 +382,14 @@ fn render_quality_text(run: &summary_command::AnalysisRun, evaluation: &QualityE
         } else {
             "repository"
         }
-    );
-    println!(
+    )?;
+    writeln!(
+        writer,
         "rating: {} debt_minutes={}",
         evaluation.rating, evaluation.totals.debt
-    );
-    println!(
+    )?;
+    writeln!(
+        writer,
         "domains: maintainability={} reliability={} security={}",
         evaluation
             .totals
@@ -397,11 +409,12 @@ fn render_quality_text(run: &summary_command::AnalysisRun, evaluation: &QualityE
             .get("security")
             .copied()
             .unwrap_or_default()
-    );
-    println!(
+    )?;
+    writeln!(
+        writer,
         "severity: error={} warn={} info={}",
         evaluation.severity.errors, evaluation.severity.warnings, evaluation.severity.info
-    );
+    )
 }
 
 fn decide_quality_status(fail_on_issues: bool, gate_passed: bool) -> QualityOutcome {

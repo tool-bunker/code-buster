@@ -62,7 +62,7 @@ pub fn execute(options: &PreviewOptions) -> Result<DeadOutcome, String> {
             profile: options.profile,
         },
     )?;
-    println!("{output}");
+    super::write_report(options, |writer| writeln!(writer, "{output}"))?;
     if options.fail_on_issues && actionable_count > 0 {
         Ok(DeadOutcome::Findings)
     } else {

@@ -10,29 +10,36 @@ pub fn execute(options: &PreviewOptions) -> Result<(), String> {
         0
     };
 
-    println!("Code Buster doctor");
-    println!(
-        "- Hidden directories are skipped by default; use explicit includes only if you want to analyze hidden tooling/vendor folders."
-    );
-    if !prepared.coverage.is_empty() {
-        let coverage = prepared
-            .coverage
-            .iter()
-            .map(|(reason, count)| format!("{reason}={count}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        println!("- Coverage: {coverage}");
-    }
-    if duplicate_count > 20 {
-        println!(
-            "- There are many duplicate-block findings; consider raising min_duplication_lines above {}.",
-            prepared.config.min_duplication_lines
-        );
-    }
-    if prepared.files.is_empty() {
-        println!("- No source files were discovered; check --root, --lang, and ignore_patterns.");
-    }
-    Ok(())
+    super::write_report(options, |writer| {
+        writeln!(writer, "Code Buster doctor")?;
+        writeln!(
+            writer,
+            "- Hidden directories are skipped by default; use explicit includes only if you want to analyze hidden tooling/vendor folders."
+        )?;
+        if !prepared.coverage.is_empty() {
+            let coverage = prepared
+                .coverage
+                .iter()
+                .map(|(reason, count)| format!("{reason}={count}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            writeln!(writer, "- Coverage: {coverage}")?;
+        }
+        if duplicate_count > 20 {
+            writeln!(
+                writer,
+                "- There are many duplicate-block findings; consider raising min_duplication_lines above {}.",
+                prepared.config.min_duplication_lines
+            )?;
+        }
+        if prepared.files.is_empty() {
+            writeln!(
+                writer,
+                "- No source files were discovered; check --root, --lang, and ignore_patterns."
+            )?;
+        }
+        Ok(())
+    })
 }
 
 fn duplicate_rule_enabled(options: &PreviewOptions, config: &crate::config::Config) -> bool {

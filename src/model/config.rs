@@ -1054,7 +1054,11 @@ impl ConfigMigration {
         self.output.push_str(prefix);
         self.output.push_str(replacement);
         self.output.push_str(" = ");
-        if matches!(key, "lang" | "languages") && !value.starts_with('[') {
+        if matches!(
+            (self.section, key),
+            (MigrationSection::Root, "lang" | "languages")
+        ) && !value.starts_with('[')
+        {
             self.output.push('[');
             self.output.push_str(value);
             self.output.push(']');
@@ -1065,27 +1069,29 @@ impl ConfigMigration {
     }
 
     fn transitioned_key<'a>(&self, key: &'a str) -> (&'static str, &'a str) {
-        match self.section {
-            MigrationSection::Root => match key {
-                "lang" | "languages" => ("", "languages"),
-                "complexity_threshold" => ("analysis.", "complexity_threshold"),
-                "cognitive_threshold" => ("analysis.", "cognitive_complexity_threshold"),
-                "min_duplication_lines" => ("analysis.", "duplication_min_lines"),
-                "max_file_lines" | "max_function_lines" | "csharp_dead_code" => ("analysis.", key),
-                "entry_points" => ("files.", "entry_points"),
-                "ignore_patterns" => ("files.", "ignore"),
-                "include" | "exclude" => ("files.", key),
-                "rule_groups" => ("rules.", "enabled_groups"),
-                "pattern_rules" => ("rules.", "patterns"),
-                _ => ("", key),
-            },
-            MigrationSection::Structure => match key {
-                "max_top_level_files" => ("", "max_root_files"),
-                "allowed_top_level" => ("", "allowed_root_files"),
-                "required_dirs" => ("", "required_directories"),
-                _ => ("", key),
-            },
-            MigrationSection::Other => ("", key),
+        match (self.section, key) {
+            (MigrationSection::Root, "lang" | "languages") => ("", "languages"),
+            (
+                MigrationSection::Root,
+                "complexity_threshold"
+                | "max_file_lines"
+                | "max_function_lines"
+                | "csharp_dead_code",
+            ) => ("analysis.", key),
+            (MigrationSection::Root, "cognitive_threshold") => {
+                ("analysis.", "cognitive_complexity_threshold")
+            }
+            (MigrationSection::Root, "min_duplication_lines") => {
+                ("analysis.", "duplication_min_lines")
+            }
+            (MigrationSection::Root, "entry_points" | "include" | "exclude") => ("files.", key),
+            (MigrationSection::Root, "ignore_patterns") => ("files.", "ignore"),
+            (MigrationSection::Root, "rule_groups") => ("rules.", "enabled_groups"),
+            (MigrationSection::Root, "pattern_rules") => ("rules.", "patterns"),
+            (MigrationSection::Structure, "max_top_level_files") => ("", "max_root_files"),
+            (MigrationSection::Structure, "allowed_top_level") => ("", "allowed_root_files"),
+            (MigrationSection::Structure, "required_dirs") => ("", "required_directories"),
+            _ => ("", key),
         }
     }
 
@@ -1401,5 +1407,22 @@ mod tests {
         let source = "not an assignment\nlang = \"rust\"";
 
         assert_eq!(migrate(source), "not an assignment\nlanguages = [\"rust\"]");
+    }
+
+    #[test]
+    fn migrate_preserves_language_named_rule_severities() {
+        let source = "lang = \"rust\"\n[severity]\nlang = \"warn\"\nlanguages = \"off\"\n";
+        let migrated = migrate(source);
+
+        assert_eq!(
+            migrated,
+            "languages = [\"rust\"]\n[rules.severity]\nlang = \"warn\"\nlanguages = \"off\"\n"
+        );
+        let values = super::parse_document(&migrated).unwrap();
+        let config = super::Config::from_document(std::path::PathBuf::from("."), &values).unwrap();
+        assert_eq!(config.languages, ["rust"]);
+        assert_eq!(config.severity_overrides["lang"], "warn");
+        assert!(config.disabled_rules.contains("languages"));
+        assert_eq!(migrate(&migrated), migrated);
     }
 }

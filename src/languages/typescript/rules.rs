@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::engine::discovery::is_builtin_production_path;
 use crate::findings::{Finding, Severity};
 use crate::languages::functions::mask_javascript_strings_and_comments;
 use crate::languages::strip_quoted_literals as strip_literals;
@@ -118,6 +119,7 @@ struct SourceLine<'a> {
     sequential_loop: bool,
     event_wait: bool,
     tooling: bool,
+    json_recovery_required: bool,
     command_line: bool,
     console_suppressed: bool,
     typescript: bool,
@@ -435,6 +437,8 @@ fn source_findings(
     let performance =
         PerformanceFacts::from_source(&uncommented_source, &syntax_source, &inside_loop);
     let event_waits = imported_event_waits(&uncommented_source, &syntax_source);
+    let json_recovery_required =
+        !tooling && !is_test_harness_source(path, &uncommented_source, &syntax_source);
     let mut findings = Vec::new();
     findings.extend(async_foreach_findings(path, &sink_source));
     findings.extend(child_process_shell_findings(path, &uncommented_source));
@@ -485,6 +489,7 @@ fn source_findings(
                 }),
             inside_async: inside_async[index],
             tooling,
+            json_recovery_required,
             command_line,
             console_suppressed: console_suppressions[index]
                 || deno_suppressions[index].suppress_console
@@ -506,6 +511,90 @@ fn source_findings(
         analyze_performance(&line, &performance, &mut findings);
     }
     findings
+}
+
+fn is_test_harness_source(path: &str, source: &str, syntax: &str) -> bool {
+    source.contains("JSON.parse(")
+        && !is_builtin_production_path(path)
+        && is_test_harness_module(source, syntax)
+}
+
+fn test_harness_import_bindings<'a>(
+    source: &'a str,
+    syntax: &str,
+) -> BTreeMap<&'a str, std::ops::Range<usize>> {
+    let mut registrations = BTreeMap::new();
+    for capture in TEST_HARNESS_IMPORT.captures_iter(source) {
+        let whole = capture.get(0).expect("test import match exists");
+        let bindings = capture.get(1).expect("test import has bindings");
+        if !syntax[whole.range()].starts_with("import")
+            || syntax[bindings.range()] != *bindings.as_str()
+        {
+            continue;
+        }
+        for binding in bindings.as_str().split(',') {
+            let mut parts = AS_ALIAS.split(binding.trim());
+            let imported = parts.next().unwrap_or("").trim();
+            let local = parts.next().unwrap_or(imported).trim();
+            if matches!(imported, "describe" | "it" | "test")
+                && JAVASCRIPT_IDENTIFIER.is_match(local)
+            {
+                registrations.insert(local, whole.range());
+            }
+        }
+    }
+    registrations
+}
+
+fn is_test_harness_module(source: &str, syntax: &str) -> bool {
+    let mut registrations = test_harness_import_bindings(source, syntax);
+    if registrations.is_empty() {
+        return false;
+    }
+
+    let mut cursor = 0;
+    let mut depth = 0_i32;
+    let mut module_registrations = BTreeSet::new();
+    for identifier in JAVASCRIPT_IDENTIFIERS.find_iter(syntax) {
+        for byte in syntax[cursor..identifier.start()].bytes() {
+            match byte {
+                b'(' | b'[' | b'{' => depth += 1,
+                b')' | b']' | b'}' => depth -= 1,
+                _ => {}
+            }
+        }
+        cursor = identifier.end();
+        let Some(binding) = registrations.get(identifier.as_str()) else {
+            continue;
+        };
+        if binding.contains(&identifier.start()) {
+            continue;
+        }
+        let open = skip_ascii_whitespace(syntax, identifier.end());
+        if syntax.as_bytes().get(open) != Some(&b'(')
+            || syntax[..identifier.start()].trim_end().ends_with('.')
+            || syntax[..identifier.start()].split_whitespace().next_back() == Some("function")
+        {
+            // Assignment, shadowing, and indirect references cannot establish a
+            // stable imported runner binding.
+            registrations.remove(identifier.as_str());
+            continue;
+        }
+        if depth == 0
+            && call_arguments(syntax, open).is_some_and(|arguments| {
+                arguments
+                    .last()
+                    .is_some_and(|callback| TEST_HARNESS_CALLBACK.is_match(callback))
+            })
+        {
+            // A registered suite gives fixture helpers at module scope the same
+            // fail-the-test policy as its callbacks; it does not prove JSON provenance.
+            module_registrations.insert(identifier.as_str());
+        }
+    }
+    module_registrations
+        .into_iter()
+        .any(|name| registrations.contains_key(name))
 }
 
 fn async_foreach_findings(path: &str, source: &str) -> Vec<Finding> {
@@ -1424,7 +1513,7 @@ fn secret_assignment(line: &SourceLine<'_>, lower: &str) -> Option<(String, Stri
 }
 
 fn analyze_json_parsing(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
-    if !line.tooling
+    if line.json_recovery_required
         && line.line.contains("JSON.parse(")
         && !EMBEDDED_JSON_PARSE.is_match(line.line)
         && !JSON_ROUND_TRIP.is_match(line.line)
@@ -3228,6 +3317,18 @@ static NODE_SHEBANG: LazyLock<Regex> = LazyLock::new(|| {
 static NODE_FS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?s)import\s*\{([^}]*)\}\s*from\s*[\"'](?:node:)?fs[\"']"#).unwrap()
 });
+static TEST_HARNESS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?s)\bimport\s*\{([^}]*)\}\s*from\s*["'](?:vitest|@jest/globals|node:test|bun:test)["']"#,
+    )
+    .unwrap()
+});
+static TEST_HARNESS_CALLBACK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:async\s+)?(?:function(?:\s+[A-Za-z_$][\w$]*)?\s*\(|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)",
+    )
+    .unwrap()
+});
 static EVENTS_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?s)\bimport\s*\{([^}]*)\}\s*from\s*["'](?:node:)?events["']"#).unwrap()
 });
@@ -3715,6 +3816,186 @@ function decode(outer: string) {\n\
             .map(|finding| finding.line)
             .collect::<Vec<_>>();
         assert_eq!(selected, vec![7, 10]);
+    }
+
+    #[test]
+    fn exempts_json_fixture_helpers_and_generated_output_in_registered_test_modules() {
+        let sources = BTreeMap::from([
+            (
+                "src/fixtures.test.ts".to_owned(),
+                "import { describe, expect, test } from 'vitest';\n\
+                 import { readFileSync } from 'node:fs';\n\
+                 const loadFixture = (filename: string) => JSON.parse(\n\
+                   readFileSync(resolve(fixtureRoot, filename), 'utf8'),\n\
+                 );\n\
+                 describe('fixtures', () => {\n\
+                   test('loads committed documents', () => {\n\
+                     const document = JSON.parse(\n\
+                       readFileSync(resolve(fixtureRoot, 'project.json'), 'utf8'),\n\
+                     );\n\
+                     expect(document).toEqual(loadFixture('project.json'));\n\
+                   });\n\
+                 });\n"
+                    .to_owned(),
+            ),
+            (
+                "src/persistence.test.ts".to_owned(),
+                "import { describe, expect, it } from 'vitest';\n\
+                 describe('persisted output', () => {\n\
+                   it('retains fields', async () => {\n\
+                     await store.save(documents);\n\
+                     expect(JSON.parse(directory.files.get('project.json') ?? '{}'))\n\
+                       .toMatchObject({ future: { retained: true } });\n\
+                   });\n\
+                 });\n"
+                    .to_owned(),
+            ),
+            (
+                "src/generator.test.ts".to_owned(),
+                "import { describe, expect, it } from 'vitest';\n\
+                 import parityJson from './parity.json?raw';\n\
+                 const parity = () => JSON.parse(parityJson);\n\
+                 describe('generated output', () => {\n\
+                   it.each([0, 1])('retains fixture %s', () => {\n\
+                     const documents = JSON.parse(parityJson).documents;\n\
+                     expect(documents).toEqual(parity().documents);\n\
+                   });\n\
+                   it('emits a manifest', async () => {\n\
+                     const plan = await generate();\n\
+                     const manifest = JSON.parse(new TextDecoder().decode(plan.files[1].bytes));\n\
+                     expect(manifest.regions).toEqual(expectedRegions);\n\
+                   });\n\
+                 });\n"
+                    .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert!(
+            analyze(&context)
+                .into_iter()
+                .all(|finding| finding.code != "ts-json-parse-unsafe")
+        );
+    }
+
+    #[test]
+    fn recognizes_multiline_aliased_named_test_runner_registrations() {
+        for runner in ["vitest", "@jest/globals", "node:test", "bun:test"] {
+            let sources = BTreeMap::from([(
+                "src/decode.test.ts".to_owned(),
+                format!(
+                    "import {{\n  test as check,\n}} from '{runner}';\n\
+                     function fixture() {{ return JSON.parse(output); }}\n\
+                     check(\n\
+                       'generated output',\n\
+                       async function () {{\n\
+                         const document = JSON.parse(\n\
+                           generatedOutput,\n\
+                         );\n\
+                         consume(document, fixture());\n\
+                       }},\n\
+                     );\n"
+                ),
+            )]);
+            let context = SourceAnalysisContext::unchanged(&sources);
+            assert!(
+                analyze(&context)
+                    .into_iter()
+                    .all(|finding| finding.code != "ts-json-parse-unsafe"),
+                "{runner}"
+            );
+        }
+    }
+
+    #[test]
+    fn retains_json_advice_without_a_stable_executable_test_harness_registration() {
+        for (path, prefix) in [
+            (
+                "src/runtime.ts",
+                "import { test } from 'vitest';\ntest('suite', () => {});",
+            ),
+            ("src/no_runner.test.ts", "describe('suite', () => {});"),
+            ("src/unused.test.ts", "import { test } from 'vitest';"),
+            ("src/assertion.test.ts", "import { expect } from 'vitest';"),
+            (
+                "src/local.test.ts",
+                "import { test } from './test';\ntest('suite', () => {});",
+            ),
+            (
+                "src/quoted.test.ts",
+                "import { test } from 'vitest';\nconst sample = `test('suite', () => {});`;",
+            ),
+            (
+                "src/comment.test.ts",
+                "import { test } from 'vitest';\n/* test(\n 'suite', () => {}\n); */",
+            ),
+            (
+                "src/fake_import.test.ts",
+                "const sample = \"import { test } from 'vitest';\";\nfunction test(name, body) { body(); }\ntest('suite', () => {});",
+            ),
+            (
+                "src/comment_import.test.ts",
+                "// import { test } from 'vitest';\nfunction test(name, body) { body(); }\ntest('suite', () => {});",
+            ),
+            (
+                "src/shadow.test.ts",
+                "import { test } from 'vitest';\nfunction run(test) { test('suite', () => {}); }",
+            ),
+            (
+                "src/reassigned.test.ts",
+                "import { test } from 'vitest';\ntest('suite', () => {});\ntest = customRunner;",
+            ),
+            (
+                "src/quoted_callback.test.ts",
+                "import { test } from 'vitest';\ntest('suite', '() => {}');",
+            ),
+            (
+                "src/type_import.test.ts",
+                "import type { test } from 'vitest';\ntest('suite', () => {});",
+            ),
+            ("fixtures/runtime.ts", "const fixture = output;"),
+        ] {
+            let source = format!("{prefix}\nconst document = JSON.parse(payload);\n");
+            let expected_line = prefix.lines().count() + 1;
+            let sources = BTreeMap::from([(path.to_owned(), source)]);
+            let context = SourceAnalysisContext::unchanged(&sources);
+            let findings = analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "ts-json-parse-unsafe")
+                .collect::<Vec<_>>();
+            assert_eq!(findings.len(), 1, "{path}");
+            assert_eq!(findings[0].path, path);
+            assert_eq!(findings[0].line, expected_line);
+            assert_eq!(findings[0].end_line, expected_line);
+            assert_eq!(findings[0].confidence, "medium");
+        }
+    }
+
+    #[test]
+    fn preserves_localstorage_and_security_findings_in_test_harness_modules() {
+        let sources = BTreeMap::from([(
+            "src/security.test.ts".to_owned(),
+            "import { test } from 'vitest';\n\
+             test('exercise runtime sinks', () => {\n\
+               const document = JSON.parse(localStorage.value);\n\
+               eval(input);\n\
+               element.innerHTML = input;\n\
+               const password = 'actual-secret';\n\
+             });\n"
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .map(|finding| (finding.code, finding.line))
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                ("ts-localstorage-json".to_owned(), 3),
+                ("ts-eval".to_owned(), 4),
+                ("ts-inner-html".to_owned(), 5),
+                ("ts-hardcoded-secret".to_owned(), 6),
+            ])
+        );
     }
 
     #[test]

@@ -32,35 +32,37 @@ pub fn execute(options: &PreviewOptions) -> Result<GraphOutcome, String> {
     let graph = cache.graph(&prepared);
     let edges = display_edges(&prepared, &graph);
     match options.format {
-        ReportFormat::Mermaid if !prepared.config.architecture_layers.is_empty() => {
-            print!(
-                "{}",
+        ReportFormat::Mermaid => {
+            let output = if prepared.config.architecture_layers.is_empty() {
+                dependency_mermaid(&graph, &edges)
+            } else {
                 architecture_mermaid(&graph, &prepared.config.architecture_layers)
-            );
+            };
+            super::write_report(options, |writer| write!(writer, "{output}"))?;
         }
-        ReportFormat::Mermaid => print!("{}", dependency_mermaid(&graph, &edges)),
         ReportFormat::Json => {
             let edges = edges
                 .iter()
                 .map(|edge| json!({"source": edge.source, "target": edge.target}))
                 .collect::<Vec<_>>();
-            println!(
-                "{}",
-                serde_json::to_string(&json!({
-                    "version": 1,
-                    "command": "graph",
-                    "root": prepared.root,
-                    "files": prepared.files.len(),
-                    "edges": edges,
-                }))
-                .map_err(|error| format!("failed to encode graph report: {error}"))?
-            );
+            let output = serde_json::to_string(&json!({
+                "version": 1,
+                "command": "graph",
+                "root": prepared.root,
+                "files": prepared.files.len(),
+                "edges": edges,
+            }))
+            .map_err(|error| format!("failed to encode graph report: {error}"))?;
+            super::write_report(options, |writer| writeln!(writer, "{output}"))?;
         }
         _ => {
-            println!("Code Buster graph: {} files", prepared.files.len());
-            for edge in edges {
-                println!("{} -> {}", edge.source, edge.target);
-            }
+            super::write_report(options, |writer| {
+                writeln!(writer, "Code Buster graph: {} files", prepared.files.len())?;
+                for edge in edges {
+                    writeln!(writer, "{} -> {}", edge.source, edge.target)?;
+                }
+                Ok(())
+            })?;
         }
     }
     Ok(GraphOutcome::Success)
