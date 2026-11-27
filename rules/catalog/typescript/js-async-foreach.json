@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "Array.forEach ignores callback promises, so the surrounding function continues before asynchronous work completes and callback rejections can be lost.",
   "suggestion": "Use for...of with await for sequential work, or await Promise.all(items.map(async ...)) for intentional concurrency.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [

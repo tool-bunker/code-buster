@@ -2,6 +2,8 @@ pub(crate) mod bevy;
 pub(crate) mod fastapi;
 pub(crate) mod flutter;
 pub(crate) mod pixijs;
+pub(crate) mod spring;
+pub(crate) mod spring_project;
 pub(crate) mod svelte;
 
 pub(crate) fn mask_javascript(source: &str, strings: bool, html_comments: bool) -> String {

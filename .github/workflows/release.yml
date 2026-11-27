@@ -32,6 +32,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88.0
         with:
           components: clippy,rustfmt
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
       - name: Validate release version
         id: release
         env:
@@ -54,8 +57,9 @@ jobs:
             echo 'README.md does not contain the crates.io install command' >&2
             exit 1
           fi
-          if ! grep -Fq -- "cargo install code-buster --version $REQUESTED_VERSION --locked" integrations/github/code-buster.yml; then
-            echo "GitHub integration does not pin crates.io version $REQUESTED_VERSION" >&2
+          ACTION_REFS="$(grep -E '^[[:space:]]*uses: tool-bunker/code-buster@' integrations/github/code-buster.yml || true)"
+          if [[ "$ACTION_REFS" != "        uses: tool-bunker/code-buster@v$REQUESTED_VERSION" ]]; then
+            echo "GitHub integration must reference tool-bunker/code-buster@v$REQUESTED_VERSION exactly once" >&2
             exit 1
           fi
           echo "tag=v$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
@@ -63,8 +67,16 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          python3 -B -m unittest tool/test_release_notes.py
+          python3 -B -m unittest tool/test_release_notes.py tool/test_prepare_release.py
           python3 tool/release_notes.py "v$RELEASE_VERSION" "$RUNNER_TEMP/release-notes.md"
+      - run: npm --prefix action run check
+      - run: npm --prefix action test
+      - name: Smoke local Action with the published engine
+        uses: ./
+        with:
+          version: '0.14.6'
+          path: action
+          fail-on-issues: 'false'
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - run: cargo test --all-targets --all-features --locked

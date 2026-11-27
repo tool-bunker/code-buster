@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Repeatedly extending an immutable string can copy a growing prefix and create avoidable temporary values.",
   "suggestion": "Collect fragments in an array and join once after the loop, or stream them directly to the consumer.",
-  "version": 4,
+  "version": 5,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

@@ -9,7 +9,7 @@
   "legacyGroup": "core",
   "why": "unwrap terminates the process when a Result or Option is not successful.",
   "suggestion": "Propagate the error, handle each variant, or document why failure is impossible.",
-  "version": 17,
+  "version": 18,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -43,6 +43,7 @@
     "A same-brace-scope let Some(...) = collection.first()/last()/first_mut()/last_mut() else { return ...; } proves later direct element access or fresh iteration on that collection, without receiver/parent reuse, shadowing, filtering, nested uses, or delayed callbacks. A successful pop guard does not prove another pop.",
     "Fresh split()/rsplit() iterators always yield at least one segment, so direct next(), last(), and next_back() access is excluded. Terminator/whitespace splitters, intervening iterator adapters, and previously consumed iterators are not covered.",
     "An exact standalone is_none() branch assigning Some(...) to the same receiver, including a single dereference assignment, proves presence after fallthrough. Alternative branches, conditional or transformed initialization, later receiver/parent reuse, shadowing, nested uses, and delayed callbacks invalidate the proof. Presence does not establish success of a Result stored inside the Option.",
+    "A local mutable String initialized directly by standard format! also proves empty writeln! and simple literal-only output. The proof follows prior standard writes but rejects shadowed or out-of-scope bindings, wrapped initializers, custom formatting macros or imports, include! expansion, and unknown formatters. This does not make arbitrary Display implementations infallible.",
     "Attached literal doc attributes can declare the same panic policy as triple-slash documentation. Dynamic documentation expressions are not evaluated, and contracts stay within the documented function rather than nested or neighboring functions."
   ]
 }

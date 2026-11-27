@@ -6,15 +6,18 @@ use regex::Regex;
 
 use crate::findings::{Finding, Severity};
 use crate::rule_catalog;
+use crate::trivial_wrappers::matching_delimiter;
 
 #[derive(Clone)]
 struct OopMethod {
     name: String,
+    line: usize,
     parameters: Vec<Parameter>,
     body: String,
     is_public: bool,
     is_static: bool,
     is_override: bool,
+    returns_builder: bool,
 }
 
 struct MethodCandidate<'a> {
@@ -22,9 +25,11 @@ struct MethodCandidate<'a> {
     end: usize,
     modifiers: &'a str,
     name: &'a str,
+    name_start: usize,
     parameter_source: &'a str,
     terminator: &'a str,
     arrow: bool,
+    returns_builder: bool,
 }
 
 struct QualifiedMethodCandidate<'a> {
@@ -174,18 +179,24 @@ fn parse_project<'a>(sources: impl Iterator<Item = (&'a String, &'a String)>) ->
                 .join(",");
             let bases = base_types(&base_source);
             let body = &code[open + 1..close];
-            classes.push(OopClass {
-                path: path.clone(),
-                line: code[..whole.start()]
+            let line = code[..whole.start()]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            let body_line = line
+                + code[whole.start()..open + 1]
                     .bytes()
                     .filter(|byte| *byte == b'\n')
-                    .count()
-                    + 1,
+                    .count();
+            classes.push(OopClass {
+                path: path.clone(),
+                line,
                 name,
                 is_interface: kind == "interface",
                 parent: None,
                 interfaces: if kind == "class" { bases } else { Vec::new() },
-                methods: methods(body, path),
+                methods: methods(body, path, body_line),
                 fields: fields(body, path),
             });
         }
@@ -264,7 +275,7 @@ pub(crate) fn single_use_abstraction_finding(
     )
 }
 
-fn methods(body: &str, path: &str) -> Vec<OopMethod> {
+fn methods(body: &str, path: &str, body_line: usize) -> Vec<OopMethod> {
     let depths = brace_depths(body);
     let typescript = is_typescript(path);
     let mut methods = Vec::new();
@@ -275,6 +286,7 @@ fn methods(body: &str, path: &str) -> Vec<OopMethod> {
             true,
             &TS_METHOD_DECLARATION,
             false,
+            body_line,
             &mut methods,
         );
         collect_method_declarations(
@@ -283,6 +295,7 @@ fn methods(body: &str, path: &str) -> Vec<OopMethod> {
             true,
             &TS_ARROW_METHOD_DECLARATION,
             true,
+            body_line,
             &mut methods,
         );
     } else {
@@ -292,6 +305,7 @@ fn methods(body: &str, path: &str) -> Vec<OopMethod> {
             false,
             &METHOD_DECLARATION,
             false,
+            body_line,
             &mut methods,
         );
     }
@@ -304,8 +318,10 @@ fn collect_method_declarations(
     typescript: bool,
     pattern: &Regex,
     arrow: bool,
+    mut line: usize,
     methods: &mut Vec<OopMethod>,
 ) {
+    let mut line_offset = 0;
     for declaration in pattern.captures_iter(body) {
         let Some(candidate) = extract_method_candidate(&declaration, arrow) else {
             continue;
@@ -313,7 +329,13 @@ fn collect_method_declarations(
         let Some(candidate) = qualify_method_candidate(candidate, depths, typescript) else {
             continue;
         };
-        if let Some(method) = method_from_candidate(body, candidate, typescript) {
+        let name_start = candidate.candidate.name_start;
+        line += body[line_offset..name_start]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count();
+        line_offset = name_start;
+        if let Some(method) = method_from_candidate(body, candidate, typescript, line) {
             methods.push(method);
         }
     }
@@ -324,14 +346,22 @@ fn extract_method_candidate<'a>(
     arrow: bool,
 ) -> Option<MethodCandidate<'a>> {
     let whole = declaration.get(0)?;
+    let name = declaration.get(2)?;
     Some(MethodCandidate {
         start: whole.start(),
         end: whole.end(),
         modifiers: declaration.get(1).map_or("", |matched| matched.as_str()),
-        name: declaration.get(2)?.as_str(),
+        name: name.as_str(),
+        name_start: name.start(),
         parameter_source: declaration.get(3)?.as_str(),
         terminator: declaration.get(4)?.as_str(),
         arrow,
+        returns_builder: !arrow
+            && declaration.get(1).is_some_and(|modifiers| {
+                whole.as_str()[modifiers.end() - whole.start()..name.start() - whole.start()]
+                    .trim()
+                    .ends_with("Builder")
+            }),
     })
 }
 
@@ -353,6 +383,7 @@ fn method_from_candidate(
     body: &str,
     qualified: QualifiedMethodCandidate<'_>,
     typescript: bool,
+    line: usize,
 ) -> Option<OopMethod> {
     let QualifiedMethodCandidate {
         candidate,
@@ -361,11 +392,13 @@ fn method_from_candidate(
     let method_body = candidate_method_body(body, &candidate)?;
     let previous_line = body
         .get(..candidate.start)?
+        .trim_end()
         .split('\n')
         .next_back()
         .unwrap_or("");
     Some(OopMethod {
         name: candidate.name.to_owned(),
+        line,
         parameters,
         body: method_body,
         is_public: if typescript {
@@ -375,7 +408,8 @@ fn method_from_candidate(
         },
         is_static: contains_word(candidate.modifiers, "static"),
         is_override: contains_word(candidate.modifiers, "override")
-            || previous_line.trim_end().ends_with("@Override"),
+            || previous_line.ends_with("@Override"),
+        returns_builder: candidate.returns_builder,
     })
 }
 
@@ -799,6 +833,16 @@ static SERVICE_LOCATOR: LazyLock<Regex> = LazyLock::new(|| {
 static MESSAGE_CHAIN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*(?:\s*\([^;()]*\))?){4,}").unwrap()
 });
+static BUILDER_FACTORY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.\s*(?:[Bb]uilder|[Nn]ewBuilder|[Tt]oBuilder)\s*\(").unwrap());
+static CHAIN_CALL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*\.\s*([A-Za-z_]\w*)\s*\(").unwrap());
+static ZERO_ARGUMENT_FACTORY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\s*(\()\s*\)").unwrap());
+static TYPE_DECLARATION_TAIL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s+[A-Za-z_$][\w$]*\s*(?:[=;,\)]|\[\s*\])").unwrap());
+static FORWARDING_CONSTRUCTOR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*(?:super|this)\s*\(([^()]*)\)\s*;\s*$").unwrap());
 static NEW_NAMED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bnew\s+([A-Z]\w*)\s*\(").unwrap());
 static BOUNDARY_FIELD: LazyLock<Regex> = LazyLock::new(|| {
@@ -819,6 +863,12 @@ static JAVA_MAPPING: LazyLock<Regex> = LazyLock::new(|| {
 });
 static JAVA_GETTER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[a-z_]\w*\s*\.\s*get([A-Z]\w*)\s*\(\s*\)").unwrap());
+static RETURNED_JAVA_BUILDER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*return\s+(?:[A-Za-z_$][\w$]*\s*\.\s*)*[A-Z_$][\w$]*\s*\.\s*(?:builder|newBuilder)\s*\(\s*\)").unwrap()
+});
+static JAVA_GETTER_CHAIN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_$][\w$]*)(?:\s*\.\s*(?:get|is|has)[A-Z_$][\w$]*\s*\(\s*\))+").unwrap()
+});
 static TS_OBJECT_LITERAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)\breturn\s*\{([^{}]+)\}").unwrap());
 static RETURNED_OBJECT_PROJECTION: LazyLock<Regex> = LazyLock::new(|| {

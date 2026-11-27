@@ -1,0 +1,27 @@
+{
+  "id": "spring-scheduled-parameters",
+  "language": "java",
+  "group": "reliability",
+  "listingTitle": "Remove Spring scheduled method parameters",
+  "title": "Remove Spring scheduled method parameters",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "Spring scheduled methods must not declare parameters; a parameterized scheduled method can prevent scheduled task registration.",
+  "suggestion": "Use a no-argument scheduled entry point and obtain collaborators or inputs through the managed object.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText", "manifest"],
+  "packs": ["spring"],
+  "implementation": "src/rules/frameworks/spring.rs",
+  "languages": ["java"],
+  "frameworks": ["spring"],
+  "languageVersions": [],
+  "limitations": [
+    "High-confidence findings bind canonical Scheduled through explicit imports, wildcard imports, or fully qualified names and require a parameterized method in a scoped Spring module. Managed-class evidence is limited to top-level nonabstract classes with canonical stereotypes or an unambiguous Bean return type.",
+    "Only parameters are checked: reactive and other supported scheduled return types are not rejected merely for being non-void.",
+    "Custom composed annotations, runtime registration, dynamic build configuration, unresolved Maven properties or remote parents, and non-Java source are not resolved."
+  ]
+}

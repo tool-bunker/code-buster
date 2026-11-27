@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Strings are immutable, so repeatedly extending a growing string can copy the accumulated prefix on each iteration.",
   "suggestion": "Append fragments to a list and call ''.join once after the loop, or stream directly to the destination.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -20,7 +20,7 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only += on variables explicitly annotated as str or initialized from a string literal before the active loop is reported.",
+    "Only += on variables explicitly annotated as str or initialized from a text string literal before the active loop is reported. Byte and raw-byte literal initializers do not establish str.",
     "Reassignment, variable shadowing, bounded loops, and alternative string-like types are not inferred."
   ]
 }

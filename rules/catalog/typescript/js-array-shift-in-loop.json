@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Array.shift moves every remaining element, so repeatedly consuming an array from the front can produce quadratic work.",
   "suggestion": "Advance an index through the array or use a deque implementation for front-removal semantics.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

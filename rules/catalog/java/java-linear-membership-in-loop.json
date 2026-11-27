@@ -8,8 +8,8 @@
   "defaultSeverity": "warn",
   "legacyGroup": "performance",
   "why": "List.contains scans linearly, so calling it inside another loop can turn a linear pass into quadratic work.",
-  "suggestion": "Build a HashSet before the loop when repeated membership checks dominate and list ordering is not part of lookup semantics.",
-  "version": 1,
+  "suggestion": "Consider a hash-based membership index when repeated lookups dominate; preserve list ordering, equality and hash-code semantics, and updates during the loop.",
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],
@@ -21,6 +21,7 @@
   "languageVersions": [],
   "limitations": [
     "Only variables whose nearest declaration before the loop is List, ArrayList, LinkedList, or Vector and that use contains inside a braced loop are reported.",
-    "Nested generic declarations, collection size, aliases, and intentionally small lists are not inferred."
+    "Nested generic declarations, collection size, aliases, and intentionally small lists are not inferred.",
+    "Small or bounded workloads may favor the existing List. A replacement index must account for collection updates and mutable equality or hash-code state."
   ]
 }

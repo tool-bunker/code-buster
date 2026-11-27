@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "The any type disables static checking for the value and can spread unchecked assumptions through callers.",
   "suggestion": "Use a concrete type or unknown with an explicit narrowing check.",
-  "version": 6,
+  "version": 7,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [

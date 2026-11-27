@@ -1,24 +1,89 @@
 name: Code Buster
+
+# Pin the Action to a Code Buster release containing root action.yml.
+# Release preparation keeps this example on the matching release tag.
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
 permissions:
   contents: read
-  security-events: write
+
 jobs:
   analyse:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    outputs:
+      report-artifact: ${{ steps.reports.outputs.artifact-id }}
+      sarif-path: ${{ steps.review.outputs.sarif-path }}
+      changed-base: ${{ steps.base.outputs.revision }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - name: Install Code Buster
-        run: cargo install code-buster --version 0.14.6 --locked
-      - name: Analyse changed production code
-        run: cb review --changed-base '${{ github.event.pull_request.base.sha || github.event.before }}' --format sarif --output code-buster.sarif --fail-on-issues
-      - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+          persist-credentials: false
+      - name: Select a valid changed-code base
+        id: base
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE:-$PUSH_BEFORE}"
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            printf 'revision=%s\n' "$base" >> "$GITHUB_OUTPUT"
+          fi
+          # Initial pushes and manual runs review the full root instead.
+      - name: Review production code with advisories
+        id: review
+        uses: tool-bunker/code-buster@v0.15.0
         with:
-          sarif_file: code-buster.sarif
+          changed-base: ${{ steps.base.outputs.revision }}
+          advisory: 'true'
+          fail-on-issues: 'true'
+      - name: Preserve JSON and SARIF reports
+        id: reports
+        if: ${{ always() && steps.review.outputs.report-directory != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: code-buster-reports
+          path: ${{ steps.review.outputs.report-directory }}
+          if-no-files-found: error
+
+  # Reports are available as artifacts without a write token, even after failure.
+  # Upload only complete, full-root SARIF: changed-only scans must not replace
+  # the code-scanning baseline and close alerts in files that were not reviewed.
+  # Code scanning requires a public repository (or licensed private-repo opt-in
+  # via CODE_BUSTER_CODE_SCANNING=true) and never runs for fork PRs.
+  upload-sarif:
+    needs: analyse
+    if: >-
+      ${{
+        always() &&
+        needs.analyse.outputs.report-artifact != '' &&
+        needs.analyse.outputs.sarif-path != '' &&
+        needs.analyse.outputs.changed-base == '' &&
+        (github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository) &&
+        (github.event.repository.private == false ||
+          vars.CODE_BUSTER_CODE_SCANNING == 'true')
+      }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: code-buster-reports
+          path: code-buster-reports
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3
+        with:
+          sarif_file: code-buster-reports/code-buster.sarif
+          category: code-buster

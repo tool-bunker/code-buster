@@ -9,7 +9,7 @@
   "legacyGroup": "reliability",
   "why": "Ignoring a Future suppresses asynchronous failures and discards the handle needed for cancellation or coordination.",
   "suggestion": "Retain, return, compose, or explicitly observe the Future so failures and cancellation remain visible.",
-  "version": 3,
+  "version": 4,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["reliability"],
@@ -21,6 +21,8 @@
   "languageVersions": [],
   "limitations": [
     "Discarded direct CompletableFuture async factories and known executor submit or schedule calls are reported.",
-    "Assignments split across lines, immediately chained result observation, and submitted FutureTask handles retained independently of the executor's wrapper Future are recognized; aliases, custom Future-returning methods, annotations, and deliberate fire-and-forget policies are not inferred."
+    "Assignments split across lines, immediately chained result observation, direct call arguments, and submitted FutureTask handles retained independently of the executor's wrapper Future are recognized.",
+    "A Future used as the expression body of an immediate stream or parallelStream map on a recognized List, ArrayList, LinkedList, or Vector is passed to the mapping operation. Consumer forEach callbacks and discarded calls in block-bodied map lambdas remain eligible.",
+    "Aliases, custom Future-returning methods, other stream sources or intermediate operations, typed lambda parameters, annotations, and deliberate fire-and-forget policies are not inferred."
   ]
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Intl formatter construction resolves locale data and options, so rebuilding an equivalent formatter on every iteration repeats avoidable setup work.",
   "suggestion": "Create the formatter once outside the loop and reuse its format or compare method.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

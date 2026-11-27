@@ -17,6 +17,8 @@ use crate::repository_defaults::{
     RepositoryMetadataFile,
 };
 
+mod test_data;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceFile {
     pub path: String,
@@ -66,6 +68,7 @@ pub struct PreparedPreview {
     pub files: Vec<SourceFile>,
     pub excluded_source_files: Vec<SourceFile>,
     pub sources: BTreeMap<String, String>,
+    pub(crate) inferred_test_files: BTreeSet<String>,
     pub coverage: BTreeMap<String, usize>,
     pub language_versions: BTreeMap<String, String>,
     pub generated_provenance: Vec<GeneratedProvenance>,
@@ -85,6 +88,10 @@ pub struct PreparedPreview {
 pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
     let root = absolute_root(&options.root)?;
     let mut config = Config::load(root.clone(), options)?;
+    let complete_reference_scope = config.ignore_patterns.is_empty()
+        && config.includes.is_empty()
+        && config.excludes.is_empty()
+        && config.changed_base.is_none();
     let RepositoryInspection {
         defaults,
         metadata_files,
@@ -120,6 +127,9 @@ pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
         .map_or_else(BTreeSet::new, |base| changed_files(&root, base));
     let mut discovery = Discovery::new(config, selected, policy, changed, directories)?;
     discovery.walk_root()?;
+    if auto_requested && complete_reference_scope {
+        test_data::classify(&mut discovery)?;
+    }
     discovery
         .files
         .sort_by(|left, right| left.path.cmp(&right.path));
@@ -151,6 +161,7 @@ pub fn prepare(options: &PreviewOptions) -> Result<PreparedPreview, String> {
         files: discovery.files,
         excluded_source_files: discovery.excluded_source_files,
         sources,
+        inferred_test_files: discovery.inferred_test_files,
         coverage: discovery.coverage,
         language_versions,
         generated_provenance: discovery.generated_provenance,
@@ -249,6 +260,7 @@ struct Discovery {
     files: Vec<SourceFile>,
     excluded_source_files: Vec<SourceFile>,
     sources: BTreeMap<String, String>,
+    inferred_test_files: BTreeSet<String>,
     coverage: BTreeMap<String, usize>,
     generated_provenance: Vec<GeneratedProvenance>,
     diagnostics: Vec<ProcessingDiagnostic>,
@@ -277,6 +289,7 @@ impl Discovery {
             files: Vec::new(),
             excluded_source_files: Vec::new(),
             sources: BTreeMap::new(),
+            inferred_test_files: BTreeSet::new(),
             coverage: BTreeMap::new(),
             generated_provenance: Vec::new(),
             diagnostics: Vec::new(),
@@ -1037,6 +1050,8 @@ const TEST_PATH_SEGMENTS: &[&str] = &[
     "testenv",
     "testkit",
     "test_assets",
+    "testdata",
+    "test_data",
     "integration_test",
     "integration_tests",
     "test_integration",

@@ -773,12 +773,13 @@ fn javascript_graph(sources: &BTreeMap<String, String>) -> BTreeMap<String, BTre
         .collect()
 }
 
-fn javascript_specifiers(source: &str) -> Vec<String> {
-    let positions = code_positions(source);
+pub(crate) fn javascript_specifiers(source: &str) -> Vec<String> {
+    let mut positions = None;
     JS_SPECIFIER
         .captures_iter(source)
         .filter_map(|capture| {
             let matched = capture.get(0)?;
+            let positions = positions.get_or_insert_with(|| code_positions(source));
             if !positions.get(matched.start()).copied().unwrap_or(false) {
                 return None;
             }

@@ -1,0 +1,27 @@
+{
+  "id": "spring-async-self-invocation",
+  "language": "java",
+  "group": "reliability",
+  "listingTitle": "Review bypassed Spring asynchronous advice",
+  "title": "Review bypassed Spring asynchronous advice",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "A direct same-class call bypasses the target method's requested asynchronous proxy advice, so that invocation does not gain asynchronous execution from the target annotation.",
+  "suggestion": "When asynchronous dispatch is required, call a method on a separate managed bean or use an explicit asynchronous boundary.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText", "manifest"],
+  "packs": ["spring"],
+  "implementation": "src/rules/frameworks/spring.rs",
+  "languages": ["java"],
+  "frameworks": ["spring"],
+  "languageVersions": [],
+  "limitations": [
+    "Advisory, count-mode by default: method- or class-level canonical Async bindings use explicit imports, wildcard imports, or fully qualified names. Top-level nonabstract managed classes require canonical stereotypes or an unambiguous Bean return type. Direct same-owner calls provide structural evidence, not proof that asynchronous dispatch was intended.",
+    "Findings use the primary annotation location and group target calls in code_flow. Analysis abstains on extends/implements, same-name overloads, varargs or private/static targets, explicit generic receiver calls, other receivers, lambdas, and anonymous/local/inner classes.",
+    "Explicit per-module EnableAsync AspectJ mode suppresses this proxy-only rule. Dynamic configuration, custom meta-annotations, external type resolution, unresolved Maven properties or remote parents, and non-Java source are not resolved."
+  ]
+}

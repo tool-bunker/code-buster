@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "The same typed parameter group crossing several APIs usually represents one domain concept whose validation and evolution are otherwise distributed.",
   "suggestion": "Consider a value object or parameter object if these values share invariants and lifecycle.",
-  "version": 7,
+  "version": 9,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -36,6 +36,7 @@
   "languageVersions": [],
   "limitations": [
     "Requires the same complete signature of at least three explicitly typed parameters across at least two files and two differently named operations; mirrored interface or overload families are excluded.",
+    "Explicit override declarations do not add independent parameter-group evidence. Java constructors that only forward the same parameters in order to super or this, optionally followed by fixed boolean or null defaults, are also excluded. Derived arguments, other defaults, and additional work remain eligible. The shared analyzer locates contributing methods at their declarations.",
     "Parameter names and normalized types must match; inferred parameters and partial parameter subsets are not analyzed.",
     "TypeScript destructured, inferred, and nested generic parameters are not analyzed. Ambient .d.ts declarations do not contribute implementation parameter groups.",
     "C# partial types, aliases, and generic parameter splitting are not resolved.",

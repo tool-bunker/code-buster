@@ -33,6 +33,7 @@ struct State<'a> {
     namespace_depth: i32,
     loop_starts: Vec<usize>,
     prefers_file_scoped_namespaces: bool,
+    type_aliases: BTreeSet<String>,
 }
 
 fn analyze_source(path: &str, source: &str, prefers_file_scoped_namespaces: bool) -> Vec<Finding> {
@@ -61,6 +62,7 @@ fn analyze_source(path: &str, source: &str, prefers_file_scoped_namespaces: bool
         namespace_depth: 0,
         loop_starts: Vec::new(),
         prefers_file_scoped_namespaces,
+        type_aliases: lines_for_type_aliases(&comment_free_source),
     };
     for index in 0..state.lines.len() {
         let line = state.line(index);
@@ -134,7 +136,7 @@ fn analyze_structure(state: &mut State<'_>, index: usize, line: &str, legacy_lin
             );
         }
     }
-    if line.starts_with("catch (Exception") || line.starts_with("catch (System.Exception") {
+    if catches_broad_exception(state, index, legacy_line) {
         state.add(
             "cs-catch-system-exception",
             index,
@@ -174,6 +176,93 @@ fn analyze_structure(state: &mut State<'_>, index: usize, line: &str, legacy_lin
         );
     }
     analyze_loop(state, index, line);
+}
+
+fn lines_for_type_aliases(source: &str) -> BTreeSet<String> {
+    source
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| line.starts_with("using ") || line.starts_with("global using "))
+        .filter_map(|line| TYPE_ALIAS.captures(line))
+        .map(|capture| capture[1].to_owned())
+        .collect()
+}
+
+fn catches_broad_exception(state: &State<'_>, index: usize, line: &str) -> bool {
+    if !line.starts_with("catch") {
+        return false;
+    }
+    let mut header = std::borrow::Cow::Borrowed(line);
+    if !line.contains('{') {
+        for continuation in &state.structural[index + 1..] {
+            header.to_mut().push(' ');
+            header.to_mut().push_str(continuation.trim());
+            if continuation.contains(['{', '}', ';']) {
+                break;
+            }
+        }
+    }
+    let header = header.split('{').next().unwrap_or_default().trim();
+    let Some(capture) = BROAD_EXCEPTION_CATCH.captures(header) else {
+        return false;
+    };
+    let Some(binding) = capture.get(1) else {
+        return true;
+    };
+    let filter = &header[capture.get(0).expect("matched catch header").end()..];
+    let Some(filter) = filter
+        .trim()
+        .strip_prefix("when")
+        .map(str::trim)
+        .filter(|filter| {
+            filter.starts_with('(')
+                && crate::trivial_wrappers::matching_delimiter(filter, 0, b'(', b')')
+                    == Some(filter.len() - 1)
+        })
+        .and_then(|filter| filter.strip_prefix('('))
+        .and_then(|filter| filter.strip_suffix(')'))
+    else {
+        return true;
+    };
+    !filter
+        .split("||")
+        .all(|branch| is_narrow_exception_filter(branch, binding.as_str(), &state.type_aliases))
+}
+
+fn is_narrow_exception_filter(branch: &str, binding: &str, aliases: &BTreeSet<String>) -> bool {
+    let branch = branch.trim().trim_matches(['(', ')']).trim();
+    let Some(types) = branch
+        .strip_prefix(binding)
+        .and_then(|tail| tail.strip_prefix(char::is_whitespace))
+        .map(str::trim_start)
+        .and_then(|tail| tail.strip_prefix("is"))
+        .and_then(|tail| tail.strip_prefix(char::is_whitespace))
+    else {
+        return false;
+    };
+    let mut tokens = types.split_whitespace();
+    loop {
+        let Some(kind) = tokens.next() else {
+            return false;
+        };
+        let kind = kind.trim_matches(['(', ')']);
+        let root = kind
+            .trim_start_matches("global::")
+            .split('.')
+            .next()
+            .unwrap_or_default();
+        if aliases.contains(root)
+            || kind.rsplit('.').next() == Some("Exception")
+            || !EXCEPTION_FILTER_TYPE.is_match(kind)
+        {
+            return false;
+        }
+        match tokens.next() {
+            None => return true,
+            Some("or") => {}
+            Some(_) => return false,
+        }
+    }
 }
 
 fn weak_lock_target(state: &State<'_>, index: usize, source: &str) -> bool {
@@ -1420,6 +1509,15 @@ static NUMERIC_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static INFERRED_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bvar\s+([A-Za-z_]\w*)\s*=\s*([^;]+)").unwrap());
+static TYPE_ALIAS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:global\s+)?using\s+([A-Za-z_]\w*)\s*=").unwrap());
+static BROAD_EXCEPTION_CATCH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^catch\s*\(\s*(?:(?:global::)?System\.)?Exception(?:\s+([A-Za-z_]\w*))?\s*\)")
+        .unwrap()
+});
+static EXCEPTION_FILTER_TYPE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:global::)?(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*Exception$").unwrap()
+});
 static IF_OR_WHILE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:if|while)\s*\(").unwrap());
 static NUMERIC_BITWISE_OPERAND: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:0[xX][0-9A-Fa-f]+|\b\d+)(?:[uUlL]+)?\s*[&|]|[&|]\s*(?:0[xX][0-9A-Fa-f]+|\d+)(?:[uUlL]+\b)?").unwrap()
@@ -1476,6 +1574,59 @@ mod tests {
         assert!(!has_top_level_non_short_circuit_operator(
             r#"if ("unterminated & enabled"#
         ));
+    }
+
+    #[test]
+    fn excludes_only_explicitly_narrowed_exception_filters() {
+        let source = r#"catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Recover(); }
+catch (System.Exception error) when ((error is System.IO.IOException) || (error is TimeoutException)) { Recover(); }
+catch (
+    global::System.Exception failure
+)
+when (
+    failure is IOException
+        or UnauthorizedAccessException
+) { Recover(); }
+catch (Exception ex) { Recover(); }
+catch (Exception) { Recover(); }
+catch (Exception ex) when (ex is not IOException) { Recover(); }
+catch (Exception ex) when (ex is IOException || true) { Recover(); }
+catch (Exception ex) when (ex is IOException or Exception) { Recover(); }
+catch (Exception ex) when (other is IOException) { Recover(); }
+catch (Exception ex) when (IsRecoverable(ex)) { Recover(); }
+catch (Exception ex) when (ex is IOException && enabled) { Recover(); }
+catch (Exception ex) when (ex is IOException or) { Recover(); }
+catch (Exception ex) when (ex is IOException || ex is object) { Recover(); }
+catch (Exception ex) when (ex is IOException)
+{ Recover(); }
+catch (ExceptionLike ex) { Recover(); }
+// catch (Exception ex) { Recover(); }
+var example = "catch (Exception ex) { Recover(); }";
+"#;
+        assert_eq!(
+            analyze_source("Catches.cs", source, false)
+                .into_iter()
+                .filter(|finding| finding.code == "cs-catch-system-exception")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            (10..=19).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn retains_exception_filters_with_unresolved_type_aliases() {
+        let source = "using FailureException = System.Exception;\n\
+catch (Exception ex) when (ex is FailureException) { Recover(); }\n\
+catch (Exception ex) when (ex is IOException)) { Recover(); }\n\
+catch (Exception ex) when (ex is IOException) { Recover(); }\n";
+        assert_eq!(
+            analyze_source("Aliases.cs", source, false)
+                .into_iter()
+                .filter(|finding| finding.code == "cs-catch-system-exception")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            [2, 3]
+        );
     }
 
     #[test]

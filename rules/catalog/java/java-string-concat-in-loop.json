@@ -8,8 +8,8 @@
   "defaultSeverity": "warn",
   "legacyGroup": "core",
   "why": "Repeated immutable String concatenation can copy the growing prefix on every iteration.",
-  "suggestion": "Accumulate with StringBuilder and convert to String after the loop.",
-  "version": 1,
+  "suggestion": "Use StringBuilder when only the final String is needed. If the loop consumes each intermediate String, preserve that behavior and profile before changing it.",
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": [
@@ -28,6 +28,8 @@
   "frameworks": [],
   "languageVersions": [],
   "limitations": [
-    "Only explicitly declared String variables whose nearest declaration precedes a braced loop are checked."
+    "Only explicitly declared String variables whose nearest declaration precedes a braced loop are checked.",
+    "Recognizes +=, accumulator-leading addition, and simple identifier + accumulator prepending assignments. Literal or compound prepend expressions and flow-sensitive resets are not inferred.",
+    "Intermediate prefix consumers can require String materialization inside the loop; a finding is not proof that converting only after the loop preserves behavior or improves performance."
   ]
 }

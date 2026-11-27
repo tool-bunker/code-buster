@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Reassigning an array from a spread or concat of its previous value copies every accumulated element on each iteration, producing quadratic copying as the array grows.",
   "suggestion": "Keep the array locally owned and append with push, or collect chunks and flatten once after the loop.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

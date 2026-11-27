@@ -1,5 +1,5 @@
 #!/bin/sh
-# Update the Cargo package version and promote Unreleased changelog notes.
+# Update the Cargo package and integration Action versions; promote release notes.
 set -eu
 
 usage() {
@@ -94,19 +94,16 @@ else:
         + changelog[body_end:]
     )
 
-crate_install_pattern = re.compile(
-    r"(cargo install code-buster --version )[^ \r\n]+( --locked)"
+action_ref_pattern = re.compile(
+    r"(?m)(^[ \t]*uses: tool-bunker/code-buster@)[^ \t\r\n]+([ \t]*(?:#[^\r\n]*)?$)"
 )
-
-def update_crate_install(path):
-    updated, count = crate_install_pattern.subn(
-        rf"\g<1>{version}\2", path.read_text(), count=1
+updated_integration, integration_count = action_ref_pattern.subn(
+    rf"\g<1>v{version}\2", integration_path.read_text()
+)
+if integration_count != 1:
+    raise SystemExit(
+        f"error: {integration_path} must contain one Code Buster Action reference"
     )
-    if count != 1:
-        raise SystemExit(f"error: {path} has no pinned crates.io install command")
-    return updated
-
-updated_integration = update_crate_install(integration_path)
 
 manifest_path.write_text(updated_manifest)
 lock_path.write_text(updated_lock)

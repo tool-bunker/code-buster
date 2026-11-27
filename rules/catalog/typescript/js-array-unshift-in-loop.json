@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Array.unshift moves existing elements, so repeatedly inserting at the front of an array can produce quadratic work.",
   "suggestion": "Append and reverse once when order permits, advance through a different representation, or use a deque implementation for front-insertion semantics.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

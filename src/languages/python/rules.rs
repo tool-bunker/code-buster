@@ -3690,7 +3690,7 @@ static PYTHON_LIST_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
 });
 static PYTHON_STRING_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"\b([A-Za-z_]\w*)\s*(?::\s*str\b(?:\s*=\s*[^#]+)?|=\s*[rRuUbB]{0,2}(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))"#,
+        r#"\b([A-Za-z_]\w*)\s*(?::\s*str\b(?:\s*=\s*[^#]+)?|=\s*[rRuU]{0,2}(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))"#,
     )
     .unwrap()
 });
@@ -4806,6 +4806,49 @@ document = yaml.load(payload)
                 ("py-string-concat-in-loop".to_owned(), 6),
             ]
         );
+    }
+
+    #[test]
+    fn distinguishes_bytes_from_text_in_loop_accumulators() {
+        for (prefix, is_text) in [
+            ("", true),
+            ("r", true),
+            ("R", true),
+            ("u", true),
+            ("U", true),
+            ("b", false),
+            ("B", false),
+            ("br", false),
+            ("rb", false),
+            ("BR", false),
+            ("RB", false),
+        ] {
+            let source = format!(
+                "def collect(chunks):\n    result = {prefix}\"\"\n    for chunk in chunks:\n        result += chunk\n    return result\n"
+            );
+            let sources = BTreeMap::from([("accumulator.py".to_owned(), source)]);
+            let findings = analyze(&SourceAnalysisContext::unchanged(&sources));
+            let string_lines = findings
+                .iter()
+                .filter(|finding| finding.code == "py-string-concat-in-loop")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                string_lines,
+                if is_text { vec![4] } else { vec![] },
+                "literal prefix {prefix:?}"
+            );
+            if prefix == "b" {
+                assert_eq!(
+                    findings
+                        .iter()
+                        .filter(|finding| finding.code == "py-sequence-rebuild-in-loop")
+                        .map(|finding| finding.line)
+                        .collect::<Vec<_>>(),
+                    vec![4]
+                );
+            }
+        }
     }
 
     #[test]

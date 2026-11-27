@@ -1,0 +1,27 @@
+{
+  "id": "spring-async-post-construct",
+  "language": "java",
+  "group": "reliability",
+  "listingTitle": "Separate async work from Spring initialization",
+  "title": "Separate async work from Spring initialization",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "PostConstruct initialization runs before ordinary Spring asynchronous proxy interception, so Async on the same lifecycle method does not provide the requested proxy-based asynchronous execution.",
+  "suggestion": "Keep initialization synchronous or call an asynchronous method on a separate managed bean after its proxy is available.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText", "manifest"],
+  "packs": ["spring"],
+  "implementation": "src/rules/frameworks/spring.rs",
+  "languages": ["java"],
+  "frameworks": ["spring"],
+  "languageVersions": [],
+  "limitations": [
+    "High-confidence findings bind canonical Spring Async and javax.annotation.PostConstruct or jakarta.annotation.PostConstruct through explicit imports, wildcard imports, or fully qualified names. The same-method lifecycle check requires a top-level nonabstract managed class proven by canonical stereotypes or an unambiguous Bean return type within a scoped Spring module.",
+    "Explicit per-module EnableAsync AspectJ mode suppresses this proxy-only warning. Separate-bean initializer calls do not receive this same-method warning.",
+    "Custom lifecycle mechanisms, composed annotations, dynamic build configuration, unresolved Maven properties or remote parents, and non-Java source are not resolved."
+  ]
+}

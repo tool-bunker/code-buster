@@ -687,6 +687,8 @@ struct NormalizationExclusions<'a> {
     source_path: &'a str,
     dart_forwarding: &'a BTreeSet<usize>,
     python_declarations: &'a BTreeSet<usize>,
+    java_directives: &'a BTreeSet<usize>,
+    java_accessors: &'a BTreeSet<usize>,
     rust_tests: Option<&'a BTreeSet<usize>>,
     rust_masked_lines: Option<&'a [&'a str]>,
 }
@@ -694,6 +696,15 @@ struct NormalizationExclusions<'a> {
 impl NormalizationExclusions<'_> {
     fn line_treatment(&self, index: usize, raw_line: &str) -> LineTreatment {
         let number = index + 1;
+        if self.java_directives.contains(&number) {
+            return LineTreatment::Skip;
+        }
+        if self.java_accessors.contains(&number) {
+            return LineTreatment::Unique(format!(
+                "__code_buster_java_override_accessor__{}:{number}",
+                self.source_path
+            ));
+        }
         if self.dart_forwarding.contains(&number) {
             return LineTreatment::Unique(format!(
                 "__code_buster_dart_forwarding_constructor__{}:{number}",
@@ -880,6 +891,7 @@ fn normalized_lines<'a>(source: &'a str, source_path: &str) -> Vec<NormalizedLin
     let raw_lines: Vec<&str> = source.split('\n').collect();
     let dart_forwarding = dart_forwarding_constructor_lines(&raw_lines, source_path);
     let python_declarations = python_declaration_lines(source, source_path);
+    let (java_directives, java_accessors) = java_excluded_lines(source, source_path);
     let rust_facts = source_path
         .ends_with(".rs")
         .then(|| function_lexical_facts(source));
@@ -894,6 +906,8 @@ fn normalized_lines<'a>(source: &'a str, source_path: &str) -> Vec<NormalizedLin
         source_path,
         dart_forwarding: &dart_forwarding,
         python_declarations: &python_declarations,
+        java_directives: &java_directives,
+        java_accessors: &java_accessors,
         rust_tests: rust_facts.as_ref().map(|(_, tests)| tests),
         rust_masked_lines: rust_masked_lines.as_deref(),
     };
@@ -966,6 +980,39 @@ fn starts_with_spaced_keyword(line: &str, keyword: &str) -> bool {
             .is_some_and(|matched| matched.start() == 0),
         _ => false,
     }
+}
+
+fn java_excluded_lines(source: &str, source_path: &str) -> (BTreeSet<usize>, BTreeSet<usize>) {
+    if !source_path.ends_with(".java") {
+        return (BTreeSet::new(), BTreeSet::new());
+    }
+    let masked = mask_comments_and_strings(source);
+    (
+        matched_source_lines(&masked, &JAVA_DIRECTIVE),
+        matched_source_lines(&masked, &JAVA_OVERRIDE_ACCESSOR),
+    )
+}
+
+fn matched_source_lines(masked: &str, pattern: &Regex) -> BTreeSet<usize> {
+    let mut lines = BTreeSet::new();
+    let mut line = 1;
+    let mut offset = 0;
+    for directive in pattern.find_iter(masked) {
+        line += masked[offset..directive.start()]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count();
+        let last = line
+            + directive
+                .as_str()
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count();
+        lines.extend(line..=last);
+        line = last;
+        offset = directive.end();
+    }
+    lines
 }
 
 fn python_declaration_lines(source: &str, source_path: &str) -> BTreeSet<usize> {
@@ -1449,6 +1496,12 @@ static CASE_LABEL: LazyLock<Regex> = LazyLock::new(|| {
 });
 static GO_BUILD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\s*//go:build\s+(!?)([A-Za-z_]\w*)\s*$").expect("Go build regex must compile")
+});
+static JAVA_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^[ \t]*(?:package|import(?:\s+static)?)\s+[A-Za-z_$][\w$]*(?:\s*\.\s*(?:[A-Za-z_$][\w$]*|\*))*\s*;[ \t]*\r?$").unwrap()
+});
+static JAVA_OVERRIDE_ACCESSOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^[ \t]*@(?:java\.lang\.)?Override\s+(?:(?:public|protected|final|synchronized|default)\s+)*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|<[^(){};]+>|\[\]|\?)*\s+(?:get|is|has)[A-Z_$][\w$]*\s*\(\s*\)\s*\{\s*return\s+(?:this\s*\.\s*)?[A-Za-z_$][\w$]*\s*;\s*\}[ \t]*\r?$").unwrap()
 });
 static PYTHON_FUNCTION_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[ \t]*(?:async[ \t]+)?def[ \t]+[A-Za-z_]\w*[ \t]*(?:\[[^]]+\])?[ \t]*\(")
@@ -2094,6 +2147,131 @@ fn third(user: User) {
             ("runtime.rs".to_owned(), schema.to_owned()),
         ]);
         assert!(exact_findings(&sources, 3).is_empty());
+    }
+
+    #[test]
+    fn excludes_java_directives_but_preserves_runtime_duplication() {
+        let header = "package app;\nimport java.util.List;\nimport java.util.Map;\nimport static\n    java.util.Collections\n    .emptyList;\n";
+        let sources = BTreeMap::from([
+            (
+                "First.java".to_owned(),
+                format!("{header}class First {{}}\n"),
+            ),
+            (
+                "Second.java".to_owned(),
+                format!("{header}class Second {{}}\n"),
+            ),
+        ]);
+        assert!(exact_findings(&sources, 3).is_empty());
+
+        let body = "prepare();\nvalidate();\npersist();\n";
+        let sources = BTreeMap::from([
+            (
+                "First.java".to_owned(),
+                format!("{header}class First {{\n void first() {{\n{body} }}\n}}\n"),
+            ),
+            (
+                "Second.java".to_owned(),
+                format!("{header}class Second {{\n void second() {{\n{body} }}\n}}\n"),
+            ),
+        ]);
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "First.java");
+        assert_eq!(findings[0].line, 9);
+        assert_eq!(findings[0].confidence, "high");
+        assert_eq!(findings[0].related_files, ["Second.java:9-11"]);
+    }
+
+    #[test]
+    fn preserves_java_runtime_on_a_directive_line() {
+        let body = "import external.Type; class Common { void run() { prepare();\nvalidate();\npersist();\n}\n}\n";
+        let sources = BTreeMap::from([
+            (
+                "first/Common.java".to_owned(),
+                format!("package first;\n{body}"),
+            ),
+            (
+                "second/Common.java".to_owned(),
+                format!("package second;\n{body}"),
+            ),
+        ]);
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "first/Common.java");
+        assert_eq!(findings[0].line, 2);
+        assert_eq!(findings[0].related_files, ["second/Common.java:2-4"]);
+    }
+
+    #[test]
+    fn excludes_java_override_getter_contracts_but_keeps_behavior() {
+        let getters = "@Override\npublic Producer<Envelope<Wire>> getFirst() {\n return first;\n}\n@Override\npublic Producer<Envelope<Wire>> getSecond() {\n return this.second;\n}\n@java.lang.Override\npublic final Producer<Envelope<Wire>> getThird() {\n return third;\n}\n@Override\npublic Producer<Envelope<Wire>> getFourth() {\n return fourth;\n}\n";
+        let unsupported = "@Override\npublic Producer<Envelope<Wire>> getMissing() {\n throw new UnsupportedOperationException();\n}\n";
+        let sources_for = |methods: &str| {
+            BTreeMap::from([
+                (
+                    "First.java".to_owned(),
+                    format!("class First implements Contract {{\n{methods}{unsupported}}}\n"),
+                ),
+                (
+                    "Second.java".to_owned(),
+                    format!("class Second implements Contract {{\n{methods}{unsupported}}}\n"),
+                ),
+            ])
+        };
+        assert!(exact_findings(&sources_for(getters), 15).is_empty());
+
+        let computed = getters
+            .replace("return ", "return resolve(")
+            .replace(';', ");");
+        let observed = getters.replace(" return ", " audit();\n return ");
+        for methods in [&computed, &observed] {
+            let findings = exact_findings(&sources_for(methods), 15);
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].path, "First.java");
+            assert_eq!(findings[0].line, 2);
+            assert_eq!(findings[0].confidence, "high");
+        }
+
+        let unannotated = getters
+            .replace("@Override\n", "")
+            .replace("@java.lang.Override\n", "");
+        let findings = exact_findings(&sources_for(&unannotated), 6);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "First.java");
+    }
+
+    #[test]
+    fn does_not_join_runtime_fragments_across_excluded_java_accessors() {
+        let source = |name: &str, field: &str| {
+            format!(
+                "class {name} implements Contract {{ Object {field};\n{{\n prepare();\n validate();\n}}\n@Override\npublic Object getValue() {{\n return {field};\n}}\n{{\n persist();\n finish();\n}}\n}}\n"
+            )
+        };
+        let sources = BTreeMap::from([
+            ("First.java".to_owned(), source("First", "first")),
+            ("Second.java".to_owned(), source("Second", "second")),
+        ]);
+        assert!(exact_findings(&sources, 3).is_empty());
+    }
+
+    #[test]
+    fn preserves_runtime_sharing_a_java_accessor_line() {
+        let body = "class Common implements Contract { Object value;\n@Override public Object getValue() { return value; } void run() { prepare();\nvalidate();\npersist();\n}\n}\n";
+        let sources = BTreeMap::from([
+            (
+                "first/Common.java".to_owned(),
+                format!("package first;\n{body}"),
+            ),
+            (
+                "second/Common.java".to_owned(),
+                format!("package second;\n{body}"),
+            ),
+        ]);
+        let findings = exact_findings(&sources, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].path, "first/Common.java");
+        assert_eq!(findings[0].line, 2);
     }
 
     #[test]

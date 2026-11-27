@@ -4,6 +4,26 @@ fn javascript_functions(path: &str, source: &str) -> Vec<FunctionSource> {
     javascript_sources_from_candidates(path, source, &masked, &candidates)
 }
 
+pub(crate) struct JavascriptFunctionRegion {
+    pub name: String,
+    pub start: usize,
+    pub body: std::ops::Range<usize>,
+}
+
+pub(crate) fn javascript_function_regions(masked: &str) -> Vec<JavascriptFunctionRegion> {
+    let ends = javascript_matching_braces(masked);
+    javascript_function_candidates(masked)
+        .into_iter()
+        .filter_map(|(opening, (start, name))| {
+            Some(JavascriptFunctionRegion {
+                name,
+                start,
+                body: opening + 1..*ends.get(&opening)?,
+            })
+        })
+        .collect()
+}
+
 fn javascript_function_candidates(source: &str) -> BTreeMap<usize, (usize, String)> {
     let mut candidates = BTreeMap::new();
     javascript_keyword_function_candidates(source, &mut candidates);
@@ -196,7 +216,7 @@ fn javascript_matching_braces(source: &str) -> BTreeMap<usize, usize> {
     result
 }
 
-pub(in crate::languages) fn mask_javascript_strings_and_comments(source: &str) -> String {
+pub(crate) fn mask_javascript_strings_and_comments(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut result = bytes.to_vec();
     let mut index = 0;
@@ -214,6 +234,46 @@ pub(in crate::languages) fn mask_javascript_strings_and_comments(source: &str) -
         }
     }
     String::from_utf8(result).expect("masking preserves UTF-8 bytes")
+}
+
+pub(crate) fn javascript_relative_imports(source: &str) -> impl Iterator<Item = &str> {
+    let mut masked = None;
+    JS_RELATIVE_IMPORT
+        .captures_iter(source)
+        .filter_map(move |capture| {
+            let keyword = capture.name("keyword")?;
+            let code = masked.get_or_insert_with(|| mask_javascript_strings_and_comments(source));
+            if code.get(keyword.range()) != Some("import") {
+                return None;
+            }
+            capture.name("source").map(|source| source.as_str())
+        })
+}
+
+pub(crate) fn relative_javascript_module(path: &str, import: &str) -> Option<String> {
+    let mut directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
+    let mut relative = import;
+    while let Some(parent) = relative.strip_prefix("../") {
+        if directory.is_empty() {
+            return None;
+        }
+        directory = directory
+            .rsplit_once('/')
+            .map_or("", |(directory, _)| directory);
+        relative = parent;
+    }
+    let relative = relative.strip_prefix("./").unwrap_or(relative);
+    if relative
+        .split('/')
+        .any(|part| matches!(part, "" | "." | ".."))
+    {
+        return None;
+    }
+    Some(if directory.is_empty() {
+        relative.to_owned()
+    } else {
+        format!("{directory}/{relative}")
+    })
 }
 
 fn mask_javascript_line_comment(bytes: &[u8], result: &mut [u8], mut index: usize) -> usize {
@@ -242,36 +302,45 @@ fn mask_javascript_block_comment(bytes: &[u8], result: &mut [u8], mut index: usi
     index
 }
 
-fn mask_javascript_regex(bytes: &[u8], result: &mut [u8], mut index: usize) -> usize {
+pub(crate) fn javascript_regex_literal_end(source: &str, index: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.get(index) != Some(&b'/')
+        || matches!(bytes.get(index + 1), Some(b'/' | b'*'))
+        || !starts_javascript_regex_literal(source, index)
+    {
+        return None;
+    }
+    Some(javascript_regex_end(bytes, index))
+}
+
+fn mask_javascript_regex(bytes: &[u8], result: &mut [u8], index: usize) -> usize {
+    let end = javascript_regex_end(bytes, index);
+    result[index..end].fill(b' ');
+    end
+}
+
+fn javascript_regex_end(bytes: &[u8], mut index: usize) -> usize {
     let mut in_character_class = false;
-    result[index] = b' ';
     index += 1;
     while index < bytes.len() && bytes[index] != b'\n' {
         match bytes[index] {
-            b'\\' => index = mask_javascript_escape(bytes, result, index),
+            b'\\' => index = javascript_escape_end(bytes, index),
             b'[' => {
                 in_character_class = true;
-                result[index] = b' ';
                 index += 1;
             }
             b']' => {
                 in_character_class = false;
-                result[index] = b' ';
                 index += 1;
             }
             b'/' if !in_character_class => {
-                result[index] = b' ';
                 index += 1;
                 while index < bytes.len() && is_javascript_identifier_byte(bytes[index]) {
-                    result[index] = b' ';
                     index += 1;
                 }
                 break;
             }
-            _ => {
-                result[index] = b' ';
-                index += 1;
-            }
+            _ => index += 1,
         }
     }
     index
@@ -298,14 +367,19 @@ fn mask_javascript_string(bytes: &[u8], result: &mut [u8], mut index: usize) -> 
     index
 }
 
-fn mask_javascript_escape(bytes: &[u8], result: &mut [u8], mut index: usize) -> usize {
-    result[index] = b' ';
-    index += 1;
-    if index < bytes.len() && bytes[index] != b'\n' {
-        result[index] = b' ';
-        index += 1;
+fn javascript_escape_end(bytes: &[u8], index: usize) -> usize {
+    let next = index + 1;
+    if bytes.get(next).is_some_and(|byte| *byte != b'\n') {
+        next + 1
+    } else {
+        next
     }
-    index
+}
+
+fn mask_javascript_escape(bytes: &[u8], result: &mut [u8], index: usize) -> usize {
+    let end = javascript_escape_end(bytes, index);
+    result[index..end].fill(b' ');
+    end
 }
 
 fn starts_javascript_regex_literal(source: &str, slash: usize) -> bool {
@@ -368,6 +442,12 @@ fn starts_javascript_regex_literal(source: &str, slash: usize) -> bool {
 fn is_javascript_identifier_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
 }
+static JS_RELATIVE_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?m)^[ \t]*(?P<keyword>import)\s+(?:[A-Za-z_$][\w$]*(?:\s*,\s*\{[^}]*\})?|\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*)\s+from\s*["'](?P<source>\.{1,2}/[^"'\\\r\n]+)["']"#,
+    )
+    .expect("relative JavaScript import regex must compile")
+});
 static JS_BLOCK_METHOD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^[ \t]*(?:(?:public|private|protected|static|abstract|override|readonly|async|get|set)[ \t]+)*(?P<name>[A-Za-z_$][\w$]*)[ \t]*(?:<[^>{}]*>)?[ \t]*\([^();{}]*\)[ \t]*(?::[ \t]*[^={};]+)?[ \t]*\{")
         .expect("JavaScript method regex must compile")
@@ -405,12 +485,7 @@ mod javascript_source_tests {
                     )
                 })
                 .collect::<Vec<_>>(),
-            [(
-                "complete",
-                1,
-                3,
-                "function complete() {\n  return true;\n}",
-            )]
+            [("complete", 1, 3, "function complete() {\n  return true;\n}",)]
         );
     }
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Synchronous filesystem calls block the Node event loop and delay unrelated requests and tasks while I/O completes.",
   "suggestion": "Use fs.promises or the callback API and await completion instead of calling a Sync filesystem method.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

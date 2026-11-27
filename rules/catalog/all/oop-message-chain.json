@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Deep navigation couples a class to an entire collaborator graph.",
   "suggestion": "Consider a higher-level query or narrow facade.",
-  "version": 6,
+  "version": 8,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -36,6 +36,8 @@
   "languageVersions": [],
   "limitations": [
     "Requires three chains of at least four hops across two methods; AST visitor implementations and analyzer or rule-pack orchestration classes are excluded.",
+    "The shared analyzer excludes Java class literals, direct qualified-type declarations, and completed builder/newBuilder/toBuilder chains. Arbitrary fluent APIs and unresolved static symbols are not inferred.",
+    "Java zero-argument factories explicitly declared to return a nongeneric Builder-suffixed type also qualify as construction when the chain completes at build(). Lookup uses unambiguous project type names with simple static receivers or explicitly typed parameters; field/local aliases, generic return types and ambiguous type names are not resolved.",
     "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
   ]
 }

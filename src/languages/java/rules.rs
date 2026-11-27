@@ -6,6 +6,7 @@ use regex::Regex;
 use crate::findings::{Finding, Severity};
 use crate::rule_catalog;
 use crate::source_analysis_context::SourceAnalysisContext;
+use crate::trivial_wrappers::mask_comments_and_strings;
 
 pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     let sources = context
@@ -20,7 +21,7 @@ pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
 
     let mut findings = line_findings(&sources);
     findings.extend(ignored_future_results(&sources));
-    findings.extend(empty_catches(&sources));
+    findings.extend(catch_findings(&sources));
     findings.extend(hardcoded_secrets(&sources));
     findings.extend(package_cycles(&sources));
     findings.extend(resources_not_closed(&sources));
@@ -81,8 +82,7 @@ fn classify_line_findings(
     allow_console_output: bool,
     jdbc_source: bool,
     reported_object_input_stream: &mut bool,
-) -> [Option<JavaLineFinding>; 8] {
-    let catch_exception = CATCH_EXCEPTION.is_match(masked);
+) -> [Option<JavaLineFinding>; 7] {
     let object_input_stream =
         !*reported_object_input_stream && OBJECT_INPUT_STREAM_CONSTRUCTION.is_match(masked);
     *reported_object_input_stream |= object_input_stream;
@@ -94,10 +94,6 @@ fn classify_line_findings(
     let thread_sleep = THREAD_SLEEP.is_match(masked);
 
     [
-        catch_exception.then_some(JavaLineFinding {
-            code: "java-catch-exception",
-            message: "broad Java exception handler",
-        }),
         object_input_stream.then_some(JavaLineFinding {
             code: "java-objectinputstream",
             message: "ObjectInputStream constructed",
@@ -207,10 +203,27 @@ fn is_java_test_or_command_line_source(path: &str, source: &str) -> bool {
         || PRINT_TO_CONSOLE_METHOD.is_match(source)
 }
 
-fn empty_catches(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
+fn catch_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, raw_source) in sources {
-        let source = java_source_without_comments(raw_source);
+        let source = mask_comments_and_strings(raw_source);
+        for header in CATCH_EXCEPTION.captures_iter(&source) {
+            let matched = header.get(0).unwrap();
+            let open = matched.end() - 1;
+            let preserves = matching_delimiter(&source, open, '{', '}').is_some_and(|close| {
+                preserves_caught_exception(&source[open + 1..close], &header[1])
+            });
+            if !preserves {
+                findings.push(finding(
+                    "java-catch-exception",
+                    path,
+                    line_at(&source, matched.start()),
+                    "broad Java exception handler",
+                    "medium",
+                    Vec::new(),
+                ));
+            }
+        }
         for catch_match in EMPTY_CATCH.find_iter(&source) {
             let original = &raw_source[catch_match.start()..catch_match.end()];
             if original.contains("//")
@@ -230,6 +243,37 @@ fn empty_catches(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
         }
     }
     findings
+}
+
+fn preserves_caught_exception(body: &str, parameter: &str) -> bool {
+    let Some(rethrow) = DIRECT_RETHROW.find(body) else {
+        return false;
+    };
+    let thrown = rethrow
+        .as_str()
+        .split_whitespace()
+        .nth(1)
+        .map(|name| name.trim_end_matches(';'));
+    if thrown != Some(parameter) {
+        return false;
+    }
+    let mut prefix = body[..rethrow.start()].trim();
+    if prefix.contains(['{', '}', '=']) || prefix.contains("->") {
+        return false;
+    }
+    while !prefix.is_empty() {
+        let Some(logging) = LOGGING_CALL.find(prefix) else {
+            return false;
+        };
+        let Some(close) = matching_delimiter(prefix, logging.end() - 1, '(', ')') else {
+            return false;
+        };
+        let Some(rest) = prefix[close + 1..].trim_start().strip_prefix(';') else {
+            return false;
+        };
+        prefix = rest.trim_start();
+    }
+    true
 }
 
 fn hardcoded_secrets(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
@@ -664,7 +708,15 @@ fn future_result_is_observed(code: &str, call: &regex::Match<'_>) -> bool {
     {
         return true;
     }
-    if code[close + 1..].trim_start().starts_with('.') {
+    let after = code[close + 1..].trim_start();
+    let before = code[..call.start()].trim_end();
+    if before.ends_with(['(', ',']) && after.starts_with([')', ',']) {
+        return true;
+    }
+    if after.starts_with(')') && list_stream_returns_future(code, before, call.start()) {
+        return true;
+    }
+    if after.starts_with('.') {
         return true;
     }
     code[..call.start()]
@@ -675,6 +727,21 @@ fn future_result_is_observed(code: &str, call: &regex::Match<'_>) -> bool {
             let line = line.trim_end();
             line.ends_with('=') || line == "return" || line.ends_with(" return")
         })
+}
+
+fn list_stream_returns_future(code: &str, before: &str, offset: usize) -> bool {
+    let start = before.rfind([';', '{', '}']).map_or(0, |index| index + 1);
+    let Some(receiver) = JAVA_LIST_STREAM_MAP
+        .captures(&before[start..])
+        .and_then(|capture| capture.name("receiver"))
+    else {
+        return false;
+    };
+    if before[..start + receiver.start()].trim_end().ends_with('.') {
+        return false;
+    }
+    java_variable_type_before(code, receiver.as_str(), offset)
+        .is_some_and(|(_, kind)| java_linear_collection_type(kind))
 }
 
 fn is_java_identifier(value: &str) -> bool {
@@ -722,9 +789,12 @@ fn loop_performance_findings(sources: &BTreeMap<&str, &str>) -> Vec<Finding> {
                 let offset = open + 1 + whole.start();
                 if !java_variable_type_before(&code, variable, offset)
                     .is_some_and(|(declaration, kind)| declaration < open && java_string_type(kind))
-                    || concatenation
-                        .get(2)
-                        .is_some_and(|rhs| rhs.as_str() != variable)
+                    || concatenation.get(2).is_some_and(|rhs| {
+                        rhs.as_str() != variable
+                            && concatenation
+                                .get(3)
+                                .is_none_or(|suffix| suffix.as_str() != variable)
+                    })
                 {
                     continue;
                 }
@@ -1222,7 +1292,7 @@ impl JavaCommentScanState {
             Self::Code => Self::consume_code(character, next, result),
             Self::BlockComment => Self::consume_block_comment(character, next, result),
             Self::LineComment => {
-                result.push(' ');
+                push_masked_character(character, result);
                 (Self::LineComment, false)
             }
             Self::Quoted(delimiter) => Self::consume_quoted(character, next, delimiter, result),
@@ -1259,7 +1329,7 @@ impl JavaCommentScanState {
             result.push_str("  ");
             (Self::Code, true)
         } else {
-            result.push(' ');
+            push_masked_character(character, result);
             (Self::BlockComment, false)
         }
     }
@@ -1331,7 +1401,7 @@ impl JavaQuoteScanState {
         delimiter: char,
         result: &mut String,
     ) -> (Self, bool) {
-        result.push(masked_quote_character(character));
+        push_masked_character(character, result);
         if character == '\\' {
             return Self::consume_escape(next, delimiter, result);
         }
@@ -1344,7 +1414,7 @@ impl JavaQuoteScanState {
 
     fn consume_escape(escaped: Option<char>, delimiter: char, result: &mut String) -> (Self, bool) {
         if let Some(escaped) = escaped {
-            result.push(masked_quote_character(escaped));
+            push_masked_character(escaped, result);
             (Self::Quoted(delimiter), true)
         } else {
             (Self::Quoted(delimiter), false)
@@ -1352,8 +1422,12 @@ impl JavaQuoteScanState {
     }
 }
 
-fn masked_quote_character(character: char) -> char {
-    if character == '\n' { '\n' } else { ' ' }
+fn push_masked_character(character: char, result: &mut String) {
+    if character == '\n' {
+        result.push('\n');
+    } else {
+        result.extend(std::iter::repeat_n(' ', character.len_utf8()));
+    }
 }
 
 fn mask_quoted_text(source: &str) -> String {
@@ -1419,10 +1493,19 @@ static JAVA_LINEAR_MEMBERSHIP: LazyLock<Regex> =
 static JAVA_CONSTANT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\bPattern\s*\.\s*compile\s*\(\s*\"(?:\\.|[^\"\\])*\""#).unwrap()
 });
-static JAVA_STRING_CONCAT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b([A-Za-z_]\w*)\s*(?:\+=|=\s*([A-Za-z_]\w*)\s*\+)").unwrap());
-static CATCH_EXCEPTION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"catch\s*\(\s*(?:Exception|Throwable)\b").unwrap());
+static JAVA_STRING_CONCAT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Za-z_]\w*)\s*(?:\+=|=\s*([A-Za-z_]\w*)\s*\+(?:\s*([A-Za-z_]\w*)\s*;)?)")
+        .unwrap()
+});
+static CATCH_EXCEPTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\bcatch\s*\(\s*(?:Exception|Throwable)\b(?:\s*\|\s*[\w.]+)*\s+([A-Za-z_$][\w$]*)\s*\)\s*\{").unwrap()
+});
+static DIRECT_RETHROW: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\bthrow\s+[A-Za-z_$][\w$]*\s*;\s*$").unwrap());
+static LOGGING_CALL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:log|logger|LOG|LOGGER)\s*\.\s*(?:trace|debug|info|warn|error|fatal|log)\s*\(")
+        .unwrap()
+});
 static OBJECT_INPUT_STREAM_CONSTRUCTION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bnew\s+(?:java\s*\.\s*io\s*\.\s*)?ObjectInputStream\s*\(").unwrap()
 });
@@ -1543,6 +1626,12 @@ static JAVA_IGNORED_FUTURE: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
+static JAVA_LIST_STREAM_MAP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b(?P<receiver>[A-Za-z_$][\w$]*)\s*\.\s*(?:stream|parallelStream)\s*\(\s*\)\s*\.\s*map\s*\(\s*(?:[A-Za-z_$][\w$]*|\(\s*[A-Za-z_$][\w$]*\s*\))\s*->\s*$",
+    )
+    .unwrap()
+});
 static PACKAGE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s*package\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;").unwrap()
 });
@@ -1644,6 +1733,98 @@ mod tests {
                 ("java-too-many-parameters", "Main.java", 2),
                 ("java-weak-crypto", "Main.java", 13),
             ])
+        );
+    }
+
+    #[test]
+    fn retains_broad_catches_unless_the_original_failure_is_rethrown() {
+        let sources = BTreeMap::from([(
+            "Boundary.java".to_owned(),
+            r#"class Boundary {
+ void run() throws Throwable {
+  try { work(); } catch (Exception e) { throw e; }
+  try { work(); } catch (Throwable cause) { logger.warn("return; throw other;", cause); throw cause; }
+  try { work(); } catch (Exception e) { if (retry) return; throw e; }
+  try { work(); } catch (Exception e) { e = other; throw e; }
+  try { work(); } catch (Exception e) { throw new Wrapped(e); }
+  try { work(); } catch (Exception e) { if (retry) throw e; }
+  try { work(); } catch (Exception e) { reset(); throw e; }
+  try { work(); } catch (Exception e) { log.error("failure", e); return; }
+  try { work(); } catch (Exception e) { /* throw e; */ recover(); }
+  try { work(); } catch (Exception e) { throw existing; }
+  try { work(); } catch (Exception e) { log.error("failure", e = other); throw e; }
+  String example = "catch (Exception e) { recover(); }";
+ }
+}"#
+                .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .iter()
+                .filter(|finding| finding.code == "java-catch-exception")
+                .map(|finding| (
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.confidence.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            (5..=13)
+                .map(|line| ("Boundary.java", line, "medium"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn preserves_java_findings_after_unicode_comments_and_literals() {
+        let sources = BTreeMap::from([
+            (
+                "Unicode.java".to_owned(),
+                "/* ── */\n\
+class Unicode {\n\
+ void run() {\n\
+  String example = \"catch (IOException error) {}\";\n\
+  String greeting = \"你好🙂\";\n\
+  String exampleBlock = \"\"\"\n\
+  \"catch (IOException error) {}\"\n\
+  \"\"\";\n\
+  try { work(); } catch (IOException error) {}\n\
+  try { work(); } catch (IOException error) { /* 失败 */ }\n\
+  try { work(); } catch (IOException ignored) {}\n\
+ }\n\
+}\n"
+                .to_owned(),
+            ),
+            (
+                "Patterns.java".to_owned(),
+                "class Patterns {\n\
+ void run(List<String> values) {\n\
+  String label = \"├─ café 🙂\";\n\
+  // 日本語\n\
+  for (String value : values) {\n\
+   Pattern.compile(\"汉字\");\n\
+  }\n\
+ }\n\
+}\n"
+                .to_owned(),
+            ),
+        ]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        let findings = analyze(&context);
+
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|finding| matches!(
+                    finding.code.as_str(),
+                    "java-empty-catch" | "java-pattern-compile-in-loop"
+                ))
+                .map(|finding| (finding.code.as_str(), finding.path.as_str(), finding.line))
+                .collect::<Vec<_>>(),
+            [
+                ("java-empty-catch", "Unicode.java", 9),
+                ("java-pattern-compile-in-loop", "Patterns.java", 6),
+            ]
         );
     }
 
@@ -1848,6 +2029,60 @@ String outputExample = \"System.err.println(value)\";\n"
     }
 
     #[test]
+    fn reports_simple_string_prepending_without_unrelated_rhs_matches() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/Padding.java".to_owned(),
+            r#"class Padding {
+  String padStart(String value, char pad, int length) {
+    while (value.length() < length) {
+      value = pad +
+          /* preserve the growing suffix */ value;
+    }
+    return value;
+  }
+  void doubleUp(String value, int count) {
+    for (int i = 0; i < count; i++) {
+      value = value + value;
+    }
+  }
+  void independent(List<String> items, char pad, Holder holder) {
+    String value = "";
+    for (String item : items) {
+      value = pad + item;
+      value = pad + holder.value;
+      String perIteration = item;
+      perIteration = pad + perIteration;
+      // value = pad + value;
+      String example = "value = pad + value;";
+    }
+    value = pad + value;
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-string-concat-in-loop")
+                .map(|finding| (finding.path, finding.line, finding.confidence))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "src/main/java/app/Padding.java".to_owned(),
+                    4,
+                    "high".to_owned()
+                ),
+                (
+                    "src/main/java/app/Padding.java".to_owned(),
+                    11,
+                    "high".to_owned()
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn accepts_java_loop_performance_safe_variants() {
         let sources = BTreeMap::from([(
             "src/main/java/app/SafeScan.java".to_owned(),
@@ -1945,6 +2180,88 @@ String outputExample = \"System.err.println(value)\";\n"
                 .map(|finding| finding.line)
                 .collect::<Vec<_>>(),
             vec![6]
+        );
+    }
+
+    #[test]
+    fn accepts_future_arguments_without_hiding_discarded_sibling_calls() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/AsyncWork.java".to_owned(),
+            r#"class AsyncWork {
+  void run(ScheduledExecutorService executor) {
+    state.setScheduledTask(/* the result is retained by the owner */
+        executor.schedule(this::work, 1, TimeUnit.SECONDS)
+    );
+    observe(
+        executor.submit(this::work),
+        callback);
+    tasks.add(
+        CompletableFuture.runAsync(this::work)
+    );
+    observe(callback,
+        executor.submit(this::work) /* the second argument is the Future */);
+    observe(
+        executor.submit(this::work).get());
+    if (ready)
+        executor.submit(this::work);
+    executor.schedule(this::work, 1, TimeUnit.SECONDS);
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-ignored-future")
+                .map(|finding| (finding.line, finding.confidence))
+                .collect::<Vec<_>>(),
+            vec![(17, "high".to_owned()), (18, "high".to_owned())]
+        );
+    }
+
+    #[test]
+    fn accepts_list_stream_future_results_but_keeps_consumer_discards() {
+        let sources = BTreeMap::from([(
+            "src/main/java/app/AsyncWork.java".to_owned(),
+            r#"class AsyncWork {
+  List<Future<?>> launch(List<Job> jobs, ExecutorService executor, CustomValues custom) {
+    jobs.forEach(job ->
+        executor.submit(job::run));
+    jobs.stream().forEach(job ->
+        executor.submit(job::run));
+    jobs.stream().map(job -> {
+        executor.submit(job::run);
+        return completedFuture;
+    }).toList();
+    custom.stream().map(job ->
+        executor.submit(job::run));
+    other.jobs.stream().map(job ->
+        executor.submit(job::run));
+    executor.submit(this::work);
+    return jobs.stream().map(job ->
+        executor.submit(() -> {
+            try { job.run(); } catch (Exception e) { log.error("failed", e); }
+        })
+    ).toList();
+  }
+  List<CompletableFuture<Void>> launchParallel(java.util.ArrayList<Job> jobs) {
+    return jobs.parallelStream()
+        .map((job) ->
+            CompletableFuture.runAsync(job::run)
+        ).toList();
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "java-ignored-future")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![4, 6, 8, 12, 14, 15]
         );
     }
 

@@ -42,6 +42,52 @@ jobs:
           '${{ matrix.binary }}' config --files --root tests/fixtures/preview --format json > files.json
           '${{ matrix.binary }}' summary --root tests/fixtures/preview --format json --advisory --allow-empty > summary.json
           '${{ matrix.binary }}' completions '${{ matrix.completion-shell }}' > completion.txt
+      - name: Review Code Buster with the just-built engine
+        id: self-review
+        uses: ./
+        with:
+          executable: ${{ matrix.binary }}
+          advisory: 'true'
+          fail-on-issues: 'true'
+      - name: Upload self-review reports
+        if: ${{ always() && steps.self-review.outputs.report-directory != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: code-buster-self-review-${{ matrix.os }}
+          path: ${{ steps.self-review.outputs.report-directory }}
+          if-no-files-found: error
+
+  action:
+    name: GitHub Action (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - run: npm --prefix action run check
+      - run: npm --prefix action test
+      - name: Review Action source with a published engine
+        id: action-review
+        uses: ./
+        with:
+          version: '0.14.6'
+          path: action
+          advisory: 'true'
+          fail-on-issues: 'false'
+      - name: Retain Action review reports
+        if: ${{ always() && steps.action-review.outputs.report-directory != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: code-buster-action-${{ matrix.os }}
+          path: ${{ steps.action-review.outputs.report-directory }}
+          if-no-files-found: error
+          retention-days: 7
 
   security-audit:
     runs-on: ubuntu-latest
@@ -59,6 +105,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@360a4e93673de6630fac2478bc9e35244b01a759 # 1.88.0
-      - run: python3 -B -m unittest tool/test_release_notes.py
+      - run: python3 -B -m unittest tool/test_release_notes.py tool/test_prepare_release.py
       - run: cargo package --locked
       - run: ./tool/rehearse-release.sh "$RUNNER_TEMP/cb-rehearsal"

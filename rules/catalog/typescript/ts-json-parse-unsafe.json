@@ -9,7 +9,7 @@
   "legacyGroup": "nim-style",
   "why": "Parsing dynamic JSON can throw on malformed text, and successful parsing alone does not validate the resulting value's shape.",
   "suggestion": "Handle malformed input at the appropriate boundary and validate dynamic values before use; keep intentional exception propagation or trusted-producer contracts explicit.",
-  "version": 8,
+  "version": 10,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -32,6 +32,8 @@
     "Direct round trips and variables assigned from JSON.stringify before parsing are excluded, as are recognized lexical try/catch blocks and tooling paths.",
     "Canonical nonproduction paths with stable named describe, it, or test imports from vitest, @jest/globals, node:test, or bun:test and executable module-level registration use a fail-the-test policy, including their fixture helpers. This exempts JSON recovery advice, not localStorage or other security checks.",
     "Named import aliases are supported. Unknown or global runners, modifier-only registrations, missing registrations, shadowed or reassigned bindings, and quoted or commented examples do not establish the exemption. Ordinary production paths remain eligible; harness recognition is source-based rather than a configured-role query.",
-    "This is local lexical advice, not proof of an unsafe boundary. Validation after parsing, callers that handle parser errors, native or subprocess producers and schema contracts are not resolved. A type annotation or successful HTTP status does not establish JSON syntax or result shape."
+    "Private synchronous named module-level parser helpers can recover through direct same-file callers when every reference is a direct call inside a simple completed try/catch without rethrow. The parse must execute at the helper body level. This establishes syntax-error handling, not validation of the parsed value's shape.",
+    "Exported, aliased, asynchronous, generator, arrow-containing and dynamically evaluated helpers, unresolved callers, deferred callbacks and classic scripts do not gain the caller proof. Nested or callback-defining try bodies remain conservative. Names such as safe, schema, zod or validate are not evidence of handling or validation.",
+    "This is bounded lexical advice, not proof of an unsafe boundary. Arbitrary cross-function validation, native or subprocess producer contracts and schema contracts are not resolved. A type annotation or successful HTTP status does not establish JSON syntax or result shape."
   ]
 }

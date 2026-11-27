@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "Sibling overrides repeating an ordered workflow duplicate invariant behavior.",
   "suggestion": "Consider a shared workflow with one varying step.",
-  "version": 7,
+  "version": 8,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -36,6 +36,7 @@
   "languageVersions": [],
   "limitations": [
     "Requires sibling overrides with four to ten calls and exactly one differing call; analyzer execution hooks named `analyze` and AST visitor hooks named `visit...` are excluded.",
+    "The shared analyzer counts outer calls rather than calls nested inside arguments; control-statement conditions are not workflow steps, malformed call delimiters abstain, and the ten-call bound is enforced. Nested argument-call differences still participate in comparison, so removing them from the step count does not make unrelated workflows appear equivalent. This is structural review evidence, not proof of equivalent control flow.",
     "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
   ]
 }

@@ -1,0 +1,12 @@
+{
+  "name": "code-buster-github-action",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Action for deterministic Code Buster repository review",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "check": "node --check index.mjs && node --check src/install.mjs && node --check src/review.mjs",
+    "test": "node --test"
+  }
+}

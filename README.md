@@ -96,6 +96,13 @@ using it as a blocking production quality gate.
 - [Reports](https://toolbunker.dev/codebuster/docs/reference/reports)
 - [Integrations](https://toolbunker.dev/codebuster/docs/guides/integrations)
 
+## GitHub Action
+
+The repository's root `action.yml` provides review summaries and JSON/SARIF
+artifacts. See [Action usage](action/README.md) for inputs, finding gates, and
+permissions. The Action is available from `v0.15.0`; pin a release tag or
+immutable commit for CI.
+
 ## Development
 
 ```sh

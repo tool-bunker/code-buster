@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "warn",
   "legacyGroup": "nim-style",
-  "why": "This Java construct can weaken correctness, observability, or security.",
-  "suggestion": "Use the safer Java API or pattern described by the rule.",
-  "version": 1,
+  "why": "Broad handlers can hide unexpected failures or mix unrelated recovery policies.",
+  "suggestion": "Prefer specific catches where practical. At an intentional isolation or translation boundary, preserve the failure and its cause.",
+  "version": 2,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,10 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Recognizes complete catch headers whose first unqualified type is Exception or Throwable; compatible multi-catch alternatives and multiline headers are supported.",
+    "Direct rethrows of the unchanged caught binding are excluded when preceded only by recognizable log/logger observation calls. Conditional recovery, assignment, other helpers and translated exceptions remain reportable.",
+    "Logging recognition is conventional evidence, not resolved call-effect analysis. Qualified broad types and arbitrary control-flow equivalence are not inferred.",
+    "Comments and quoted examples are masked without changing source positions. Findings remain occurrence-based."
+  ]
 }

@@ -12,11 +12,13 @@ fn collect_data_clump_groups(project: &Project) -> BTreeMap<String, ParameterGro
         .iter()
         .filter(|owner| !is_typescript(&owner.path))
     {
-        for method in &owner.methods {
+        for method in owner.methods.iter().filter(|method| {
+            !method.is_override && !forwards_constructor_parameters(owner, method)
+        }) {
             add_parameter_group(
                 &mut groups,
                 &owner.path,
-                owner.line,
+                method.line,
                 &method.name,
                 &method.parameters,
             );
@@ -30,6 +32,21 @@ fn collect_data_clump_groups(project: &Project) -> BTreeMap<String, ParameterGro
         add_typescript_parameter_groups(&mut groups, path, source);
     }
     groups
+}
+
+fn forwards_constructor_parameters(owner: &OopClass, method: &OopMethod) -> bool {
+    owner.path.ends_with(".java")
+        && method.name == owner.name
+        && FORWARDING_CONSTRUCTOR
+            .captures(&method.body)
+            .is_some_and(|capture| {
+                let mut arguments = capture[1].split(',').map(str::trim);
+                method
+                    .parameters
+                    .iter()
+                    .all(|parameter| arguments.next() == Some(parameter.name.as_str()))
+                    && arguments.all(|argument| matches!(argument, "true" | "false" | "null"))
+            })
 }
 
 fn add_typescript_parameter_groups(
@@ -757,6 +774,7 @@ fn feature_envy(project: &Project) -> Vec<Finding> {
                 .iter()
                 .filter(|method| !method.is_static)
                 .filter(|method| !RETURNED_OBJECT_PROJECTION.is_match(&method.body))
+                .filter(|method| !returned_java_builder_projection(owner, method))
                 .filter_map(move |method| {
                     let accesses = aggregate_method_accesses(method);
                     qualify_feature_envy(owner, method, &accesses)
@@ -764,6 +782,60 @@ fn feature_envy(project: &Project) -> Vec<Finding> {
         })
         .map(feature_envy_finding)
         .collect()
+}
+
+fn returned_java_builder_projection(owner: &OopClass, method: &OopMethod) -> bool {
+    if !owner.path.ends_with(".java") {
+        return false;
+    }
+    let Some(factory) = RETURNED_JAVA_BUILDER.find(&method.body) else {
+        return false;
+    };
+    let mut end = factory.end();
+    loop {
+        let Some(call) = CHAIN_CALL.captures(&method.body[end..]) else {
+            return false;
+        };
+        let open = end + call.get(0).unwrap().end() - 1;
+        let Some(close) = matching_delimiter(&method.body, open, b'(', b')') else {
+            return false;
+        };
+        let arguments = &method.body[open + 1..close];
+        if &call[1] == "build" {
+            return arguments.trim().is_empty() && method.body[close + 1..].trim() == ";";
+        }
+        if !getter_projection_arguments(arguments, &method.parameters) {
+            return false;
+        }
+        end = close + 1;
+    }
+}
+
+fn getter_projection_arguments(arguments: &str, parameters: &[Parameter]) -> bool {
+    if arguments.contains(['=', ';', '{', '}'])
+        || ["++", "--", "->", "::"]
+            .iter()
+            .any(|operator| arguments.contains(operator))
+    {
+        return false;
+    }
+    let mut calls = CALL_NAME.find_iter(arguments).peekable();
+    for read in JAVA_GETTER_CHAIN.captures_iter(arguments) {
+        let getter = read.get(0).unwrap();
+        if !parameters.iter().any(|parameter| parameter.name == read[1]) {
+            return false;
+        }
+        while let Some(call) = calls.next_if(|call| call.start() < getter.end()) {
+            let name = arguments[call.start()..call.end() - 1].trim_end();
+            if call.start() < getter.start()
+                || name.starts_with("getAnd")
+                || name.starts_with("getOr")
+            {
+                return false;
+            }
+        }
+    }
+    calls.next().is_none()
 }
 
 fn aggregate_method_accesses(method: &OopMethod) -> MethodAccessSummary<'_> {
@@ -789,6 +861,16 @@ fn qualify_feature_envy<'a>(
     summary: &MethodAccessSummary<'_>,
 ) -> Option<FeatureEnvyCandidate<'a>> {
     method.parameters.iter().find_map(|parameter| {
+        if parameter
+            .type_name
+            .split('<')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches('?')
+            == owner.name
+        {
+            return None;
+        }
         let (accesses, members) = summary.by_receiver.get(parameter.name.as_str())?;
         (*accesses >= 5 && members.len() >= 3 && *accesses * 5 >= summary.received * 3).then_some(
             FeatureEnvyCandidate {
@@ -806,7 +888,7 @@ fn feature_envy_finding(candidate: FeatureEnvyCandidate<'_>) -> Finding {
     finding(
         "oop-feature-envy",
         &candidate.owner.path,
-        candidate.owner.line,
+        candidate.method.line,
         format!(
             "{}.{} accesses {} parameter {} {} times across {} members",
             candidate.owner.name,
@@ -971,13 +1053,42 @@ fn observer_callbacks(body: &str, field: &str) -> Vec<(String, String)> {
     result
 }
 
+type BuilderFactories<'a> = BTreeSet<(&'a str, &'a str, bool)>;
+
+fn declared_builder_factories(project: &Project) -> BuilderFactories<'_> {
+    let mut names = BTreeMap::<&str, usize>::new();
+    for owner in project.classes.iter().filter(|owner| owner.path.ends_with(".java")) {
+        *names.entry(&owner.name).or_default() += 1;
+    }
+    let mut factories = BTreeSet::new();
+    for owner in project.classes.iter().filter(|owner| owner.path.ends_with(".java")) {
+        if names[owner.name.as_str()] != 1 {
+            continue;
+        }
+        for method in owner.methods.iter().filter(|method| {
+            method.returns_builder && method.parameters.is_empty()
+        }) {
+            factories.insert((owner.name.as_str(), method.name.as_str(), method.is_static));
+        }
+    }
+    factories
+}
+
 fn message_chains(project: &Project) -> Vec<Finding> {
     let mut findings = Vec::new();
+    let factories = declared_builder_factories(project);
     for owner in &project.classes {
         let mut count = 0;
         let mut methods = 0;
+        let java = owner.path.ends_with(".java");
         for method in &owner.methods {
-            let current = MESSAGE_CHAIN.find_iter(&method.body).count();
+            let current = MESSAGE_CHAIN
+                .find_iter(&method.body)
+                .filter(|chain| {
+                    is_collaboration_chain(&method.body, chain, java)
+                        && !(java && declared_builder_chain(method, chain, &factories))
+                })
+                .count();
             if current > 0 {
                 methods += 1;
             }
@@ -999,6 +1110,59 @@ fn message_chains(project: &Project) -> Vec<Finding> {
         ));
     }
     findings
+}
+
+fn is_collaboration_chain(body: &str, chain: &regex::Match<'_>, java: bool) -> bool {
+    let text = chain.as_str();
+    !(java && text.rsplit('.').next().is_some_and(|member| member.trim() == "class")
+        || completed_builder_chain(body, chain)
+        || !text.contains('(') && TYPE_DECLARATION_TAIL.is_match(&body[chain.end()..]))
+}
+
+fn declared_builder_chain(
+    method: &OopMethod,
+    chain: &regex::Match<'_>,
+    factories: &BuilderFactories<'_>,
+) -> bool {
+    let Some(factory) = ZERO_ARGUMENT_FACTORY.captures(chain.as_str()) else {
+        return false;
+    };
+    let (Some(receiver), Some(name), Some(open)) = (factory.get(1), factory.get(2), factory.get(3)) else {
+        return false;
+    };
+    let receiver = receiver.as_str();
+    let parameter = method.parameters.iter().find(|parameter| parameter.name == receiver);
+    let (owner, is_static) = parameter.map_or((receiver, true), |parameter| {
+        (parameter.type_name.as_str(), false)
+    });
+    factories.contains(&(owner, name.as_str(), is_static))
+        && completed_builder_from(&method.body, chain.start() + open.start())
+}
+
+fn completed_builder_chain(body: &str, chain: &regex::Match<'_>) -> bool {
+    let Some(factory) = BUILDER_FACTORY.find(chain.as_str()) else {
+        return false;
+    };
+    let stem = &chain.as_str()[..factory.start()];
+    if stem.contains('(') || MESSAGE_CHAIN.is_match(stem) {
+        return false;
+    }
+    completed_builder_from(body, chain.start() + factory.end() - 1)
+}
+
+fn completed_builder_from(body: &str, mut open: usize) -> bool {
+    let mut completed = false;
+    loop {
+        let Some(close) = matching_delimiter(body, open, b'(', b')') else {
+            return false;
+        };
+        let tail = &body[close + 1..];
+        let Some(next) = CHAIN_CALL.captures(tail) else {
+            return completed && !tail.trim_start().starts_with(['.', '[', '?']);
+        };
+        completed = matches!(&next[1], "build" | "Build");
+        open = close + next.get(0).unwrap().end();
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1385,14 +1549,18 @@ fn collect_matching_workflow_methods<'a>(
 fn normalize_template_workflow<'a>(
     candidate: TemplateWorkflowCandidate<'a>,
 ) -> Option<NormalizedTemplateWorkflow<'a>> {
-    let left_calls = normalized_workflow_calls(&candidate.left_method.body);
-    let right_calls = normalized_workflow_calls(&candidate.right_method.body);
+    let left_calls = normalized_workflow_calls(&candidate.left_method.body)?;
+    let right_calls = normalized_workflow_calls(&candidate.right_method.body)?;
     let differences = left_calls
         .iter()
         .zip(&right_calls)
         .filter(|(left, right)| left != right)
         .count();
-    if left_calls.len() < 4 || left_calls.len() != right_calls.len() || differences != 1 {
+    if left_calls.len() < 4
+        || left_calls.len() != right_calls.len()
+        || differences != 1
+        || !has_single_call_difference(&candidate.left_method.body, &candidate.right_method.body)
+    {
         return None;
     }
     Some(NormalizedTemplateWorkflow {
@@ -1403,11 +1571,45 @@ fn normalize_template_workflow<'a>(
     })
 }
 
-fn normalized_workflow_calls(body: &str) -> Vec<&str> {
-    CALL_NAME
-        .captures_iter(body)
-        .filter_map(|capture| capture.get(1).map(|matched| matched.as_str()))
-        .collect()
+fn normalized_workflow_calls(body: &str) -> Option<Vec<&str>> {
+    let mut calls = Vec::new();
+    let mut end = 0;
+    for capture in CALL_NAME.captures_iter(body) {
+        let whole = capture.get(0)?;
+        if whole.start() < end {
+            continue;
+        }
+        end = matching_delimiter(body, whole.end() - 1, b'(', b')')? + 1;
+        let name = capture.get(1)?.as_str();
+        if matches!(
+            name,
+            "if" | "for" | "foreach" | "while" | "switch" | "catch" | "synchronized" | "lock" | "using"
+        ) {
+            continue;
+        }
+        calls.push(name);
+        if calls.len() > 10 {
+            return None;
+        }
+    }
+    Some(calls)
+}
+
+fn has_single_call_difference(left: &str, right: &str) -> bool {
+    let mut right_calls = CALL_NAME.captures_iter(right);
+    let mut differences = 0;
+    for left_call in CALL_NAME.captures_iter(left) {
+        let Some(right_call) = right_calls.next() else {
+            return false;
+        };
+        if left_call[1] != right_call[1] {
+            differences += 1;
+            if differences > 1 {
+                return false;
+            }
+        }
+    }
+    differences == 1 && right_calls.next().is_none()
 }
 
 fn template_workflow_finding(workflow: NormalizedTemplateWorkflow<'_>) -> Finding {

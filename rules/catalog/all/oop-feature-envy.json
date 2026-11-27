@@ -9,7 +9,7 @@
   "legacyGroup": "maintainability",
   "why": "A method dominated by one parameter’s members may own misplaced behavior.",
   "suggestion": "Consider moving the behavior to the foreign type or its API.",
-  "version": 10,
+  "version": 13,
   "semanticMaturity": "project",
   "securityKind": "none",
   "taxonomy": [
@@ -36,6 +36,8 @@
   "languageVersions": [],
   "limitations": [
     "Requires five accesses across three members and sixty percent of received accesses; Dart direct and null-aware accesses contribute to that denominator, while parameters matching the enclosing class type, AST visitor implementations, object-literal projection methods, and accesses solely composing a returned Flutter Widget are excluded.",
+    "Findings identify each method declaration rather than the enclosing class header, so same-named overloads retain distinct source locations.",
+    "The shared analyzer excludes Java methods whose entire body returns a completed Type.builder()/newBuilder() projection and whose argument calls are only parameter-rooted, zero-argument get/is/has accessor chains. Additional statements, other argument calls, mutation or callback syntax, unfinished builders, and getAnd/getOr operations remain eligible. Getter naming is conventional evidence, not resolved proof of side-effect freedom.",
     "Comments, strings, generated, test, example, and vendored sources follow normal analysis classification and suppression controls."
   ]
 }

@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Array includes and indexOf scan linearly, so using them inside another loop can produce quadratic work.",
   "suggestion": "Build a Set before the loop when repeated membership checks dominate and array ordering is not required for lookup.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

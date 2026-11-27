@@ -86,14 +86,16 @@ fn inspect_repository(
 }
 
 fn infer_frameworks(profiles: &BTreeSet<String>) -> BTreeSet<String> {
-    ["bevy", "flutter", "react", "fastapi", "svelte", "pixijs"]
-        .into_iter()
-        .filter(|framework| match *framework {
-            "flutter" => profiles.contains("flutter") || profiles.contains("flutter-sdk"),
-            value => profiles.contains(value),
-        })
-        .map(str::to_owned)
-        .collect()
+    [
+        "bevy", "flutter", "react", "fastapi", "spring", "svelte", "pixijs",
+    ]
+    .into_iter()
+    .filter(|framework| match *framework {
+        "flutter" => profiles.contains("flutter") || profiles.contains("flutter-sdk"),
+        value => profiles.contains(value),
+    })
+    .map(str::to_owned)
+    .collect()
 }
 
 fn infer_ignores(
@@ -182,6 +184,7 @@ enum ProfileSource<'source> {
     Python(&'source str),
     Cargo(&'source str),
     DotNet,
+    Spring,
 }
 
 fn collect_repository_metadata(
@@ -230,7 +233,7 @@ fn collect_repository_metadata(
         }
         let source = read_manifest(&entry.path);
         if !manifest_excluded(relative)
-            && let Some(profile_source) = profile_source(&entry.path, &source)
+            && let Some(profile_source) = profile_source(relative, &source)
         {
             apply_profile_source(profile_source, profiles);
         }
@@ -249,6 +252,13 @@ fn profile_source<'source>(path: &Path, source: &'source str) -> Option<ProfileS
         .unwrap_or("")
         .to_ascii_lowercase();
     match name.as_str() {
+        "pom.xml" | "build.gradle" | "build.gradle.kts" => {
+            crate::rules::frameworks::spring_project::manifest_uses_spring(
+                &path.to_string_lossy(),
+                source,
+            )
+            .then_some(ProfileSource::Spring)
+        }
         "cargo.toml" => Some(ProfileSource::Cargo(source)),
         "pubspec.yaml" => Some(ProfileSource::Pubspec(source)),
         "package.json" => Some(ProfileSource::Package(source)),
@@ -282,6 +292,9 @@ fn apply_profile_source(source: ProfileSource, profiles: &mut BTreeSet<String>) 
             if FASTAPI.is_match(source) {
                 profiles.insert("fastapi".to_owned());
             }
+        }
+        ProfileSource::Spring => {
+            profiles.insert("spring".to_owned());
         }
         ProfileSource::DotNet => {
             profiles.insert("dotnet".to_owned());
@@ -348,6 +361,8 @@ fn is_repository_metadata_file(relative: &Path) -> bool {
         "analysis_options.yaml",
         "biome.json",
         "biome.jsonc",
+        "build.gradle",
+        "build.gradle.kts",
         "cargo.lock",
         "cargo.toml",
         "deno.json",
@@ -672,6 +687,41 @@ mod tests {
                 .defaults
                 .frameworks
                 .contains("bevy")
+        );
+    }
+
+    #[test]
+    fn infers_spring_from_production_maven_and_gradle_metadata() {
+        for name in ["pom.xml", "build.gradle", "build.gradle.kts"] {
+            let root = tempfile::tempdir().unwrap();
+            let source = if name == "pom.xml" {
+                "<project><dependencies><dependency><groupId>org.springframework</groupId><artifactId>spring-context</artifactId></dependency></dependencies></project>"
+            } else {
+                "plugins { id(\"org.springframework.boot\") version \"3\" }"
+            };
+            fs::write(root.path().join(name), source).unwrap();
+            let inspection = RepositoryDefaults::inspect(root.path(), true, true, true);
+            assert!(inspection.defaults.frameworks.contains("spring"), "{name}");
+            assert!(inspection.defaults.profiles.contains(&"spring".to_owned()));
+            assert_eq!(inspection.metadata_files[0].relative, name);
+        }
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("tests/app")).unwrap();
+        fs::write(
+            root.path().join("tests/app/build.gradle"),
+            "plugins { id 'org.springframework.boot' }",
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("build.gradle.kts"),
+            "description = \"org.springframework:spring-context:6\"",
+        )
+        .unwrap();
+        assert!(
+            !RepositoryDefaults::inspect(root.path(), true, true, true)
+                .defaults
+                .frameworks
+                .contains("spring")
         );
     }
 }

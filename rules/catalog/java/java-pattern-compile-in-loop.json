@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Pattern.compile parses and compiles the expression, so repeating it for every iteration adds avoidable CPU work and allocation.",
   "suggestion": "Compile the literal once before the loop or store it in a static final Pattern.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

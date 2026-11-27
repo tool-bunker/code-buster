@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Spreading an accumulator copies every value collected so far on each reduction step, turning linear accumulation into quadratic copying.",
   "suggestion": "Mutate a locally owned accumulator with push, assignment, or Object.assign, or use a construction API that does not repeatedly copy prior results.",
-  "version": 1,
+  "version": 2,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

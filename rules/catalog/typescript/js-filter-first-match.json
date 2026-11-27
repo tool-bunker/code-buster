@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Array.filter evaluates the full array and allocates a result array even when the caller only consumes the first or last match.",
   "suggestion": "Use find for the first match or findLast for the last match when callback short-circuiting preserves the intended behavior.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

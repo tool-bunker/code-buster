@@ -327,6 +327,7 @@ fn local_panic_invariant(file: &RustFile<'_>, call_offset: usize) -> bool {
     file.regex_contracts
         .capture_access_is_invariant(file.source, &file.masked, call_offset)
         || panic_guards::locally_proven_invariant(file.source, &file.masked, call_offset)
+        || panic_guards::format_initialized_string_write(file.source, &file.masked, call_offset)
         || preceding_comment_documents_invariant(file, call_offset)
 }
 

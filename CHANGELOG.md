@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## 0.15.0
+
+### Added
+
+- Detect Spring projects from Maven and Gradle metadata and add five Java checks: invalid `@Async` return types, parameters on `@Scheduled` methods, asynchronous lifecycle initialization, and same-class calls bypassing transactional or asynchronous proxy advice. Self-invocation findings are advisory by default; explicit module-scoped AspectJ configuration disables the corresponding proxy checks.
+
+- Add a GitHub Action with checksum-verified native engine installation, JSON/SARIF artifacts, finding gates, and native source self-review. It shares Code Buster release tags; no separate repository or Action version is required.
+
+### Fixed
+
+- Preserve Java source byte offsets through Unicode comments and literals, preventing scan failures and keeping loop-pattern evidence aligned. Ignore quoted code examples when checking empty Java catches.
+- Recognize Spring Boot auto-configuration bean factories, including return types from other packages. Avoid redundant transactional self-invocation advice when the caller already supplies matching non-boundary propagation settings; retain `REQUIRES_NEW` and `NESTED` boundary warnings.
+- Locate shared OOP feature-envy advisories at the method declaration instead of the class header, preserving distinct overloads and preventing duplicate-looking or accidentally collapsed findings.
+- Tighten shared OOP advisory evidence: do not count explicit overrides or pure Java constructor forwarding as independent parameter clumps, mistake own-type copies for feature envy, or count qualified type references and completed builder chains as object navigation. Template-workflow candidates now use four to ten outer calls, excluding nested argument calls and control conditions from the step count while preserving call differences in the comparison.
+- Avoid shared OOP feature-envy advice on whole-method Java builder projections that only read parameter bean properties; retain advice for other calls, mutation and extra work. Do not inflate parameter clumps with constructors that only forward existing arguments plus fixed boolean/null defaults.
+- Exclude Java package/import directives from duplicated-code evidence while preserving runtime bodies. Avoid broad-catch advice for unchanged exception rethrows after logging-only observation, and recognize completed construction chains from project-declared Java builder-returning factories without exempting unknown fluent APIs.
+- Exclude trivial annotated Java override getters from duplicated-behavior evidence without hiding computed results, side effects or unannotated methods. Keep method boundaries intact so filtering cannot join separate runtime fragments into artificial duplicate blocks.
+- Recognize Java Future results passed as multiline call arguments or returned by expression-bodied list-stream mappings. Preserve discarded-task advice for `forEach` consumers, block-bodied mappings and unresolved custom pipelines.
+- Detect simple Java string prepending in loops alongside append accumulation. Qualify loop-performance remediation so intermediate String reads, bounded lookups, collection updates and mutable hash/equality state are not lost through blanket StringBuilder or HashSet replacements.
+- Keep Python byte and raw-byte accumulators out of string-concatenation advice, preserving genuine text accumulation and separate immutable-sequence checks.
+- Recognize C# exception filters restricted to explicit exception types, including multiline `or` and `||` forms. Keep broad catches, negative filters, unresolved aliases and custom predicates reportable.
+- Exclude conventional `testData`/`test_data` directories and proven test-only JavaScript/TypeScript literal sample modules from default production scans. Preserve shared/runtime data, unknown module loaders, explicit production overrides, `--include-tests`, `--all` and accurate `cb inspect` classifications.
+- Recognize empty newline and simple literal-only writes into local Rust Strings initialized directly by standard `format!`, while preserving advice for fallible writers, custom formatters and unresolved or shadowed bindings.
+- Recognize JSON syntax recovery in direct guarded callers of private synchronous JavaScript/TypeScript parser helpers. Keep deferred, exported, aliased and unhandled callers reportable, and stop treating schema-related variable names alone as proof of safe parsing.
+- Recognize multiline JavaScript/TypeScript timer promises and cooperative `setImmediate` yields as intentional loop waits. Preserve advice for real work, shadowed schedulers and chained callbacks, and stop exempting unrelated calls merely because their line mentions `setTimeout`.
+- Recognize source-proven JavaScript/TypeScript timer helpers, including local abort-aware waits, and joined shared-cursor worker pools as intentional sequential contexts. Preserve advice for helpers that perform other work, escaped callbacks, conflicting bindings and unjoined or mismatched pools.
+- Avoid JavaScript/TypeScript loop-parallelization advice for source-proven terminal success paths: straight-line calls ending in an unconditional return, or an unlabeled break in a single-loop function. Preserve advice for conditional exits, nested-loop or switch breaks, `finally` overrides and unsupported control flow.
+- Recognize JavaScript/TypeScript delivery loops that expose a source-proven completed-prefix count on a propagated error. Preserve advice for unrelated counters, shadows, deferred callbacks, nested loops, early exits and unknown queue-admission state instead of exempting whole queue or delivery modules.
+- Recognize JavaScript/TypeScript promise-stabilization barriers that await a local snapshot and recheck whether the current barrier changed. Keep mismatched getters, escaped bindings, extra work and neighboring independent loops reportable.
+- Treat bare JavaScript/TypeScript `for (;;)` service loops like `while (true)` when reviewing sequential awaits, including polling, lock acquisition and shared-buffer streaming. Preserve advice for finite nested loops and neighboring work; do not infer this classification for initialized or updating `for` headers.
+- Keep JavaScript/TypeScript regex literals opaque to comment and string scanning, so quote characters and comment-shaped regex text cannot hide later runtime calls. Reuse the shared regex boundary scanner, retain executable template expressions, and avoid allocating a character vector for string masking.
+
 ## 0.14.6
 
 ### Changed

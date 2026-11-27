@@ -6,11 +6,16 @@ use serde_json::Value;
 
 use crate::engine::discovery::is_builtin_production_path;
 use crate::findings::{Finding, Severity};
-use crate::languages::functions::mask_javascript_strings_and_comments;
+use crate::languages::functions::{
+    javascript_regex_literal_end, mask_javascript_strings_and_comments,
+};
 use crate::languages::strip_quoted_literals as strip_literals;
 use crate::repository_policy_rules::strip_jsonc_comments;
 use crate::rule_catalog;
 use crate::source_analysis_context::SourceAnalysisContext;
+
+mod json_parsing;
+mod loop_waits;
 
 pub fn analyze(context: &SourceAnalysisContext<'_>) -> Vec<Finding> {
     let script_entrypoints = package_script_entrypoints(context);
@@ -118,8 +123,10 @@ struct SourceLine<'a> {
     inside_loop: bool,
     sequential_loop: bool,
     event_wait: bool,
+    sequential_await: bool,
     tooling: bool,
     json_recovery_required: bool,
+    caller_handled_json: bool,
     command_line: bool,
     console_suppressed: bool,
     typescript: bool,
@@ -437,8 +444,11 @@ fn source_findings(
     let performance =
         PerformanceFacts::from_source(&uncommented_source, &syntax_source, &inside_loop);
     let event_waits = imported_event_waits(&uncommented_source, &syntax_source);
+    let sequential_awaits = loop_waits::sequential_await_lines(source, &syntax_source);
     let json_recovery_required =
         !tooling && !is_test_harness_source(path, &uncommented_source, &syntax_source);
+    let caller_handled_json =
+        json_parsing::caller_handled_lines(&runtime_source, json_recovery_required);
     let mut findings = Vec::new();
     findings.extend(async_foreach_findings(path, &sink_source));
     findings.extend(child_process_shell_findings(path, &uncommented_source));
@@ -487,9 +497,11 @@ fn source_findings(
                         && call.get(2).is_none()
                         && event_waits.contains_key(&call[1])
                 }),
+            sequential_await: sequential_awaits.contains(&index),
             inside_async: inside_async[index],
             tooling,
             json_recovery_required,
+            caller_handled_json: caller_handled_json.contains(&index),
             command_line,
             console_suppressed: console_suppressions[index]
                 || deno_suppressions[index].suppress_console
@@ -1476,11 +1488,8 @@ fn is_reportable_loop_await(line: &SourceLine<'_>) -> bool {
         && line.inside_loop
         && !line.sequential_loop
         && !line.event_wait
-        && !is_intentional_loop_wait(line.line)
-}
-
-fn is_intentional_loop_wait(line: &str) -> bool {
-    line.contains("setTimeout(") || INTENTIONAL_WAIT_CALL.is_match(line)
+        && !line.sequential_await
+        && !INTENTIONAL_WAIT_CALL.is_match(line.syntax_line)
 }
 
 fn analyze_hardcoded_secret(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
@@ -1519,7 +1528,7 @@ fn analyze_json_parsing(line: &SourceLine<'_>, findings: &mut Vec<Finding>) {
         && !JSON_ROUND_TRIP.is_match(line.line)
         && !is_parse_of_stringified_variable(line.code_lines, line.index)
         && !is_inside_handled_try(line.code_lines, line.index)
-        && !SAFE_JSON_NAME.is_match(line.line)
+        && !line.caller_handled_json
     {
         line.add(
             findings,
@@ -2757,7 +2766,7 @@ fn is_static_string_literal(source: &str) -> bool {
     literal.is_complete()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum CommentMaskState {
     Code,
     Quoted { delimiter: char, escaped: bool },
@@ -2868,13 +2877,21 @@ impl CommentMaskState {
 fn without_comments(source: &str) -> String {
     let mut result = String::with_capacity(source.len());
     let mut state = CommentMaskState::Code;
-    let mut characters = source.chars().peekable();
-    while let Some(character) = characters.next() {
-        let (next_state, consume_next) =
-            state.consume(character, characters.peek().copied(), &mut result);
+    let mut index = 0;
+    while let Some(character) = source[index..].chars().next() {
+        if matches!(state, CommentMaskState::Code) {
+            if let Some(end) = javascript_regex_literal_end(source, index) {
+                result.push_str(&source[index..end]);
+                index = end;
+                continue;
+            }
+        }
+        index += character.len_utf8();
+        let next = source[index..].chars().next();
+        let (next_state, consume_next) = state.consume(character, next, &mut result);
         state = next_state;
         if consume_next {
-            characters.next();
+            index += next.map_or(0, char::len_utf8);
         }
     }
     result
@@ -2943,6 +2960,7 @@ enum LiteralMaskMode {
     SingleQuoted,
     DoubleQuoted,
     Template,
+    Comment(CommentMaskState),
 }
 
 struct LiteralMaskState {
@@ -2962,41 +2980,55 @@ impl LiteralMaskState {
         }
     }
 
-    fn consume(&mut self, characters: &[char], index: usize, result: &mut String) -> usize {
+    fn consume(&mut self, character: char, next: Option<char>, result: &mut String) -> usize {
         match self.mode {
-            LiteralMaskMode::Code => self.consume_code(characters[index], result),
+            LiteralMaskMode::Code => self.consume_code(character, next, result),
             LiteralMaskMode::SingleQuoted => {
-                self.consume_quoted(characters[index], '\'', result);
+                self.consume_quoted(character, '\'', result);
                 1
             }
             LiteralMaskMode::DoubleQuoted => {
-                self.consume_quoted(characters[index], '"', result);
+                self.consume_quoted(character, '"', result);
                 1
             }
-            LiteralMaskMode::Template => self.consume_template(characters, index, result),
+            LiteralMaskMode::Template => self.consume_template(character, next, result),
+            LiteralMaskMode::Comment(state) => {
+                let (state, consume_next) = state.consume(character, next, result);
+                self.mode = if state == CommentMaskState::Code {
+                    LiteralMaskMode::Code
+                } else {
+                    LiteralMaskMode::Comment(state)
+                };
+                if consume_next { 2 } else { 1 }
+            }
         }
     }
 
-    fn consume_code(&mut self, character: char, result: &mut String) -> usize {
-        match character {
-            '\'' => {
+    fn consume_code(&mut self, character: char, next: Option<char>, result: &mut String) -> usize {
+        match (character, next) {
+            ('/', Some('/' | '*')) => {
+                let (state, _) = CommentMaskState::consume_code(character, next, result);
+                self.mode = LiteralMaskMode::Comment(state);
+                return 2;
+            }
+            ('\'', _) => {
                 self.mode = LiteralMaskMode::SingleQuoted;
                 result.push(' ');
             }
-            '"' => {
+            ('"', _) => {
                 self.mode = LiteralMaskMode::DoubleQuoted;
                 result.push(' ');
             }
-            '`' => {
+            ('`', _) => {
                 self.template_return_depths.push(self.interpolation_depth);
                 self.mode = LiteralMaskMode::Template;
                 result.push(' ');
             }
-            '{' if self.interpolation_depth > 0 => {
+            ('{', _) if self.interpolation_depth > 0 => {
                 self.interpolation_depth += 1;
                 result.push(character);
             }
-            '}' if self.interpolation_depth > 0 => {
+            ('}', _) if self.interpolation_depth > 0 => {
                 self.interpolation_depth -= 1;
                 if self.interpolation_depth == 0 {
                     self.mode = LiteralMaskMode::Template;
@@ -3028,17 +3060,16 @@ impl LiteralMaskState {
 
     fn consume_template(
         &mut self,
-        characters: &[char],
-        index: usize,
+        character: char,
+        next: Option<char>,
         result: &mut String,
     ) -> usize {
-        let character = characters[index];
         if character == '\n' {
             result.push('\n');
             self.escaped = false;
             return 1;
         }
-        if !self.escaped && character == '$' && characters.get(index + 1).copied() == Some('{') {
+        if !self.escaped && character == '$' && next == Some('{') {
             result.push_str("  ");
             self.mode = LiteralMaskMode::Code;
             self.interpolation_depth = 1;
@@ -3058,12 +3089,22 @@ impl LiteralMaskState {
 }
 
 fn without_string_literal_text(source: &str) -> String {
-    let characters = source.chars().collect::<Vec<_>>();
     let mut result = String::with_capacity(source.len());
     let mut state = LiteralMaskState::new();
     let mut index = 0;
-    while index < characters.len() {
-        index += state.consume(&characters, index, &mut result);
+    while let Some(character) = source[index..].chars().next() {
+        if state.mode == LiteralMaskMode::Code {
+            if let Some(end) = javascript_regex_literal_end(source, index) {
+                result.extend(std::iter::repeat_n(' ', end - index));
+                index = end;
+                continue;
+            }
+        }
+        index += character.len_utf8();
+        let next = source[index..].chars().next();
+        if state.consume(character, next, &mut result) == 2 {
+            index += 1;
+        }
     }
     result
 }
@@ -3181,7 +3222,7 @@ static HANDLED_PROMISE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:await|return|void)\b|\.(?:then|catch|subscribe)\s*\(").unwrap()
 });
 static INTENTIONAL_WAIT_CALL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^await\s+(?:[A-Za-z_$][\w$]*\s*\.\s*)*(?:_?wait|backoff|delay|pause|sleep)\s*\(")
+    Regex::new(r"^await\s+(?:[A-Za-z_$][\w$]*\s*\.\s*)*(?:_?wait|backoff|delay|pause|sleep|setTimeout)\s*\(")
         .unwrap()
 });
 static TIMER_CALL: LazyLock<Regex> = LazyLock::new(|| {
@@ -3192,8 +3233,6 @@ static EMBEDDED_JSON_PARSE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static JSON_ROUND_TRIP: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"JSON\.parse\s*\(\s*JSON\.stringify\s*\(").unwrap());
-static SAFE_JSON_NAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(?:safe|schema|zod|validate)\b").unwrap());
 static JSON_PARSE_VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bJSON\.parse\s*\(\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\)").unwrap()
 });
@@ -3255,7 +3294,8 @@ static FUNCTION_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 static LOOP_PREFIX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:for\s*(?:await\s*)?|while\s*)\(").unwrap());
 static SEQUENTIAL_LOOP_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(?:while\s*\(\s*true\s*\)|for\s+await\s*\([^{}]*\))\s*$").unwrap()
+    Regex::new(r"\b(?:while\s*\(\s*true\s*\)|for\s*\(\s*;\s*;\s*\)|for\s+await\s*\([^{}]*\))\s*$")
+        .unwrap()
 });
 static DO_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bdo\s*$").unwrap());
 static TRY_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btry\s*$").unwrap());
@@ -4051,19 +4091,18 @@ function decode(outer: string) {\n\
                 .find(|finding| finding.code == code)
                 .expect("grouped finding must remain visible")
         };
-        assert_eq!(grouped("ts-any").message, "2 explicit any types used");
-        assert_eq!(grouped("ts-any").related_files.len(), 1);
+        assert_eq!(grouped("ts-any").related_files, ["src/model.ts:2"]);
         assert_eq!(
-            grouped("ts-non-null-assertion").message,
-            "2 non-null assertions used"
+            grouped("ts-non-null-assertion").related_files,
+            ["src/model.ts:4"]
         );
         assert_eq!(
-            grouped("js-string-concat-in-loop").message,
-            "2 immutable string concatenations occur inside loops"
+            grouped("js-string-concat-in-loop").related_files,
+            ["src/format.ts:4"]
         );
         assert_eq!(
-            grouped("ts-await-in-loop").message,
-            "2 awaits occur inside loops"
+            grouped("ts-await-in-loop").related_files,
+            ["src/process.ts:3"]
         );
     }
     #[test]
@@ -4597,6 +4636,162 @@ function format(chunks: Buffer[], locale: string, options: Intl.NumberFormatOpti
             .collect::<Vec<_>>();
         assert!(selected.is_empty(), "unexpected findings: {selected:?}");
     }
+    #[test]
+    fn preserves_queue_calls_after_quoted_regex_patterns() {
+        let sources = BTreeMap::from([(
+            "src/queue.ts".to_owned(),
+            r#"const tokens = /"([^"]*)"|'([^']*)'|(\S+)/g;
+function drain(entry: string) {
+  const queue = [entry];
+  while (queue.length > 0) {
+    consume(queue.shift());
+  }
+}
+"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "js-array-shift-in-loop")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![5]
+        );
+    }
+
+    #[test]
+    fn preserves_queue_calls_after_regex_delimiters_and_unicode() {
+        for pattern in [
+            r#"const pattern = /["'`/]/g;"#,
+            r#"const pattern = /["']\/\*\/\//g;"#,
+            r#"const label = "é"; const pattern = /["'é]/u;"#,
+            r#"const pattern = /["']"#,
+        ] {
+            let sources = BTreeMap::from([(
+                "src/queue.ts".to_owned(),
+                format!(
+                    "{pattern}\n\
+                     function drain(queue: string[]) {{\n\
+                       while (queue.length > 0) {{\n\
+                         queue.unshift(queue.shift());\n\
+                       }}\n\
+                     }}"
+                ),
+            )]);
+            let context = SourceAnalysisContext::unchanged(&sources);
+            assert_eq!(
+                analyze(&context)
+                    .into_iter()
+                    .filter(|finding| {
+                        matches!(
+                            finding.code.as_str(),
+                            "js-array-shift-in-loop" | "js-array-unshift-in-loop"
+                        )
+                    })
+                    .map(|finding| (finding.code, finding.line))
+                    .collect::<Vec<_>>(),
+                vec![
+                    ("js-array-shift-in-loop".to_owned(), 4),
+                    ("js-array-unshift-in-loop".to_owned(), 4),
+                ],
+                "{pattern}"
+            );
+        }
+    }
+
+    #[test]
+    fn ignores_queue_examples_in_regex_strings_and_comments() {
+        let sources = BTreeMap::from([(
+            "src/queue.ts".to_owned(),
+            r#"function inspect(queue: string[], left: number, right: number) {
+  while (queue.length > 0) {
+    const pattern = /["'`/]|queue\.shift\(\)|queue\.unshift\(/g;
+    const quoted = "/[\"']/ queue.shift() queue.unshift(value)";
+    const template = `queue.shift() queue.unshift(value)`;
+    // /" queue.shift() queue.unshift(value)
+    /* /' queue.shift() queue.unshift(value) */
+    consume(left / right);
+  }
+  consume(queue.shift());
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "js-array-shift-in-loop" | "js-array-unshift-in-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn preserves_queue_calls_in_template_expressions_after_regex_literals() {
+        let sources = BTreeMap::from([(
+            "src/queue.ts".to_owned(),
+            r#"const pattern = /["']/g;
+function drain(queue: string[]) {
+  while (queue.length > 0) {
+    consume(`value: ${queue.shift()}`);
+    consume(`value: ${/["']/.test("item") ? queue.unshift("item") : 0}`);
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.code.as_str(),
+                        "js-array-shift-in-loop" | "js-array-unshift-in-loop"
+                    )
+                })
+                .map(|finding| (finding.code, finding.line))
+                .collect::<Vec<_>>(),
+            vec![
+                ("js-array-shift-in-loop".to_owned(), 4),
+                ("js-array-unshift-in-loop".to_owned(), 5),
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_membership_calls_after_nested_templates_and_comments() {
+        let sources = BTreeMap::from([(
+            "src/membership.ts".to_owned(),
+            r#"function contains(items: string[], values: string[]) {
+  for (const value of values) {
+    const text = `outer ${flag ? `inner's` : ""} tail`;
+    /** Explain the lookup. */
+    /* items.includes(example) */
+    consume(items.includes(value));
+  }
+}"#
+            .to_owned(),
+        )]);
+        let context = SourceAnalysisContext::unchanged(&sources);
+        assert_eq!(
+            analyze(&context)
+                .into_iter()
+                .filter(|finding| finding.code == "js-linear-membership-in-loop")
+                .map(|finding| finding.line)
+                .collect::<Vec<_>>(),
+            vec![6]
+        );
+    }
+
     #[test]
     fn reports_array_shift_used_as_a_loop_queue() {
         let sources = BTreeMap::from([(

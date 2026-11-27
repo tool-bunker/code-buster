@@ -11,6 +11,143 @@ static MODULE_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bmod\s+[A-Za-z_]\w*\s*\{").unwrap());
 static LET_SOME_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*let\s+Some\s*\(").unwrap());
+static WRITE_DESTINATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:(?:std|core)::)?(?:write|writeln)\s*!\s*\(\s*(?:&\s*mut\s+)?$")
+        .expect("write destination regex")
+});
+static WRITE_RECEIVER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?:&\s*mut\s+)?([A-Za-z_][A-Za-z0-9_]*)").expect("write receiver regex")
+});
+static FORMAT_INITIALIZER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*=\s*(?:(?:std|alloc)::)?format\s*!\s*\(").expect("format initializer regex")
+});
+static FORMATTING_MACRO_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:macro_rules\s*!\s*(?:format|write|writeln)\b|macro_use\b|include\s*!)")
+        .expect("formatting macro declaration regex")
+});
+
+pub(super) fn format_initialized_string_write(
+    source: &str,
+    masked: &str,
+    call_offset: usize,
+) -> bool {
+    let Some(dot) = unwrap_chain_dot(masked, call_offset) else {
+        return false;
+    };
+    let Some(close) = previous_nonspace(masked.as_bytes(), dot) else {
+        return false;
+    };
+    if masked.as_bytes()[close] != b')' {
+        return false;
+    }
+    let Some(open) = matching_open(masked.as_bytes(), close, b'(', b')') else {
+        return false;
+    };
+    if previous_nonspace(masked.as_bytes(), open)
+        .is_none_or(|before| masked.as_bytes()[before] != b'!')
+    {
+        return false;
+    }
+    let Some(receiver) = WRITE_RECEIVER.captures(&masked[open + 1..close]) else {
+        return false;
+    };
+    let target = receiver.get(1).expect("write receiver capture");
+    let target_start = open + 1 + target.start();
+    let target_end = open + 1 + target.end();
+    if !standard_write_destination(&masked[..target_start]) {
+        return false;
+    }
+    let suffix = source[target_end..close].trim();
+    let plain_output = if suffix.is_empty() {
+        masked[..open]
+            .trim_end()
+            .strip_suffix('!')
+            .is_some_and(|name| name.trim_end().ends_with("writeln"))
+    } else {
+        suffix.strip_prefix(',').is_some_and(plain_format_literal)
+    };
+    plain_output
+        && !custom_formatting_macros(masked)
+        && format_string_binding(masked, target_start, target.as_str())
+}
+
+fn plain_format_literal(literal: &str) -> bool {
+    let literal = literal.trim();
+    let literal = literal.strip_suffix(',').unwrap_or(literal).trim_end();
+    if literal.starts_with('r') {
+        let Some(quote) = literal.find('"') else {
+            return false;
+        };
+        let hashes = &literal[1..quote];
+        return hashes.bytes().all(|byte| byte == b'#')
+            && literal[quote + 1..]
+                .strip_suffix(hashes)
+                .and_then(|text| text.strip_suffix('"'))
+                .is_some_and(|text| !text.contains(['"', '{', '}']));
+    }
+    literal
+        .strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .is_some_and(|text| !text.contains(['"', '\\', '{', '}']))
+}
+
+fn standard_write_destination(prefix: &str) -> bool {
+    WRITE_DESTINATION.find(prefix).is_some_and(|matched| {
+        matched.start() == 0
+            || !matches!(
+                prefix.as_bytes()[matched.start() - 1],
+                b':' | b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
+            )
+    })
+}
+
+fn format_string_binding(masked: &str, use_start: usize, target: &str) -> bool {
+    for (at, _) in masked[..use_start].rmatch_indices(target) {
+        if !identifier_is_bounded(&masked[..at], &masked[at + target.len()..]) {
+            continue;
+        }
+        if standard_write_destination(&masked[..at]) {
+            continue;
+        }
+        let Some(before_let) = masked[..at].trim_end().strip_suffix("let mut") else {
+            return false;
+        };
+        if before_let.as_bytes().last().is_some_and(is_ident_continue) {
+            return false;
+        }
+        let after_target = at + target.len();
+        let Some(initializer) = FORMAT_INITIALIZER.find(&masked[after_target..use_start]) else {
+            return false;
+        };
+        let open = after_target + initializer.end() - 1;
+        let Some(close) = matching_close(masked.as_bytes(), open, b'(', b')') else {
+            return false;
+        };
+        let Some(scope) = enclosing_block(masked, at) else {
+            return false;
+        };
+        return masked[close + 1..use_start].trim_start().starts_with(';')
+            && matching_close(masked.as_bytes(), scope, b'{', b'}')
+                .is_some_and(|end| use_start < end);
+    }
+    false
+}
+
+fn custom_formatting_macros(masked: &str) -> bool {
+    FORMATTING_MACRO_DECLARATION.is_match(masked)
+        || USE_DECLARATION.find_iter(masked).any(|declaration| {
+            let declaration = declaration.as_str();
+            let relevant = declaration.contains('*')
+                || ["format", "write", "writeln"]
+                    .iter()
+                    .any(|name| contains_receiver(declaration, name));
+            relevant
+                && (declaration.contains(" as ")
+                    || !["use std::", "use core::", "use alloc::"]
+                        .iter()
+                        .any(|prefix| declaration.starts_with(prefix)))
+        })
+}
 
 pub(super) fn locally_proven_invariant(source: &str, masked: &str, call_offset: usize) -> bool {
     if source.len() != masked.len() || call_offset > masked.len() {
@@ -1608,6 +1745,87 @@ fn is_ident_continue(byte: &u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::locally_proven_invariant;
+
+    #[test]
+    fn accepts_plain_output_into_format_initialized_strings() {
+        for body in [
+            r#"let mut output = format!("schedule {}", 1);
+               writeln!(output).unwrap();"#,
+            r#"let mut output = alloc::format!("schedule {}", 1);
+               writeln!(&mut output).expect("empty newline");"#,
+            r#"let mut output = std::format!("schedule {}", 1);
+               write!(output, "header").unwrap();"#,
+            r##"let mut output = format!("schedule");
+                writeln!(output, r#"header"#,).expect("literal output");"##,
+            r#"let mut output = format!("schedule {}", 1);
+               for value in values {
+                   writeln!(output, "{}", value)?;
+                   writeln!(output).unwrap();
+               }"#,
+            r#"let mut output = format!("schedule");
+               // let mut output = external_writer();
+               let sample = "output = external_writer()";
+               writeln!(output).unwrap();"#,
+        ] {
+            assert_panic_behavior(
+                &format!("use std::fmt::Write;\nfn render() {{\n{body}\n}}"),
+                false,
+            );
+        }
+    }
+
+    #[test]
+    fn retains_fallible_or_unproven_formatting_results() {
+        assert_panic_behavior(
+            r#"#[macro_use] extern crate custom_macros;
+fn render() {
+    let mut output = format!("schedule");
+    writeln!(output).unwrap();
+}"#,
+            true,
+        );
+        for body in [
+            r#"let mut output = external_writer();
+               writeln!(output).unwrap();"#,
+            r#"let mut output = Sink::new(format!("schedule"));
+               writeln!(output).unwrap();"#,
+            r#"let mut output = format!("schedule").into();
+               writeln!(output).expect("write failed");"#,
+            r#"let mut output = custom::format!("schedule");
+               writeln!(output).unwrap();"#,
+            r#"let mut output = format!("schedule");
+               let mut output = external_writer();
+               writeln!(output).unwrap();"#,
+            r#"let mut output = external_writer();
+               { let mut output = format!("schedule"); }
+               writeln!(output).unwrap();"#,
+            r#"let mut output = format!("schedule");
+               fn nested(output: &mut dyn Write) { writeln!(output).unwrap(); }"#,
+            r#"let mut output = format!("schedule");
+               writeln!(output, "{}", user_formatter).unwrap();"#,
+            r#"let mut output = format!("schedule");
+               writeln!(output, "{user_formatter}").unwrap();"#,
+            r#"macro_rules! format { ($($args:tt)*) => { external_writer() }; }
+               let mut output = format!("schedule");
+               writeln!(output).unwrap();"#,
+            r#"use crate::format;
+               let mut output = format!("schedule");
+               writeln!(output).unwrap();"#,
+            r#"use crate::*;
+               let mut output = format!("schedule");
+               writeln!(output).unwrap();"#,
+            r#"let mut output = format!("schedule");
+               unknown_macro!(output);
+               writeln!(output).unwrap();"#,
+            r#"let mut output = format!("schedule");
+               custom::writeln!(output).unwrap();"#,
+        ] {
+            assert_panic_behavior(
+                &format!("use std::fmt::Write;\nfn render() {{\n{body}\n}}"),
+                true,
+            );
+        }
+    }
 
     fn assert_panic_behavior(source: &str, reported: bool) {
         let sources =

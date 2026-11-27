@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::cli::RepositoryViewOptions;
 use crate::config::{Config, absolute_root};
-use crate::discovery::{classify_target, prepare};
+use crate::discovery::{TargetClassification, classify_target, prepare};
 use crate::function_sources;
 use crate::options::ReportFormat;
 use crate::summary_command;
@@ -119,6 +119,25 @@ pub fn execute_inspect(options: &RepositoryViewOptions) -> Result<RepositoryView
     }
 
     let run = summary_command::analyze(&options.common)?;
+    let classification = if run.prepared.inferred_test_files.contains(&normalized) {
+        TargetClassification {
+            classification: "test",
+            source: "literal data imported only by tests",
+            matched: None,
+        }
+    } else {
+        classification
+    };
+    if !included_by_scope(classification.classification, &config) {
+        print_excluded_inspection(
+            options,
+            &normalized,
+            classification.classification,
+            classification.source,
+            classification.matched.as_deref(),
+        )?;
+        return Ok(RepositoryViewOutcome::Success);
+    }
     let Some(source) = run.prepared.sources.get(&normalized) else {
         eprintln!("target is not a discovered source file: {target}");
         return Ok(RepositoryViewOutcome::NotFound);

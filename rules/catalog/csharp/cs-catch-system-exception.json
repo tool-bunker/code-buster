@@ -7,9 +7,9 @@
   "mvvm": false,
   "defaultSeverity": "warn",
   "legacyGroup": "nim-style",
-  "why": "This C# construct can weaken clarity, reliability, or security.",
-  "suggestion": "Use the safer modern .NET alternative described by the rule.",
-  "version": 6,
+  "why": "Catching System.Exception without a specific type boundary can intercept failures the handler cannot recover from.",
+  "suggestion": "Catch the specific exception types you can handle, use an explicit positive type filter, or propagate failures to the appropriate boundary.",
+  "version": 7,
   "semanticMaturity": "text",
   "securityKind": "none",
   "taxonomy": [
@@ -27,5 +27,8 @@
   ],
   "frameworks": [],
   "languageVersions": [],
-  "limitations": []
+  "limitations": [
+    "Explicit positive type filters on the caught binding using C# or patterns or || are excluded, including multiline headers.",
+    "Negative filters, mixed predicates, helper calls, aliases and type hierarchies are not resolved; unknown filters remain reportable."
+  ]
 }

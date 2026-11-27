@@ -2429,3 +2429,89 @@ fn summary_accepts_explicit_python_test_support_exports() {
     assert_eq!(findings.len(), 1, "unexpected findings: {findings:#?}");
     assert_eq!(findings[0]["path"], "package/runtime.py");
 }
+
+#[test]
+fn spring_rules_preserve_test_scope_advisory_modes_and_targeted_suppressions() {
+    let root = TempDirectory::new("cb-spring-policy");
+    root.write(
+        "pom.xml",
+        br#"<project>
+<modelVersion>4.0.0</modelVersion>
+<groupId>example</groupId><artifactId>app</artifactId><version>1</version>
+<dependencies><dependency>
+<groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId>
+<version>3.4.0</version>
+</dependency></dependencies>
+</project>"#,
+    );
+    let source = "package app;\n\
+import org.springframework.stereotype.Service;\n\
+import org.springframework.scheduling.annotation.Async;\n\
+@Service class Jobs {\n\
+    @Async public void work() {}\n\
+    public void run() { this.work(); }\n\
+}\n";
+    root.write("src/main/java/app/Jobs.java", source.as_bytes());
+    root.write(
+        "src/test/java/app/JobsTest.java",
+        b"package app;\n\
+import org.springframework.stereotype.Service;\n\
+import org.springframework.scheduling.annotation.Async;\n\
+@Service class JobsTest {\n\
+    @Async public int work() { return 1; }\n\
+}\n",
+    );
+    let scan = |arguments: &[&str]| {
+        let output = run_summary(&root.path, arguments);
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|finding| finding["code"].as_str().unwrap().starts_with("spring-"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let production = scan(&["--format", "json", "--advisory", "--no-cache"]);
+    assert_eq!(production.len(), 1, "{production:#?}");
+    assert_eq!(production[0]["code"], "spring-async-self-invocation");
+    assert_eq!(production[0]["mode"], "count");
+    assert_eq!(production[0]["path"], "src/main/java/app/Jobs.java");
+
+    let with_tests = scan(&[
+        "--format", "json", "--advisory", "--no-cache", "--include-tests",
+    ]);
+    assert_eq!(with_tests.len(), 2, "{with_tests:#?}");
+    let invalid_return = with_tests
+        .iter()
+        .find(|finding| finding["code"] == "spring-async-return-type")
+        .unwrap();
+    assert_eq!(invalid_return["path"], "src/test/java/app/JobsTest.java");
+    assert_eq!(invalid_return["mode"], "report");
+
+    root.write(
+        "code-buster.toml",
+        b"[rules.mode]\nspring-async-self-invocation = \"report\"\n",
+    );
+    let arguments = [
+        "--format", "json", "--no-cache", "--only",
+        "spring-async-self-invocation", "--fail-on-issues",
+    ];
+    let promoted = run_summary(&root.path, &arguments);
+    assert_eq!(promoted.status.code(), Some(2), "{promoted:?}");
+    let report: serde_json::Value = serde_json::from_slice(&promoted.stdout).unwrap();
+    assert_eq!(report["findings"][0]["mode"], "report");
+
+    root.write(
+        "src/main/java/app/Jobs.java",
+        source.replace(
+            "@Async public void work",
+            "// code-buster-ignore spring-async-self-invocation\n@Async public void work",
+        ).as_bytes(),
+    );
+    let suppressed = run_summary(&root.path, &arguments);
+    assert_eq!(suppressed.status.code(), Some(0), "{suppressed:?}");
+    let report: serde_json::Value = serde_json::from_slice(&suppressed.stdout).unwrap();
+    assert_eq!(report["findings"].as_array().unwrap().len(), 0);
+}

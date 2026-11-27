@@ -214,6 +214,8 @@ pub(crate) fn mode_for_code<'a>(code: &str, config: &'a Config, group: &str) -> 
             | "java-empty-catch"
             | "shell-ignored-command-failure"
             | "shell-unquoted-expansion"
+            | "spring-transactional-self-invocation"
+            | "spring-async-self-invocation"
     ) {
         return "count";
     }
@@ -295,6 +297,8 @@ mod tests {
             "java-empty-catch",
             "shell-ignored-command-failure",
             "shell-unquoted-expansion",
+            "spring-transactional-self-invocation",
+            "spring-async-self-invocation",
         ] {
             let group = crate::rule_catalog::descriptor(code)
                 .expect("rule must be registered")
@@ -309,6 +313,37 @@ mod tests {
             mode_for_code("shell-unquoted-expansion", &config, "correctness"),
             "report"
         );
+    }
+
+    #[test]
+    fn spring_advisory_defaults_preserve_explicit_configuration_precedence() {
+        for code in [
+            "spring-transactional-self-invocation",
+            "spring-async-self-invocation",
+        ] {
+            let mut config = Config::defaults(std::path::PathBuf::new());
+            assert_eq!(mode_for_code(code, &config, "reliability"), "count");
+            config
+                .group_modes
+                .insert("reliability".to_owned(), "off".to_owned());
+            assert_eq!(mode_for_code(code, &config, "reliability"), "off");
+            config
+                .severity_overrides
+                .insert(code.to_owned(), "warn".to_owned());
+            assert_eq!(mode_for_code(code, &config, "reliability"), "report");
+            config
+                .rule_modes
+                .insert(code.to_owned(), "count".to_owned());
+            assert_eq!(mode_for_code(code, &config, "reliability"), "count");
+        }
+        let config = Config::defaults(std::path::PathBuf::new());
+        for code in [
+            "spring-async-return-type",
+            "spring-scheduled-parameters",
+            "spring-async-post-construct",
+        ] {
+            assert_eq!(mode_for_code(code, &config, "reliability"), "report");
+        }
     }
 
     fn suppressed(source: &str, finding: &Finding) -> bool {

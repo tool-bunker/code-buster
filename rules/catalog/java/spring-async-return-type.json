@@ -1,0 +1,27 @@
+{
+  "id": "spring-async-return-type",
+  "language": "java",
+  "group": "reliability",
+  "listingTitle": "Use a supported Spring async return type",
+  "title": "Use a supported Spring async return type",
+  "mvvm": false,
+  "defaultSeverity": "warn",
+  "legacyGroup": "reliability",
+  "why": "Spring asynchronous methods require void or a Future-compatible return type; an unsupported declared return type can fail when asynchronous advice is applied.",
+  "suggestion": "Return void, Future, CompletableFuture, or a supported Future subtype, and preserve asynchronous failure observation where needed.",
+  "version": 2,
+  "semanticMaturity": "project",
+  "securityKind": "none",
+  "taxonomy": ["reliability"],
+  "requirements": ["sourceText", "manifest"],
+  "packs": ["spring"],
+  "implementation": "src/rules/frameworks/spring.rs",
+  "languages": ["java"],
+  "frameworks": ["spring"],
+  "languageVersions": [],
+  "limitations": [
+    "High-confidence findings bind canonical method- or class-level Async through explicit imports, wildcard imports, or fully qualified names. Managed-class evidence is limited to top-level nonabstract classes with canonical stereotypes or an unambiguous Bean return type in a statically identified Spring module.",
+    "Void, Future, CompletableFuture, and recognizable Future subtypes are accepted. Rejections are limited to primitives, arrays, and bound known JDK/reactor types; unknown user types and type parameters are not assumed unsupported. Private and static methods are excluded because ordinary proxy advice cannot intercept them. This is a bounded Java index, not compiler type resolution.",
+    "Dynamic Gradle configuration, dependency aliases, unresolved Maven properties, profile activation, remote parent inheritance, custom meta-annotations, and Kotlin or Groovy source are not resolved."
+  ]
+}

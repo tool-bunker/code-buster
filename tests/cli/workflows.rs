@@ -162,8 +162,7 @@ fn update_dry_run_detects_a_homebrew_executable() {
             .expect("fixture executable must have a parent"),
     )
     .expect("Homebrew fixture directory must be created");
-    fs::copy(env!("CARGO_BIN_EXE_cb"), &executable)
-        .expect("cb fixture executable must be copied");
+    fs::copy(env!("CARGO_BIN_EXE_cb"), &executable).expect("cb fixture executable must be copied");
 
     let output = Command::new(executable)
         .args(["update", "--dry-run"])
@@ -255,6 +254,51 @@ fn inspect_explains_files_excluded_by_default_scope() {
     assert_eq!(report["classification"], "test");
     assert_eq!(report["included"], false);
     assert_eq!(report["override"], "--include-tests");
+}
+
+#[test]
+fn inspect_respects_inferred_test_data_and_explicit_scope() {
+    let root = TempDirectory::new("cb-inspect-test-data");
+    root.write(
+        "src/sampleEvents.js",
+        b"export const events = { time: 1650125095862 };\n",
+    );
+    root.write(
+        "src/mapper.test.js",
+        b"import { events } from './sampleEvents';\nit('maps events', () => consume(events));\n",
+    );
+    root.write("src/main.js", b"export const ready = true;\n");
+    for (arguments, included) in [
+        (
+            vec!["src/sampleEvents.js", "--format", "json", "--no-cache"],
+            false,
+        ),
+        (
+            vec![
+                "src/sampleEvents.js",
+                "--format",
+                "json",
+                "--no-cache",
+                "--include-tests",
+            ],
+            true,
+        ),
+    ] {
+        let output = run_repository_view("inspect", &root.path, &arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("inspect JSON");
+        assert_eq!(report["classification"], "test");
+        assert_eq!(report["included"], included);
+        if !included {
+            assert_eq!(report["override"], "--include-tests");
+        }
+    }
 }
 
 #[test]
@@ -392,7 +436,6 @@ fn review_actions_always_emits_structured_remediation_and_honors_failure_mode() 
     ]);
     assert_eq!(failed.status.code(), Some(2));
 }
-
 
 #[test]
 fn review_uses_the_shared_report_and_ci_failure_contract() {

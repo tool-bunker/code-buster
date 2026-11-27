@@ -9,7 +9,7 @@
   "legacyGroup": "performance",
   "why": "Constructing RegExp from a constant string in every iteration repeats parsing and allocation that can be shared.",
   "suggestion": "Create the RegExp once before the loop or use a regular-expression literal when its state is managed safely.",
-  "version": 2,
+  "version": 3,
   "semanticMaturity": "token",
   "securityKind": "none",
   "taxonomy": ["performance"],

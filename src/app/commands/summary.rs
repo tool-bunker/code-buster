@@ -311,6 +311,8 @@ fn is_auxiliary_metadata_file(relative: &str) -> bool {
             "Cargo.lock",
             "Cargo.toml",
             "analysis_options.yaml",
+            "build.gradle",
+            "build.gradle.kts",
             "deno.json",
             "deno.jsonc",
             "feature-flags.json",
@@ -492,6 +494,26 @@ mod tests {
             ["member/package.json"]
         );
         assert_eq!(files["member/package.json"], "\u{fffd}{");
+    }
+
+    #[test]
+    fn collects_groovy_and_kotlin_gradle_cache_inputs_with_existing_role_filters() {
+        let root = tempfile::tempdir().unwrap();
+        for directory in ["app", "tests/sample", "build/generated/app", "vendor/app"] {
+            fs::create_dir_all(root.path().join(directory)).unwrap();
+            for name in ["build.gradle", "build.gradle.kts"] {
+                fs::write(
+                    root.path().join(directory).join(name),
+                    "plugins { id(\"org.springframework.boot\") }",
+                )
+                .unwrap();
+            }
+        }
+        let files = auxiliary_files(root.path());
+        assert_eq!(
+            files.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["app/build.gradle", "app/build.gradle.kts"]
+        );
     }
 
     fn auxiliary_files(root: &Path) -> BTreeMap<String, String> {

@@ -1,0 +1,48 @@
+name: Code Buster Repository Review
+author: Tool Bunker
+description: Local deterministic repository review with actionable findings, advisories, JSON/SARIF reports and a job summary.
+branding:
+  icon: check-circle
+  color: purple
+inputs:
+  version:
+    description: Published engine version; defaults to this Action checkout's Cargo package version. Ignored with executable.
+    required: false
+  path:
+    description: Repository directory inside GITHUB_WORKSPACE.
+    required: false
+    default: '.'
+  executable:
+    description: Explicit existing native CB executable for source self-review. No download or release checksum claim.
+    required: false
+  changed-base:
+    description: Optional Git revision to review changes against. Checkout must contain the required history.
+    required: false
+  advisory:
+    description: Include advisory details in the reports; advisory totals remain visible either way.
+    required: false
+    default: 'true'
+  fail-on-issues:
+    description: Fail after saving reports when actionable findings exist. Analysis/setup errors always fail.
+    required: false
+    default: 'true'
+outputs:
+  report-directory:
+    description: Absolute directory containing available reports and native stderr diagnostics, including failed analyses.
+  json-path:
+    description: Absolute path to the complete JSON report.
+  sarif-path:
+    description: Absolute path to the SARIF 2.1.0 report.
+  actionable-count:
+    description: Actionable finding count, independent of severity.
+  advisory-count:
+    description: Advisory finding count, independent of severity.
+  files-scanned:
+    description: Supported source files actually analyzed, not total repository files.
+  code-lines:
+    description: Code lines in the analyzed source scope.
+  cb-version:
+    description: Version reported by the executable used.
+runs:
+  using: node24
+  main: action/index.mjs

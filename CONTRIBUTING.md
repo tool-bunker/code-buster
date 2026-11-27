@@ -20,6 +20,7 @@ cargo run -- version
 - CLI argument contract: `src/app/cli.rs` (`clap` declarations)
 - CLI command implementations: `src/app/commands/`
 - Integration tests: `tests/`
+- GitHub Action: root `action.yml`, implementation and Node tests under `action/`
 
 `build.rs` discovers every JSON file below `rules/catalog/` and every Rust file below `src/rule_packs/`. It validates and sorts both registries before generating build artifacts under `target/`; never edit those artifacts.
 
@@ -53,6 +54,25 @@ reformatting it; unfamiliar or imported messages must retain their original
 information. Supporting evidence belongs behind `--verbose`, not in the headline.
 
 `dead-export` and `re-export` are command-scoped rules: `cb dead` invokes `src/graph/export_analysis.rs`. They must not run in the default summary pack because explicit dead-code analysis can be substantially noisier than the default review surface.
+
+## GitHub Action
+
+The root metadata runs `action/index.mjs` on Node.js 24, without npm runtime
+dependencies. The optional engine version defaults to this checkout's literal
+Cargo package version; an explicit `executable` uses that native binary instead.
+The Action shares Code Buster release tags and has no separate version series.
+
+From the repository root:
+
+```sh
+npm --prefix action run check
+npm --prefix action test
+```
+
+Native CI calls `uses: ./` with each just-built executable. Action download
+smokes explicitly select an already published engine, so source verification
+never needs the next release's artifacts before publication. See
+[`action/README.md`](action/README.md) for behavior and permissions.
 
 ## Adding a rule to an existing family
 
@@ -139,6 +159,51 @@ Every new rule should cover:
 - stable path, line, and message data where applicable;
 - comments and string literals when textual matching could encounter them.
 
+`oop-feature-envy` uses method declaration locations, including overloads. Do not
+replace these with the class header or merge methods merely because their
+rendered messages match.
+
+Shared OOP parameter clumps need independent declarations, not explicit overrides
+or Java constructors that only forward the same parameters to `super` or `this`.
+Own-type access is not feature envy. Keep qualified type references and completed
+builder construction out of navigation evidence without exempting arbitrary
+fluent calls. Template-workflow comparisons use four to ten outer calls;
+nested argument calls and control conditions are not independent workflow steps.
+Keep nested call differences in the comparison so this counting boundary does
+not make workflows with other differing behavior appear equivalent.
+
+Java builder projection exclusions require a whole-method completed
+`Type.builder()`/`newBuilder()` return and parameter-rooted, zero-argument bean
+accessor calls in arguments. Do not exempt arbitrary DTOs or builder usage:
+other argument calls, mutation, callbacks, unfinished builders, and extra
+statements remain eligible, as do `getAnd...`/`getOr...` operations.
+Constructor-only forwarding may append fixed boolean/null defaults, but derived
+arguments and additional work still contribute independent clump evidence.
+
+Java package/import directives do not supply duplicated runtime logic; retain
+code sharing the same physical line and preserve real duplicate bodies.
+Trivial annotated Java override getters are contract boilerplate rather than
+duplicated behavior. Keep computed getters, extra work, unannotated methods and
+code sharing an accessor line comparable. Excluded methods need source-unique
+boundaries so filtering cannot fuse separate runtime fragments.
+Broad-catch checks retain conditional recovery and exception translation, but
+exclude direct rethrows of the original binding after logging-only observation.
+Custom Java fluent factories count as construction only when a unique project
+type declares a zero-argument factory returning a nongeneric `...Builder` type
+and the chain completes at `build()`. Unknown or ambiguous receivers stay eligible.
+
+Java Future checks distinguish discarded task handles from direct arguments passed
+to another call and expression results returned through an immediate list-stream
+`map`. Keep `forEach` consumers and discarded calls inside block-bodied mapping
+lambdas eligible; do not borrow a local list's type for another object's member
+or assume unknown fluent APIs preserve Future results.
+
+Java loop-performance findings describe source patterns, not measured bottlenecks.
+String accumulation includes simple identifier-prefix prepending, but intermediate
+prefix reads can require materialization on each iteration. Membership indexes
+must preserve ordering where used, collection updates, and equality/hash-code
+stability; do not turn small or bounded list checks into mandatory Set refactors.
+
 Prefer parsed or semantic evidence when text matching cannot distinguish safe and unsafe cases reliably.
 
 Keep compiler fixtures out of default production scans: underscore-separated test-case
@@ -148,10 +213,68 @@ Ordinary application UI, `compile_failure` directories, and production `compile_
 modules stay production. Preserve `--include-tests`, `--all`, explicit classification
 overrides, and `cb inspect`.
 
+Conventional `testData` and `test_data` directories are test support. Sample-, mock-,
+or fixture-named JavaScript/TypeScript modules exporting literal objects or arrays
+can also be test support when real relative test imports establish their use and no
+visible production import, re-export or literal file-read path references them.
+This inference requires unrestricted automatic discovery: language/path filters,
+custom ignores and changed-file scans cannot prove the absence of runtime consumers.
+Names alone do not exclude files. Computed module loaders, unresolved escaped
+specifiers, executable data initializers and production overrides remain conservative.
+Keep coverage/exclusion lists separate from runtime consumption, and retain normal
+calls named `require` in other languages. Share lexical/import helpers rather than
+adding a second parser; preserve scope flags, cache inputs and inspection output.
+
+Python string-accumulation inference must distinguish byte prefixes from text
+initializers. C# broad-catch advice must respect closed-set positive exception
+filters without assuming that helper predicates, negative filters or aliases
+establish a specific recovery boundary.
+
 Respect explicit existing lint decisions. TypeScript rules consume Deno file and
 next-node directives plus explicit `lint.rules.include`/`exclude` settings in
 `deno.json` or `deno.jsonc`; unhandled tags and dynamic configuration are not inferred.
 Scope comments to real syntax, not lookalike directives inside strings.
+
+### Spring reliability rules
+
+The Java-only `spring` pack requires production Maven or Gradle metadata: real
+Spring dependencies or a Spring Boot parent/plugin, not an annotation name alone.
+Both `build.gradle` and `build.gradle.kts` are auxiliary cache inputs. The nearest
+manifest owns a source file; unrelated nested modules do not inherit Spring just
+because their directory has a Spring ancestor. Maven inheritance follows a local
+parent only when its declared coordinates and resolved relative path match.
+Comments, descriptive strings, test-only dependencies, and test/generated/vendor
+manifests are not framework evidence. Dynamic Gradle configuration, version-catalog
+aliases, unresolved Maven properties, profile activation, and remote parents are
+not evaluated.
+
+Detectors bind explicit/wildcard imports or fully qualified canonical annotations.
+Managed-class evidence is limited to top-level, nonabstract classes with canonical
+stereotypes or an unambiguous explicit `@Bean` return type. Class-level `@Async`
+and `@Transactional` are included.
+Canonical Boot `@AutoConfiguration` classes also establish managed configuration
+and can register bean return types across packages within the same module.
+`spring-async-return-type`, `spring-scheduled-parameters`, and
+`spring-async-post-construct` are actionable reliability warnings. Async return
+checks accept `void`, `Future`, `CompletableFuture`, and recognizable subtypes.
+Rejections are limited to primitives, arrays, and bound known JDK/reactor types;
+unknown user types and type parameters are not assumed invalid. Scheduled checks concern
+parameters, not return types: reactive scheduled methods may return a value.
+
+`spring-transactional-self-invocation` and `spring-async-self-invocation` default to
+count-mode advisory findings. They group direct, resolved same-class calls by
+target and explain bypassed requested proxy advice, not that all transactions
+disappear. Explicit rule/group configuration and severity overrides still win.
+Self-invocation abstains on classes with `extends`/`implements`, same-name
+overloads, varargs or private/static targets, explicit generic receiver calls,
+other receivers, lambdas, and anonymous/local/inner classes. Findings retain the
+primary annotation location and grouped call locations in `code_flow`.
+Matching caller transaction settings are excluded for `REQUIRED`, `SUPPORTS`,
+`MANDATORY`, `NEVER`, and `NOT_SUPPORTED`; `REQUIRES_NEW` and `NESTED` still need
+their own interception boundary.
+Explicit per-module AspectJ mode suppresses
+the corresponding proxy checks; async lifecycle warnings do not apply in that mode.
+Source-role overrides, finding controls, and baselines remain shared engine policy.
 
 ### Reviewing advisory evidence
 
@@ -186,6 +309,73 @@ an intermediate report buffer. Preserve flush-before-policy-exit behavior;
 `tests/cli/output.rs` covers both formats, excluded inspections, plan ordering
 parity, write errors, and reports saved on finding/quality-gate failure.
 
+### JavaScript and TypeScript parser boundaries
+
+Comment and string scanners must recognize regex literals before interpreting
+their quote or comment-shaped contents. Reuse the shared regex boundary scanner;
+do not infer regex boundaries with another pattern. Keep division, escaped slashes,
+character classes, Unicode, malformed line endings and template expressions in
+behavioral coverage. Mask literal examples without losing subsequent runtime
+calls or moving their reported lines.
+
+JSON syntax recovery may live in a caller rather than the parser helper. Recognize
+only private synchronous named module-level helpers whose references are all direct
+same-file calls inside simple completed `try/catch` boundaries without rethrow.
+Keep exported, aliased, asynchronous, deferred and unresolved paths reportable.
+Use executable tokens, not schema-related names, as evidence; a schema's
+`safeParse` cannot catch an earlier `JSON.parse` exception. Caller recovery does not
+validate result shape or disable local-storage and security advice.
+
+### JavaScript and TypeScript loop waits
+
+Treat bare `for (;;)` and `while (true)` alike as service-loop contexts for
+sequential-await advice. Use the nearest enclosing loop: a finite nested loop
+remains independently reviewable, and leaving an inner service loop must restore
+the outer loop's policy. Initialized or updating `for` headers remain ordinary
+review contexts. Comments and quoted loop examples must not establish the policy.
+
+Keep cooperative yields and deliberate timer waits out of parallelization advice.
+Recognize simple awaited Promise executors only when their single action schedules
+the same resolver through an unshadowed bare `setTimeout` or `setImmediate`.
+Use the same source mask as loop detection, rather than timer names in strings
+or comments. Additional executor statements, alternate callbacks, chained
+continuations and unresolved scheduler bindings remain reportable. Delay
+calculations are not profiled; arbitrary retry and backpressure wrappers still
+need contextual review.
+
+Local timer-helper recognition requires a unique module-level function returning
+a single timer Promise, with only resolution/cancellation and a source-proven local
+abort handler. Indirect calls, helper rebinding, unknown callback work and
+nonstandard signal types remain conservative.
+
+Bounded worker recognition requires a shared cursor initialized before a
+zero-argument async worker, an index claim before each job await, a capped
+`Array.from` launch and an immediate `Promise.all` join. Check binding uses so an
+escaped worker or reused cursor cannot borrow that exemption. Keep other awaits
+in the same function or file eligible.
+
+Terminal loop-await recognition requires a direct, semicolon-terminated call
+followed only by straight-line calls and an unconditional return in the same
+recognized function. An unlabeled break qualifies only when that function has
+one lexical loop keyword and no switch. Keep functions containing `finally`,
+conditional exits, labeled and nested-loop breaks, assignments and unsupported
+expressions reportable. Retry and pagination names alone do not prove ordering.
+
+Partial-success loop recognition requires an immediately preceding local zero
+counter, an unconditional increment in the outer try, publication on that
+catch-bound error before rethrowing it, and a matching return after the loop.
+Counter and error references must stay unambiguous. Only awaits before the
+increment gain the proof; nested loops/functions, deferred publications, early
+control transfers and `finally` remain conservative. Remote admission or
+rollback API names alone do not establish loop independence or required ordering.
+
+Promise-stabilization recognition requires a local `let` snapshot, a do/while
+body containing only assignment and await, and a strict identity recheck of the
+same reference or zero-argument getter. The declaration and three loop uses
+must be that snapshot's only references in the containing function. Preserve
+advice for different getters, escaped bindings, extra work and neighboring loops;
+protocol or callback names alone do not establish ordering.
+
 ### Rust panic-rule precision
 
 `rust-unwrap` and `rust-expect` analyze production code. Inline `#[test]`, established namespaced test harnesses, and cfg branches limited to tests or explicit test-support features are excluded. Unknown feature alternatives and debug code remain production candidates. Targeted `#[allow(...)]` and `#[expect(...)]` lint attributes are explicit escape hatches for project-specific invariants; keep them attached to the intended scope.
@@ -215,6 +405,12 @@ case-mapping iterators from locally established `char` values are also recognize
 dynamic values, ambiguous names, and unsupported literal escapes remain reportable.
 These checks do not resolve arbitrary Rust types or infer safety from an
 unconditional public module merely being named `test`.
+
+Direct standard `format!` initializers can also establish an owned mutable String
+for empty `writeln!` and simple literal-only output. Keep destination and binding
+scope checks intact: custom writers, shadowed bindings, wrapped constructors,
+unresolved formatting macros/imports and arbitrary `Display` values must not gain
+this proof.
 
 Keep lint allowances and expectations attached to the intended item or expression;
 multiline attributes and their `reason` fields must not affect neighboring code.
@@ -392,7 +588,7 @@ safe filters; retain the string-preserving code view for f-string logging.
 ## Preparing a release
 
 Add user-visible changes under `## Unreleased`, then prepare the Cargo package
-version, lockfile, pinned integration install command, and changelog heading together:
+version, lockfile, same-repository integration Action tag, and changelog heading together:
 
 ```sh
 ./tool/prepare-release.sh 0.10.0

@@ -1494,10 +1494,10 @@ fn matching_test_source_naming_role(
     let component_base = test_base.strip_suffix(".component");
     let base = component_base.unwrap_or(test_base);
     let source = context.sources().get(path)?;
-    let mut lexical = None;
-    for import in PEER_TEST_SOURCE_IMPORT.captures_iter(source) {
-        let source_name = import.name("source")?.as_str();
-        let Some(counterpart) = peer_test_import_path(path, source_name) else {
+    for source_name in crate::function_sources::javascript_relative_imports(source) {
+        let Some(counterpart) =
+            crate::function_sources::relative_javascript_module(path, source_name)
+        else {
             continue;
         };
         if !context.sources().contains_key(&counterpart) {
@@ -1508,40 +1508,9 @@ fn matching_test_source_naming_role(
         else {
             continue;
         };
-        let keyword = import.name("keyword")?;
-        let code =
-            lexical.get_or_insert_with(|| super::frameworks::mask_javascript(source, true, false));
-        if code.get(keyword.range()) == Some("import") {
-            return Some(role);
-        }
+        return Some(role);
     }
     None
-}
-
-fn peer_test_import_path(path: &str, import: &str) -> Option<String> {
-    let mut directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
-    let mut relative = import;
-    while let Some(parent) = relative.strip_prefix("../") {
-        if directory.is_empty() {
-            return None;
-        }
-        directory = directory
-            .rsplit_once('/')
-            .map_or("", |(directory, _)| directory);
-        relative = parent;
-    }
-    let relative = relative.strip_prefix("./").unwrap_or(relative);
-    if relative
-        .split('/')
-        .any(|part| matches!(part, "" | "." | ".."))
-    {
-        return None;
-    }
-    Some(if directory.is_empty() {
-        relative.to_owned()
-    } else {
-        format!("{directory}/{relative}")
-    })
 }
 
 fn imported_test_source_role(
@@ -1907,12 +1876,6 @@ static EXPORTED_SCRIPT_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
         r"^\s*export\s+(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(?:class|const|enum|function|interface|let|namespace|type|var)\s+(?P<name>[A-Za-z_$]\w*)\b",
     )
     .expect("exported script declaration regex must compile")
-});
-static PEER_TEST_SOURCE_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"(?m)^[ \t]*(?P<keyword>import)\s+(?:[A-Za-z_$][\w$]*(?:\s*,\s*\{[^}]*\})?|\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*)\s+from\s*["'](?P<source>\.{1,2}/[^"'\\\r\n]+)["']"#,
-    )
-    .expect("peer test source import regex must compile")
 });
 static SCRIPT_THIS_ALIAS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z_$]\w*(?:\s*:\s*[^=;]+)?\s*=\s*this\.[A-Za-z_$]\w*\s*;\s*$")
